@@ -98,6 +98,46 @@ describe('save → load round trip', () => {
   });
 });
 
+describe('ids', () => {
+  const UUID = /^(room|obj)_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  it('new rooms and items get UUIDs: two sessions (tabs, people) never make the same id', () => {
+    const session = () => {
+      S().resetWorkspace();                       // a fresh browser session
+      const editor = createEditorHistory();
+      editor.addRoom({ type: 'OFFICE', x: 0, z: 0, width: 4, depth: 4 });
+      editor.addObject({ assetType: 'DESK_STANDARD', x: 0, z: 0 });
+      editor.addObject({ assetType: 'DESK_STANDARD', x: 2, z: 0 });
+      return [...Object.keys(S().rooms), ...Object.keys(S().objects)];
+    };
+    const a = session();
+    const b = session();
+    expect(new Set([...a, ...b]).size).toBe(6);
+    for (const id of [...a, ...b]) expect(id).toMatch(UUID);
+    // names still count up
+    expect(Object.values(S().rooms)[0].name).toBe('Office 1');
+    expect(Object.values(S().objects).map((o) => o.name)).toEqual(['DESK_STANDARD 1', 'DESK_STANDARD 2']);
+  });
+
+  it('old ids (room_3, obj_12) load unchanged, and new ones next to them are UUIDs', () => {
+    S().loadWorkspace({
+      rooms: [{ id: 'room_3', type: 'OFFICE', name: 'Office 3', x: 0, z: 0, width: 4, depth: 4 }],
+      objects: [{ id: 'obj_12', assetType: 'DESK_STANDARD', x: 0, z: 0 }],
+      anchorData: { 'some-anchor': { positionRef: 'POS-1' } },
+    });
+    expect(Object.keys(S().rooms)).toEqual(['room_3']);
+    expect(Object.keys(S().objects)).toEqual(['obj_12']);
+    const editor = createEditorHistory();
+    editor.addRoom({ type: 'OFFICE', x: 9, z: 0, width: 4, depth: 4 });
+    const added = Object.values(S().rooms).find((r) => r.id !== 'room_3');
+    expect(added.id).toMatch(UUID);
+    expect(added.name).toBe('Office 4');
+    editor.undo();
+    editor.redo();                                // redo restores the same id
+    expect(S().rooms[added.id]).toBeDefined();
+  });
+});
+
 describe('loading saves from older versions of the app', () => {
   // As written before floors, anchorData, door heights and Studio existed
   const OLD_SAVE = {

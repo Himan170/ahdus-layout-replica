@@ -10,6 +10,7 @@
  */
 
 import { create } from 'zustand';
+import { v4 as uuidv4 } from 'uuid';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { OBJECT_CATEGORIES } from '../utils/assetCatalog';
@@ -19,44 +20,27 @@ import { STOREY_HEIGHT, wallSpace, floorsInOrder, isGroundFloor } from '../play/
 /** A record as saved: without UI state. */
 const withoutSelection = ({ isSelected: _s, ...rest }) => rest;
 
-// ─── ID generators ───
-let _nextRoomId = 1;
-let _nextObjId  = 1;
-function roomId()   { return `room_${_nextRoomId++}`; }
-function objectId() { return `obj_${_nextObjId++}`;   }
+// ─── IDs ───
+// New rooms and objects get random UUIDs (room_<uuid>, obj_<uuid>), so two tabs,
+// two people or the database never make the same one. IDs from saves (room_3,
+// obj_12) are kept as they are: anchor IDs other modules stored derive from them.
+const roomId   = () => `room_${uuidv4()}`;
+const objectId = () => `obj_${uuidv4()}`;
 
-/**
- * Reuse a caller-supplied ID (undo/redo restore an object under its old ID so
- * other modules' references stay valid) and keep the counter ahead of it.
- */
-function claimRoomId(id) {
-  if (!id) return roomId();
-  const n = parseInt(String(id).replace('room_', ''), 10);
-  if (!Number.isNaN(n) && n >= _nextRoomId) _nextRoomId = n + 1;
-  return id;
-}
-function claimObjectId(id) {
-  if (!id) return objectId();
-  const n = parseInt(String(id).replace('obj_', ''), 10);
-  if (!Number.isNaN(n) && n >= _nextObjId) _nextObjId = n + 1;
-  return id;
-}
+/** Reuse a caller-supplied ID (loading; undo/redo restore an object under its old ID). */
+function claimRoomId(id)   { return id ? String(id) : roomId(); }
+function claimObjectId(id) { return id ? String(id) : objectId(); }
 
-/**
- * Reset ID counters — used when loading a saved layout so new IDs
- * don't collide with existing ones.
- */
-export function resetIdCounters(rooms, objects) {
-  const maxRoom = rooms.reduce((m, r) => {
-    const n = parseInt(r.id?.replace('room_', ''), 10);
-    return Number.isNaN(n) ? m : Math.max(m, n);
-  }, 0);
-  const maxObj = objects.reduce((m, o) => {
-    const n = parseInt(o.id?.replace('obj_', ''), 10);
-    return Number.isNaN(n) ? m : Math.max(m, n);
-  }, 0);
-  _nextRoomId = maxRoom + 1;
-  _nextObjId  = maxObj  + 1;
+/** "Office 3": one more than the highest number already used after `label`. */
+function nextName(label, records) {
+  let max = 0;
+  for (const r of records) {
+    const name = r.name ?? '';
+    if (!name.startsWith(`${label} `)) continue;
+    const n = Number(name.slice(label.length + 1));
+    if (Number.isInteger(n)) max = Math.max(max, n);
+  }
+  return `${label} ${max + 1}`;
 }
 
 // ─── Zustand Store ───
@@ -118,7 +102,7 @@ export const useWorkspaceStore = create(
       const floor = opts.floor ?? state.currentFloor;
       const room = {
         type:       'OFFICE',
-        name:       `${typeDef.label} ${String(id).replace('room_', '')}`,
+        name:       opts.name ?? nextName(typeDef.label, Object.values(state.rooms)),
         floor,
         x:          0,
         z:          0,
@@ -213,7 +197,7 @@ export const useWorkspaceStore = create(
       const id = claimObjectId(opts.id);
       const state = get();
       const obj = {
-        name:       `${opts.assetType} ${String(id).replace('obj_', '')}`,
+        name:       opts.name ?? nextName(opts.assetType, Object.values(state.objects)),
         category:   OBJECT_CATEGORIES.FURNITURE,
         floor:      state.currentFloor,
         roomId:     null,
@@ -429,8 +413,6 @@ export const useWorkspaceStore = create(
       const objMap = {};
       n.objects.forEach((o) => { objMap[o.id] = o; });
 
-      resetIdCounters(n.rooms, n.objects);
-
       set({
         floors: n.floors,
         currentFloor: 0,
@@ -512,8 +494,6 @@ export const useWorkspaceStore = create(
 
     /** Reset the entire store to initial state. */
     resetWorkspace: () => {
-      _nextRoomId = 1;
-      _nextObjId  = 1;
       set({
         companyId: null,
         layoutId: null,

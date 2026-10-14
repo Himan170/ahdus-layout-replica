@@ -46,8 +46,8 @@ Each anchor looks like this:
 {
   id: '0b6a…',            // stable UUID: save this in your module
   kind: 'workstation',
-  objectId: 'obj_12',     // the desk / machine it belongs to
-  roomId: 'room_3',       // null if outside any room
+  objectId: 'obj_12',     // the desk / machine it belongs to (new items: 'obj_<uuid>'; treat ids as opaque strings)
+  roomId: 'room_3',       // null if outside any room (new rooms: 'room_<uuid>')
   floorId: 0,
   position: { x, y, z },  // metres, world space (y includes the height of the floors below: Floor 1 starts at 3.5 m on standard floors)
   rotationY: 1.57,        // radians, the way it faces (0 = +Z / north)
