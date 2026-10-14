@@ -17,7 +17,8 @@
 
 import { useWorkspaceStore } from './workspaceStore';
 import {
-  STOREY_HEIGHT, floorHeight, floorsInOrder, wallSpace, planWallHeight, planFloorHeight, copyRoomsUp,
+  STOREY_HEIGHT, floorHeight, floorsInOrder, wallSpace, planWallHeight, planFloorHeight, copyRoomsUp, isGroundFloor,
+  GROUND_FLOOR_STAYS,
 } from '../play/building';
 import { CommandHistory } from '../engine/commands/CommandHistory';
 import {
@@ -127,13 +128,14 @@ class RoomGroupCommand extends CompositeCommand {
  * (raising a room's walls past its floor raises the floor, and the rooms
  * that filled it). `planFn` (building.planWallHeight / planFloorHeight) runs
  * on the first execute. Merges with the next one with the same mergeKey on
- * the same floor (a burst of + / − presses, typing in a field).
+ * the same target (a burst of + / − presses on one room, typing in a field).
  */
 class HeightsCommand {
-  constructor(label, planFn, mergeKey) {
+  constructor(label, planFn, mergeKey, target) {
     this.label = label;
     this.planFn = planFn;
     this.mergeKey = mergeKey;
+    this.target = target; // 'room:<id>' or 'floor:<id>'
     this.before = null;
     this.after = null;
   }
@@ -157,8 +159,8 @@ class HeightsCommand {
     HeightsCommand.apply(this.floorId, this.before);
   }
   mergeWith(next) {
-    if (!(next instanceof HeightsCommand) || !this.mergeKey ||
-        next.mergeKey !== this.mergeKey || next.floorId !== this.floorId) return false;
+    if (!(next instanceof HeightsCommand) || !this.mergeKey || next.mergeKey !== this.mergeKey ||
+        next.target !== this.target || next.floorId !== this.floorId) return false;
     for (const [id, h] of next.before.rooms) if (!this.before.rooms.has(id)) this.before.rooms.set(id, h);
     for (const [id, h] of next.after.rooms) this.after.rooms.set(id, h);
     this.after.height = next.after.height;
@@ -200,12 +202,28 @@ class AnchorDataCommand {
 }
 
 /**
+ * When the input behind the current change happened: the time stamp of the
+ * event being handled (a key press, a mouse move), else now. On a slow PC a
+ * key press can be handled long after it was made (the rebuild of the last
+ * one takes a while), so a burst of presses is measured from the presses.
+ */
+export function inputTime() {
+  const e = typeof window !== 'undefined' ? window.event : undefined;
+  if (e && Number.isFinite(e.timeStamp) && e.timeStamp > 0 && typeof performance !== 'undefined') {
+    return performance.timeOrigin + e.timeStamp;
+  }
+  return Date.now();
+}
+
+/**
  * Create the editor's action set with its own undo history.
  * @param {(state: {canUndo: boolean, canRedo: boolean, undoLabel: string|null, redoLabel: string|null}) => void} [onChange]
+ * @param {{ now?: () => number }} [options]  now: input clock (tests pass a fake one)
  */
-export function createEditorHistory(onChange) {
+export function createEditorHistory(onChange, { now = inputTime } = {}) {
   const history = new CommandHistory({
     maxSize: 200,
+    now,
     onChange: () =>
       onChange?.({
         canUndo: history.canUndo,
@@ -308,7 +326,7 @@ export function createEditorHistory(onChange) {
       if (!room) return { problem: 'This room is gone' };
       const plan = planWallHeight(store().floors, Object.values(store().rooms), room, wallHeight);
       if (plan.problem || plan.rooms.length === 0) return plan;
-      run(new HeightsCommand(label ?? `Wall height of ${room.name}`, () => plan, mergeKey));
+      run(new HeightsCommand(label ?? `Wall height of ${room.name}`, () => plan, mergeKey, `room:${id}`));
       return plan;
     },
 
@@ -322,7 +340,7 @@ export function createEditorHistory(onChange) {
       const plan = planFloorHeight(store().floors, Object.values(store().rooms), floorId, height);
       if (plan.problem) return plan;
       if (Math.abs(plan.height - floorHeight(store().floors, floorId)) < 1e-6 && plan.rooms.length === 0) return plan;
-      run(new HeightsCommand(label ?? `Height of ${store().floors[floorId].name}`, () => plan, mergeKey));
+      run(new HeightsCommand(label ?? `Height of ${store().floors[floorId].name}`, () => plan, mergeKey, `floor:${floorId}`));
       return plan;
     },
     toggleDoor(roomId, wall) {
@@ -441,9 +459,15 @@ export function createEditorHistory(onChange) {
       }));
       return newId;
     },
+    /**
+     * Remove a floor with its rooms and items. The ground floor can't be removed.
+     * @returns {{ problem: string | null }}
+     */
     removeFloor(floorId) {
-      if (Object.keys(store().floors).length <= 1) return;
+      if (!store().floors[floorId]) return { problem: 'This floor is gone' };
+      if (isGroundFloor(store().floors, floorId)) return { problem: GROUND_FLOOR_STAYS };
       run(new SnapshotCommand('Remove floor', () => store().removeFloor(floorId)));
+      return { problem: null };
     },
     renameFloor(floorId, newName) {
       run(new SnapshotCommand('Rename floor', () => store().renameFloor(floorId, newName)));
@@ -453,6 +477,8 @@ export function createEditorHistory(onChange) {
     undo: () => history.undo(),
     redo: () => history.redo(),
     clear: () => history.clear(),
+    /** The mouse was released or the tool changed: the next change is a new undo step. */
+    endBurst: () => history.endBurst(),
   };
   return api;
 }

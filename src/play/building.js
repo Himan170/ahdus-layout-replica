@@ -92,6 +92,17 @@ export function wallSpace(floors, floorId) {
   return cm(floorHeight(floors, floorId) - SLAB);
 }
 
+/**
+ * True for the ground floor (the lowest one). It can't be deleted: every floor
+ * above would drop a storey, and saves always have a ground floor with id 0.
+ */
+export function isGroundFloor(floors, floorId) {
+  return floorsInOrder(floors)[0]?.id === floorId;
+}
+
+/** Why the ground floor's Delete is disabled. */
+export const GROUND_FLOOR_STAYS = "The ground floor can't be deleted. Remove its rooms instead";
+
 /** The floor directly above / below, or null. */
 export function floorAbove(floors, floorId) {
   const sorted = floorsInOrder(floors);

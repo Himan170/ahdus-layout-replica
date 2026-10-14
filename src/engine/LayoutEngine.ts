@@ -11,6 +11,16 @@
  *   engine.dispose();
  *
  * React wrappers (<LayoutEditor />, <LayoutViewer />) delegate to this class.
+ *
+ * STATUS (Oct 2026): mostly a plan. The editor app does NOT use this class.
+ *   Real and used:  model/ (v2 schema, v1 → v2 migration, anchor ids),
+ *                   commands/ (CommandHistory and LayoutCommands: the editor's
+ *                   undo/redo, through store/editorHistory.js).
+ *   Stubs (TODO):   this class's scene work (loadLayout builds no meshes;
+ *                   setFloor, setView, focusOn, highlight, setMode do nothing yet)
+ *                   and every file in systems/. The working versions of these
+ *                   live in components/WorkplaceEditor.jsx, utils/ and play/.
+ *                   Kept as the shape of the embeddable <LayoutEditor /> to come.
  */
 
 import { Engine } from '@babylonjs/core/Engines/engine';

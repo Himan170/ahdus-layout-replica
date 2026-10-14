@@ -1,5 +1,8 @@
 # Next fixes: review of 15 Oct 2026
 
+> **Status:** Part A done on 15 Oct 2026 (branch `fix/next-fixes`, one commit per item; causes and results in
+> `docs/PROGRESS_REPORT.md` section 3.13). Part B 1 (git) done. Part C: Himan picks the next feature.
+
 **For Claude Code.** An independent review of the project as of 15 Oct. Work through Part A in order. For each item:
 reproduce it first, fix the cause, add the test named, run `npm test` + the e2e script for that area, and tell Himan
 the cause in 1–2 simple sentences. Follow `CLAUDE.md` (editorHistory, undo, all floors, old saves still load).

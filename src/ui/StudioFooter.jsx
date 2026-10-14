@@ -8,7 +8,7 @@
 
 import { useRef, useState } from 'react';
 import { ChevronDown, Layers, Plus, Pencil, Trash2, CirclePlay, Check, Copy, Square } from 'lucide-react';
-import { MIN_FLOOR_HEIGHT, MAX_FLOOR_HEIGHT, STOREY_HEIGHT } from '../play/building';
+import { MIN_FLOOR_HEIGHT, MAX_FLOOR_HEIGHT, STOREY_HEIGHT, GROUND_FLOOR_STAYS } from '../play/building';
 import { usePopover } from './usePopover';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
@@ -63,7 +63,7 @@ function FloorMenu({
   const current = floors.find((f) => f.id === currentFloor);
   const top = floors[floors.length - 1];         // a new floor goes on top of this one
   const [name, setName] = useState(current?.name ?? '');
-  const onlyFloor = floors.length <= 1;
+  const isGround = floors[0]?.id === currentFloor; // floors come lowest first
 
   const saveName = () => {
     const next = name.trim();
@@ -153,9 +153,9 @@ function FloorMenu({
               role="menuitem"
               className="floor-menu__action is-danger"
               aria-label="Delete floor"
-              aria-disabled={onlyFloor}
-              title={onlyFloor ? 'A building needs at least one floor' : `Delete ${current?.name}`}
-              onClick={() => { if (!onlyFloor) setMode('delete'); }}
+              aria-disabled={isGround}
+              title={isGround ? GROUND_FLOOR_STAYS : `Delete ${current?.name}`}
+              onClick={() => { if (!isGround) setMode('delete'); }}
             >
               <Trash2 {...ICON} /> Delete floor
             </button>

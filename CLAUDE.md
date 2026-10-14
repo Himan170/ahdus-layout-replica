@@ -12,18 +12,20 @@ Full history, status and backlog: `docs/PROGRESS_REPORT.md`. Teammate API guide:
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (185, all must pass)
+npm test             # vitest unit tests (199, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run build
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
 # One-time: npx playwright install chromium
-npm run e2e:planner  # 29 checks   e2e/editor-smoke.mjs    (Workplace Studio + UI_SPEC screenshots)
+npm run e2e:planner  # 31 checks   e2e/editor-smoke.mjs    (Workplace Studio + UI_SPEC screenshots)
 npm run e2e:play     # 19 checks   e2e/play-smoke.mjs
 npm run e2e:modules  # 17 checks   e2e/modules-smoke.mjs   (uses ?demoModules=1)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
 npm run e2e:tools    # 41 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes + Preview's Edit item)
-npm run e2e:save     # 19 checks   e2e/save-smoke.mjs      (auto-save, reopen a layout, old saves, list, delete)
+npm run e2e:save     # 29 checks   e2e/save-smoke.mjs      (auto-save, reopen, old saves, list, delete, export/import,
+                     #                                       companies, two tabs on one layout)
+npm run e2e:perf     #  8 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls)
 npm run e2e          # all of them
 ```
 
@@ -94,14 +96,17 @@ src/play/character.js              Placeholder character; interface { root, upda
 src/store/workspaceStore.js        Zustand store: rooms, objects, floors, anchorData, selection, save/load
 src/store/layoutData.js            PURE: normaliseLayout (old saves → current shape), layoutSummary (layout list)
 src/store/editorHistory.js         THE place layout changes happen; every change is an undoable command
-src/utils/roomBuilder.js           Room meshes: floors, walls around openings, slab, roof, ceiling + lights
+src/utils/roomBuilder.js           Room meshes: floors, walls around openings, slab, roof, ceiling + lights (parts merged, frozen)
+src/utils/assetInstances.js        Items = instances of one template per asset type; mergeByMaterial; own look (lock/outline)
+src/components/CompanySelector.jsx Companies + layouts screen (ui/selector.css): open, create, rename, delete, export, import
 src/utils/materialLibrary.js       Procedural textures; SHARED materials
 src/utils/assetCatalog.js          30+ furniture/equipment built from primitives (incl. STAIRCASE, CNC_MACHINE, LATHE)
 src/utils/siteEnvironment.js       Sky, fog, grass, paving, build grid
 src/integration/layoutBridge.js    Public API for teammates' modules (events, anchors, Press-E actions)
 src/engine/                        Embeddable engine: v2 schema, v1→v2 migration, anchors, commands. LayoutEngine
                                    and systems/ are mostly stubs; the editor does NOT use them yet.
-src/services/apiService.js         Save/load + auto-save (1 s debounce, tab close): localStorage mock backend for now
+src/services/apiService.js         Save/load + auto-save (1 s debounce, tab close), revisions + other tabs, export/import,
+                                   companies: localStorage mock backend for now
 db/schema.sql                      PostgreSQL schema (base for the Supabase backend)
 ```
 
@@ -111,7 +116,9 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
    deleteObject, duplicateObject, toggleLock, addRoom, updateRoom, deleteRoom, toggleDoor, addOpenings,
    removeOpenings, resizeOpening, setWallHeight, setFloorHeight, setAnchorData, addFloor({ copyRooms }), removeFloor,
    renameFloor). Never call store mutators directly from
-   UI or tools, or undo breaks. Continuous edits (slider drag, typing) pass `{ mergeKey }` so they are one undo step.
+   UI or tools, or undo breaks. Continuous edits (slider drag, typing, + / − bursts) pass `{ mergeKey }` so they are
+   one undo step: same mergeKey + same target merge until 2 s without input (timed from the input events,
+   `inputTime`), the mouse is released or the tool changes (`editor.endBurst()`), or another command comes between.
 2. **Store uses the v1 field names** (`floor`, `isLocked`, `scaleX`, …). The v2 format (`src/engine/model`) is for
    export/teammates; `migrate.ts` converts. Don't rename store fields.
 3. **Heights:** each floor stores its `height` (floor-to-floor, default `STOREY_HEIGHT` 3.5 m). Its elevation is
@@ -122,12 +129,17 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 4. **Materials are shared** between meshes/objects. Never `material.dispose()` directly; use
    `disposeMaterialIfOwned` / `markShared` from `materialLibrary.js`.
 5. **Mesh metadata drives picking and visibility:** room parts carry `{ roomId, floorId, part }` with part in
-   floor | wall | door | window | slab | roof | ceiling | band; objects carry `objectId` and `floorId`. Keep it on new meshes.
+   floor | wall | door | window | slab | roof | ceiling | band | skirting; objects carry `objectId` and `floorId`. Keep it on new meshes.
+   Room parts with the same metadata are merged into one mesh per role (one per wall, per frame, …), one sub-mesh per
+   material, world matrices frozen. Items: a root TransformNode (moved by gizmos) + ONE child, an instance of the
+   asset's template (`assetInstances.createItemMesh`); per-item looks (overlay, outline) need `setItemLook(root, reason, on)`.
    Each door/window has an invisible pickable pane (`*_pick`, visibility 0, `metadata.pickPane`): Studio clicks and
    Preview's Edit item pick the door with it; Preview's other aiming looks through it (`aimPick(..., { panes })`).
 6. **Pure maths stays pure:** geometry/building logic goes in `geometry.js` / `building.js` (no Babylon imports)
    with vitest tests in `src/play/__tests__/`.
-7. **Anchor IDs** are uuid v5 of objectId + kind. Never change this; teammates store these IDs.
+7. **Anchor IDs** are uuid v5 of objectId + kind. Never change this; teammates store these IDs
+   (`engine/__tests__/anchors.test.ts` pins known values). New rooms / objects get `room_<uuid v4>` / `obj_<uuid v4>`;
+   IDs from saves (`obj_12`) are kept as they are.
 8. **`layoutBridge` is a contract with teammates.** Don't break its API; if you change it, update
    `docs/TEAM_INTEGRATION.md` and `src/integration/__tests__/layoutBridge.test.js`.
 9. User-facing text: short, plain English. Every new feature must be undoable and must work on upper floors.
@@ -155,6 +167,8 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 - **Rooms line up between floors:** on an upper floor both modes draw a faint outline of the floor below
   (`utils/floorOutline.js`) while building, and `planRoom` / `stretchRoom` snap edges within 0.3 m onto its walls
   (`snapRectToOutline`, pass `below`). A room that overhangs gets "Part of it has nothing under it" in the hint.
+- **The ground floor (lowest, always id 0) can't be deleted** (floor menu, `editor.removeFloor`, store). Old saves
+  without floor 0 are renumbered by `normaliseLayout` so the lowest floor becomes 0.
 - **Adding floors:** Studio's "Add floor above" and Preview's N ask "Copy rooms from below" (default) or "Empty floor";
   `editor.addFloor({ copyRooms })` copies footprints, types, wall heights, doors and windows (no furniture, no stairs),
   one undo step. N takes you to the new floor; Studio switches to it.
@@ -184,6 +198,12 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
   localStorage is **per port**: the dev server uses `strictPort` (3000 only), or layouts seem to vanish.
 - Saving: auto-save 1 s after any change to rooms/objects/floors/anchorData, and at once on "All layouts",
   Studio ↔ Preview, tab close/hide. Header: Saving… / Saved / Not saved: reason (`store.saveError`).
+- **Two tabs:** every save has a `revision`; a tab never overwrites a newer one (`store.saveConflict` →
+  `ui/TabNotice.jsx`: "This layout was changed in another tab", Reload / Save mine as a copy; the `storage` event
+  shows it at once). Tabs with the same layout open say hello on a BroadcastChannel ("Also open in another tab").
+- **Backup:** Export layout (`<name>.ahdus.json`, `{ format: 'ahdus-layout', formatVersion: 1, layout }`) and Import
+  layout (through `normaliseLayout`, keeps ids) on the layouts screen and in Studio's Settings. `storageUse()` warns at
+  80 % of ~5 MB (`store.storageNearlyFull`).
 - Loading goes through `normaliseLayout` (`src/store/layoutData.js`): old saves get floors, elevations,
   anchorData, opening sizes. The layout list is built from the saved data (name, rooms, floors, last edit).
 - The editor is wrapped in `EditorErrorBoundary`: a failure shows "This layout could not be opened" + Back to layouts.
@@ -213,6 +233,9 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Door/window limits: min width 0.6 m (door) / 0.4 m (window), min height 1.8 m / 0.4 m, 0.1 m from corners and
   below the top of the wall, 0.2 m from other openings, and a door keeps 0.5 m clear of stairs on both sides.
 - Preview: + / − is the = / − key (or numpad); on a US keyboard "+" needs Shift, which changes the height.
+- "Also open in another tab" can stay shown a while if the other tab crashed instead of closing.
+- The storage warning is an estimate (~5 MB per site); browsers differ.
+- Skirting isn't pickable on its own (a click goes to the wall behind it).
 
 ## DONE: "make both modes work the same way" (requested by Himan, 13 Oct 2026)
 
@@ -226,6 +249,11 @@ The planner "felt very hard to understand". Done (see docs/PROGRESS_REPORT.md se
 
 The planner screen is now **Workplace Studio** and Build mode is **Preview**, per `UI_SPEC.md`
 (see docs/PROGRESS_REPORT.md section 3.10). The store, `editorHistory`, `layoutBridge` and the pure maths are unchanged.
+
+## DONE: NEXT_FIXES.md Part A (15 Oct 2026)
+
+Ground floor protected, two-tab conflicts, undo bursts, instancing/merging for big buildings, UUIDs, export/import,
+companies screen restyle, clean-up (docs/PROGRESS_REPORT.md section 3.13). Next: Himan picks a Part C feature.
 
 Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): lifts; free-form walls, shared
 walls, L-shaped rooms; measure tool + dimensions; real GLB furniture (e.g. Kenney Furniture Kit, CC0); SVG 2D

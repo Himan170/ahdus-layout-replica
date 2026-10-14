@@ -10,53 +10,37 @@
  */
 
 import { create } from 'zustand';
+import { v4 as uuidv4 } from 'uuid';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { OBJECT_CATEGORIES } from '../utils/assetCatalog';
 import { normaliseLayout } from './layoutData';
-import { STOREY_HEIGHT, wallSpace } from '../play/building';
+import { STOREY_HEIGHT, wallSpace, floorsInOrder, isGroundFloor } from '../play/building';
 
 /** A record as saved: without UI state. */
 const withoutSelection = ({ isSelected: _s, ...rest }) => rest;
 
-// ─── ID generators ───
-let _nextRoomId = 1;
-let _nextObjId  = 1;
-function roomId()   { return `room_${_nextRoomId++}`; }
-function objectId() { return `obj_${_nextObjId++}`;   }
+// ─── IDs ───
+// New rooms and objects get random UUIDs (room_<uuid>, obj_<uuid>), so two tabs,
+// two people or the database never make the same one. IDs from saves (room_3,
+// obj_12) are kept as they are: anchor IDs other modules stored derive from them.
+const roomId   = () => `room_${uuidv4()}`;
+const objectId = () => `obj_${uuidv4()}`;
 
-/**
- * Reuse a caller-supplied ID (undo/redo restore an object under its old ID so
- * other modules' references stay valid) and keep the counter ahead of it.
- */
-function claimRoomId(id) {
-  if (!id) return roomId();
-  const n = parseInt(String(id).replace('room_', ''), 10);
-  if (!Number.isNaN(n) && n >= _nextRoomId) _nextRoomId = n + 1;
-  return id;
-}
-function claimObjectId(id) {
-  if (!id) return objectId();
-  const n = parseInt(String(id).replace('obj_', ''), 10);
-  if (!Number.isNaN(n) && n >= _nextObjId) _nextObjId = n + 1;
-  return id;
-}
+/** Reuse a caller-supplied ID (loading; undo/redo restore an object under its old ID). */
+function claimRoomId(id)   { return id ? String(id) : roomId(); }
+function claimObjectId(id) { return id ? String(id) : objectId(); }
 
-/**
- * Reset ID counters — used when loading a saved layout so new IDs
- * don't collide with existing ones.
- */
-export function resetIdCounters(rooms, objects) {
-  const maxRoom = rooms.reduce((m, r) => {
-    const n = parseInt(r.id?.replace('room_', ''), 10);
-    return Number.isNaN(n) ? m : Math.max(m, n);
-  }, 0);
-  const maxObj = objects.reduce((m, o) => {
-    const n = parseInt(o.id?.replace('obj_', ''), 10);
-    return Number.isNaN(n) ? m : Math.max(m, n);
-  }, 0);
-  _nextRoomId = maxRoom + 1;
-  _nextObjId  = maxObj  + 1;
+/** "Office 3": one more than the highest number already used after `label`. */
+function nextName(label, records) {
+  let max = 0;
+  for (const r of records) {
+    const name = r.name ?? '';
+    if (!name.startsWith(`${label} `)) continue;
+    const n = Number(name.slice(label.length + 1));
+    if (Number.isInteger(n)) max = Math.max(max, n);
+  }
+  return `${label} ${max + 1}`;
 }
 
 // ─── Zustand Store ───
@@ -69,6 +53,9 @@ export const useWorkspaceStore = create(
     layoutVersion: 1,
     isDirty: false,                    // true if local changes haven't been saved
     saveError: null,                   // message of the last failed save (null = last save worked)
+    saveConflict: false,               // another tab saved this layout after we loaded it: saving stops
+    openElsewhere: false,              // this layout is also open in another tab
+    storageNearlyFull: false,          // the browser's storage for layouts is almost used up
 
     // ━━ Floors ━━ (Phase 5)
     // { [floorId]: { id, name, height } }. height = floor-to-floor; the
@@ -116,7 +103,7 @@ export const useWorkspaceStore = create(
       const floor = opts.floor ?? state.currentFloor;
       const room = {
         type:       'OFFICE',
-        name:       `${typeDef.label} ${String(id).replace('room_', '')}`,
+        name:       opts.name ?? nextName(typeDef.label, Object.values(state.rooms)),
         floor,
         x:          0,
         z:          0,
@@ -211,7 +198,7 @@ export const useWorkspaceStore = create(
       const id = claimObjectId(opts.id);
       const state = get();
       const obj = {
-        name:       `${opts.assetType} ${String(id).replace('obj_', '')}`,
+        name:       opts.name ?? nextName(opts.assetType, Object.values(state.objects)),
         category:   OBJECT_CATEGORIES.FURNITURE,
         floor:      state.currentFloor,
         roomId:     null,
@@ -349,13 +336,13 @@ export const useWorkspaceStore = create(
       });
     },
 
-    /** Remove a floor and all rooms/objects on it. */
+    /**
+     * Remove a floor and all rooms/objects on it. The ground floor (the lowest)
+     * can't be removed: everything above would drop down a storey.
+     */
     removeFloor: (floorId) => {
       set((s) => {
-        if (Object.keys(s.floors).length <= 1) {
-          // Can't delete the last floor
-          return s;
-        }
+        if (!s.floors[floorId] || isGroundFloor(s.floors, floorId)) return s;
 
         const floors = { ...s.floors };
         delete floors[floorId];
@@ -371,8 +358,8 @@ export const useWorkspaceStore = create(
           if (o.floor !== floorId) objects[o.id] = o;
         });
 
-        // If we deleted the current floor, switch to ground floor
-        const newCurrentFloor = s.currentFloor === floorId ? 0 : s.currentFloor;
+        // If we deleted the current floor, switch to the ground floor
+        const newCurrentFloor = s.currentFloor === floorId ? floorsInOrder(floors)[0].id : s.currentFloor;
 
         return {
           floors,
@@ -427,8 +414,6 @@ export const useWorkspaceStore = create(
       const objMap = {};
       n.objects.forEach((o) => { objMap[o.id] = o; });
 
-      resetIdCounters(n.rooms, n.objects);
-
       set({
         floors: n.floors,
         currentFloor: 0,
@@ -440,6 +425,7 @@ export const useWorkspaceStore = create(
         selectedOpening: null,
         isDirty: false,
         saveError: null,
+        saveConflict: false,
       });
     },
 
@@ -501,10 +487,17 @@ export const useWorkspaceStore = create(
     /** A save failed: keep isDirty so the next change retries, and say why. */
     markSaveFailed: (message) => set({ saveError: message || 'Could not save' }),
 
+    /** Another tab saved this layout: our saves stop until the user reloads or saves a copy. */
+    markSaveConflict: (message) => set({ saveConflict: true, saveError: message }),
+
+    /** Whether this layout is also open in another tab (apiService watches the other tabs). */
+    setOpenElsewhere: (flag) => set({ openElsewhere: !!flag }),
+
+    /** Set after each save (apiService.storageUse): Studio asks to export and delete old layouts. */
+    setStorageNearlyFull: (flag) => { if (get().storageNearlyFull !== !!flag) set({ storageNearlyFull: !!flag }); },
+
     /** Reset the entire store to initial state. */
     resetWorkspace: () => {
-      _nextRoomId = 1;
-      _nextObjId  = 1;
       set({
         companyId: null,
         layoutId: null,
@@ -512,6 +505,8 @@ export const useWorkspaceStore = create(
         layoutVersion: 1,
         isDirty: false,
         saveError: null,
+        saveConflict: false,
+        openElsewhere: false,
         floors: { 0: { id: 0, name: 'Ground Floor', height: STOREY_HEIGHT } },
         currentFloor: 0,
         rooms: {},

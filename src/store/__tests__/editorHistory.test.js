@@ -105,6 +105,63 @@ describe('editor actions are all undoable', () => {
     }
   });
 
+  describe('a burst of + / − is one undo step, however slow the PC', () => {
+    let clock;
+    const press = (ms) => { clock += ms; };
+    const wall = (id) => S().rooms[id].wallHeight;
+    beforeEach(() => {
+      clock = 1_000_000;
+      editor = createEditorHistory(undefined, { now: () => clock });
+      editor.addRoom({ type: 'OFFICE', x: 0, z: 0, width: 4, depth: 4 });
+      editor.addRoom({ type: 'MEETING', x: 10, z: 0, width: 4, depth: 4 });
+    });
+    const plus = (id) => editor.setWallHeight(id, Math.round((wall(id) + 0.1) * 10) / 10, { mergeKey: 'play-wall-height' });
+
+    it('presses 1.5 s apart (a slow PC) still merge; one Ctrl+Z undoes all 8', () => {
+      const [a] = rooms().map((r) => r.id);
+      for (let i = 0; i < 8; i++) { press(1500); plus(a); }
+      expect(wall(a)).toBeCloseTo(4.0);
+      expect(S().floors[0].height).toBeCloseTo(4.3);
+      editor.undo();
+      expect(wall(a)).toBeCloseTo(3.2);
+      expect(S().floors[0].height).toBeCloseTo(3.5);
+      editor.undo();                                       // the next step is the room before it
+      expect(rooms()).toHaveLength(1);
+    });
+
+    it('another command in between splits the burst', () => {
+      const [a] = rooms().map((r) => r.id);
+      press(100); plus(a); press(100); plus(a);
+      press(100); editor.addObject({ assetType: 'CHAIR_OFFICE' });
+      press(100); plus(a); press(100); plus(a);
+      editor.undo();
+      expect(wall(a)).toBeCloseTo(3.4);                    // only the last two presses
+      editor.undo();
+      expect(objs()).toHaveLength(0);
+      editor.undo();
+      expect(wall(a)).toBeCloseTo(3.2);
+    });
+
+    it('a 2 s pause, the mouse released (endBurst) or another room ends the burst', () => {
+      const [a, b] = rooms().map((r) => r.id);
+      press(100); plus(a); press(2000); plus(a);           // 2 s without a press
+      editor.undo();
+      expect(wall(a)).toBeCloseTo(3.3);
+
+      press(100); plus(a); editor.endBurst(); press(100); plus(a);
+      editor.undo();
+      expect(wall(a)).toBeCloseTo(3.4);
+
+      // same key, other room (lower walls: only that room changes)
+      const minus = (id) => editor.setWallHeight(id, Math.round((wall(id) - 0.1) * 10) / 10, { mergeKey: 'play-wall-height' });
+      const [a0, b0] = [wall(a), wall(b)];
+      press(100); minus(a); press(100); minus(b);
+      editor.undo();
+      expect(wall(b)).toBeCloseTo(b0);
+      expect(wall(a)).toBeCloseTo(a0 - 0.1);
+    });
+  });
+
   it('no-op updates do not create undo steps', () => {
     editor.addObject({ assetType: 'DESK_STANDARD', x: 4 });
     const id = objs()[0].id;
@@ -147,6 +204,25 @@ describe('editor actions are all undoable', () => {
     expect(S().floors[1]).toBeDefined();
     expect(rooms()).toHaveLength(1);
     expect(objs()).toHaveLength(1);
+  });
+
+  it('removeFloor refuses the lowest floor (the ground floor), even with floors above', () => {
+    editor.addFloor();
+    S().selectFloor(1);
+    editor.addRoom({ type: 'OFFICE' });
+    const undoBefore = editor.history.undoLabel;
+
+    expect(editor.removeFloor(0).problem).toMatch(/ground floor can't be deleted/);
+    expect(S().floors[0]).toBeDefined();
+    expect(rooms()[0].floor).toBe(1);
+    expect(elevationOf(S().floors, 1)).toBeCloseTo(3.5);   // the room upstairs stays up
+    expect(editor.history.undoLabel).toBe(undoBefore);     // no empty undo step
+
+    S().removeFloor(0);                                    // the store refuses too
+    expect(S().floors[0]).toBeDefined();
+    expect(editor.removeFloor(1).problem).toBeNull();      // other floors still go
+    expect(S().floors[1]).toBeUndefined();
+    expect(S().currentFloor).toBe(0);
   });
 
   it('reports canUndo / canRedo / labels to the toolbar', () => {

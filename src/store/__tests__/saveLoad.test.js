@@ -4,7 +4,8 @@ import { createEditorHistory } from '../editorHistory';
 import { normaliseLayout, layoutSummary } from '../layoutData';
 import {
   createWorkspace, loadWorkspace, saveNow, listLayouts, deleteLayout, renameLayout,
-  startAutoSave, stopAutoSave,
+  startAutoSave, stopAutoSave, reloadLayout, saveAsCopy, exportLayout, importLayout, storageUse,
+  listCompanies, addCompany, renameCompany, deleteCompany, countLayouts,
 } from '../../services/apiService';
 
 // ── A browser-like localStorage for Node ──
@@ -98,6 +99,106 @@ describe('save → load round trip', () => {
   });
 });
 
+describe('companies', () => {
+  it('add, rename, and delete (with all its layouts, and only its layouts)', async () => {
+    const a = addCompany('  Acme ');
+    const b = addCompany('Beta');
+    expect(listCompanies().map((c) => c.name)).toEqual(['Acme', 'Beta']);
+    renameCompany(a.id, 'Acme Ltd');
+    expect(listCompanies()[0]).toMatchObject({ id: a.id, name: 'Acme Ltd' });
+
+    await createWorkspace(a.id, 'One');
+    await createWorkspace(a.id, 'Two');
+    await createWorkspace(b.id, 'Theirs');
+    expect(countLayouts(a.id)).toBe(2);
+
+    deleteCompany(a.id);
+    expect(listCompanies().map((c) => c.name)).toEqual(['Beta']);
+    expect(countLayouts(a.id)).toBe(0);
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
+    expect(keys.filter((k) => k.startsWith(`dwtwin_${a.id}_`))).toEqual([]);
+    expect(await listLayouts(a.id)).toEqual([]);
+    expect((await listLayouts(b.id)).map((l) => l.name)).toEqual(['Theirs']);
+  });
+});
+
+describe('backup: export and import layout files', () => {
+  it('export → delete → import brings the layout back (same rooms, items, ids, anchor data)', async () => {
+    const id = await createWorkspace(COMPANY, 'HQ / North');
+    buildLayout(createEditorHistory());
+    await saveNow();
+    const before = layoutOf(S());
+
+    const { fileName, text } = await exportLayout(COMPANY, id);
+    expect(fileName).toBe('HQ - North.ahdus.json');
+    expect(JSON.parse(text)).toMatchObject({ format: 'ahdus-layout', formatVersion: 1, layout: { layoutName: 'HQ / North' } });
+
+    await deleteLayout(COMPANY, id);
+    expect(await listLayouts(COMPANY)).toEqual([]);
+    const imported = await importLayout(COMPANY, text);
+    expect(imported.name).toBe('HQ / North');
+    expect((await listLayouts(COMPANY))[0]).toMatchObject({ id: imported.id, rooms: 2, floors: 2 });
+
+    S().resetWorkspace();
+    expect(await loadWorkspace(COMPANY, imported.id)).toBe(true);
+    expect(layoutOf(S())).toEqual(before);
+  });
+
+  it('an old save works as a file too; anything else says it is not a layout', async () => {
+    const r = await importLayout(COMPANY, JSON.stringify({ layoutName: 'Old', rooms: [{ id: 'room_1', floor: 0 }] }));
+    expect((await listLayouts(COMPANY)).find((l) => l.id === r.id)).toMatchObject({ name: 'Old', rooms: 1 });
+    await expect(importLayout(COMPANY, 'not json')).rejects.toThrow('This file is not an AHDUS layout');
+    await expect(importLayout(COMPANY, '[1,2]')).rejects.toThrow('This file is not an AHDUS layout');
+    await expect(importLayout(COMPANY, '{"hello":1}')).rejects.toThrow('This file is not an AHDUS layout');
+  });
+
+  it('says when the browser storage is nearly full', () => {
+    expect(storageUse().nearlyFull).toBe(false);
+    localStorage.setItem('dwtwin_big', 'x'.repeat(4_100_000));
+    expect(storageUse()).toMatchObject({ nearlyFull: true, quota: 5_000_000 });
+  });
+});
+
+describe('ids', () => {
+  const UUID = /^(room|obj)_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  it('new rooms and items get UUIDs: two sessions (tabs, people) never make the same id', () => {
+    const session = () => {
+      S().resetWorkspace();                       // a fresh browser session
+      const editor = createEditorHistory();
+      editor.addRoom({ type: 'OFFICE', x: 0, z: 0, width: 4, depth: 4 });
+      editor.addObject({ assetType: 'DESK_STANDARD', x: 0, z: 0 });
+      editor.addObject({ assetType: 'DESK_STANDARD', x: 2, z: 0 });
+      return [...Object.keys(S().rooms), ...Object.keys(S().objects)];
+    };
+    const a = session();
+    const b = session();
+    expect(new Set([...a, ...b]).size).toBe(6);
+    for (const id of [...a, ...b]) expect(id).toMatch(UUID);
+    // names still count up
+    expect(Object.values(S().rooms)[0].name).toBe('Office 1');
+    expect(Object.values(S().objects).map((o) => o.name)).toEqual(['DESK_STANDARD 1', 'DESK_STANDARD 2']);
+  });
+
+  it('old ids (room_3, obj_12) load unchanged, and new ones next to them are UUIDs', () => {
+    S().loadWorkspace({
+      rooms: [{ id: 'room_3', type: 'OFFICE', name: 'Office 3', x: 0, z: 0, width: 4, depth: 4 }],
+      objects: [{ id: 'obj_12', assetType: 'DESK_STANDARD', x: 0, z: 0 }],
+      anchorData: { 'some-anchor': { positionRef: 'POS-1' } },
+    });
+    expect(Object.keys(S().rooms)).toEqual(['room_3']);
+    expect(Object.keys(S().objects)).toEqual(['obj_12']);
+    const editor = createEditorHistory();
+    editor.addRoom({ type: 'OFFICE', x: 9, z: 0, width: 4, depth: 4 });
+    const added = Object.values(S().rooms).find((r) => r.id !== 'room_3');
+    expect(added.id).toMatch(UUID);
+    expect(added.name).toBe('Office 4');
+    editor.undo();
+    editor.redo();                                // redo restores the same id
+    expect(S().rooms[added.id]).toBeDefined();
+  });
+});
+
 describe('loading saves from older versions of the app', () => {
   // As written before floors, anchorData, door heights and Studio existed
   const OLD_SAVE = {
@@ -140,6 +241,25 @@ describe('loading saves from older versions of the app', () => {
     expect(Object.keys(S().rooms)).toEqual(['room_3', 'room_4']);
   });
 
+  it('a save with only floor 1 (its ground floor was deleted) gets that floor as floor 0', () => {
+    const saved = {
+      floors: { 1: { id: 1, name: 'Floor 1', height: 4 }, 3: { id: 3, name: 'Roof deck', height: 3.5 } },
+      rooms: [{ id: 'room_2', floor: 1, wallHeight: 3.7 }, { id: 'room_5', floor: 3, wallHeight: 3.2 }],
+      objects: [{ id: 'obj_9', floor: 3, y: 0.75 }],
+      anchorData: { 'anchor-obj_9': { label: 'Desk' } },
+    };
+    const n = normaliseLayout(saved);
+    // no empty floor 0 under it (that lifted the building by a storey), order kept
+    expect(n.floors).toEqual({
+      0: { id: 0, name: 'Floor 1', height: 4 },
+      2: { id: 2, name: 'Roof deck', height: 3.5 },
+    });
+    expect(n.rooms.map((r) => r.floor)).toEqual([0, 2]);
+    expect(n.objects[0]).toMatchObject({ floor: 2, y: 0.75 });
+    expect(n.anchorData).toEqual(saved.anchorData);         // anchor ids don't depend on floors
+    expect(normaliseLayout(n)).toEqual(n);                    // loading it again changes nothing
+  });
+
   it('survives junk: missing lists, maps instead of arrays, nulls', () => {
     expect(() => normaliseLayout(null)).not.toThrow();
     expect(normaliseLayout({}).rooms).toEqual([]);
@@ -176,7 +296,10 @@ describe('the layout list', () => {
   });
 
   it('layoutSummary of an old save', () => {
-    expect(layoutSummary('x', { rooms: [{ id: 'room_1', floor: 1 }] })).toMatchObject({ name: 'Untitled Layout', rooms: 1, floors: 2 });
+    expect(layoutSummary('x', { rooms: [{ id: 'room_1', floor: 0 }, { id: 'room_2', floor: 1 }] }))
+      .toMatchObject({ name: 'Untitled Layout', rooms: 2, floors: 2 });
+    // rooms only on floor 1: that floor is the ground floor, no empty one is added under it
+    expect(layoutSummary('x', { rooms: [{ id: 'room_1', floor: 1 }] })).toMatchObject({ rooms: 1, floors: 1 });
   });
 });
 
@@ -214,8 +337,58 @@ describe('auto-save', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const r = await saveNow();
     expect(r.ok).toBe(false);
-    expect(S().saveError).toBe('The browser has no space left for this layout');
+    expect(S().saveError).toMatch(/^The browser has no space left for this layout. Export your layouts/);
     expect(S().isDirty).toBe(true);
+  });
+
+  it('never overwrites a newer save from another tab; Reload or Save mine as a copy', async () => {
+    const id = await createWorkspace(COMPANY, 'Shared');
+    const key = `dwtwin_${COMPANY}_${id}`;
+    const saved = () => JSON.parse(localStorage.getItem(key));
+    const editor = createEditorHistory();
+    editor.addRoom({ type: 'OFFICE', name: 'Mine', x: 0, z: 0, width: 4, depth: 4 });
+    expect(await saveNow()).toEqual({ ok: true });
+    expect(saved().revision).toBe(2);
+
+    // another tab saves its own version (it loaded revision 2 too)
+    const theirs = { ...saved(), rooms: [{ ...saved().rooms[0], id: 'room_99', name: 'Theirs' }], revision: 3 };
+    localStorage.setItem(key, JSON.stringify(theirs));
+
+    editor.addRoom({ type: 'OFFICE', name: 'Mine 2', x: 8, z: 0, width: 4, depth: 4 });
+    const r = await saveNow();
+    expect(r).toMatchObject({ ok: false, conflict: true });
+    expect(saved().rooms.map((x) => x.name)).toEqual(['Theirs']);     // their work is still there
+    expect(S()).toMatchObject({ saveConflict: true, saveError: 'This layout was changed in another tab', isDirty: true });
+
+    // Save mine as a copy: a new layout with my rooms; theirs untouched
+    const copy = await saveAsCopy();
+    expect(copy.ok).toBe(true);
+    const mine = JSON.parse(localStorage.getItem(`dwtwin_${COMPANY}_${copy.layoutId}`));
+    expect(mine.layoutName).toBe('Shared (copy)');
+    expect(mine.rooms.map((x) => x.name)).toEqual(['Mine', 'Mine 2']);
+    expect(saved().rooms.map((x) => x.name)).toEqual(['Theirs']);
+    expect(S()).toMatchObject({ layoutId: copy.layoutId, saveConflict: false, isDirty: false });
+    expect((await listLayouts(COMPANY)).map((l) => l.name).sort()).toEqual(['Shared', 'Shared (copy)']);
+
+    // back on the shared one: another tab saves again → Reload loads theirs
+    await loadWorkspace(COMPANY, id);
+    localStorage.setItem(key, JSON.stringify({ ...theirs, revision: 4 }));
+    editor.addRoom({ type: 'OFFICE', name: 'Lost', x: 0, z: 9, width: 4, depth: 4 });
+    expect((await saveNow()).conflict).toBe(true);
+    expect(await reloadLayout()).toBe(true);
+    expect(Object.values(S().rooms).map((x) => x.name)).toEqual(['Theirs']);
+    expect(S()).toMatchObject({ saveConflict: false, saveError: null, isDirty: false });
+    editor.addRoom({ type: 'OFFICE', name: 'After reload', x: 0, z: 9, width: 4, depth: 4 });
+    expect(await saveNow()).toEqual({ ok: true });
+    expect(saved().revision).toBe(5);
+  });
+
+  it('saves from before revisions still save (revision 0 → 1)', async () => {
+    localStorage.setItem(`dwtwin_${COMPANY}_layout_norev`, JSON.stringify({ layoutName: 'Old', rooms: [] }));
+    await loadWorkspace(COMPANY, 'layout_norev');
+    createEditorHistory().addRoom({ type: 'OFFICE', x: 0, z: 0, width: 4, depth: 4 });
+    expect(await saveNow()).toEqual({ ok: true });
+    expect(JSON.parse(localStorage.getItem(`dwtwin_${COMPANY}_layout_norev`)).revision).toBe(1);
   });
 
   it('stopping auto-save (leaving the editor) saves what is pending', async () => {

@@ -3,8 +3,8 @@
 **Project:** AHDUS (Advance Human Digital Unified System), Company Digital Twin
 **Module:** Company layout replica (digital workplace engine)
 **Owner:** Himan
-**Report date:** 14 October 2026 (updated: floor heights)
-**Latest build:** `company-digital-twin-storeys.zip` (multi-storey buildings added)
+**Report date:** 15 October 2026 (updated: fixes from the 15 Oct review, `NEXT_FIXES.md` Part A)
+**Latest build:** GitHub `ahdus-layout-replica` (private), branch `main`
 
 ---
 
@@ -17,7 +17,8 @@
 - **Teammates can now connect their modules** (step 1): hook points are saved with the layout, pressing E and walking into rooms send real events, desks can be linked to job positions, and three demo modules show it working.
 - **Multi-storey buildings:** floors stack at real heights with floor slabs, roofs and indoor ceilings with lights; stairs climb one storey and you walk up and down them; you build on whichever floor you are on.
 - **Real floor heights (14 Oct):** each floor has its own height, walls and floors always fit together (no gaps or overlaps between storeys), stairs climb whatever height their floor is, new floors can copy the rooms below, and Preview has Page Up / Page Down between floors.
-- **185 unit tests** and **152 browser checks** all pass (see 3.9).
+- **Review fixes (15 Oct, 3.13):** the ground floor can't be deleted, two tabs can't overwrite each other's work, undo of a + / − burst no longer depends on the PC's speed, big buildings draw ~5× fewer meshes and ~14× fewer draw calls, new IDs are UUIDs, layouts can be exported / imported as files, and the companies screen has the Studio look.
+- **199 unit tests** and **172 browser checks** all pass (see 3.9).
 - **Not done yet:** a real backend (Supabase, decided), real 3D furniture models, elevators, free-form walls, floor-plan tracing, and the engine/UI split (needed for Dhruv's app).
 
 ---
@@ -197,7 +198,8 @@ Inspector let a room's walls be 2–6 m; nothing tied wall heights to floor heig
 |---|---|---|
 | `engine/__tests__/migrate.test.ts` | v1 → v2 migration, anchors, validation | 15 |
 | `engine/__tests__/commands.test.ts` | Undo/redo commands, history cap | 6 |
-| `store/__tests__/editorHistory.test.js` | Every editor action undoable, merging | 14 |
+| `store/__tests__/editorHistory.test.js` | Every editor action undoable, merging, + / − bursts on a slow PC, ground floor stays | 29 |
+| `engine/__tests__/anchors.test.ts` | Anchor IDs never change (fixed known IDs, uuid 9 → 11) | 1 |
 | `play/__tests__/geometry.test.js` | Room corners, wall splitting, doors, neighbours | 22 |
 | `play/__tests__/stretch.test.js` | Stretch room: grow, shrink, blocks, doors | 11 |
 | `play/__tests__/movement.test.js` | Collision steps | 3 |
@@ -205,15 +207,16 @@ Inspector let a room's walls be 2–6 m; nothing tied wall heights to floor heig
 | `play/__tests__/building.test.js` | Floors, stairs, openings, roofs, where you stand | 14 |
 | `play/__tests__/buildActions.test.js` | Shared build decisions: rooms, doors/windows, walls, resizing, furniture heights | 17 |
 | `play/__tests__/openingSize.test.js` | Door/window sizes: limits (walls, corners, other openings, stairs), shared doors | 16 |
-| `store/__tests__/saveLoad.test.js` | Save → load round trip, old saves, layout list, auto-save, failed saves | 11 |
+| `store/__tests__/saveLoad.test.js` | Save → load round trip, old saves (also without floor 0), layout list, auto-save, failed saves, two tabs (revisions), UUIDs, export / import, storage use, companies | 20 |
 | `play/__tests__/floorHeights.test.js` | Floor heights, derived elevations, wall/floor height rules, stair rise, Page Up/Down arrival, outline snapping, overhangs, old-save migration | 24 |
-| **Unit total** | (editorHistory now 25: + floor and wall heights, copy rooms) | **185 ✅** |
-| `e2e/editor-smoke.mjs` | Workplace Studio: layout at 1280×720 and 1920×1080, empty state, placing, selection toolbar + Inspector, floor switcher, Preview ↔ Studio | 29 checks ✅ |
+| **Unit total** | | **199 ✅** |
+| `e2e/editor-smoke.mjs` | Workplace Studio: layout at 1280×720 and 1920×1080, empty state, placing, selection toolbar + Inspector, floor switcher (Ground Floor Delete disabled), Export layout, Preview ↔ Studio | 31 checks ✅ |
 | `e2e/play-smoke.mjs` | Preview in a real browser (build, walk, doors, stretch, undo) | 19 checks ✅ |
 | `e2e/modules-smoke.mjs` | Demo modules: E prompts/actions, room events, greeter, linking with undo | 17 checks ✅ |
 | `e2e/building-smoke.mjs` | Multi-storey: N asks copy/empty, overhang warning, stair opening, walking up/down, Page Up/Down, Stretch raises the floor above (no gap), stairs on a 4.3 m floor, stairwell roof cut, Studio outline, wall/floor heights, copy rooms | 27 checks ✅ |
 | `e2e/tools-smoke.mjs` | Build panel; Studio draw room / drag wall / door / window / wall / desk-top stacking / upper floor; door size (Inspector, handles, upstairs); Preview Edit item on furniture and doors | 41 checks ✅ |
-| `e2e/save-smoke.mjs` | Typed name, auto-save (also floors), rename, list (rooms / floors / last edit), **reopen a layout**, tab close, old save, error card, delete confirmation | 19 checks ✅ |
+| `e2e/save-smoke.mjs` | Typed name, auto-save (also floors), rename, list (rooms / floors / last edit), **reopen a layout**, tab close, old save, error card, delete confirmation, export → delete → import, rename / delete a company, **two tabs on one layout** | 29 checks ✅ |
+| `e2e/perf-smoke.mjs` | Probe building (3 floors × 24 rooms, 864 items): ≤ 2,000 meshes, ≤ 1,500 draw calls, one changed room rebuilds only itself, items still pick / lock / delete one by one | 8 checks ✅ |
 
 When first written, these tests also caught the old bugs: the original migration code failed 10 of the 14 migration tests that existed then, and the original editor failed the "place object" browser check.
 
@@ -298,6 +301,21 @@ the reason is shown.
   (one undo step per drag). Works on upper floors; walls are rebuilt around the new size.
 - New editorHistory action: `resizeOpening(list, { mergeKey })`.
 
+### 3.13 Fixes from the 15 Oct review (`NEXT_FIXES.md` Part A)
+
+Each fix is its own commit on branch `fix/next-fixes`, with tests.
+
+| # | Problem | Cause | Fix |
+|---|---|---|---|
+| A1 | Deleting the Ground Floor broke the building; reopening made the rooms float | Nothing stopped the lowest floor being deleted, and loading always added an empty floor 0 under the rest | The ground floor (lowest) can't be deleted (floor menu: disabled with "The ground floor can't be deleted. Remove its rooms instead"; `editorHistory.removeFloor` and the store refuse too). Saves without a floor 0 are renumbered so the lowest floor becomes 0 |
+| A2 | Two tabs on one layout silently lost work | Every save overwrote the stored layout, whatever another tab had saved meanwhile | Saves carry a `revision`; a tab never overwrites a newer one. "This layout was changed in another tab" with **Reload** / **Save mine as a copy**, shown at once (`storage` event). "Also open in another tab" note (BroadcastChannel) |
+| A3 | Undo of a + / − burst depended on the PC's speed (the one failing check) | Commands merged only within 800 ms of wall-clock time, measured when the slow rebuild finished | A burst merges while the same mergeKey and target continue; it ends after 2 s without input (timed from the key / mouse events), when the mouse is released, the tool changes, or another command comes between |
+| A4 | Big buildings slow: 8,779 meshes, ~14,000 draw calls | Every furniture part and room piece was its own mesh, and every part cast a shadow | Each asset type is a template (parts merged per material), items are **instances** of it (`utils/assetInstances.js`; a locked or outlined item uses a clone). Room parts merged per role and material, world matrices frozen, small items cast no shadows. Probe building: **1,798 meshes, 326 draw calls** (ground floor) / **1,046** (all 3 floors) |
+| A5 | IDs would collide with two tabs, two people or a database | IDs were per-session counters (`obj_12`) | New rooms / items get UUIDs (`obj_<uuid>`); saved IDs are kept, so anchors don't change |
+| A6 | No backup: everything only in this browser (~5 MB for all layouts) | localStorage only | **Export layout** (`<name>.ahdus.json`) and **Import layout** on the layouts screen and in Studio's Settings; a warning when storage is nearly full |
+| A7 | The companies / layouts screen had the old look | Old inline styles and emoji | Restyled with the Studio tokens and lucide icons; companies can be renamed and deleted (with their layouts, after confirming) |
+| A8 | Clean-up | | Stray files removed; `uuid` 9 → 11 (anchor IDs checked identical); `LayoutEngine.ts` says which engine parts are real |
+
 ---
 
 ## 4. Status against the plan
@@ -309,7 +327,7 @@ the reason is shown.
 | **C. Visual realism** | 🟡 Partly | Textured floors/walls/furniture, site, lighting, roofs, ceilings with lights: done. Real 3D models (GLB), post-processing: not done |
 | **D. Floors, routes, safety** | 🟡 Partly | Stacked floors, slabs, walkable stairs with openings: done. Elevators, evacuation routes, safety checks: not done |
 | **E. 2D floor plan (SVG)** | ❌ Not started | The "2D view" is still the 3D camera from above |
-| **F. Saving, versions, sync** | 🟡 Local only | Reliable auto-save and reopening in browser localStorage (14 Oct); no backend, versions, conflict detection or change events yet |
+| **F. Saving, versions, sync** | 🟡 Local only | Reliable auto-save and reopening in browser localStorage; two tabs can't overwrite each other (revisions); export / import files as a backup (15 Oct). No backend, versions or change events yet |
 | **Teammate integration** | ✅ In the editor | Bridge, saved hook points, real events, E actions, position links, demo modules. Still needed: embedding in Dhruv's app (Workstream A) |
 
 ---
@@ -355,6 +373,10 @@ the reason is shown.
 - Hotbar icons are emoji, not pictures of the models.
 - On very slow computers (under ~4 fps) the character moves slower than normal.
 - The project report still says "8 tables" but lists 7.
+- The ground floor can't be deleted (remove its rooms instead).
+- "Also open in another tab" can stay shown for a while if the other tab crashed instead of closing.
+- The "storage almost full" warning uses an estimate (about 5 MB for all layouts); browsers differ.
+- Skirting boards can't be clicked on their own: a click goes to the wall behind them.
 
 ---
 
@@ -395,16 +417,17 @@ the reason is shown.
 npm install
 npm run dev              # opens in Workplace Studio at http://localhost:3000
 
-npm test                 # 185 unit tests
+npm test                 # 199 unit tests
 npm run typecheck        # TypeScript check
 
 # Browser tests (one-time setup: npx playwright install chromium), with npm run dev running:
-npm run e2e:planner      # 29 Workplace Studio checks (+ UI_SPEC screenshots)
+npm run e2e:planner      # 31 Workplace Studio checks (+ UI_SPEC screenshots)
 npm run e2e:play         # 19 Preview checks (slow without a graphics card)
 npm run e2e:modules      # 17 team-integration checks (demo modules)
 npm run e2e:building     # 27 multi-storey checks (floor heights, Page Up/Down, copy rooms)
 npm run e2e:tools        # 41 checks: Studio mouse tools, door sizes + Preview Edit item
-npm run e2e:save         # 19 checks: saving, reopening, layout list
+npm run e2e:save         # 29 checks: saving, reopening, layout list, export / import, companies, two tabs
+npm run e2e:perf         # 8 checks: a 72-room, 864-item building stays cheap to draw
 
 # See the demo modules yourself: http://localhost:3000/?demoModules=1
 ```
@@ -439,6 +462,9 @@ npm run e2e:save         # 19 checks: saving, reopening, layout list
 | `src/utils/pickHelpers.js` | Forgiving picks (floor under a desk = the desk) |
 | `src/store/layoutData.js` | Old saves → current shape; layout list summary |
 | `src/ui/EditorErrorBoundary.jsx` | "This layout could not be opened" instead of a blank page |
+| `src/utils/assetInstances.js` | Item templates and instances; `mergeByMaterial` (rooms too) |
+| `src/ui/TabNotice.jsx` | "Changed in another tab", "Also open in another tab", "storage almost full" |
+| `src/ui/selector.css`, `src/ui/download.js` | Companies / layouts screen styles; downloading an exported layout |
 | `e2e/*.mjs` | Browser tests |
 | Removed: `WalkthroughHUD.jsx`, `walkthroughCamera.js` | Replaced by Build mode |
 | Removed: `PlannerToolbar.jsx`, `RoomPanel.jsx`, `ObjectPanel.jsx`, `PropertiesInspector.jsx`, `FloorSelector.jsx` | Replaced by Workplace Studio (`src/ui/`) |
