@@ -62,7 +62,10 @@ import {
   useWorkspaceStore,
 } from '../store/workspaceStore';
 import { createEditorHistory } from '../store/editorHistory';
-import { startAutoSave, stopAutoSave, saveNow, renameLayout, reloadLayout, saveAsCopy } from '../services/apiService';
+import {
+  startAutoSave, stopAutoSave, saveNow, renameLayout, reloadLayout, saveAsCopy, exportLayout, importLayout,
+} from '../services/apiService';
+import { downloadText } from '../ui/download';
 
 // Phase 4 — Performance optimisation
 import {
@@ -244,6 +247,7 @@ export default function WorkplaceEditor({ onExit }) {
   const saveError = useWorkspaceStore((s) => s.saveError);
   const saveConflict = useWorkspaceStore((s) => s.saveConflict);   // another tab saved this layout
   const openElsewhere = useWorkspaceStore((s) => s.openElsewhere); // this layout is open in another tab too
+  const storageNearlyFull = useWorkspaceStore((s) => s.storageNearlyFull);
   const selectedOpeningSel = useWorkspaceStore((s) => s.selectedOpening);
   const layoutName = useWorkspaceStore((s) => s.layoutName);
   const hasBackend = useWorkspaceStore((s) => !!(s.companyId && s.layoutId));
@@ -1504,6 +1508,25 @@ export default function WorkplaceEditor({ onExit }) {
     if (await reloadLayout()) editor.clear();
     else showStudioMessage('This layout was deleted in another tab', true);
   }, [editor, showStudioMessage]);
+  // Backup until there is a server: this layout as a file, or a file added to the layouts
+  const handleExportLayout = useCallback(async () => {
+    const { companyId, layoutId } = useWorkspaceStore.getState();
+    try {
+      const { fileName, text } = await exportLayout(companyId, layoutId);
+      downloadText(fileName, text);
+      showStudioMessage(`Downloaded ${fileName}`);
+    } catch (err) {
+      showStudioMessage(err.message, true);
+    }
+  }, [showStudioMessage]);
+  const handleImportLayout = useCallback(async (file) => {
+    try {
+      const { name } = await importLayout(useWorkspaceStore.getState().companyId, await file.text());
+      showStudioMessage(`Added "${name}" to your layouts`);
+    } catch (err) {
+      showStudioMessage(err.message, true);
+    }
+  }, [showStudioMessage]);
   const handleSaveCopy = useCallback(async () => {
     const result = await saveAsCopy();
     if (result.ok) showStudioMessage(`Saved as "${useWorkspaceStore.getState().layoutName}"`);
@@ -1534,6 +1557,8 @@ export default function WorkplaceEditor({ onExit }) {
             environment,
             onEnvironmentChange: handleEnvironmentChange,
             fpsRef: fpsDisplayRef,
+            onExportLayout: hasBackend ? handleExportLayout : null,
+            onImportLayout: handleImportLayout,
           }}
         />
       )}
@@ -1576,8 +1601,10 @@ export default function WorkplaceEditor({ onExit }) {
           <TabNotice
             conflict={saveConflict}
             openElsewhere={openElsewhere}
+            storageNearlyFull={storageNearlyFull}
             onReload={handleReloadTheirs}
             onSaveCopy={handleSaveCopy}
+            onExport={hasBackend ? handleExportLayout : null}
           />
           <RoomLabels
             scene={sceneReady}

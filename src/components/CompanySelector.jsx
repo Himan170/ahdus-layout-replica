@@ -9,13 +9,19 @@
  * Phase 4 — Multi-Tenant & Data Sync
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   loadWorkspace,
   createWorkspace,
   listLayouts,
   deleteLayout,
+  exportLayout,
+  importLayout,
+  storageUse,
 } from '../services/apiService';
+import { downloadText } from '../ui/download';
+
+const mb = (chars) => (chars / 1_000_000).toFixed(1);
 
 /** "14 Oct, 10:42" (or "Never saved") */
 function formatEdited(iso) {
@@ -128,6 +134,30 @@ export default function CompanySelector({ onEnterEditor, initialCompany = null }
     }
   }, [companyId]);
 
+  // ─── Backup: export a layout as a file / add one from a file ───
+  const importRef = useRef(null);
+  const [notice, setNotice] = useState(null);
+  const [storage, setStorage] = useState(() => storageUse());
+  const handleExportLayout = useCallback(async (layoutId) => {
+    try {
+      const { fileName, text } = await exportLayout(companyId, layoutId);
+      downloadText(fileName, text);
+    } catch (err) {
+      setError(err.message);
+    }
+  }, [companyId]);
+  const handleImportFile = useCallback(async (file) => {
+    setError(null);
+    try {
+      const { name } = await importLayout(companyId, await file.text());
+      setLayouts(await listLayouts(companyId));
+      setNotice(`Added "${name}"`);
+    } catch (err) {
+      setError(err.message);
+    }
+  }, [companyId]);
+  useEffect(() => { setStorage(storageUse()); }, [layouts]);
+
   // Coming back from the editor: show that company's layouts again
   useEffect(() => {
     if (initialCompany?.id) handleSelectCompany(initialCompany.id, initialCompany.name);
@@ -207,6 +237,14 @@ export default function CompanySelector({ onEnterEditor, initialCompany = null }
 
             <h2 style={styles.heading}>Workspace Layouts</h2>
 
+            {storage.nearlyFull && (
+              <div style={styles.errorBanner} role="alert" aria-label="Storage almost full">
+                Browser storage is almost full ({mb(storage.used)} of {mb(storage.quota)} MB).
+                Export your layouts to keep a copy, then delete old ones.
+              </div>
+            )}
+            {notice && <div style={styles.noticeBanner} role="status">{notice}</div>}
+
             {layouts.length > 0 ? (
               <div style={styles.listSection}>
                 {layouts.map((l) => (confirmDelete === l.id ? (
@@ -234,6 +272,16 @@ export default function CompanySelector({ onEnterEditor, initialCompany = null }
                       </div>
                       <span style={styles.listArrow}>→</span>
                     </button>
+                    {!l.broken && (
+                      <button
+                        style={styles.deleteButton}
+                        onClick={() => handleExportLayout(l.id)}
+                        title="Export: download this layout as a file (a backup)"
+                        aria-label={`Export ${l.name}`}
+                      >
+                        ⤓
+                      </button>
+                    )}
                     <button
                       style={styles.deleteButton}
                       onClick={() => setConfirmDelete(l.id)}
@@ -248,6 +296,17 @@ export default function CompanySelector({ onEnterEditor, initialCompany = null }
             ) : (
               <p style={styles.emptyText}>No layouts yet. Create one to get started.</p>
             )}
+
+            <button style={styles.cancelButton} aria-label="Import layout" title="Add a layout from an exported file"
+              onClick={() => importRef.current?.click()}>
+              Import layout…
+            </button>
+            <input ref={importRef} type="file" accept=".json,application/json" hidden aria-label="Import layout file"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) handleImportFile(file);
+              }} />
 
             <div style={styles.divider}>
               <span style={styles.dividerText}>new layout</span>
@@ -327,6 +386,15 @@ const styles = {
     background: '#2a1520',
     border: '1px solid #442030',
     color: '#e88',
+    fontSize: 12,
+    marginBottom: 14,
+  },
+  noticeBanner: {
+    padding: '8px 12px',
+    borderRadius: 6,
+    background: '#15202a',
+    border: '1px solid #20384a',
+    color: '#9cd',
     fontSize: 12,
     marginBottom: 14,
   },

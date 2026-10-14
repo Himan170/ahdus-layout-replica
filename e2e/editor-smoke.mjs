@@ -273,6 +273,15 @@ log('the Delete button is disabled on the Ground Floor',
   `aria-disabled=${groundDisabled} title=${groundTip}`);
 await key('Escape');
 
+// ── Settings: Export layout downloads a backup file ──
+await click('[aria-label="Settings"]');
+const [studioDownload] = await Promise.all([
+  page.waitForEvent('download', { timeout: 30000 }).catch(() => null),
+  page.click('[aria-label="Export layout"]'),
+]);
+log('Settings → Export layout downloads "HQ Layout.ahdus.json"', studioDownload?.suggestedFilename() === 'HQ Layout.ahdus.json',
+  studioDownload?.suggestedFilename() ?? 'no download');
+
 // ── Preview ↔ Studio, with the buttons and with Tab ──
 await page.mouse.move(640, 360);
 await click('[aria-label="Preview Workplace"]');

@@ -130,6 +130,8 @@
 }
 .settings-pop__row + .settings-pop__row { border-top: 1px solid var(--border); }
 .settings-pop__fps { font-size: 12px; padding: 6px 0 4px; border-top: 1px solid var(--border); }
+.settings-pop__backup { padding: var(--space-2) 0; }
+.settings-pop__backup > .ui-btn { flex: 1; padding: 0 var(--space-2); }
 
 /* Segmented control (2D | 3D, lighting, grid step) */
 .ui-segmented {

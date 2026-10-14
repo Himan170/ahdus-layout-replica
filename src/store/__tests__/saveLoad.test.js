@@ -4,7 +4,7 @@ import { createEditorHistory } from '../editorHistory';
 import { normaliseLayout, layoutSummary } from '../layoutData';
 import {
   createWorkspace, loadWorkspace, saveNow, listLayouts, deleteLayout, renameLayout,
-  startAutoSave, stopAutoSave, reloadLayout, saveAsCopy,
+  startAutoSave, stopAutoSave, reloadLayout, saveAsCopy, exportLayout, importLayout, storageUse,
 } from '../../services/apiService';
 
 // ── A browser-like localStorage for Node ──
@@ -95,6 +95,43 @@ describe('save → load round trip', () => {
     createEditorHistory().addRoom({ type: 'OFFICE', x: 20, z: 0, width: 4, depth: 4 });
     const ids = Object.keys(S().rooms);
     expect(new Set(ids).size).toBe(3);
+  });
+});
+
+describe('backup: export and import layout files', () => {
+  it('export → delete → import brings the layout back (same rooms, items, ids, anchor data)', async () => {
+    const id = await createWorkspace(COMPANY, 'HQ / North');
+    buildLayout(createEditorHistory());
+    await saveNow();
+    const before = layoutOf(S());
+
+    const { fileName, text } = await exportLayout(COMPANY, id);
+    expect(fileName).toBe('HQ - North.ahdus.json');
+    expect(JSON.parse(text)).toMatchObject({ format: 'ahdus-layout', formatVersion: 1, layout: { layoutName: 'HQ / North' } });
+
+    await deleteLayout(COMPANY, id);
+    expect(await listLayouts(COMPANY)).toEqual([]);
+    const imported = await importLayout(COMPANY, text);
+    expect(imported.name).toBe('HQ / North');
+    expect((await listLayouts(COMPANY))[0]).toMatchObject({ id: imported.id, rooms: 2, floors: 2 });
+
+    S().resetWorkspace();
+    expect(await loadWorkspace(COMPANY, imported.id)).toBe(true);
+    expect(layoutOf(S())).toEqual(before);
+  });
+
+  it('an old save works as a file too; anything else says it is not a layout', async () => {
+    const r = await importLayout(COMPANY, JSON.stringify({ layoutName: 'Old', rooms: [{ id: 'room_1', floor: 0 }] }));
+    expect((await listLayouts(COMPANY)).find((l) => l.id === r.id)).toMatchObject({ name: 'Old', rooms: 1 });
+    await expect(importLayout(COMPANY, 'not json')).rejects.toThrow('This file is not an AHDUS layout');
+    await expect(importLayout(COMPANY, '[1,2]')).rejects.toThrow('This file is not an AHDUS layout');
+    await expect(importLayout(COMPANY, '{"hello":1}')).rejects.toThrow('This file is not an AHDUS layout');
+  });
+
+  it('says when the browser storage is nearly full', () => {
+    expect(storageUse().nearlyFull).toBe(false);
+    localStorage.setItem('dwtwin_big', 'x'.repeat(4_100_000));
+    expect(storageUse()).toMatchObject({ nearlyFull: true, quota: 5_000_000 });
   });
 });
 
@@ -276,7 +313,7 @@ describe('auto-save', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const r = await saveNow();
     expect(r.ok).toBe(false);
-    expect(S().saveError).toBe('The browser has no space left for this layout');
+    expect(S().saveError).toMatch(/^The browser has no space left for this layout. Export your layouts/);
     expect(S().isDirty).toBe(true);
   });
 

@@ -207,6 +207,26 @@ const gone = await p.evaluate(() => !Object.keys(localStorage).some((k) => k.end
 log('Delete removes it from the list and from storage', await layoutRow('Old Layout').count() === 0 && gone);
 await shot('s3-layout-list.png');
 
+// ── Backup: export a layout, delete it, import the file: the rooms are back ──
+const roomsBefore = (await saved(id))?.rooms?.length;
+const [download] = await Promise.all([p.waitForEvent('download', { timeout: 30000 }), p.click('button[aria-label="Export HQ North"]')]);
+const file = await download.path();
+log('Export downloads "HQ North.ahdus.json"', download.suggestedFilename() === 'HQ North.ahdus.json' && !!file, download.suggestedFilename());
+await p.click('button[aria-label="Delete HQ North"]');
+await p.click('[role="alertdialog"] button:has-text("Delete")');
+await wait(300);
+const deleted = await layoutRow('HQ North').count() === 0;
+await p.setInputFiles('input[aria-label="Import layout file"]', file);
+await p.waitForSelector('button[aria-label="Open HQ North"]', { timeout: 30000 }).catch(() => {});
+const importedMeta = await p.locator('button[aria-label="Open HQ North"] [data-layout-meta]').textContent().catch(() => '');
+await layoutRow('HQ North').click();
+await openEditor();
+const back = await p.evaluate(() => Object.keys(window.__ahdusStore.getState().rooms).length);
+log('Delete, then Import the file: the layout and its rooms are back', deleted && back === roomsBefore && back === 2 &&
+  /2 rooms · 2 floors/.test(importedMeta), `${back} of ${roomsBefore} rooms · "${importedMeta}"`);
+await p.click('[aria-label="All layouts"]');
+await p.waitForSelector('text=Workspace Layouts', { timeout: 30000 });
+
 // ── Two tabs on one layout (two pages in one browser context share localStorage) ──
 const ctx = await b.newContext({ viewport: { width: 1280, height: 760 } });
 const tab = async () => {

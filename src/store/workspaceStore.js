@@ -55,6 +55,7 @@ export const useWorkspaceStore = create(
     saveError: null,                   // message of the last failed save (null = last save worked)
     saveConflict: false,               // another tab saved this layout after we loaded it: saving stops
     openElsewhere: false,              // this layout is also open in another tab
+    storageNearlyFull: false,          // the browser's storage for layouts is almost used up
 
     // ━━ Floors ━━ (Phase 5)
     // { [floorId]: { id, name, height } }. height = floor-to-floor; the
@@ -491,6 +492,9 @@ export const useWorkspaceStore = create(
 
     /** Whether this layout is also open in another tab (apiService watches the other tabs). */
     setOpenElsewhere: (flag) => set({ openElsewhere: !!flag }),
+
+    /** Set after each save (apiService.storageUse): Studio asks to export and delete old layouts. */
+    setStorageNearlyFull: (flag) => { if (get().storageNearlyFull !== !!flag) set({ storageNearlyFull: !!flag }); },
 
     /** Reset the entire store to initial state. */
     resetWorkspace: () => {

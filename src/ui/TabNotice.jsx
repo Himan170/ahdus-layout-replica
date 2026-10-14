@@ -6,13 +6,14 @@
  *   - "This layout was changed in another tab": saving has stopped so neither tab
  *     loses work. Reload (load theirs) or Save mine as a copy.
  *   - "Also open in another tab": a small note; changes in both would clash.
+ * And when the browser's storage is almost full: export layouts, delete old ones.
  */
 
-import { AlertTriangle, Copy, Info, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Copy, Download, Info, RotateCcw } from 'lucide-react';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 
-export default function TabNotice({ conflict, openElsewhere, onReload, onSaveCopy }) {
+export default function TabNotice({ conflict, openElsewhere, storageNearlyFull, onReload, onSaveCopy, onExport }) {
   if (conflict) {
     return (
       <div className="tab-notice is-bad" role="alertdialog" aria-label="Changed in another tab">
@@ -26,6 +27,19 @@ export default function TabNotice({ conflict, openElsewhere, onReload, onSaveCop
           onClick={onSaveCopy}>
           <Copy {...ICON} /> Save mine as a copy
         </button>
+      </div>
+    );
+  }
+  if (storageNearlyFull) {
+    return (
+      <div className="tab-notice is-bad" role="alert" aria-label="Storage almost full">
+        <AlertTriangle {...ICON} />
+        <p className="tab-notice__text">Browser storage is almost full. Export your layouts and delete old ones.</p>
+        {onExport && (
+          <button className="ui-btn" aria-label="Export this layout" onClick={onExport}>
+            <Download {...ICON} /> Export
+          </button>
+        )}
       </div>
     );
   }

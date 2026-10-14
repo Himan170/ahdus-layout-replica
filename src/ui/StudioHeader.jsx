@@ -6,7 +6,7 @@
  */
 
 import { useRef, useState } from 'react';
-import { Building2, Undo2, Redo2, SlidersHorizontal, Pencil } from 'lucide-react';
+import { Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload } from 'lucide-react';
 import { usePopover } from './usePopover';
 
 const ICON = { size: 18, strokeWidth: 1.75 };
@@ -62,9 +62,11 @@ function LayoutName({ name, onRename }) {
 function Settings({
   snapEnabled, onSnapToggle, snapStep, onSnapStepChange,
   showGrid, onShowGridToggle, environment, onEnvironmentChange, fpsRef,
+  onExportLayout, onImportLayout,   // backup: download this layout / add one from a file
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
+  const fileRef = useRef(null);
   const close = () => setOpen(false);
   usePopover(open, close, [wrapRef]);
 
@@ -137,6 +139,24 @@ function Settings({
             <span>Units</span>
             <span className="ui-muted" title="Only metres for now">Metres (m)</span>
           </div>
+          {onExportLayout && (
+            <div className="settings-pop__row settings-pop__backup">
+              <button className="ui-btn" aria-label="Export layout" title="Download this layout as a file (a backup)"
+                onClick={() => { onExportLayout(); setOpen(false); }}>
+                <Download size={16} strokeWidth={1.75} aria-hidden /> Export layout
+              </button>
+              <button className="ui-btn" aria-label="Import layout" title="Add a layout from a file to your layouts"
+                onClick={() => fileRef.current?.click()}>
+                <Upload size={16} strokeWidth={1.75} aria-hidden /> Import layout…
+              </button>
+              <input ref={fileRef} type="file" accept=".json,application/json" hidden aria-label="Import layout file"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) { onImportLayout(file); setOpen(false); }
+                }} />
+            </div>
+          )}
           {import.meta.env.DEV && (
             <div className="settings-pop__fps ui-muted" ref={fpsRef}>0 FPS</div>
           )}

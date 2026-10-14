@@ -33,12 +33,19 @@
  */
 
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { layoutSummary } from '../store/layoutData';
+import { layoutSummary, normaliseLayout } from '../store/layoutData';
 
 // ─── Config ───
 const SAVE_DELAY     = 1000;  // ms — debounce trailing edge
 const STORAGE_PREFIX = 'dwtwin_';
 const CHANGED_ELSEWHERE = 'This layout was changed in another tab';
+/** Browsers give a site about 5 MB of localStorage, for ALL its layouts together. */
+const STORAGE_QUOTA = 5_000_000;
+const NEARLY_FULL = 0.8;
+/** Exported layout files (<name>.ahdus.json). */
+export const LAYOUT_FILE_FORMAT = 'ahdus-layout';
+const NO_SPACE = 'The browser has no space left for this layout. Export your layouts and delete old ones';
+const NOT_A_LAYOUT = 'This file is not an AHDUS layout';
 
 // ─── Internal helpers ───
 
@@ -130,11 +137,10 @@ function _saveSync({ force = false } = {}) {
     _persistToBackend(state.companyId, state.layoutId, state.exportWorkspace(), revision);
     _revision = revision;
     useWorkspaceStore.getState().markSaved();
+    useWorkspaceStore.getState().setStorageNearlyFull(storageUse().nearlyFull);
     return { ok: true };
   } catch (err) {
-    const error = err?.name === 'QuotaExceededError'
-      ? 'The browser has no space left for this layout'
-      : (err?.message || 'Could not save');
+    const error = err?.name === 'QuotaExceededError' ? NO_SPACE : (err?.message || 'Could not save');
     console.error('[apiService] save failed:', err);
     useWorkspaceStore.getState().markSaveFailed(error);
     return { ok: false, error };
@@ -167,6 +173,7 @@ export async function loadWorkspace(companyId, layoutId) {
   const summary = layoutSummary(layoutId, data);
   store.setTenant(companyId, layoutId, summary.name, data.layoutVersion ?? 1);
   _revision = Number.isFinite(data.revision) ? data.revision : 0;
+  store.setStorageNearlyFull(storageUse().nearlyFull);
   return true;
 }
 
@@ -195,8 +202,7 @@ export async function saveAsCopy() {
     store.setTenant(store.companyId, layoutId, name, store.layoutVersion);
     _persistToBackend(store.companyId, layoutId, useWorkspaceStore.getState().exportWorkspace(), 1);
   } catch (err) {
-    useWorkspaceStore.getState().markSaveFailed(err?.name === 'QuotaExceededError'
-      ? 'The browser has no space left for this layout' : (err?.message || 'Could not save'));
+    useWorkspaceStore.getState().markSaveFailed(err?.name === 'QuotaExceededError' ? NO_SPACE : (err?.message || 'Could not save'));
     return { ok: false, error: useWorkspaceStore.getState().saveError };
   }
   _revision = 1;
@@ -282,6 +288,79 @@ export async function listLayouts(companyId) {
       list.map((l) => ({ id: l.id, name: l.name, updatedAt: l.updatedAt }))));
   } catch { /* the list still works without the repaired index */ }
   return list;
+}
+
+// ─── Backup: export / import layout files ───
+
+/** "HQ North.ahdus.json" (characters files can't have are replaced). */
+export function layoutFileName(name) {
+  const safe = String(name ?? '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').trim();
+  return `${safe || 'Layout'}.ahdus.json`;
+}
+
+/**
+ * A layout as a file to download (a backup, or to move it to another browser).
+ * The open layout is saved first, so the file has its latest changes.
+ * @returns {Promise<{ fileName: string, text: string }>}
+ */
+export async function exportLayout(companyId, layoutId) {
+  const st = useWorkspaceStore.getState();
+  let data;
+  if (st.companyId === companyId && st.layoutId === layoutId) {
+    _saveSync();
+    data = useWorkspaceStore.getState().exportWorkspace();
+  } else {
+    data = _loadFromBackend(companyId, layoutId);
+  }
+  if (!data) throw new Error('This layout no longer exists');
+  const { companyId: _c, layoutId: _l, revision: _r, savedAt: _s, exportedAt: _e, ...layout } = data;
+  const file = { format: LAYOUT_FILE_FORMAT, formatVersion: 1, exportedAt: new Date().toISOString(), layout };
+  return { fileName: layoutFileName(layout.layoutName), text: JSON.stringify(file, null, 2) };
+}
+
+/**
+ * Add a layout from an exported file to a company's layouts (a new layout; the
+ * file's rooms, items and their ids are kept, so other modules' links still
+ * work). Old files are filled in like old saves (normaliseLayout).
+ * @param {string} text  the file's contents
+ * @returns {Promise<{ id: string, name: string }>}  throws with a short reason
+ */
+export async function importLayout(companyId, text) {
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { throw new Error(NOT_A_LAYOUT); }
+  const layout = parsed?.format === LAYOUT_FILE_FORMAT ? parsed.layout : parsed;
+  const looksLikeLayout = layout && typeof layout === 'object' && !Array.isArray(layout) &&
+    ['rooms', 'objects', 'floors'].some((k) => k in layout);
+  if (!looksLikeLayout) throw new Error(NOT_A_LAYOUT);
+
+  const n = normaliseLayout(layout);
+  const layoutId = newLayoutId();
+  try {
+    _persistToBackend(companyId, layoutId, {
+      companyId, layoutId,
+      layoutName: n.layoutName, layoutVersion: n.layoutVersion,
+      floors: n.floors, rooms: n.rooms, objects: n.objects, anchorData: n.anchorData,
+    }, 1);
+  } catch (err) {
+    localStorage.removeItem(storageKey(companyId, layoutId));
+    throw new Error(err?.name === 'QuotaExceededError' ? NO_SPACE : (err?.message || 'Could not import'));
+  }
+  return { id: layoutId, name: n.layoutName };
+}
+
+/**
+ * How much of the browser's storage the app uses (all companies and layouts).
+ * @returns {{ used: number, quota: number, nearlyFull: boolean }}  used / quota in characters (~bytes)
+ */
+export function storageUse() {
+  let used = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      used += key.length + (localStorage.getItem(key)?.length ?? 0);
+    }
+  } catch { /* storage blocked: report empty */ }
+  return { used, quota: STORAGE_QUOTA, nearlyFull: used >= STORAGE_QUOTA * NEARLY_FULL };
 }
 
 /**
