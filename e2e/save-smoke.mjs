@@ -227,6 +227,28 @@ log('Delete, then Import the file: the layout and its rooms are back', deleted &
 await p.click('[aria-label="All layouts"]');
 await p.waitForSelector('text=Workspace Layouts', { timeout: 30000 });
 
+// ── Companies: rename, delete (asks first, and takes its layouts with it) ──
+await p.click('button:has-text("All companies")');
+await p.waitForSelector('text=New company', { timeout: 30000 });
+await shot('s5-companies.png');
+await p.click('button[aria-label="Rename company Save Co"]');
+await p.fill('input[aria-label="Company name"]', 'Save Company');
+await p.press('input[aria-label="Company name"]', 'Enter');
+log('a company can be renamed', await p.locator('button:has-text("Save Company")').count() === 1 &&
+  await p.locator('button:has-text("Save Co")').count() === 1);
+await p.click('button[aria-label="Delete company Save Company"]');
+const companyAsk = await p.locator('[role="alertdialog"]').textContent().catch(() => '');
+await p.click('[role="alertdialog"] button:has-text("Cancel")');
+const keptAfterCancel = await p.locator('button:has-text("Save Company")').count() === 1;
+await p.click('button[aria-label="Delete company Save Company"]');
+await p.click('[role="alertdialog"] button:has-text("Delete")');
+await wait(300);
+const companyGone = await p.evaluate((layoutId) => !Object.keys(localStorage).some((k) => k.endsWith('_' + layoutId)) &&
+  !JSON.parse(localStorage.getItem('dwtwin_companies')).some((c) => c.name === 'Save Company'), id);
+log('deleting a company asks first (naming its layouts), then removes it and its layouts',
+  /Save Company.+layout/.test(companyAsk) && keptAfterCancel && companyGone &&
+  await p.locator('button:has-text("Save Company")').count() === 0, companyAsk);
+
 // ── Two tabs on one layout (two pages in one browser context share localStorage) ──
 const ctx = await b.newContext({ viewport: { width: 1280, height: 760 } });
 const tab = async () => {

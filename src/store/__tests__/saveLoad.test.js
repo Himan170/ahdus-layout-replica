@@ -5,6 +5,7 @@ import { normaliseLayout, layoutSummary } from '../layoutData';
 import {
   createWorkspace, loadWorkspace, saveNow, listLayouts, deleteLayout, renameLayout,
   startAutoSave, stopAutoSave, reloadLayout, saveAsCopy, exportLayout, importLayout, storageUse,
+  listCompanies, addCompany, renameCompany, deleteCompany, countLayouts,
 } from '../../services/apiService';
 
 // ── A browser-like localStorage for Node ──
@@ -95,6 +96,29 @@ describe('save → load round trip', () => {
     createEditorHistory().addRoom({ type: 'OFFICE', x: 20, z: 0, width: 4, depth: 4 });
     const ids = Object.keys(S().rooms);
     expect(new Set(ids).size).toBe(3);
+  });
+});
+
+describe('companies', () => {
+  it('add, rename, and delete (with all its layouts, and only its layouts)', async () => {
+    const a = addCompany('  Acme ');
+    const b = addCompany('Beta');
+    expect(listCompanies().map((c) => c.name)).toEqual(['Acme', 'Beta']);
+    renameCompany(a.id, 'Acme Ltd');
+    expect(listCompanies()[0]).toMatchObject({ id: a.id, name: 'Acme Ltd' });
+
+    await createWorkspace(a.id, 'One');
+    await createWorkspace(a.id, 'Two');
+    await createWorkspace(b.id, 'Theirs');
+    expect(countLayouts(a.id)).toBe(2);
+
+    deleteCompany(a.id);
+    expect(listCompanies().map((c) => c.name)).toEqual(['Beta']);
+    expect(countLayouts(a.id)).toBe(0);
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
+    expect(keys.filter((k) => k.startsWith(`dwtwin_${a.id}_`))).toEqual([]);
+    expect(await listLayouts(a.id)).toEqual([]);
+    expect((await listLayouts(b.id)).map((l) => l.name)).toEqual(['Theirs']);
   });
 });
 

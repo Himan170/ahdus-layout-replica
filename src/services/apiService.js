@@ -290,6 +290,61 @@ export async function listLayouts(companyId) {
   return list;
 }
 
+// ─── Companies (dwtwin_companies: [{ id, name, createdAt }]) ───
+
+const COMPANIES_KEY = `${STORAGE_PREFIX}companies`;
+
+/** @returns {Array<{ id: string, name: string, createdAt?: string }>} */
+export function listCompanies() {
+  try {
+    const list = readJson(COMPANIES_KEY, []);
+    return Array.isArray(list) ? list.filter((c) => c && c.id) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCompanies(list) {
+  localStorage.setItem(COMPANIES_KEY, JSON.stringify(list));
+}
+
+/** Add a company. @returns {{ id, name, createdAt }} */
+export function addCompany(name) {
+  const company = {
+    id: `company_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    name: name.trim(),
+    createdAt: new Date().toISOString(),
+  };
+  writeCompanies([...listCompanies(), company]);
+  return company;
+}
+
+export function renameCompany(companyId, name) {
+  const next = name.trim();
+  if (!next) return;
+  writeCompanies(listCompanies().map((c) => (c.id === companyId ? { ...c, name: next } : c)));
+}
+
+/** Delete a company and ALL its layouts. */
+export function deleteCompany(companyId) {
+  const prefix = `${STORAGE_PREFIX}${companyId}_`;
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(prefix)) keys.push(key);
+  }
+  keys.forEach((k) => localStorage.removeItem(k));
+  writeCompanies(listCompanies().filter((c) => c.id !== companyId));
+}
+
+/** How many layouts a company has (its layout data, not just index entries). */
+export function countLayouts(companyId) {
+  const prefix = `${STORAGE_PREFIX}${companyId}_layout_`;
+  let n = 0;
+  for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i)?.startsWith(prefix)) n++;
+  return n;
+}
+
 // ─── Backup: export / import layout files ───
 
 /** "HQ North.ahdus.json" (characters files can't have are replaced). */
