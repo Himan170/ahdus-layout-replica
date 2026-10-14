@@ -15,6 +15,16 @@
  *  - A failed save keeps isDirty and puts the reason in store.saveError
  *    (the header shows "Not saved"); the next change retries.
  *
+ * Several tabs on one layout (one browser = one localStorage):
+ *  - Every save stores a `revision` (1, 2, 3…). A tab remembers the revision it
+ *    loaded or last saved; before writing it re-reads the stored one. If another
+ *    tab saved since, it does NOT overwrite: store.saveConflict is set and the
+ *    editor shows "This layout was changed in another tab" (Reload / Save mine
+ *    as a copy). The `storage` event shows the same message as soon as the other
+ *    tab saves. Supabase will need the same check (a revision column).
+ *  - Open editors say hello on a BroadcastChannel, so a tab knows when the same
+ *    layout is open elsewhere (store.openElsewhere: "Also open in another tab").
+ *
  * localStorage is per ORIGIN (host + port): layouts saved on localhost:3000 are
  * not visible on localhost:3001. vite.config.js sets strictPort for this reason.
  *
@@ -28,6 +38,7 @@ import { layoutSummary } from '../store/layoutData';
 // ─── Config ───
 const SAVE_DELAY     = 1000;  // ms — debounce trailing edge
 const STORAGE_PREFIX = 'dwtwin_';
+const CHANGED_ELSEWHERE = 'This layout was changed in another tab';
 
 // ─── Internal helpers ───
 
@@ -47,14 +58,30 @@ function readJson(key, fallback) {
 
 // ─── Mock backend (localStorage) ───
 
+function newLayoutId() {
+  return `layout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** The revision of a saved layout (0 for saves from before revisions), or null if there is none. */
+function _storedRevision(companyId, layoutId) {
+  const raw = localStorage.getItem(storageKey(companyId, layoutId));
+  if (raw === null) return null;
+  try {
+    const r = JSON.parse(raw)?.revision;
+    return Number.isFinite(r) ? r : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Write a layout and its entry in the company's index. Synchronous, so it
  * also completes inside beforeunload. Replace with a real request later.
  * Throws if the browser refuses (e.g. storage full).
  */
-function _persistToBackend(companyId, layoutId, payload) {
+function _persistToBackend(companyId, layoutId, payload, revision) {
   const savedAt = new Date().toISOString();
-  localStorage.setItem(storageKey(companyId, layoutId), JSON.stringify({ ...payload, savedAt }));
+  localStorage.setItem(storageKey(companyId, layoutId), JSON.stringify({ ...payload, revision, savedAt }));
 
   let index;
   try { index = readJson(listKey(companyId), []); } catch { index = []; }
@@ -73,10 +100,18 @@ function _loadFromBackend(companyId, layoutId) {
 // ─── Saving ───
 
 let _debounceTimer = null;
+/** Revision of the open layout as this tab loaded or last saved it. */
+let _revision = 0;
+
+function _conflict() {
+  useWorkspaceStore.getState().markSaveConflict(CHANGED_ELSEWHERE);
+  return { ok: false, conflict: true, error: CHANGED_ELSEWHERE };
+}
 
 /**
  * Save the open layout now if it has unsaved changes (or always, with force).
- * @returns {{ ok: boolean, skipped?: boolean, error?: string }}
+ * Never overwrites a save another tab made after ours.
+ * @returns {{ ok: boolean, skipped?: boolean, conflict?: boolean, error?: string }}
  */
 function _saveSync({ force = false } = {}) {
   if (_debounceTimer) {
@@ -85,10 +120,15 @@ function _saveSync({ force = false } = {}) {
   }
   const state = useWorkspaceStore.getState();
   if (!state.companyId || !state.layoutId) return { ok: true, skipped: true }; // nowhere to save
+  if (state.saveConflict) return _conflict();                                  // wait for Reload / Save a copy
   if (!state.isDirty && !force) return { ok: true, skipped: true };            // nothing changed
 
   try {
-    _persistToBackend(state.companyId, state.layoutId, state.exportWorkspace());
+    const stored = _storedRevision(state.companyId, state.layoutId);
+    if (stored !== null && stored > _revision) return _conflict();
+    const revision = Math.max(_revision, stored ?? 0) + 1;
+    _persistToBackend(state.companyId, state.layoutId, state.exportWorkspace(), revision);
+    _revision = revision;
     useWorkspaceStore.getState().markSaved();
     return { ok: true };
   } catch (err) {
@@ -126,7 +166,44 @@ export async function loadWorkspace(companyId, layoutId) {
   store.loadWorkspace(data);
   const summary = layoutSummary(layoutId, data);
   store.setTenant(companyId, layoutId, summary.name, data.layoutVersion ?? 1);
+  _revision = Number.isFinite(data.revision) ? data.revision : 0;
   return true;
+}
+
+/**
+ * "Reload": throw away this tab's unsaved changes and load what the other tab
+ * saved. The caller clears its undo history (it describes the old state).
+ * @returns {Promise<boolean>} false if the layout is gone
+ */
+export async function reloadLayout() {
+  const { companyId, layoutId } = useWorkspaceStore.getState();
+  if (!companyId || !layoutId) return false;
+  return loadWorkspace(companyId, layoutId);
+}
+
+/**
+ * "Save mine as a copy": keep this tab's version as a new layout, "<name> (copy)",
+ * and go on editing that one. The other tab's save stays as it is.
+ * @returns {Promise<{ ok: boolean, layoutId?: string, error?: string }>}
+ */
+export async function saveAsCopy() {
+  const store = useWorkspaceStore.getState();
+  if (!store.companyId) return { ok: false, error: 'This layout has no place to save to' };
+  const layoutId = newLayoutId();
+  const name = `${store.layoutName} (copy)`;
+  try {
+    store.setTenant(store.companyId, layoutId, name, store.layoutVersion);
+    _persistToBackend(store.companyId, layoutId, useWorkspaceStore.getState().exportWorkspace(), 1);
+  } catch (err) {
+    useWorkspaceStore.getState().markSaveFailed(err?.name === 'QuotaExceededError'
+      ? 'The browser has no space left for this layout' : (err?.message || 'Could not save'));
+    return { ok: false, error: useWorkspaceStore.getState().saveError };
+  }
+  _revision = 1;
+  useWorkspaceStore.setState({ saveConflict: false });
+  useWorkspaceStore.getState().markSaved();
+  _announce();
+  return { ok: true, layoutId };
 }
 
 /**
@@ -136,12 +213,13 @@ export async function loadWorkspace(companyId, layoutId) {
  * @returns {Promise<string>} the new layout ID
  */
 export async function createWorkspace(companyId, name = 'Untitled Layout') {
-  const layoutId = `layout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const layoutId = newLayoutId();
   const store = useWorkspaceStore.getState();
   store.resetWorkspace();
   store.setTenant(companyId, layoutId, name, 1);
   // Write the empty layout now, so it is in the list even before the first change
-  _persistToBackend(companyId, layoutId, useWorkspaceStore.getState().exportWorkspace());
+  _persistToBackend(companyId, layoutId, useWorkspaceStore.getState().exportWorkspace(), 1);
+  _revision = 1;
   return layoutId;
 }
 
@@ -219,11 +297,60 @@ export async function deleteLayout(companyId, layoutId) {
   localStorage.setItem(listKey(companyId), JSON.stringify(filtered));
 }
 
+// ─── Other tabs ───
+
+const TAB_ID = Math.random().toString(36).slice(2, 10);
+let _channel;                 // one BroadcastChannel for the page's lifetime (keeps messages in order)
+const _otherTabs = new Set(); // ids of other tabs with this layout open
+
+function _openKey() {
+  const { companyId, layoutId } = useWorkspaceStore.getState();
+  return companyId && layoutId ? storageKey(companyId, layoutId) : null;
+}
+
+function _getChannel() {
+  if (_channel !== undefined) return _channel;
+  _channel = typeof window !== 'undefined' && typeof window.BroadcastChannel === 'function'
+    ? new window.BroadcastChannel('ahdus-layouts') : null;
+  if (_channel) _channel.onmessage = (e) => _onTabMessage(e.data);
+  return _channel;
+}
+
+function _post(type) {
+  _getChannel()?.postMessage({ type, tab: TAB_ID, key: _openKey() });
+}
+
+/** Tell other tabs which layout this editor has open (and forget who had the old one). */
+function _announce() {
+  if (!_unsubscribe) return; // only an open editor counts
+  _otherTabs.clear();
+  useWorkspaceStore.getState().setOpenElsewhere(false);
+  _post('open');
+}
+
+function _onTabMessage(msg) {
+  if (!msg || msg.tab === TAB_ID || !_unsubscribe) return;
+  const mine = msg.key && msg.key === _openKey();
+  if (mine && msg.type === 'open') { _otherTabs.add(msg.tab); _post('here'); }
+  else if (mine && msg.type === 'here') _otherTabs.add(msg.tab);
+  else _otherTabs.delete(msg.tab); // closed, or busy with another layout
+  useWorkspaceStore.getState().setOpenElsewhere(_otherTabs.size > 0);
+}
+
+/** Another tab wrote localStorage: if it saved our layout, say so at once. */
+function _onStorage(e) {
+  if (!e.key || e.key !== _openKey() || e.newValue === null) return;
+  let revision = 0;
+  try { revision = JSON.parse(e.newValue)?.revision ?? 0; } catch { /* unreadable: treat as old */ }
+  if (revision > _revision) _conflict();
+}
+
 // ─── Auto-save subscription ───
 
 let _unsubscribe = null;
 
 const _flush = () => { _saveSync(); };
+const _onPageHide = () => { _saveSync(); _post('closed'); };
 const _onVisibility = () => { if (document.visibilityState === 'hidden') _saveSync(); };
 
 /**
@@ -246,14 +373,17 @@ export function startAutoSave() {
     }
   );
   window.addEventListener('beforeunload', _flush);
-  window.addEventListener('pagehide', _flush);
+  window.addEventListener('pagehide', _onPageHide);
+  window.addEventListener('storage', _onStorage);
   document.addEventListener('visibilitychange', _onVisibility);
   _unsubscribe = () => {
     unsubStore();
     window.removeEventListener('beforeunload', _flush);
-    window.removeEventListener('pagehide', _flush);
+    window.removeEventListener('pagehide', _onPageHide);
+    window.removeEventListener('storage', _onStorage);
     document.removeEventListener('visibilitychange', _onVisibility);
   };
+  _announce();
 }
 
 /**
@@ -263,6 +393,9 @@ export function stopAutoSave() {
   if (_unsubscribe) {
     _unsubscribe();
     _unsubscribe = null;
+    _post('closed');
+    _otherTabs.clear();
+    useWorkspaceStore.getState().setOpenElsewhere(false);
   }
   _saveSync();
 }

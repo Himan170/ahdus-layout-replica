@@ -207,6 +207,84 @@ const gone = await p.evaluate(() => !Object.keys(localStorage).some((k) => k.end
 log('Delete removes it from the list and from storage', await layoutRow('Old Layout').count() === 0 && gone);
 await shot('s3-layout-list.png');
 
+// ── Two tabs on one layout (two pages in one browser context share localStorage) ──
+const ctx = await b.newContext({ viewport: { width: 1280, height: 760 } });
+const tab = async () => {
+  const t = await ctx.newPage();
+  t.on('pageerror', (e) => errs.push('pageerror (tab): ' + e.message));
+  t.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('BJS')) errs.push('tab: ' + m.text()); });
+  await t.goto(url);
+  await t.waitForSelector('input[placeholder="Company name…"]', { timeout: 90000 });
+  return t;
+};
+const opened = async (t) => {
+  await t.waitForSelector('canvas', { timeout: 90000 });
+  await t.evaluate(() => window.__ahdusScene.getEngine().setHardwareScalingLevel(2));
+};
+const until = async (fn, ms = 30000) => {
+  const start = Date.now();
+  while (Date.now() - start < ms) { if (await fn()) return true; await wait(250); }
+  return false;
+};
+const shown = (t, label) => t.locator(`[aria-label="${label}"]`).isVisible().catch(() => false);
+const roomNames = (t) => t.evaluate(() => Object.values(window.__ahdusStore.getState().rooms).map((r) => r.name).sort());
+const addRoomIn = (t, name, x) => t.evaluate(([name, x]) =>
+  window.__ahdusStore.getState().addRoom({ type: 'OFFICE', name, x, z: 0, width: 4, depth: 4, floor: 0 }), [name, x]);
+const savedIn = (t, id) => t.evaluate((id) => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('_' + id));
+  return key ? JSON.parse(localStorage.getItem(key)) : null;
+}, id);
+const tabStatus = (t) => t.locator('.studio-header__status').textContent({ timeout: 5000 }).catch(() => '');
+
+const tA = await tab();
+await tA.fill('input[placeholder="Company name…"]', 'Tabs Co'); await tA.click('button:has-text("Create")'); await tA.waitForTimeout(400);
+await tA.fill('input[placeholder="Layout name…"]', 'Shared');
+await tA.press('input[placeholder="Layout name…"]', 'Enter');
+await opened(tA);
+const sharedId = await tA.evaluate(() => window.__ahdusStore.getState().layoutId);
+const tB = await tab();
+await tB.click('button:has-text("Tabs Co")');
+await tB.locator('button[aria-label="Open Shared"]').click();
+await opened(tB);
+log('two tabs: opening a layout that is open in another tab says "Also open in another tab"',
+  await until(() => shown(tB, 'Also open in another tab')) && await until(() => shown(tA, 'Also open in another tab')));
+
+await addRoomIn(tA, 'Room A', 0);
+await until(async () => (await savedIn(tA, sharedId))?.rooms?.length === 1);
+log('two tabs: when tab A saves, tab B says "changed in another tab" at once',
+  await until(() => shown(tB, 'Changed in another tab'), 10000));
+await tB.screenshot({ path: 'e2e/screens/s4-changed-in-another-tab.png', timeout: 120000 });
+
+await addRoomIn(tB, 'Room B', 8);
+await tB.waitForTimeout(2500); // longer than the auto-save delay
+let shared = await savedIn(tB, sharedId);
+log('two tabs: tab B\'s save does not wipe tab A\'s room', shared?.rooms?.map((r) => r.name).join() === 'Room A' &&
+  (await tabStatus(tB)).startsWith('Not saved'), `${shared?.rooms?.map((r) => r.name)} / ${await tabStatus(tB)}`);
+
+await tB.click('[aria-label="Save mine as a copy"]');
+const copyId = await tB.evaluate(() => window.__ahdusStore.getState().layoutId);
+const copy = await savedIn(tB, copyId);
+shared = await savedIn(tB, sharedId);
+log('two tabs: Save mine as a copy keeps both versions', copyId !== sharedId && copy?.layoutName === 'Shared (copy)' &&
+  copy.rooms.map((r) => r.name).join() === 'Room B' && shared.rooms.map((r) => r.name).join() === 'Room A' &&
+  !(await shown(tB, 'Changed in another tab')) && await until(async () => (await tabStatus(tB)).startsWith('Saved')),
+  `${copy?.layoutName}: ${copy?.rooms?.map((r) => r.name)}`);
+log('two tabs: on different layouts the "also open" note goes away',
+  await until(async () => !(await shown(tA, 'Also open in another tab')) && !(await shown(tB, 'Also open in another tab'))));
+
+// Tab B opens the shared layout again; tab A saves; tab B reloads theirs
+await tB.click('[aria-label="All layouts"]');
+await tB.waitForSelector('text=Workspace Layouts', { timeout: 30000 });
+await tB.locator('button[aria-label="Open Shared"]').click();
+await opened(tB);
+await addRoomIn(tA, 'Room A2', 8);
+await until(() => shown(tB, 'Changed in another tab'), 15000);
+await tB.click('[aria-label="Reload"]');
+log('two tabs: Reload loads the other tab\'s version',
+  await until(async () => (await roomNames(tB)).join() === 'Room A,Room A2') && !(await shown(tB, 'Changed in another tab')),
+  (await roomNames(tB)).join());
+await ctx.close();
+
 log('no page errors', errs.length === 0, errs.slice(0, 3).join(' | '));
 await b.close();
 process.exitCode = results.every((r) => r.ok) ? 0 : 1;

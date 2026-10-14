@@ -61,7 +61,7 @@ import {
   useWorkspaceStore,
 } from '../store/workspaceStore';
 import { createEditorHistory } from '../store/editorHistory';
-import { startAutoSave, stopAutoSave, saveNow, renameLayout } from '../services/apiService';
+import { startAutoSave, stopAutoSave, saveNow, renameLayout, reloadLayout, saveAsCopy } from '../services/apiService';
 
 // Phase 4 — Performance optimisation
 import {
@@ -84,6 +84,7 @@ import RoomLabels from '../ui/RoomLabels';
 import SelectionToolbar from '../ui/SelectionToolbar';
 import Inspector from '../ui/Inspector';
 import StudioFooter from '../ui/StudioFooter';
+import TabNotice from '../ui/TabNotice';
 import { STUDIO_TOOLS, activeTile, toolHint } from '../ui/tools';
 
 // Play mode — walk around as a character and build (replaces the old walkthrough)
@@ -241,6 +242,8 @@ export default function WorkplaceEditor({ onExit }) {
   const is3D = useWorkspaceStore((s) => s.is3D);
   const isDirty = useWorkspaceStore((s) => s.isDirty);
   const saveError = useWorkspaceStore((s) => s.saveError);
+  const saveConflict = useWorkspaceStore((s) => s.saveConflict);   // another tab saved this layout
+  const openElsewhere = useWorkspaceStore((s) => s.openElsewhere); // this layout is open in another tab too
   const selectedOpeningSel = useWorkspaceStore((s) => s.selectedOpening);
   const layoutName = useWorkspaceStore((s) => s.layoutName);
   const hasBackend = useWorkspaceStore((s) => !!(s.companyId && s.layoutId));
@@ -1507,6 +1510,18 @@ export default function WorkplaceEditor({ onExit }) {
     onExit();
   }, [onExit]);
 
+  // Another tab saved this layout: load theirs (our undo steps describe the old
+  // layout, so they go), or keep ours as a new layout.
+  const handleReloadTheirs = useCallback(async () => {
+    gizmoControllerRef.current?.detach();
+    if (await reloadLayout()) editor.clear();
+    else showStudioMessage('This layout was deleted in another tab', true);
+  }, [editor, showStudioMessage]);
+  const handleSaveCopy = useCallback(async () => {
+    const result = await saveAsCopy();
+    if (result.ok) showStudioMessage(`Saved as "${useWorkspaceStore.getState().layoutName}"`);
+  }, [showStudioMessage]);
+
   // ─── Render ───
   return (
     <StudioShell
@@ -1570,6 +1585,12 @@ export default function WorkplaceEditor({ onExit }) {
             ref={canvasRef}
             onDragOver={handleCanvasDragOver}
             onDrop={handleCanvasDrop}
+          />
+          <TabNotice
+            conflict={saveConflict}
+            openElsewhere={openElsewhere}
+            onReload={handleReloadTheirs}
+            onSaveCopy={handleSaveCopy}
           />
           <RoomLabels
             scene={sceneReady}

@@ -4,7 +4,7 @@ import { createEditorHistory } from '../editorHistory';
 import { normaliseLayout, layoutSummary } from '../layoutData';
 import {
   createWorkspace, loadWorkspace, saveNow, listLayouts, deleteLayout, renameLayout,
-  startAutoSave, stopAutoSave,
+  startAutoSave, stopAutoSave, reloadLayout, saveAsCopy,
 } from '../../services/apiService';
 
 // ── A browser-like localStorage for Node ──
@@ -238,6 +238,56 @@ describe('auto-save', () => {
     expect(r.ok).toBe(false);
     expect(S().saveError).toBe('The browser has no space left for this layout');
     expect(S().isDirty).toBe(true);
+  });
+
+  it('never overwrites a newer save from another tab; Reload or Save mine as a copy', async () => {
+    const id = await createWorkspace(COMPANY, 'Shared');
+    const key = `dwtwin_${COMPANY}_${id}`;
+    const saved = () => JSON.parse(localStorage.getItem(key));
+    const editor = createEditorHistory();
+    editor.addRoom({ type: 'OFFICE', name: 'Mine', x: 0, z: 0, width: 4, depth: 4 });
+    expect(await saveNow()).toEqual({ ok: true });
+    expect(saved().revision).toBe(2);
+
+    // another tab saves its own version (it loaded revision 2 too)
+    const theirs = { ...saved(), rooms: [{ ...saved().rooms[0], id: 'room_99', name: 'Theirs' }], revision: 3 };
+    localStorage.setItem(key, JSON.stringify(theirs));
+
+    editor.addRoom({ type: 'OFFICE', name: 'Mine 2', x: 8, z: 0, width: 4, depth: 4 });
+    const r = await saveNow();
+    expect(r).toMatchObject({ ok: false, conflict: true });
+    expect(saved().rooms.map((x) => x.name)).toEqual(['Theirs']);     // their work is still there
+    expect(S()).toMatchObject({ saveConflict: true, saveError: 'This layout was changed in another tab', isDirty: true });
+
+    // Save mine as a copy: a new layout with my rooms; theirs untouched
+    const copy = await saveAsCopy();
+    expect(copy.ok).toBe(true);
+    const mine = JSON.parse(localStorage.getItem(`dwtwin_${COMPANY}_${copy.layoutId}`));
+    expect(mine.layoutName).toBe('Shared (copy)');
+    expect(mine.rooms.map((x) => x.name)).toEqual(['Mine', 'Mine 2']);
+    expect(saved().rooms.map((x) => x.name)).toEqual(['Theirs']);
+    expect(S()).toMatchObject({ layoutId: copy.layoutId, saveConflict: false, isDirty: false });
+    expect((await listLayouts(COMPANY)).map((l) => l.name).sort()).toEqual(['Shared', 'Shared (copy)']);
+
+    // back on the shared one: another tab saves again → Reload loads theirs
+    await loadWorkspace(COMPANY, id);
+    localStorage.setItem(key, JSON.stringify({ ...theirs, revision: 4 }));
+    editor.addRoom({ type: 'OFFICE', name: 'Lost', x: 0, z: 9, width: 4, depth: 4 });
+    expect((await saveNow()).conflict).toBe(true);
+    expect(await reloadLayout()).toBe(true);
+    expect(Object.values(S().rooms).map((x) => x.name)).toEqual(['Theirs']);
+    expect(S()).toMatchObject({ saveConflict: false, saveError: null, isDirty: false });
+    editor.addRoom({ type: 'OFFICE', name: 'After reload', x: 0, z: 9, width: 4, depth: 4 });
+    expect(await saveNow()).toEqual({ ok: true });
+    expect(saved().revision).toBe(5);
+  });
+
+  it('saves from before revisions still save (revision 0 → 1)', async () => {
+    localStorage.setItem(`dwtwin_${COMPANY}_layout_norev`, JSON.stringify({ layoutName: 'Old', rooms: [] }));
+    await loadWorkspace(COMPANY, 'layout_norev');
+    createEditorHistory().addRoom({ type: 'OFFICE', x: 0, z: 0, width: 4, depth: 4 });
+    expect(await saveNow()).toEqual({ ok: true });
+    expect(JSON.parse(localStorage.getItem(`dwtwin_${COMPANY}_layout_norev`)).revision).toBe(1);
   });
 
   it('stopping auto-save (leaving the editor) saves what is pending', async () => {

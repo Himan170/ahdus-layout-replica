@@ -393,6 +393,31 @@
 }
 .canvas-card__fit { width: 30px; height: 30px; }
 
+/* Same layout in two tabs (ui/TabNotice.jsx) */
+.tab-notice {
+  position: absolute;
+  top: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 2 * var(--space-6));
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  border-radius: var(--radius);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-muted);
+  font-size: 13px;
+  z-index: 7;
+}
+.tab-notice.is-bad { color: var(--text); border-color: rgba(239, 107, 107, 0.4); padding: var(--space-2) var(--space-3); }
+.tab-notice.is-bad > svg { color: var(--danger); flex-shrink: 0; }
+.tab-notice__text { margin: 0; }
+.tab-notice.is-bad .tab-notice__text { margin-right: var(--space-2); }
+
 .empty-state {
   position: absolute;
   inset: 0;

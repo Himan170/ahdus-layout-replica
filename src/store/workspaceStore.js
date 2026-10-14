@@ -69,6 +69,8 @@ export const useWorkspaceStore = create(
     layoutVersion: 1,
     isDirty: false,                    // true if local changes haven't been saved
     saveError: null,                   // message of the last failed save (null = last save worked)
+    saveConflict: false,               // another tab saved this layout after we loaded it: saving stops
+    openElsewhere: false,              // this layout is also open in another tab
 
     // ━━ Floors ━━ (Phase 5)
     // { [floorId]: { id, name, height } }. height = floor-to-floor; the
@@ -440,6 +442,7 @@ export const useWorkspaceStore = create(
         selectedOpening: null,
         isDirty: false,
         saveError: null,
+        saveConflict: false,
       });
     },
 
@@ -501,6 +504,12 @@ export const useWorkspaceStore = create(
     /** A save failed: keep isDirty so the next change retries, and say why. */
     markSaveFailed: (message) => set({ saveError: message || 'Could not save' }),
 
+    /** Another tab saved this layout: our saves stop until the user reloads or saves a copy. */
+    markSaveConflict: (message) => set({ saveConflict: true, saveError: message }),
+
+    /** Whether this layout is also open in another tab (apiService watches the other tabs). */
+    setOpenElsewhere: (flag) => set({ openElsewhere: !!flag }),
+
     /** Reset the entire store to initial state. */
     resetWorkspace: () => {
       _nextRoomId = 1;
@@ -512,6 +521,8 @@ export const useWorkspaceStore = create(
         layoutVersion: 1,
         isDirty: false,
         saveError: null,
+        saveConflict: false,
+        openElsewhere: false,
         floors: { 0: { id: 0, name: 'Ground Floor', height: STOREY_HEIGHT } },
         currentFloor: 0,
         rooms: {},
