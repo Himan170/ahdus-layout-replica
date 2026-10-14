@@ -21,9 +21,14 @@
  * Which parts are visible is decided by WorkplaceEditor (applyLevelVisibility).
  *
  * Mesh metadata (used for picking in the planner and in Play mode):
- *   { roomId, floorId, part: 'floor' | 'wall' | 'door' | 'window' | 'slab' | 'roof' | 'ceiling' | 'band',
+ *   { roomId, floorId, part: 'floor' | 'wall' | 'door' | 'window' | 'slab' | 'roof' | 'ceiling' | 'band' | 'skirting',
  *     wallName?, openingKind?, openingIndex? }
  * Each door/window also has an invisible pickable pane filling its opening.
+ *
+ * Big buildings: parts with the same metadata are merged into one mesh with one
+ * sub-mesh per material (one mesh per wall, per door / window frame, one floor,
+ * roof, ceiling, skirting), and their world matrices are frozen (a room that
+ * changes is rebuilt, see roomGeometryKey).
  */
 
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
@@ -35,6 +40,7 @@ import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { getMaterials, TILE_SIZE, FLOOR_BY_ROOM_TYPE } from './materialLibrary';
 import { roomWalls, roomOpenings, splitWall, WALL_THICKNESS } from '../play/geometry';
 import { subtractRects, SLAB } from '../play/building';
+import { mergeByMaterial } from './assetInstances';
 
 const FLOOR_Y = 0.02;          // just above the site ground, avoids z-fighting
 const SKIRTING_H = 0.1;
@@ -87,17 +93,13 @@ export function buildRoomMesh(roomData, scene, options = {}) {
   const elevation = options.elevation ?? 0;
 
   const root = new TransformNode(`room_${id}`, scene);
-  root.position = new Vector3(x, elevation, z);
   root.metadata = { roomId: id, floorId, label: roomData.name };
 
+  // Parts are built around the room centre, then merged (see the end)
+  const parts = [];
   const addPart = (mesh, meta, material, { castShadow = true, pickable = true } = {}) => {
-    mesh.parent = root;
     mesh.material = material;
-    mesh.metadata = { roomId: id, floorId, ...meta };
-    mesh.isPickable = pickable;
-    mesh.receiveShadows = true;
-    mesh.checkCollisions = meta.part === 'wall' || meta.part === 'window';
-    if (castShadow && shadows) shadows.addShadowCaster(mesh, false);
+    parts.push({ mesh, meta, castShadow, pickable });
     return mesh;
   };
 
@@ -163,11 +165,12 @@ export function buildRoomMesh(roomData, scene, options = {}) {
       addPart(roof, { part: 'roof' }, mats.plaster(), { pickable: false });
     });
 
+    // (casts with the roof under it: one roof mesh)
     const top = { x0: outer.x0 + PARAPET_T, x1: outer.x1 - PARAPET_T, z0: outer.z0 + PARAPET_T, z1: outer.z1 - PARAPET_T };
     subtractRects(top, ceilingHoles).forEach((p, i) => {
       const membrane = MeshBuilder.CreateGround(`roofTop_${id}_${i}`, { width: p.x1 - p.x0, height: p.z1 - p.z0 }, scene);
       membrane.position.set((p.x0 + p.x1) / 2, wallHeight + ROOF_T + 0.005, (p.z0 + p.z1) / 2);
-      addPart(membrane, { part: 'roof' }, mats.roofTop(), { castShadow: false, pickable: false });
+      addPart(membrane, { part: 'roof' }, mats.roofTop(), { pickable: false });
     });
 
     const W = outer.x1 - outer.x0;
@@ -233,9 +236,11 @@ export function buildRoomMesh(roomData, scene, options = {}) {
     const wallMeta = { part: 'wall', wallName: wall.name };
     pieces.forEach((p, i) => {
       placeBox(`wall_${id}_${wall.name}_${i}`, p.u0, p.u1, p.y0, p.y1, T, mats.plaster(), wallMeta);
+      // Skirting: one mesh for the whole room. Not pickable: a click on it
+      // goes through to the wall right behind it (1.5 cm).
       if (p.y0 === 0) {
         placeBox(`skirt_${id}_${wall.name}_${i}`, p.u0, p.u1, 0, SKIRTING_H, T + 0.03,
-          mats.skirting(), wallMeta, { castShadow: false });
+          mats.skirting(), { part: 'skirting' }, { castShadow: false, pickable: false });
       }
     });
 
@@ -267,6 +272,37 @@ export function buildRoomMesh(roomData, scene, options = {}) {
           mats.glass(), meta, { castShadow: false });
       }
     }
+  }
+
+  // ── Merge parts that behave the same: one mesh per wall, one floor, one roof,
+  // one ceiling, one skirting, one per door / window frame (+ its pick pane).
+  // Each mesh has one sub-mesh (draw call) per material; a big building has
+  // a few thousand meshes instead of tens of thousands.
+  const groups = new Map();
+  for (const p of parts) {
+    p.hidden = p.mesh.visibility === 0; // the pick panes
+    const key = JSON.stringify([p.meta, p.castShadow, p.pickable, p.hidden]);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  }
+  for (const list of groups.values()) {
+    const { meta, castShadow, pickable, hidden } = list[0];
+    const mesh = mergeByMaterial(list.map((p) => p.mesh), list[0].mesh.name);
+    mesh.parent = root;
+    mesh.metadata = { roomId: id, floorId, ...meta };
+    mesh.isPickable = pickable;
+    mesh.receiveShadows = true;
+    mesh.checkCollisions = meta.part === 'wall' || meta.part === 'window';
+    if (hidden) mesh.visibility = 0;
+    if (castShadow && shadows) shadows.addShadowCaster(mesh, false);
+  }
+
+  // Rooms never move: a change rebuilds them (roomGeometryKey), so freeze
+  root.position = new Vector3(x, elevation, z);
+  root.computeWorldMatrix(true);
+  for (const child of root.getChildMeshes(false)) {
+    child.computeWorldMatrix(true);
+    child.freezeWorldMatrix();
   }
 
   setRoomSelected(root, !!roomData.isSelected, roomData.color);

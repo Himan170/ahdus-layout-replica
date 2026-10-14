@@ -51,7 +51,8 @@ function stairHolesFor(room, stairs, floors) {
 import { createSiteEnvironment } from '../utils/siteEnvironment';
 
 // Phase 3 utilities
-import { ASSET_TYPES, buildAssetMesh } from '../utils/assetCatalog';
+import { ASSET_TYPES } from '../utils/assetCatalog';
+import { createItemMesh, disposeItemMesh } from '../utils/assetInstances';
 import { createPlacementManager } from '../utils/placementManager';
 import { createGizmoController } from '../utils/gizmoController';
 import { applyLockVisual, removeLockVisual } from '../utils/lockIndicator';
@@ -72,7 +73,6 @@ import {
 
 // Components
 import { Camera } from '@babylonjs/core/Cameras/camera';
-import { disposeMaterialIfOwned } from '../utils/materialLibrary';
 import PlayHUD from './PlayHUD';
 
 // Workplace Studio UI (UI_SPEC.md)
@@ -747,9 +747,7 @@ export default function WorkplaceEditor({ onExit }) {
           if (!existing.isDisposed()) disposeRoomMesh(existing);
           meshMap.delete(room.id);
         } else {
-          // Just update position and selection visual
-          existing.position.x = room.x;
-          existing.position.z = room.z;
+          // Unchanged (its parts' world matrices are frozen): only the selection outline
           setRoomSelected(existing, room.id === selectedRoomId, room.color);
           continue;
         }
@@ -776,20 +774,10 @@ export default function WorkplaceEditor({ onExit }) {
     const allObjects = Object.values(objectsMap);
     const currentIds = new Set(allObjects.map((o) => o.id));
 
-    // Furniture materials are shared between objects: only dispose owned ones
-    const disposeObjectMesh = (mesh) => {
-      mesh.getChildMeshes(false).forEach((child) => {
-        disposeMaterialIfOwned(child.material);
-        child.dispose();
-      });
-      disposeMaterialIfOwned(mesh.material);
-      mesh.dispose();
-    };
-
-    // Remove meshes for deleted objects
+    // Remove meshes for deleted objects (their template and materials are shared and stay)
     for (const [id, mesh] of meshMap.entries()) {
       if (!currentIds.has(id)) {
-        disposeObjectMesh(mesh);
+        disposeItemMesh(mesh);
         meshMap.delete(id);
       }
     }
@@ -800,35 +788,23 @@ export default function WorkplaceEditor({ onExit }) {
       if (mesh?.isDisposed()) mesh = null;
       // Stairs climb exactly their floor's height: a taller or lower floor rebuilds them
       const rise = obj.assetType === 'STAIRCASE' ? floorHeight(floorsMap, obj.floor ?? 0) : undefined;
-      if (mesh && rise !== undefined && mesh.metadata?.rise !== rise) {
-        disposeObjectMesh(mesh);
+      if (mesh && (mesh.metadata?.rise !== rise || mesh.metadata?.floorId !== (obj.floor ?? 0))) {
+        disposeItemMesh(mesh);
         meshMap.delete(obj.id);
         mesh = null;
       }
 
       if (!mesh) {
-        // Build new mesh
-        mesh = buildAssetMesh(obj.assetType, scene, obj.id, { rise });
-        if (!mesh) continue;
-
-        // Tag mesh for picking; furniture blocks the character in Play mode
-        // (markers like spawn points don't); everything casts soft shadows
-        mesh.metadata = mesh.metadata || {};
-        mesh.metadata.objectId = obj.id;
-        // Stairs are walked ON (Play mode computes the slope), so they don't block
-        const solid = ASSET_TYPES[obj.assetType]?.category !== OBJECT_CATEGORIES.MARKER &&
-          obj.assetType !== 'STAIRCASE';
-        const shadowGen = lightsRef.current?.shadowGenerator;
-        mesh.metadata.floorId = obj.floor ?? 0;
-        mesh.getChildMeshes(false).forEach((child) => {
-          child.metadata = child.metadata || {};
-          child.metadata.objectId = obj.id;
-          child.metadata.floorId = obj.floor ?? 0;
-          child.checkCollisions = solid;
-          child.receiveShadows = true;
-          shadowGen?.addShadowCaster(child, false);
+        // An instance of its type's template (assetInstances.js), tagged for
+        // picking. Furniture blocks the character in Preview; markers (spawn
+        // points) don't, and stairs are walked ON (Preview computes the slope).
+        // Bigger items cast soft shadows.
+        mesh = createItemMesh(obj.assetType, scene, obj.id, {
+          rise,
+          floorId: obj.floor ?? 0,
+          solid: ASSET_TYPES[obj.assetType]?.category !== OBJECT_CATEGORIES.MARKER && obj.assetType !== 'STAIRCASE',
+          shadowGenerator: lightsRef.current?.shadowGenerator,
         });
-
         meshMap.set(obj.id, mesh);
       }
 

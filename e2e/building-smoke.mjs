@@ -88,13 +88,19 @@ const yRange = (roomId, part) => p.evaluate(({ roomId, part }) => {
   }
   return [lo, hi];
 }, { roomId, part });
-/** Does any (enabled or not) mesh of this room part cover the point (x, z) from above? */
-const partCovers = (roomId, part, x, z) => p.evaluate(({ roomId, part, x, z }) => window.__ahdusScene.meshes.some((m) => {
-  if (m.metadata?.roomId !== roomId || m.metadata?.part !== part) return false;
-  m.computeWorldMatrix(true);
-  const bb = m.getBoundingInfo().boundingBox;
-  return bb.minimumWorld.x < x && bb.maximumWorld.x > x && bb.minimumWorld.z < z && bb.maximumWorld.z > z;
-}), { roomId, part, x, z });
+/** Does any (enabled or not) mesh of this room part cover the point (x, z) from above? (a vertical ray
+ *  against its triangles: a room's parts are merged, so a hole is in the mesh, not between pieces) */
+const partCovers = (roomId, part, x, z) => p.evaluate(({ roomId, part, x, z }) => {
+  const sc = window.__ahdusScene;
+  const Ray = sc.activeCamera.getForwardRay().constructor;
+  const V = sc.activeCamera.position.constructor;
+  const ray = new Ray(new V(x, 100, z), new V(0, -1, 0), 200);
+  return sc.meshes.some((m) => {
+    if (m.metadata?.roomId !== roomId || m.metadata?.part !== part) return false;
+    m.computeWorldMatrix(true);
+    return ray.intersectsMesh(m, false).hit;
+  });
+}, { roomId, part, x, z });
 // Where the crosshair meets the plane y = planeY
 const aimOnPlane = (planeY) => p.evaluate((planeY) => {
   const r = window.__ahdusScene.activeCamera.getForwardRay(1);
@@ -166,15 +172,17 @@ log('a room on Floor 1 that sticks out past the floor below gets a warning, and 
   `"${overhangHint.slice(0, 80)}" ${extra ? `${extra.width} × ${extra.depth}` : 'not built'}`);
 
 // ── The copied room: 3.5 m up, on a slab, with an opening over the stairs ──
-const upperInfo = await p.evaluate((id) => {
-  const sc = window.__ahdusScene;
-  const node = sc.transformNodes.find((t) => t.name === `room_${id}`);
-  const floors = sc.meshes.filter((m) => m.metadata?.roomId === id && m.metadata?.part === 'floor');
-  const slabs = sc.meshes.filter((m) => m.metadata?.roomId === id && m.metadata?.part === 'slab');
-  return { y: node?.position.y, floorPieces: floors.length, slabPieces: slabs.length };
-}, copy.id);
+const stairsAt = await p.evaluate((id) => window.__ahdusStore.getState().objects[id], ids.stairs);
+const upperInfo = {
+  y: await p.evaluate((id) => window.__ahdusScene.transformNodes.find((t) => t.name === `room_${id}`)?.position.y, copy.id),
+  floorOverStairs: await partCovers(copy.id, 'floor', stairsAt.x, stairsAt.z),
+  slabOverStairs: await partCovers(copy.id, 'slab', stairsAt.x, stairsAt.z),
+  floorElsewhere: await partCovers(copy.id, 'floor', stairsAt.x - 2.5, stairsAt.z),
+  slabElsewhere: await partCovers(copy.id, 'slab', stairsAt.x - 2.5, stairsAt.z),
+};
 log('Floor 1 room sits 3.5 m up on a slab, with the floor cut open over the stairs',
-  upperInfo.y === 3.5 && upperInfo.floorPieces >= 2 && upperInfo.slabPieces >= 2, JSON.stringify(upperInfo));
+  upperInfo.y === 3.5 && !upperInfo.floorOverStairs && !upperInfo.slabOverStairs && upperInfo.floorElsewhere && upperInfo.slabElsewhere,
+  JSON.stringify(upperInfo));
 
 // ── Outside: the whole building with a roof on top, no roof in between ──
 await pose({ x: -9, z: -13, yaw: 0.55, pitch: -0.12, floor: 0, fly: false });

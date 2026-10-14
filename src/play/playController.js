@@ -48,6 +48,7 @@ import { Ray } from '@babylonjs/core/Culling/ray';
 import '@babylonjs/core/Rendering/outlineRenderer';
 
 import { buildAssetMesh, ASSET_TYPES } from '../utils/assetCatalog';
+import { setItemLook } from '../utils/assetInstances';
 import { disposeMaterialIfOwned } from '../utils/materialLibrary';
 import { createBuildPreview } from '../utils/buildPreview';
 import { itemOverFloorPoint } from '../utils/pickHelpers';
@@ -225,13 +226,15 @@ export function createPlayController(scene, canvas, {
   function setOutline(objectId, color) {
     if (outlined && (outlined.id !== objectId || !color)) {
       outlined.meshes.forEach((m) => { m.renderOutline = false; });
+      setItemLook(outlined.root, 'outline', false); // back to a cheap instance
       outlined = null;
     }
     if (!objectId || !color) return;
     if (!outlined) {
       const root = getObjectMesh(objectId);
       if (!root) return;
-      outlined = { id: objectId, meshes: [root, ...root.getChildMeshes(false)].filter((m) => m.getTotalVertices?.() > 0) };
+      setItemLook(root, 'outline', true); // instances can't have an outline of their own
+      outlined = { id: objectId, root, meshes: [root, ...root.getChildMeshes(false)].filter((m) => m.getTotalVertices?.() > 0) };
     }
     for (const m of outlined.meshes) {
       m.renderOutline = true;
