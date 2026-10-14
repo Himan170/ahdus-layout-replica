@@ -29,6 +29,18 @@ npm run e2e          # all of them
 
 After any change: run `npm test`, and the e2e script for the area you touched. Screenshots go to `e2e/screens/`.
 
+## Git
+
+Private GitHub repo `ahdus-layout-replica`, branch `main`. Himan is new to git: explain each step he must do in one sentence.
+- Never commit when tests fail: run `npm test` (and the e2e script for the area touched) before every commit.
+- Commit after every working step, with a clear message ("Fix: deleting ground floor", "Add: export layout").
+- Bigger tasks (e.g. Part A of `NEXT_FIXES.md`) get their own branch (`fix/next-fixes`), one commit per fixed item;
+  merge into `main` only when everything passes, then push.
+- Never force-push, never rewrite history on `main`, never delete branches without asking.
+- **Always ask Himan before pushing to GitHub.**
+- Secrets (Supabase keys later) go in `.env`, never in git; keep a `.env.example` with no real values.
+- Tag a version when something big is finished (`v0.2.0`, `v0.3.0` …). `v0.1.0` = initial commit.
+
 ## Stack
 
 React 18 + Babylon.js 7 + Zustand 4 (`subscribeWithSelector`) + Vite 5. Mostly JS; `src/engine/` is TypeScript
