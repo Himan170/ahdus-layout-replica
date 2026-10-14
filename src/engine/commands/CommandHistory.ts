@@ -21,7 +21,8 @@ export interface Command {
   /**
    * Optional: absorb a newer command into this one, so that e.g. dragging a
    * slider or typing a name becomes ONE undo step instead of fifty.
-   * Return true if merged (the newer command is then not pushed).
+   * Return true if merged (the newer command is then not pushed). Only merge
+   * commands with the same mergeKey on the same target.
    * The newer command has already been executed when this is called.
    */
   mergeWith?(next: Command): boolean;
@@ -29,10 +30,15 @@ export interface Command {
 
 export interface CommandHistoryOptions {
   maxSize?: number;
-  /** Commands executed within this many ms of the previous one may merge. */
+  /**
+   * A burst (consecutive commands that merge) ends after this many ms without
+   * a command. Measured with `now`, which should give the time of the INPUT
+   * (key press, mouse move), so a slow PC that handles presses late still
+   * merges them.
+   */
   mergeWindowMs?: number;
   onChange?: (canUndo: boolean, canRedo: boolean) => void;
-  /** Clock, injectable for tests. */
+  /** Time of the input behind the command being executed (ms); injectable for tests. */
   now?: () => number;
 }
 
@@ -49,12 +55,16 @@ export class CommandHistory {
 
   constructor(options: CommandHistoryOptions = {}) {
     this.maxSize = options.maxSize ?? 200;
-    this.mergeWindowMs = options.mergeWindowMs ?? 800;
+    this.mergeWindowMs = options.mergeWindowMs ?? 2000;
     this.onChange = options.onChange;
     this.now = options.now ?? (() => Date.now());
   }
 
-  /** Execute a command and push it to the undo stack (or merge it into the top one) */
+  /**
+   * Execute a command and push it to the undo stack, or merge it into the top
+   * one: the previous command (nothing came between them), same mergeKey and
+   * target (mergeWith decides), and the burst hasn't ended.
+   */
   execute(cmd: Command): void {
     cmd.execute();
 
@@ -65,7 +75,7 @@ export class CommandHistory {
     const top = this.undoStack[this.undoStack.length - 1];
     const merged =
       top !== undefined &&
-      t - this.lastExecuteAt <= this.mergeWindowMs &&
+      t - this.lastExecuteAt < this.mergeWindowMs &&
       top.mergeWith?.(cmd) === true;
     this.lastExecuteAt = t;
 
@@ -119,6 +129,14 @@ export class CommandHistory {
   get redoLabel(): string | null {
     const top = this.redoStack[this.redoStack.length - 1];
     return top ? top.label : null;
+  }
+
+  /**
+   * End the current burst: the next command starts a new undo step even with
+   * the same mergeKey (the mouse was released, the tool changed).
+   */
+  endBurst(): void {
+    this.lastExecuteAt = -Infinity;
   }
 
   /** Wipe all history (e.g., on layout load) */

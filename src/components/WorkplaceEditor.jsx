@@ -356,6 +356,17 @@ export default function WorkplaceEditor({ onExit }) {
     return () => stopAutoSave();
   }, []);
 
+  // ─── Undo bursts (a run of + / −, a slider drag) end when the mouse is
+  // released or the tool changes. After the release's own handlers, so the
+  // last change of a drag still joins its undo step.
+  useEffect(() => {
+    let timer = null;
+    const onPointerUp = () => { clearTimeout(timer); timer = setTimeout(() => editor.endBurst(), 0); };
+    window.addEventListener('pointerup', onPointerUp, true);
+    return () => { clearTimeout(timer); window.removeEventListener('pointerup', onPointerUp, true); };
+  }, [editor]);
+  useEffect(() => { editor.endBurst(); }, [editor, plannerTool, placementMode, selectedSlot, isPlaying]);
+
   // ─── Initialise Babylon Engine & Scene ───
   useEffect(() => {
     const canvas = canvasRef.current;
