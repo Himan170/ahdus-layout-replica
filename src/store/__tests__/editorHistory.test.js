@@ -149,6 +149,25 @@ describe('editor actions are all undoable', () => {
     expect(objs()).toHaveLength(1);
   });
 
+  it('removeFloor refuses the lowest floor (the ground floor), even with floors above', () => {
+    editor.addFloor();
+    S().selectFloor(1);
+    editor.addRoom({ type: 'OFFICE' });
+    const undoBefore = editor.history.undoLabel;
+
+    expect(editor.removeFloor(0).problem).toMatch(/ground floor can't be deleted/);
+    expect(S().floors[0]).toBeDefined();
+    expect(rooms()[0].floor).toBe(1);
+    expect(elevationOf(S().floors, 1)).toBeCloseTo(3.5);   // the room upstairs stays up
+    expect(editor.history.undoLabel).toBe(undoBefore);     // no empty undo step
+
+    S().removeFloor(0);                                    // the store refuses too
+    expect(S().floors[0]).toBeDefined();
+    expect(editor.removeFloor(1).problem).toBeNull();      // other floors still go
+    expect(S().floors[1]).toBeUndefined();
+    expect(S().currentFloor).toBe(0);
+  });
+
   it('reports canUndo / canRedo / labels to the toolbar', () => {
     const states = [];
     editor = createEditorHistory((st) => states.push(st));

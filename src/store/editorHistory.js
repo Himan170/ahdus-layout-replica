@@ -17,7 +17,8 @@
 
 import { useWorkspaceStore } from './workspaceStore';
 import {
-  STOREY_HEIGHT, floorHeight, floorsInOrder, wallSpace, planWallHeight, planFloorHeight, copyRoomsUp,
+  STOREY_HEIGHT, floorHeight, floorsInOrder, wallSpace, planWallHeight, planFloorHeight, copyRoomsUp, isGroundFloor,
+  GROUND_FLOOR_STAYS,
 } from '../play/building';
 import { CommandHistory } from '../engine/commands/CommandHistory';
 import {
@@ -441,9 +442,15 @@ export function createEditorHistory(onChange) {
       }));
       return newId;
     },
+    /**
+     * Remove a floor with its rooms and items. The ground floor can't be removed.
+     * @returns {{ problem: string | null }}
+     */
     removeFloor(floorId) {
-      if (Object.keys(store().floors).length <= 1) return;
+      if (!store().floors[floorId]) return { problem: 'This floor is gone' };
+      if (isGroundFloor(store().floors, floorId)) return { problem: GROUND_FLOOR_STAYS };
       run(new SnapshotCommand('Remove floor', () => store().removeFloor(floorId)));
+      return { problem: null };
     },
     renameFloor(floorId, newName) {
       run(new SnapshotCommand('Rename floor', () => store().renameFloor(floorId, newName)));

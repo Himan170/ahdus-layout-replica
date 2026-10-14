@@ -82,7 +82,7 @@ const cm = (v) => Math.round(v * 100) / 100;
 
 /**
  * Floors: saved as { id: floor } (or an array). Every floor a room or item is
- * on must exist, and the ground floor always does. Each floor gets a height
+ * on must exist, and the ground floor (id 0) always does. Each floor gets a height
  * (floor-to-floor); its elevation is never stored (building.elevationOf).
  *
  * Saves from before floor heights stored an elevation per floor instead. Those
@@ -94,10 +94,21 @@ const cm = (v) => Math.round(v * 100) / 100;
 function normaliseFloors(saved, rooms, objects) {
   const floors = {};
   const oldStyle = new Set();
-  for (const f of asList(saved)) {
-    if (!f || typeof f !== 'object') continue;
-    const id = num(Number(f.id), null);
-    if (id === null) continue;
+  const savedFloors = asList(saved)
+    .filter((f) => f && typeof f === 'object' && num(Number(f.id), null) !== null);
+
+  // Saves from before the ground floor was protected can lack floor 0 (it was
+  // deleted). The lowest floor IS the ground floor: renumber so it is 0 again,
+  // keeping the order (inventing an empty floor 0 would lift the building).
+  const ids = [...savedFloors.map((f) => Number(f.id)), ...rooms.map((r) => r.floor), ...objects.map((o) => o.floor)];
+  const shift = ids.length && !ids.includes(0) ? Math.min(...ids) : 0;
+  if (shift) {
+    for (const r of rooms) r.floor -= shift;
+    for (const o of objects) o.floor -= shift;
+  }
+
+  for (const f of savedFloors) {
+    const id = Number(f.id) - shift;
     const { elevation: _elevation, ...rest } = f;
     floors[id] = {
       ...rest,

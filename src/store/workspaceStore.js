@@ -14,7 +14,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { OBJECT_CATEGORIES } from '../utils/assetCatalog';
 import { normaliseLayout } from './layoutData';
-import { STOREY_HEIGHT, wallSpace } from '../play/building';
+import { STOREY_HEIGHT, wallSpace, floorsInOrder, isGroundFloor } from '../play/building';
 
 /** A record as saved: without UI state. */
 const withoutSelection = ({ isSelected: _s, ...rest }) => rest;
@@ -349,13 +349,13 @@ export const useWorkspaceStore = create(
       });
     },
 
-    /** Remove a floor and all rooms/objects on it. */
+    /**
+     * Remove a floor and all rooms/objects on it. The ground floor (the lowest)
+     * can't be removed: everything above would drop down a storey.
+     */
     removeFloor: (floorId) => {
       set((s) => {
-        if (Object.keys(s.floors).length <= 1) {
-          // Can't delete the last floor
-          return s;
-        }
+        if (!s.floors[floorId] || isGroundFloor(s.floors, floorId)) return s;
 
         const floors = { ...s.floors };
         delete floors[floorId];
@@ -371,8 +371,8 @@ export const useWorkspaceStore = create(
           if (o.floor !== floorId) objects[o.id] = o;
         });
 
-        // If we deleted the current floor, switch to ground floor
-        const newCurrentFloor = s.currentFloor === floorId ? 0 : s.currentFloor;
+        // If we deleted the current floor, switch to the ground floor
+        const newCurrentFloor = s.currentFloor === floorId ? floorsInOrder(floors)[0].id : s.currentFloor;
 
         return {
           floors,

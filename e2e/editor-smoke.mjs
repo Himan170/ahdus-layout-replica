@@ -261,6 +261,17 @@ st = await state();
 log('Ctrl+Z brings the floor back', st.floors.includes('Mezzanine'), JSON.stringify(st.floors));
 await page.evaluate(() => window.__ahdusStore.getState().selectFloor(0));
 await frames(2);
+await click('[aria-label="Floor switcher"]');
+const groundDelete = page.locator('[role="menuitem"][aria-label="Delete floor"]');
+const groundDisabled = await groundDelete.getAttribute('aria-disabled');
+const groundTip = await groundDelete.getAttribute('title');
+await groundDelete.click({ force: true }); await frames(2); // Playwright won't click a disabled item by itself
+st = await state();
+log('the Delete button is disabled on the Ground Floor',
+  groundDisabled === 'true' && /ground floor can't be deleted/.test(groundTip ?? '') &&
+  !(await visible('[role="alertdialog"][aria-label="Delete floor"]')) && st.floors.length === 2,
+  `aria-disabled=${groundDisabled} title=${groundTip}`);
+await key('Escape');
 
 // ── Preview ↔ Studio, with the buttons and with Tab ──
 await page.mouse.move(640, 360);

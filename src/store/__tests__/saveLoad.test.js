@@ -140,6 +140,25 @@ describe('loading saves from older versions of the app', () => {
     expect(Object.keys(S().rooms)).toEqual(['room_3', 'room_4']);
   });
 
+  it('a save with only floor 1 (its ground floor was deleted) gets that floor as floor 0', () => {
+    const saved = {
+      floors: { 1: { id: 1, name: 'Floor 1', height: 4 }, 3: { id: 3, name: 'Roof deck', height: 3.5 } },
+      rooms: [{ id: 'room_2', floor: 1, wallHeight: 3.7 }, { id: 'room_5', floor: 3, wallHeight: 3.2 }],
+      objects: [{ id: 'obj_9', floor: 3, y: 0.75 }],
+      anchorData: { 'anchor-obj_9': { label: 'Desk' } },
+    };
+    const n = normaliseLayout(saved);
+    // no empty floor 0 under it (that lifted the building by a storey), order kept
+    expect(n.floors).toEqual({
+      0: { id: 0, name: 'Floor 1', height: 4 },
+      2: { id: 2, name: 'Roof deck', height: 3.5 },
+    });
+    expect(n.rooms.map((r) => r.floor)).toEqual([0, 2]);
+    expect(n.objects[0]).toMatchObject({ floor: 2, y: 0.75 });
+    expect(n.anchorData).toEqual(saved.anchorData);         // anchor ids don't depend on floors
+    expect(normaliseLayout(n)).toEqual(n);                    // loading it again changes nothing
+  });
+
   it('survives junk: missing lists, maps instead of arrays, nulls', () => {
     expect(() => normaliseLayout(null)).not.toThrow();
     expect(normaliseLayout({}).rooms).toEqual([]);
@@ -176,7 +195,10 @@ describe('the layout list', () => {
   });
 
   it('layoutSummary of an old save', () => {
-    expect(layoutSummary('x', { rooms: [{ id: 'room_1', floor: 1 }] })).toMatchObject({ name: 'Untitled Layout', rooms: 1, floors: 2 });
+    expect(layoutSummary('x', { rooms: [{ id: 'room_1', floor: 0 }, { id: 'room_2', floor: 1 }] }))
+      .toMatchObject({ name: 'Untitled Layout', rooms: 2, floors: 2 });
+    // rooms only on floor 1: that floor is the ground floor, no empty one is added under it
+    expect(layoutSummary('x', { rooms: [{ id: 'room_1', floor: 1 }] })).toMatchObject({ rooms: 1, floors: 1 });
   });
 });
 
