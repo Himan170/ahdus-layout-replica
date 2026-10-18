@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useWorkspaceStore } from '../workspaceStore';
 import { createEditorHistory } from '../editorHistory';
 import { normaliseLayout, layoutSummary } from '../layoutData';
+import { roomWallSegments, wallSegmentOpenings } from '../../play/geometry';
 import {
   createWorkspace, loadWorkspace, saveNow, listLayouts, deleteLayout, renameLayout,
   startAutoSave, stopAutoSave,
@@ -95,6 +96,31 @@ describe('save → load round trip', () => {
     createEditorHistory().addRoom({ type: 'OFFICE', x: 20, z: 0, width: 4, depth: 4 });
     const ids = Object.keys(S().rooms);
     expect(new Set(ids).size).toBe(3);
+  });
+
+  it('re-derives shared walls and one paired opening after saving and reloading', async () => {
+    const id = await createWorkspace(COMPANY, 'Shared wall');
+    const editor = createEditorHistory();
+    editor.addRoom({ type: 'OFFICE', name: 'West', x: 0, z: 0, width: 6, depth: 4, floor: 0 });
+    const westId = S().selectedRoomId;
+    editor.addRoom({ type: 'MEETING', name: 'East', x: 5.15, z: 0, width: 4, depth: 4, floor: 0 });
+    const eastId = S().selectedRoomId;
+    editor.addOpenings([
+      { roomId: westId, kind: 'door', wall: 'east', offset: 0.25, width: 1, height: 2.1 },
+      { roomId: eastId, kind: 'door', wall: 'west', offset: 0.25, width: 1, height: 2.1 },
+    ]);
+
+    expect(await saveNow()).toEqual({ ok: true });
+    const saved = JSON.parse(localStorage.getItem(`dwtwin_${COMPANY}_${id}`));
+    expect(saved.rooms.every((room) => !('sharedWalls' in room))).toBe(true);
+
+    S().resetWorkspace();
+    expect(await loadWorkspace(COMPANY, id)).toBe(true);
+    const rooms = Object.values(S().rooms);
+    const west = S().rooms[westId];
+    const shared = roomWallSegments(west, 'east', rooms).find((segment) => segment.shared);
+    expect(shared).toBeTruthy();
+    expect(wallSegmentOpenings(west, 'east', shared).filter((opening) => opening.kind === 'door')).toHaveLength(1);
   });
 });
 

@@ -81,10 +81,50 @@ describe('v1 → v2 migration', () => {
     expect(twice).toEqual(once);
   });
 
+  it('preserves room finishes and unrelated anchors, routes, and floor links', () => {
+    const f: any = v1Fixture();
+    f.rooms[0].floorFinish = 'carpet';
+    f.rooms[0].departmentRef = 'engineering';
+    f.anchors = [{
+      id: '11111111-1111-4111-8111-111111111111',
+      kind: 'info-point',
+      floorId: 0,
+      roomId: 'room_1',
+      position: { x: 1, y: 0, z: 2 },
+      rotationY: 0,
+      label: 'Safety board',
+    }];
+    f.routes = [{
+      id: 'route-1', floorId: 0, kind: 'accessible', label: 'Main route',
+      waypoints: [{ x: 0, y: 0, z: 0 }],
+    }];
+    f.floorLinks = [{ id: 'link-1', kind: 'stairs', fromObjectId: 'obj_1', toObjectId: 'obj_2' }];
+    f.anchorData = { [anchorId('obj_1', 'workstation')]: { positionRef: 'POSITION-42' } };
+
+    const loaded = loadLayout(f);
+    expect(loaded.rooms[0]).toMatchObject({ floorFinish: 'carpet', departmentRef: 'engineering' });
+    expect(loaded.anchors).toContainEqual(expect.objectContaining({
+      id: '11111111-1111-4111-8111-111111111111', label: 'Safety board',
+    }));
+    expect(loaded.anchors.find((a) => a.objectId === 'obj_1')?.positionRef).toBe('POSITION-42');
+    expect(loaded.routes).toEqual(f.routes);
+    expect(loaded.floorLinks).toEqual(f.floorLinks);
+    expect(loadLayout(JSON.parse(JSON.stringify(loaded)))).toEqual(loaded);
+  });
+
   it('rejects corrupt v2 data with a readable error instead of rendering it', () => {
     const bad = JSON.parse(JSON.stringify(loadLayout(v1Fixture())));
     bad.objects[0].x = 'oops';
     expect(() => loadLayout(bad)).toThrow(/objects.*x/s);
+  });
+
+  it('rejects malformed legacy room geometry and routes through the v2 schema', () => {
+    const badRoom = v1Fixture();
+    (badRoom.rooms[0] as any).width = 'wide';
+    expect(() => loadLayout(badRoom)).toThrow(/rooms.*width/s);
+
+    const badRoute = { ...v1Fixture(), routes: [{ id: 'route-bad' }] };
+    expect(() => loadLayout(badRoute)).toThrow(/routes/);
   });
 });
 
