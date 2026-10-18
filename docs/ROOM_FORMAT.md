@@ -27,6 +27,43 @@ maps nested v1 openings to that array; the workspace loader independently
 normalizes older local saves back to v1 store records. These formats are not
 interchangeable at the renderer boundary.
 
+## Nested rooms
+
+Room nesting uses the same centre-based rectangles and world coordinates; it
+does not add a parent ID or change either serialized format. The enclosing room
+is derived from same-floor containment. A child footprint must fit completely
+inside the parent's usable interior, leaving `0.15 m` from each parent room
+boundary so the two `0.15 m` walls do not overlap. The full width and depth are
+checked, not just the child's centre. A `1e-6 m` comparison epsilon handles
+floating-point edge values.
+
+When a new room is being drawn inside an existing room, neighbour snapping is
+skipped when the drawn rectangle, its centre, or either drag endpoint indicates
+an interior placement attempt. An attempt that crosses the usable boundary is
+rejected rather than pushed to the parent's exterior.
+Normal back-to-back edge snapping remains active for adjacent rooms. A
+contained room may overlap its enclosing room, but a candidate that overlaps
+or encloses an unrelated room remains blocked. The same containment rule applies when a room wall is resized or when a
+selected room is dragged by its floor in Workplace Studio. Whole-room movement
+preserves the room's dimensions, is undoable, and is blocked if it leaves an
+existing parent or overlaps a sibling. Rooms on different floors do not
+contain or block one another.
+
+The parent floor surface is cut out beneath a nested room's wall footprint to
+avoid coplanar floor surfaces. If the child wall reaches the parent's ceiling,
+the parent ceiling surface is cut out as well. These are render-time surface
+holes only: upper-floor slabs and roofs are not cut, and no parent/child
+references are persisted. Nested rooms therefore retain their coordinates
+when moved, resized, saved, loaded, or migrated; old rectangular layouts need
+no migration. Each room keeps its own doors, windows, floor, finishes, and
+undoable store record.
+
+For example, a `12 × 10 m` office centred at `(0, 0)` has a usable interior
+from `-5.85` to `5.85 m` on X and `-4.85` to `4.85 m` on Z. A `4 × 3 m`
+meeting room centred at `(0, 0)` fits inside it. The same meeting room centred
+at `(3.9, 0)` does not: its right edge reaches `5.9 m`, past the usable
+interior. Multiple non-overlapping child rooms can be placed in the office.
+
 ## Shared-wall representation
 
 Shared walls are derived from room rectangles; they are not saved as a second

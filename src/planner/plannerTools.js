@@ -4,9 +4,9 @@
  * The planner's mouse tools: what Build mode does with the crosshair, done
  * with the mouse.
  *
- *   select          click to select. Drag a wall of the selected room to
- *                   resize the room (like Build mode's Stretch tool); drag a
- *                   blue handle on top of its walls (3D) to raise or lower them.
+ *   select          click to select. Drag a room floor to move it, a wall to
+ *                   resize it; drag a blue handle on top of its walls (3D) to
+ *                   raise or lower them.
  *   room            drag on the floor from one corner to the opposite corner
  *   wall            drag from where a free-standing wall starts to where it ends
  *   door / window   click a room wall to add one; click an existing one to remove it
@@ -29,7 +29,7 @@ import { ROOM_TYPES } from '../utils/roomStore';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import {
   snap, formatRoomSize, wallSegmentTransform, openingAt, roomOpenings,
-  planRoom, planOpening, planRemoveOpening, wallSegmentData, stretchRoom,
+  planRoom, planRoomMove, planOpening, planRemoveOpening, wallSegmentData, stretchRoom,
   openingData, wallLine, formatOpeningSize, resizeOpening, OPENING_STEP, WALL_THICKNESS, OVERHANG_WARNING,
 } from '../play/geometry';
 import {
@@ -305,6 +305,18 @@ export function createPlannerTools(scene, canvas, {
         };
       }
     }
+    const floorHit = scene.pick(scene.pointerX, scene.pointerY, (m) =>
+      m.isPickable && m.isEnabled() && !pv.owns(m));
+    if (floorHit?.hit && floorHit.pickedMesh.metadata?.roomId === room.id &&
+      floorHit.pickedMesh.metadata?.part === 'floor') {
+      setCursor('move');
+      hover = { type: 'grabRoom', roomId: room.id };
+      return {
+        title: room.name,
+        detail: `${formatRoomSize(room.width, room.depth)} · drag the floor to move`,
+        keys: [['Drag', 'Move the room']],
+      };
+    }
     // Doors and windows are not grab points: clicking one selects it. In 2D
     // the wall over a door is what you see of the door, so it counts as the door.
     let hit = pickAtPointer((m) => m.metadata?.roomId === room.id && m.metadata?.part === 'wall');
@@ -443,6 +455,17 @@ export function createPlannerTools(scene, canvas, {
         keys: [['Release', 'Put the wall here'], ['Esc', 'Cancel']],
       });
     }
+    if (drag.kind === 'move') {
+      const room = floorRooms().find((r) => r.id === drag.roomId);
+      if (!room) { cancelDrag(); return null; }
+      if (!p) return lastDragHint();
+      const result = planRoomMove(room, drag.origin.x + p.x - drag.start.x, drag.origin.z + p.z - drag.start.z, floorRooms());
+      pv.room(result.rect, elev(), room.wallHeight ?? 3, !result.blocker);
+      drag.plan = result.blocker ? null : { room, result };
+      return saveDragHint(result.blocker
+        ? { title: `Move ${room.name}`, detail: `Overlaps ${result.blocker.name}. Move the room.`, bad: true, keys: [['Esc', 'Cancel']] }
+        : { title: `Move ${room.name}`, detail: `${formatRoomSize(room.width, room.depth)} · inside ${result.rect.x.toFixed(1)}, ${result.rect.z.toFixed(1)}`, keys: [['Release', 'Move the room'], ['Esc', 'Cancel']] });
+    }
 
     if (!p) return lastDragHint();
     drag.end = p;
@@ -502,6 +525,11 @@ export function createPlannerTools(scene, canvas, {
       if (Math.abs(result.delta) < 0.01) return;
       actions.updateRoom(room.id, result.patch, { label: `Resize ${room.name}` });
       onMessage(`${room.name} is now ${formatRoomSize(result.rect.width, result.rect.depth)}. Ctrl+Z to undo.`);
+    } else if (d.kind === 'move') {
+      const { room, result } = d.plan;
+      if (Math.abs(result.rect.x - room.x) < 0.01 && Math.abs(result.rect.z - room.z) < 0.01) return;
+      actions.updateRoom(room.id, { x: result.rect.x, z: result.rect.z }, { label: `Move ${room.name}` });
+      onMessage(`Moved ${room.name}. Ctrl+Z to undo.`);
     } else if (d.kind === 'room') {
       const { rect } = d.plan;
       actions.addRoom({ type: tool.roomType, ...rect, floor: currentFloor });
@@ -573,6 +601,10 @@ export function createPlannerTools(scene, canvas, {
         startDrag({ kind: 'height', roomId: hover.roomId, wallName: hover.wallName });
       } else if (hover?.type === 'grabWall') {
         startDrag({ kind: 'stretch', roomId: hover.roomId, wallName: hover.wallName });
+      } else if (hover?.type === 'grabRoom') {
+        const p = snappedGround();
+        const room = floorRooms().find((r) => r.id === hover.roomId);
+        if (p && room) startDrag({ kind: 'move', roomId: room.id, start: p, origin: { x: room.x, z: room.z } });
       } else {
         return false;
       }

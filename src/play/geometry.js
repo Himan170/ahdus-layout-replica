@@ -366,8 +366,80 @@ export function rectsOverlap(a, b, eps = 0.05) {
 }
 
 /**
+ * True when the complete inner room footprint (including its wall thickness)
+ * fits inside the usable interior of the outer room on the same floor.
+ */
+export function roomContainedBy(outer, inner, clearance = WALL_THICKNESS) {
+  if (floorOf(outer) !== floorOf(inner)) return false;
+  const halfWidth = outer.width / 2 - clearance;
+  const halfDepth = outer.depth / 2 - clearance;
+  return halfWidth > 0 && halfDepth > 0 &&
+    inner.x - inner.width / 2 >= outer.x - halfWidth - GEOMETRY_EPSILON &&
+    inner.x + inner.width / 2 <= outer.x + halfWidth + GEOMETRY_EPSILON &&
+    inner.z - inner.depth / 2 >= outer.z - halfDepth - GEOMETRY_EPSILON &&
+    inner.z + inner.depth / 2 <= outer.z + halfDepth + GEOMETRY_EPSILON;
+}
+
+/** A placement may overlap only a room whose usable interior fully contains it. */
+export function roomPlacementBlocker(rect, rooms) {
+  return rooms.find((room) =>
+    floorOf(room) === floorOf(rect) &&
+    !roomContainedBy(room, rect) &&
+    rectsOverlap(room, rect)) ?? null;
+}
+
+function roomTransformBlocker(room, rect, rooms) {
+  const others = rooms.filter((other) => other.id !== room.id && floorOf(other) === floorOf(room));
+  const containers = others.filter((other) => roomContainedBy(other, room));
+  return containers.find((container) => !roomContainedBy(container, rect)) ??
+    roomPlacementBlocker(rect, others);
+}
+
+/** Validate a whole-room move while preserving any existing enclosing rooms. */
+export function planRoomMove(room, x, z, rooms) {
+  const rect = { x, z, width: room.width, depth: room.depth, floor: floorOf(room) };
+  const blocker = roomTransformBlocker(room, rect, rooms);
+  return {
+    rect: { x: rect.x, z: rect.z, width: rect.width, depth: rect.depth },
+    blocker,
+  };
+}
+
+/** Validate an Inspector resize against enclosing rooms and neighbouring rooms. */
+export function planRoomResize(room, width, depth, rooms) {
+  const rect = { x: room.x, z: room.z, width, depth, floor: floorOf(room) };
+  const others = rooms.filter((other) => other.id !== room.id && floorOf(other) === floorOf(room));
+  const children = others.filter((other) => roomContainedBy(room, other));
+  const blocker = children.find((child) => !roomContainedBy(rect, child)) ??
+    roomTransformBlocker(room, rect, others.filter((other) => !children.includes(other)));
+  return {
+    rect: { x: rect.x, z: rect.z, width: rect.width, depth: rect.depth },
+    blocker,
+  };
+}
+
+function insideRoomFootprint(outer, inner) {
+  if (floorOf(outer) !== floorOf(inner)) return false;
+  return inner.x - inner.width / 2 >= outer.x - outer.width / 2 - GEOMETRY_EPSILON &&
+    inner.x + inner.width / 2 <= outer.x + outer.width / 2 + GEOMETRY_EPSILON &&
+    inner.z - inner.depth / 2 >= outer.z - outer.depth / 2 - GEOMETRY_EPSILON &&
+    inner.z + inner.depth / 2 <= outer.z + outer.depth / 2 + GEOMETRY_EPSILON;
+}
+
+function pointInsideRoomInterior(room, point) {
+  const halfWidth = room.width / 2 - WALL_THICKNESS;
+  const halfDepth = room.depth / 2 - WALL_THICKNESS;
+  return halfWidth > 0 && halfDepth > 0 &&
+    point.x >= room.x - halfWidth - GEOMETRY_EPSILON &&
+    point.x <= room.x + halfWidth + GEOMETRY_EPSILON &&
+    point.z >= room.z - halfDepth - GEOMETRY_EPSILON &&
+    point.z <= room.z + halfDepth + GEOMETRY_EPSILON;
+}
+
+/**
  * Nudge a new room's edges that land close to a neighbour's wall so the two
- * rooms sit exactly back-to-back (one wall thickness apart).
+ * rooms sit exactly back-to-back (one wall thickness apart). Fully nested room
+ * footprints are not neighbours for snapping purposes.
  */
 export function snapRectToNeighbours(rect, rooms, tolerance = 0.35) {
   let x0 = rect.x - rect.width / 2;
@@ -377,6 +449,8 @@ export function snapRectToNeighbours(rect, rooms, tolerance = 0.35) {
   const T = WALL_THICKNESS;
 
   for (const r of rooms) {
+    if (floorOf(r) !== floorOf(rect)) continue;
+    if (insideRoomFootprint(r, rect) || insideRoomFootprint(rect, r)) continue;
     const rx0 = r.x - r.width / 2, rx1 = r.x + r.width / 2;
     const rz0 = r.z - r.depth / 2, rz1 = r.z + r.depth / 2;
     const zOverlap = Math.min(z1, rz1) - Math.max(z0, rz0) > 0.1;
@@ -492,7 +566,8 @@ export function wallCoordinate(room, wallName) {
  */
 export function stretchRoom(room, wallName, target, context = {}) {
   const { rooms = [], objects = [], below = null, nameOf = (o) => o.label || o.name || 'An item' } = context;
-  const others = rooms.filter((r) => r.id !== room.id && (room.floor === undefined || r.floor === room.floor));
+  const others = rooms.filter((r) => r.id !== room.id && floorOf(r) === floorOf(room));
+  const containers = others.filter((r) => insideRoomFootprint(r, room));
 
   let x0 = room.x - room.width / 2;
   let x1 = room.x + room.width / 2;
@@ -506,9 +581,9 @@ export function stretchRoom(room, wallName, target, context = {}) {
 
   // Over a wall of the floor below, or back-to-back with a neighbour? Only the
   // moving edge is allowed to snap.
-  let moved = { x: (x0 + x1) / 2, z: (z0 + z1) / 2, width: x1 - x0, depth: z1 - z0 };
-  if (below) moved = snapRectToOutline(moved, below);
-  const snapped = snapRectToNeighbours(moved, others);
+  let moved = { x: (x0 + x1) / 2, z: (z0 + z1) / 2, width: x1 - x0, depth: z1 - z0, floor: floorOf(room) };
+  if (below) moved = { ...snapRectToOutline(moved, below), floor: floorOf(room) };
+  const snapped = snapRectToNeighbours(moved, others.filter((r) => !containers.includes(r)));
   const sx0 = snapped.x - snapped.width / 2, sx1 = snapped.x + snapped.width / 2;
   const sz0 = snapped.z - snapped.depth / 2, sz1 = snapped.z + snapped.depth / 2;
   if (wallName === 'east') x1 = sx1;
@@ -516,7 +591,7 @@ export function stretchRoom(room, wallName, target, context = {}) {
   else if (wallName === 'north') z1 = sz1;
   else z0 = sz0;
 
-  const rect = { x: (x0 + x1) / 2, z: (z0 + z1) / 2, width: x1 - x0, depth: z1 - z0 };
+  const rect = { x: (x0 + x1) / 2, z: (z0 + z1) / 2, width: x1 - x0, depth: z1 - z0, floor: floorOf(room) };
   const before = wallCoordinate(room, wallName);
   const after = wallName === 'east' ? x1 : wallName === 'west' ? x0 : wallName === 'north' ? z1 : z0;
   const delta = wallName === 'east' || wallName === 'north' ? after - before : before - after;
@@ -545,7 +620,7 @@ export function stretchRoom(room, wallName, target, context = {}) {
     problem = `Too small (rooms are at least ${MIN_ROOM_SIZE} m)`;
   }
   if (!problem) {
-    const blocker = others.find((r) => rectsOverlap(r, rect));
+    const blocker = roomPlacementBlocker(rect, others);
     if (blocker) problem = `Would overlap ${blocker.name}`;
   }
   if (!problem && delta < 0) {
@@ -558,7 +633,7 @@ export function stretchRoom(room, wallName, target, context = {}) {
   }
 
   return {
-    rect,
+    rect: { x: rect.x, z: rect.z, width: rect.width, depth: rect.depth },
     delta,
     problem,
     overhang: !!below && overhangs(rect, below),
@@ -580,11 +655,23 @@ export function stretchRoom(room, wallName, target, context = {}) {
  *          overhang: part of the room has nothing under it (allowed, but worth a warning)
  */
 export function planRoom(a, b, rooms, below = null) {
-  let rect = rectFromCorners(a, b);
-  if (below) rect = snapRectToOutline(rect, below);
-  rect = snapRectToNeighbours(rect, rooms);
-  const blocker = rooms.find((r) => rectsOverlap(r, rect)) ?? null;
-  return { rect, blocker, overhang: !!below && overhangs(rect, below) };
+  const placementFloor = rooms[0] ? floorOf(rooms[0]) : 0;
+  let rect = { ...rectFromCorners(a, b), floor: placementFloor };
+  const nestedIntent = rooms.some((room) =>
+    floorOf(room) === floorOf(rect) && (
+      insideRoomFootprint(room, rect) ||
+      pointInsideRoomInterior(room, a) ||
+      pointInsideRoomInterior(room, b) ||
+      pointInsideRoomInterior(room, rect)
+    ));
+  if (!nestedIntent && below) rect = { ...snapRectToOutline(rect, below), floor: placementFloor };
+  if (!nestedIntent) rect = { ...snapRectToNeighbours(rect, rooms), floor: placementFloor };
+  const blocker = roomPlacementBlocker(rect, rooms);
+  return {
+    rect: { x: rect.x, z: rect.z, width: rect.width, depth: rect.depth },
+    blocker,
+    overhang: !!below && overhangs(rect, below),
+  };
 }
 
 /** Hint text for a room on an upper floor that sticks out past the floor below. */

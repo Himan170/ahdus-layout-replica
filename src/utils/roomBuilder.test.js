@@ -19,9 +19,9 @@ afterEach(() => {
   scene = null;
 });
 
-function build(room, rooms = [room]) {
+function build(room, rooms = [room], options = {}) {
   scene = new Scene(new NullEngine());
-  return buildRoomMesh(room, scene, { rooms });
+  return buildRoomMesh(room, scene, { rooms, ...options });
 }
 
 function wallMeshes(root, wallName) {
@@ -45,6 +45,37 @@ describe('roomBuilder shared-wall meshes', () => {
     expect(shared[0].getBoundingInfo().boundingBox.extendSize.z * 2).toBeCloseTo(3.85);
     expect(shared[0].getBoundingInfo().boundingBox.extendSize.y * 2).toBeCloseTo(3.5);
     expect(wallMeshes(eastRoot, 'west')).toHaveLength(0);
+  });
+
+  describe('nested room floor and ceiling geometry', () => {
+    it('cuts contained-room floor and coplanar ceiling areas without cutting the storey slab', () => {
+      const office = { id: 'outer', floor: 1, x: 0, z: 0, width: 12, depth: 10, wallHeight: 3.2, doors: [], windows: [] };
+      const meeting = { id: 'inner', floor: 1, x: 0, z: 0, width: 4, depth: 3, wallHeight: 3.2, doors: [], windows: [] };
+      const clearance = 0.075;
+      const cutout = {
+        x0: meeting.x - meeting.width / 2 - clearance,
+        x1: meeting.x + meeting.width / 2 + clearance,
+        z0: meeting.z - meeting.depth / 2 - clearance,
+        z1: meeting.z + meeting.depth / 2 + clearance,
+      };
+      const root = build(office, [office, meeting], {
+        hasSlab: true,
+        floorSurfaceHoles: [cutout],
+        ceilingSurfaceHoles: [cutout],
+      });
+      const meshes = root.getChildMeshes(false);
+      const area = (mesh) => {
+        const size = mesh.getBoundingInfo().boundingBox.extendSize;
+        return size.x * 2 * size.z * 2;
+      };
+      const floorArea = meshes.filter((mesh) => mesh.name.startsWith('floor_outer_')).reduce((sum, mesh) => sum + area(mesh), 0);
+      const ceilingArea = meshes.filter((mesh) => mesh.name.startsWith('ceiling_outer_')).reduce((sum, mesh) => sum + area(mesh), 0);
+      const slabArea = meshes.filter((mesh) => mesh.name.startsWith('slab_outer_')).reduce((sum, mesh) => sum + area(mesh), 0);
+
+      expect(floorArea).toBeCloseTo(12 * 10 - 4.15 * 3.15);
+      expect(ceilingArea).toBeCloseTo(12 * 10 - 4.15 * 3.15);
+      expect(slabArea).toBeCloseTo(12.15 * 10.15);
+    });
   });
 
   it('builds the shared portion of a partial wall and leaves both outer sections', () => {

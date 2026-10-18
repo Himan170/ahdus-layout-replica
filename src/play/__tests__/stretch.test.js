@@ -40,6 +40,23 @@ describe('stretchRoom', () => {
     expect(r.problem).toBe('Would overlap Meeting 1');
   });
 
+  it('resizes a nested room without snapping its wall to the enclosing room exterior', () => {
+    const parent = { id: 'office', name: 'Office', floor: 0, x: 0, z: 0, width: 12, depth: 10 };
+    const nested = { id: 'meeting', name: 'Meeting', floor: 0, x: 0, z: 0, width: 4, depth: 3 };
+    const resized = stretchRoom(nested, 'east', 4, { rooms: [parent, nested] });
+    expect(resized.problem).toBeNull();
+    expect(resized.rect).toEqual({ x: 1, z: 0, width: 6, depth: 3 });
+  });
+
+  it('rejects a nested room resize that exceeds the enclosing room interior', () => {
+    const parent = { id: 'office', name: 'Office', floor: 0, x: 0, z: 0, width: 12, depth: 10 };
+    const nested = { id: 'meeting', name: 'Meeting', floor: 0, x: 0, z: 0, width: 4, depth: 3 };
+    const resized = stretchRoom(nested, 'east', 6.2, { rooms: [parent, nested] });
+    expect(resized.problem).toBe('Would overlap Office');
+    expect(resized.rect.x).toBeCloseTo(2.1);
+    expect(resized.rect.width).toBeCloseTo(8.2);
+  });
+
   it('released near a neighbour, the wall lands exactly back-to-back', () => {
     const meeting = { id: 'room_2', name: 'Meeting 1', floor: 0, x: 8, z: 0, width: 4, depth: 5 };
     const r = stretchRoom(office(), 'east', 6, { rooms: [meeting] });
