@@ -91,13 +91,39 @@ const cm = (v) => Math.round(v * 100) / 100;
  * by 0.2 m). Afterwards every floor is at least as tall as its tallest walls
  * + SLAB, so no walls poke into the floor above. Changes `rooms` in place.
  */
-function normaliseFloors(saved, rooms, objects) {
+function floorRenumberMap(saved, rooms, objects) {
+  const explicitFloors = asList(saved).filter((f) => f && typeof f === 'object' && f.id !== undefined);
+  if (!explicitFloors.length) return new Map();
+
+  const ids = new Set();
+  for (const f of explicitFloors) {
+    const id = num(Number(f.id), null);
+    if (id !== null && Number.isFinite(id)) ids.add(id);
+  }
+  for (const r of rooms) {
+    const id = num(Number(r.floor), null);
+    if (id !== null && Number.isFinite(id)) ids.add(id);
+  }
+  for (const o of objects) {
+    const id = num(Number(o.floor), null);
+    if (id !== null && Number.isFinite(id)) ids.add(id);
+  }
+
+  const sorted = [...ids].sort((a, b) => a - b);
+  if (!sorted.length) return new Map();
+  const remap = new Map();
+  sorted.forEach((oldId, index) => remap.set(oldId, index));
+  return remap;
+}
+
+function normaliseFloors(saved, rooms, objects, remap = new Map()) {
   const floors = {};
   const oldStyle = new Set();
   for (const f of asList(saved)) {
     if (!f || typeof f !== 'object') continue;
-    const id = num(Number(f.id), null);
-    if (id === null) continue;
+    const oldId = num(Number(f.id), null);
+    if (oldId === null) continue;
+    const id = remap.get(oldId) ?? oldId;
     const { elevation: _elevation, ...rest } = f;
     floors[id] = {
       ...rest,
@@ -106,10 +132,13 @@ function normaliseFloors(saved, rooms, objects) {
     };
     if (!(num(f.height, 0) > 0)) {
       oldStyle.add(id);
-      floors[id].oldElevation = num(f.elevation, id * STOREY_HEIGHT);
+      floors[id].oldElevation = num(f.elevation, oldId * STOREY_HEIGHT);
     }
   }
-  for (const id of [0, ...rooms.map((r) => r.floor), ...objects.map((o) => o.floor)]) {
+  const implicitIds = remap.size
+    ? [...new Set(Array.from(remap.values()).sort((a, b) => a - b))]
+    : [0, ...rooms.map((r) => r.floor), ...objects.map((o) => o.floor)];
+  for (const id of [...new Set(implicitIds.map((v) => Number.isFinite(v) ? v : 0))]) {
     if (!floors[id]) {
       floors[id] = { id, name: id === 0 ? 'Ground Floor' : `Floor ${id}`, oldElevation: id * STOREY_HEIGHT };
       oldStyle.add(id);
@@ -150,8 +179,20 @@ export function normaliseLayout(data) {
   const src = data && typeof data === 'object' ? data : {};
   const rooms = asList(src.rooms).filter((r) => r && typeof r === 'object').map(normaliseRoom);
   const objects = asList(src.objects).filter((o) => o && typeof o === 'object').map(normaliseObject);
+  const floorMap = floorRenumberMap(src.floors, rooms, objects);
 
-  const floors = normaliseFloors(src.floors, rooms, objects);
+  if (floorMap.size) {
+    for (const r of rooms) {
+      const oldFloor = num(Number(r.floor), null);
+      if (oldFloor !== null && Number.isFinite(oldFloor)) r.floor = floorMap.get(oldFloor) ?? 0;
+    }
+    for (const o of objects) {
+      const oldFloor = num(Number(o.floor), null);
+      if (oldFloor !== null && Number.isFinite(oldFloor)) o.floor = floorMap.get(oldFloor) ?? 0;
+    }
+  }
+
+  const floors = normaliseFloors(src.floors, rooms, objects, floorMap);
 
   const anchorData = src.anchorData && typeof src.anchorData === 'object' && !Array.isArray(src.anchorData)
     ? src.anchorData : {};

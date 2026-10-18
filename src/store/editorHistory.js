@@ -442,7 +442,8 @@ export function createEditorHistory(onChange) {
       return newId;
     },
     removeFloor(floorId) {
-      if (Object.keys(store().floors).length <= 1) return;
+      const floorNum = Number(floorId);
+      if (Object.keys(store().floors).length <= 1 || floorNum === 0 || Number.isNaN(floorNum)) return;
       run(new SnapshotCommand('Remove floor', () => store().removeFloor(floorId)));
     },
     renameFloor(floorId, newName) {

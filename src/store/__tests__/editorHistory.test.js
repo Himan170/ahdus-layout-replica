@@ -132,21 +132,18 @@ describe('editor actions are all undoable', () => {
     expect(rooms()).toHaveLength(0);
   });
 
-  it('removing a floor (and everything on it) is undoable', () => {
+  it('the ground floor cannot be removed, but upper floors still can', () => {
     editor.addFloor();
-    S().selectFloor(1);
-    editor.addRoom({ type: 'OFFICE' });
-    editor.addObject({ assetType: 'DESK_STANDARD' });
-    expect(rooms()[0].floor).toBe(1);
+    expect(Object.keys(S().floors)).toHaveLength(2);
+    editor.removeFloor(0);
+    expect(S().floors[0]).toBeDefined();
 
+    editor.addRoom({ type: 'OFFICE', floor: 1 });
+    editor.addObject({ assetType: 'DESK_STANDARD', floor: 1 });
     editor.removeFloor(1);
     expect(S().floors[1]).toBeUndefined();
     expect(rooms()).toHaveLength(0);
-
-    editor.undo();
-    expect(S().floors[1]).toBeDefined();
-    expect(rooms()).toHaveLength(1);
-    expect(objs()).toHaveLength(1);
+    expect(objs()).toHaveLength(0);
   });
 
   it('reports canUndo / canRedo / labels to the toolbar', () => {

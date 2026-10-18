@@ -11,6 +11,7 @@
 
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
+import { v4 as uuidv4 } from 'uuid';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { OBJECT_CATEGORIES } from '../utils/assetCatalog';
 import { normaliseLayout } from './layoutData';
@@ -22,8 +23,8 @@ const withoutSelection = ({ isSelected: _s, ...rest }) => rest;
 // ─── ID generators ───
 let _nextRoomId = 1;
 let _nextObjId  = 1;
-function roomId()   { return `room_${_nextRoomId++}`; }
-function objectId() { return `obj_${_nextObjId++}`;   }
+function roomId()   { return `room_${uuidv4()}`; }
+function objectId() { return `obj_${uuidv4()}`; }
 
 /**
  * Reuse a caller-supplied ID (undo/redo restore an object under its old ID so
@@ -352,8 +353,9 @@ export const useWorkspaceStore = create(
     /** Remove a floor and all rooms/objects on it. */
     removeFloor: (floorId) => {
       set((s) => {
-        if (Object.keys(s.floors).length <= 1) {
-          // Can't delete the last floor
+        const floorNum = Number(floorId);
+        if (Object.keys(s.floors).length <= 1 || floorNum === 0 || Number.isNaN(floorNum)) {
+          // The ground floor is the base of the building: remove its rooms instead.
           return s;
         }
 

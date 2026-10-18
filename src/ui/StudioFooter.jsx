@@ -62,6 +62,8 @@ function FloorMenu({
   const [mode, setMode] = useState(null);       // null | 'add' | 'rename' | 'delete'
   const current = floors.find((f) => f.id === currentFloor);
   const top = floors[floors.length - 1];         // a new floor goes on top of this one
+  const lowestFloorId = floors.reduce((min, f) => Math.min(min, Number(f.id)), Number.POSITIVE_INFINITY);
+  const isGroundFloor = Number(current?.id) === lowestFloorId;
   const [name, setName] = useState(current?.name ?? '');
   const onlyFloor = floors.length <= 1;
 
@@ -125,7 +127,7 @@ function FloorMenu({
             <button className="ui-btn is-primary" onClick={saveName}>Save</button>
           </div>
         )}
-        {mode === 'delete' && (
+        {mode === 'delete' && !isGroundFloor && (
           <div className="floor-menu__confirm" role="alertdialog" aria-label="Delete floor">
             <p>Delete {current?.name}? Its rooms and items go too. You can undo this.</p>
             <div className="floor-menu__form">
@@ -153,9 +155,15 @@ function FloorMenu({
               role="menuitem"
               className="floor-menu__action is-danger"
               aria-label="Delete floor"
-              aria-disabled={onlyFloor}
-              title={onlyFloor ? 'A building needs at least one floor' : `Delete ${current?.name}`}
-              onClick={() => { if (!onlyFloor) setMode('delete'); }}
+              aria-disabled={onlyFloor || isGroundFloor}
+              title={
+                isGroundFloor
+                  ? "The ground floor can't be deleted. Remove its rooms instead"
+                  : onlyFloor
+                    ? 'A building needs at least one floor'
+                    : `Delete ${current?.name}`
+              }
+              onClick={() => { if (!onlyFloor && !isGroundFloor) setMode('delete'); }}
             >
               <Trash2 {...ICON} /> Delete floor
             </button>

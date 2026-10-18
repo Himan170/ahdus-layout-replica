@@ -166,6 +166,23 @@ describe('loading saves from older versions of the app', () => {
     expect(Object.keys(S().rooms)).toEqual(['room_3', 'room_4']);
   });
 
+  it('renumbers saved floors to start at floor 0 when a save skipped it', () => {
+    const n = normaliseLayout({
+      layoutName: 'Shifted storey',
+      floors: [{ id: 1, name: 'Floor 1' }, { id: 2, name: 'Floor 2' }],
+      rooms: [
+        { id: 'room_1', floor: 1, width: 4, depth: 4 },
+        { id: 'room_2', floor: 2, width: 4, depth: 4 },
+      ],
+      objects: [{ id: 'obj_1', floor: 2, assetType: 'DESK_STANDARD' }],
+      anchorData: {},
+    });
+
+    expect(Object.keys(n.floors)).toEqual(['0', '1']);
+    expect(n.rooms.map((r) => r.floor)).toEqual([0, 1]);
+    expect(n.objects[0].floor).toBe(1);
+  });
+
   it('survives junk: missing lists, maps instead of arrays, nulls', () => {
     expect(() => normaliseLayout(null)).not.toThrow();
     expect(normaliseLayout({}).rooms).toEqual([]);
