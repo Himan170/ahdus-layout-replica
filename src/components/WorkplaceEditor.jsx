@@ -13,13 +13,14 @@ import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { createLayoutScene } from '../engine/systems/SceneSetup';
 import { RoomSystem } from '../engine/systems/RoomSystem';
 import { ObjectSystem } from '../engine/systems/ObjectSystem';
+import { FloorSystem } from '../engine/systems/FloorSystem';
 import { switchTo2D, switchTo3D } from '../utils/cameraManager';
 import { setLighting2D, setLighting3D } from '../utils/lightingSetup';
 
 // Phase 2 utilities
 import { ROOM_TYPES } from '../utils/roomStore';
 import {
-  elevationOf, floorBelow, floorsByElevation, coveredFraction,
+  elevationOf, floorBelow,
   stairNeedsRoomAbove, floorPosition,
 } from '../play/building';
 import { createFloorOutline } from '../utils/floorOutline';
@@ -282,49 +283,10 @@ export default function WorkplaceEditor({ onExit }) {
   };
 
   // ─── Which storeys are visible (multi-storey buildings) ───
-  // planner:  floors up to the one you edit; its roof is hidden so you see inside
-  // outside:  the whole building with roofs (Build mode, not in a room)
-  // inside:   the whole building, plus indoor ceilings (Build mode, in a room).
-  //           The camera stays under the ceiling indoors, so upper floors don't
-  //           block the view; you see them through stairwells and windows.
-  const viewRef = useRef({ mode: 'planner', level: 0 });
-  const applyLevelVisibility = useCallback(() => {
-    const st = useWorkspaceStore.getState();
-    const sorted = floorsByElevation(st.floors);
-    const rank = new Map(sorted.map((f, i) => [f.id, i]));
-    const view = viewRef.current;
-    const levelRank = view.mode === 'planner' ? (rank.get(view.level) ?? 0) : Infinity;
-    const roomsByFloor = new Map();
-    for (const r of Object.values(st.rooms)) {
-      if (!roomsByFloor.has(r.floor)) roomsByFloor.set(r.floor, []);
-      roomsByFloor.get(r.floor).push(r);
-    }
-    for (const [roomId, node] of roomSystemRef.current?.meshes ?? []) {
-      const room = st.rooms[roomId];
-      if (!room) continue;
-      const r = rank.get(room.floor) ?? 0;
-      const visible = r <= levelRank;
-      node.setEnabled(visible);
-      if (!visible) continue;
-      const above = sorted[r + 1];
-      const covered = above ? coveredFraction(room, roomsByFloor.get(above.id) ?? []) >= 0.9 : false;
-      const isCurrent = r === levelRank;
-      const showRoof = !covered && !isCurrent;
-      const showCeiling = view.mode === 'inside';
-      // A room lower than its floor: the wall band closes the gap under the floor above
-      const showBand = covered && !isCurrent;
-      for (const child of node.getChildMeshes(false)) {
-        const part = child.metadata?.part;
-        if (part === 'roof') child.setEnabled(showRoof);
-        else if (part === 'ceiling') child.setEnabled(showCeiling);
-        else if (part === 'band') child.setEnabled(showBand);
-      }
-    }
-    for (const [objId, mesh] of objectSystemRef.current?.meshes ?? []) {
-      const o = st.objects[objId];
-      if (o) mesh.setEnabled((rank.get(o.floor) ?? 0) <= levelRank);
-    }
-  }, []);
+  // engine/systems/FloorSystem: planner (floors up to the one you edit, without
+  // its roof), outside (all, with roofs) or inside (all, with ceilings: Preview)
+  const floorSystemRef = useRef(null);
+  const applyLevelVisibility = useCallback(() => floorSystemRef.current?.apply(), []);
 
   // ─── Start/stop auto-save on mount/unmount ───
   useEffect(() => {
@@ -361,6 +323,8 @@ export default function WorkplaceEditor({ onExit }) {
     roomSystemRef.current = roomSystem;
     const objectSystem = new ObjectSystem(scene, { shadowGenerator: lights.shadowGenerator });
     objectSystemRef.current = objectSystem;
+    const floorSystem = new FloorSystem(roomSystem, objectSystem, () => useWorkspaceStore.getState());
+    floorSystemRef.current = floorSystem;
 
     // ── Phase 4: Performance monitor ──
     const perfMonitor = createPerformanceMonitor(engine);
@@ -455,8 +419,7 @@ export default function WorkplaceEditor({ onExit }) {
         updateFloorOutlineRef.current();
       },
       onViewChange: ({ inside, level }) => {
-        viewRef.current = { mode: inside ? 'inside' : 'outside', level };
-        applyLevelVisibility();
+        floorSystem.setView({ mode: inside ? 'inside' : 'outside', level });
       },
       shadowGenerator: lights.shadowGenerator,
     });
@@ -647,6 +610,7 @@ export default function WorkplaceEditor({ onExit }) {
       // ("Cannot read properties of null (reading '_geometryKey')").
       roomSystemRef.current = null;
       objectSystemRef.current = null;
+      floorSystemRef.current = null;
     };
   }, []);
 
@@ -671,8 +635,7 @@ export default function WorkplaceEditor({ onExit }) {
   // ─── Planner: show the floor being edited, and point the camera at its height ───
   useEffect(() => {
     if (isPlaying) return;
-    viewRef.current = { mode: 'planner', level: currentFloor };
-    applyLevelVisibility();
+    floorSystemRef.current?.setFloor(currentFloor);
     const camera = cameraRef.current;
     if (camera) {
       const elev = elevationOf(useWorkspaceStore.getState().floors, currentFloor);
@@ -741,8 +704,7 @@ export default function WorkplaceEditor({ onExit }) {
     play.deactivate();
     saveNow();
     isPlayingRef.current = false;
-    viewRef.current = { mode: 'planner', level: useWorkspaceStore.getState().currentFloor };
-    applyLevelVisibility();
+    floorSystemRef.current?.setFloor(useWorkspaceStore.getState().currentFloor);
     setIsPlaying(false);
     setCatalogOpen(false);
     setNewFloorAsk(false);

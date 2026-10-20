@@ -12,7 +12,7 @@ Full history, status and backlog: `docs/PROGRESS_REPORT.md`. Teammate API guide:
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (251, all must pass)
+npm test             # vitest unit tests (262, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run build
 
@@ -89,7 +89,8 @@ Spec of the look: `UI_SPEC.md` (repo root).
 ## Code map
 
 ```
-src/components/WorkplaceEditor.jsx  Scene setup, store→mesh syncing, Studio wiring, mode switching, level visibility (~1450 lines)
+src/components/WorkplaceEditor.jsx  Studio wiring, mode switching; calls engine/systems for the scene, store→mesh syncing and
+                                   level visibility (~1500 lines)
 src/ui/                            Workplace Studio: theme.css, tools.js, StudioShell, StudioHeader, BuildPanel (+ trays,
                                    CatalogPicker), CanvasCard, RoomLabels, SelectionToolbar, Inspector, StudioFooter, EditorErrorBoundary, preview.css
 src/play/playController.js         Preview: movement, camera, aiming, every hotbar tool, Stretch, Edit item, stairs, levels
@@ -112,8 +113,9 @@ src/utils/materialLibrary.js       Procedural textures; SHARED materials
 src/utils/assetCatalog.js          30+ furniture/equipment built from primitives (incl. STAIRCASE, CNC_MACHINE, LATHE)
 src/utils/siteEnvironment.js       Sky, fog, grass, paving, build grid
 src/integration/layoutBridge.js    Public API for teammates' modules (events, anchors, Press-E actions)
-src/engine/                        Embeddable engine: v2 schema, v1→v2 migration, anchors, commands. LayoutEngine
-                                   and systems/ are mostly stubs; the editor does NOT use them yet.
+src/engine/                        Embeddable engine: v2 schema, v1→v2 migration, anchors, commands. systems/: SceneSetup,
+                                   RoomSystem, ObjectSystem, FloorSystem draw a layout (Studio uses them); LayoutEngine
+                                   itself and the Placement/Selection/Walkthrough systems are still stubs (H2 in progress).
 src/services/apiService.js         Save/load + auto-save (1 s debounce, tab close), revisions + other tabs, export/import,
                                    companies: localStorage mock backend for now
 db/schema.sql                      PostgreSQL schema (base for the Supabase backend)
@@ -155,7 +157,7 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 
 ## Multi-storey (how it works)
 
-- `WorkplaceEditor` builds **all** floors at once. `applyLevelVisibility` uses a view `{ mode, level }`:
+- `WorkplaceEditor` builds **all** floors at once (`engine/systems/RoomSystem`, `ObjectSystem`). `FloorSystem` uses a view `{ mode, level }`:
   `planner` shows floors ≤ selected and hides the selected floor's roof; `outside` shows all + roofs on uncovered
   rooms; `inside` shows all + ceilings, and the camera is clamped under the ceiling (except on stairs).
 - **Floor heights** (`building.js`): floor `{ id, name, height }`; `elevationOf` sums the heights below. Upper-floor

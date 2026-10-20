@@ -14,5 +14,6 @@ export { PlacementSystem } from './PlacementSystem';
 export type { AssetType } from './PlacementSystem';
 
 export { FloorSystem } from './FloorSystem';
+export type { LevelView } from './FloorSystem';
 
 export { WalkthroughSystem } from './WalkthroughSystem';
