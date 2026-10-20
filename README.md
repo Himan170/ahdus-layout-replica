@@ -27,6 +27,24 @@ Press **Tab** (or **Preview Workplace** / **Back to Studio**) to switch. The edi
 | **Footer** | Floor switcher (switch, add a floor above, rename, delete), the tool's hint, Preview Workplace. |
 | Keys | W / E / R: move / rotate / scale gizmo · Ctrl+Z / Ctrl+Y · Ctrl+D duplicate · L lock · Delete · Tab: Preview |
 
+## Getting started (for teammates)
+
+```bash
+git clone https://github.com/Himan170/ahdus-layout-replica.git
+cd ahdus-layout-replica
+npm ci                 # install dependencies (faster than npm install, uses lockfile)
+npm run dev            # http://localhost:3000
+npm test               # 199 unit tests
+npm run typecheck      # TypeScript check
+npm run e2e            # browser tests (one-time: npx playwright install chromium)
+```
+
+> **⚠️ Do NOT zip or copy `node_modules` between machines.** The Windows-installed copy
+> contains native binaries that do not run on other machines. Always run `npm ci` after cloning.
+
+Read `CLAUDE.md` before making changes — it documents the architecture rules (e.g. every edit
+goes through `editorHistory.js`, old saves must always load).
+
 ## Run it
 
 ```bash
