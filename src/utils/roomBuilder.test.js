@@ -23,9 +23,9 @@ afterEach(() => {
   scene = null;
 });
 
-function build(room, rooms = [room]) {
+function build(room, rooms = [room], options = {}) {
   scene = new Scene(new NullEngine());
-  return buildRoomMesh(room, scene, { rooms });
+  return buildRoomMesh(room, scene, { rooms, ...options });
 }
 
 function wallMeshes(root, wallName) {
@@ -60,6 +60,55 @@ describe('roomBuilder shared-wall meshes', () => {
     expect(size(shared[0], 'z')).toBeCloseTo(3.85);
     expect(size(shared[0], 'y')).toBeCloseTo(3.5);
     expect(wallMeshes(eastRoot, 'west')).toHaveLength(0);
+  });
+
+  describe('nested room floor and ceiling geometry', () => {
+    // The floor / ceiling pieces around a hole are merged into one mesh (the
+    // ceiling with its light panels): add up its flat triangles at height `y`
+    // facing `facing` (+1 up, -1 down) instead of the pieces' boxes.
+    const flatArea = (mesh, y, facing) => {
+      const pos = mesh.getVerticesData('position');
+      const nor = mesh.getVerticesData('normal');
+      const idx = mesh.getIndices();
+      let sum = 0;
+      for (let t = 0; t < idx.length; t += 3) {
+        const tri = [idx[t], idx[t + 1], idx[t + 2]];
+        if (!tri.every((i) => Math.abs(pos[i * 3 + 1] - y) < 1e-4 && nor[i * 3 + 1] * facing > 0.5)) continue;
+        const [a, b, c] = tri.map((i) => [pos[i * 3], pos[i * 3 + 2]]);
+        sum += Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) / 2;
+      }
+      return sum;
+    };
+    const down = (mesh, x, z) => new Ray(new Vector3(x, 10, z), new Vector3(0, -1, 0), 20).intersectsMesh(mesh).hit;
+
+    it('cuts contained-room floor and coplanar ceiling areas without cutting the storey slab', () => {
+      const office = { id: 'outer', floor: 1, x: 0, z: 0, width: 12, depth: 10, wallHeight: 3.2, doors: [], windows: [] };
+      const meeting = { id: 'inner', floor: 1, x: 0, z: 0, width: 4, depth: 3, wallHeight: 3.2, doors: [], windows: [] };
+      const clearance = 0.075;
+      const cutout = {
+        x0: meeting.x - meeting.width / 2 - clearance,
+        x1: meeting.x + meeting.width / 2 + clearance,
+        z0: meeting.z - meeting.depth / 2 - clearance,
+        z1: meeting.z + meeting.depth / 2 + clearance,
+      };
+      const root = build(office, [office, meeting], {
+        hasSlab: true,
+        floorSurfaceHoles: [cutout],
+        ceilingSurfaceHoles: [cutout],
+      });
+      const part = (name) => root.getChildMeshes(false).filter((mesh) => mesh.metadata.part === name);
+      const [floor] = part('floor');
+      const ceiling = part('ceiling').find((mesh) => mesh.name.startsWith('ceiling_outer_'));
+      const [slab] = part('slab');
+
+      expect(flatArea(floor, 0.02, 1)).toBeCloseTo(12 * 10 - 4.15 * 3.15);
+      expect(flatArea(ceiling, 3.2 - 0.005, -1)).toBeCloseTo(12 * 10 - 4.15 * 3.15);
+      expect(down(floor, 0, 0)).toBe(false);   // the hole under the inner room
+      expect(down(floor, 5, 4)).toBe(true);
+      // the slab is not cut: whole footprint, solid in the middle
+      expect(size(slab, 'x') * size(slab, 'z')).toBeCloseTo(12.15 * 10.15);
+      expect(down(slab, 0, 0)).toBe(true);
+    });
   });
 
   it('builds the shared portion of a partial wall and leaves the outer section', () => {

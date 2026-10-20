@@ -227,6 +227,31 @@ describe('ids', () => {
     editor.redo();                                // redo restores the same id
     expect(S().rooms[added.id]).toBeDefined();
   });
+
+  it('preserves nested room positions and floor assignments through save and reload', async () => {
+    const id = await createWorkspace(COMPANY, 'Nested rooms');
+    const editor = createEditorHistory();
+    editor.addRoom({ type: 'OFFICE', name: 'Large Office', x: 0, z: 0, width: 12, depth: 10, floor: 0 });
+    const outerId = S().selectedRoomId;
+    editor.addRoom({ type: 'MEETING', name: 'Meeting 1', x: -3, z: 0, width: 3, depth: 3, floor: 0 });
+    const firstId = S().selectedRoomId;
+    editor.addRoom({ type: 'CUSTOM', name: 'Cabin 1', x: 4, z: 1, width: 3, depth: 3, floor: 0 });
+    const secondId = S().selectedRoomId;
+    editor.addFloor({ copyRooms: false });
+    editor.addRoom({ type: 'MEETING', name: 'Upstairs Room', x: 0, z: 0, width: 4, depth: 3, floor: 1 });
+    const upstairsId = S().selectedRoomId;
+    const before = Object.values(S().rooms).map(({ isSelected: _selected, ...room }) => room);
+
+    expect(await saveNow()).toEqual({ ok: true });
+    S().resetWorkspace();
+    expect(await loadWorkspace(COMPANY, id)).toBe(true);
+    const after = Object.values(S().rooms).map(({ isSelected: _selected, ...room }) => room);
+    expect(after).toEqual(before);
+    expect(S().rooms[outerId]).toMatchObject({ x: 0, z: 0, width: 12, depth: 10, floor: 0 });
+    expect(S().rooms[firstId]).toMatchObject({ x: -3, floor: 0 });
+    expect(S().rooms[secondId]).toMatchObject({ x: 4, z: 1, floor: 0 });
+    expect(S().rooms[upstairsId]).toMatchObject({ x: 0, floor: 1 });
+  });
 });
 
 describe('loading saves from older versions of the app', () => {

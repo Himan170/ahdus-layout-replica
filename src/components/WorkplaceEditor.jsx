@@ -97,6 +97,7 @@ import { createPlannerTools } from '../planner/plannerTools';
 import { itemOverFloorPoint, wallTargetOf } from '../utils/pickHelpers';
 import {
   openingData, openingPartner, openingCentre, openingAt, resizeOpening, planRemoveOpening,
+  roomContainedBy, planRoomResize, WALL_THICKNESS,
 } from '../play/geometry';
 import { DEFAULT_HOTBAR } from '../play/hotbarItems';
 
@@ -751,11 +752,23 @@ export default function WorkplaceEditor({ onExit }) {
     for (const room of allRooms) {
       const existing = meshMap.get(room.id);
       const elevation = elevationOf(floorsMap, room.floor);
+      const sameFloorRooms = roomsByFloor.get(room.floor) ?? [room];
+      const nestedRooms = sameFloorRooms.filter((other) =>
+        other.id !== room.id && roomContainedBy(room, other));
+      const nestedCutouts = (nestedRooms) => nestedRooms.map((nested) => ({
+        x0: nested.x - nested.width / 2 - WALL_THICKNESS / 2,
+        x1: nested.x + nested.width / 2 + WALL_THICKNESS / 2,
+        z0: nested.z - nested.depth / 2 - WALL_THICKNESS / 2,
+        z1: nested.z + nested.depth / 2 + WALL_THICKNESS / 2,
+      }));
       const buildOptions = {
         elevation,
         hasSlab: floorBelow(floorsMap, room.floor) !== null,
         storeyTop: wallSpace(floorsMap, room.floor),
-        rooms: roomsByFloor.get(room.floor) ?? [room],
+        rooms: sameFloorRooms,
+        floorSurfaceHoles: nestedCutouts(nestedRooms),
+        ceilingSurfaceHoles: nestedCutouts(nestedRooms.filter((nested) =>
+          (nested.wallHeight ?? room.wallHeight) >= (room.wallHeight ?? 3) - 0.005)),
         ...stairHolesFor(room, stairs, floorsMap),
       };
 
@@ -1116,6 +1129,21 @@ export default function WorkplaceEditor({ onExit }) {
         showStudioMessage(`${useWorkspaceStore.getState().floors[plan.floorId]?.name} is now ${plan.height.toFixed(1)} m high, to fit ${room?.name}`);
       }
       return;
+    }
+    if ('width' in patch || 'depth' in patch) {
+      const state = useWorkspaceStore.getState();
+      const room = state.rooms[id];
+      const plan = planRoomResize(
+        room,
+        patch.width ?? room.width,
+        patch.depth ?? room.depth,
+        Object.values(state.rooms).filter((other) => other.floor === room.floor),
+      );
+      if (plan.blocker) {
+        showStudioMessage(`Would overlap ${plan.blocker.name}`, true);
+        return;
+      }
+      patch = { ...patch, width: plan.rect.width, depth: plan.rect.depth };
     }
     editor.updateRoom(id, patch, { mergeKey });
   }, [editor, showStudioMessage]);
