@@ -14,6 +14,8 @@
 import { stairOpening, overhangs } from './building';
 
 export const WALL_THICKNESS = 0.15;
+export const SHARED_WALL_TOLERANCE = 0.02;
+const GEOMETRY_EPSILON = 1e-6;
 export const MIN_ROOM_SIZE = 1.5;
 export const DOOR_DEFAULTS = { width: 1.0, height: 2.1, sill: 0 };
 export const WINDOW_DEFAULTS = { width: 1.4, height: 1.2, sill: 0.9 };
@@ -199,6 +201,128 @@ export function formatRoomSize(width, depth) {
 
 const OPPOSITE = { north: 'south', south: 'north', east: 'west', west: 'east' };
 
+const floorOf = (room) => room.floor ?? room.floorId ?? 0;
+const alongCentre = (room, axis) => axis === 'z' ? room.x : room.z;
+
+function physicalWallLine(room, wallName) {
+  const line = wallLine(room, wallName);
+  const wall = roomWalls(room).find((candidate) => candidate.name === wallName);
+  const centre = alongCentre(room, line.axis);
+  return {
+    ...line,
+    from: centre - wall.length / 2,
+    to: centre + wall.length / 2,
+  };
+}
+
+function isSharedBoundary(a, b, tolerance = SHARED_WALL_TOLERANCE) {
+  const distance = Math.abs(a.value - b.value);
+  return distance <= tolerance || Math.abs(distance - WALL_THICKNESS) <= tolerance;
+}
+
+/**
+ * Physical wall pieces for a room boundary. Opposing boundaries either share
+ * a centreline (older/manual layouts) or are separated by WALL_THICKNESS (the
+ * current planner's back-to-back placement). Shared pieces are emitted by
+ * exactly one room, chosen by stable ID order.
+ */
+export function roomWallSegments(room, wallName, rooms = []) {
+  const mine = physicalWallLine(room, wallName);
+  const start = mine.from - alongCentre(room, mine.axis);
+  const end = mine.to - alongCentre(room, mine.axis);
+  const candidates = [];
+
+  for (const other of rooms) {
+    if (other.id === room.id || floorOf(other) !== floorOf(room)) continue;
+    const theirs = physicalWallLine(other, OPPOSITE[wallName]);
+    if (!isSharedBoundary(mine, theirs)) continue;
+    const worldFrom = Math.max(mine.from, theirs.from);
+    const worldTo = Math.min(mine.to, theirs.to);
+    if (worldTo - worldFrom <= GEOMETRY_EPSILON) continue;
+    candidates.push({
+      u0: worldFrom - alongCentre(room, mine.axis),
+      u1: worldTo - alongCentre(room, mine.axis),
+      crossOffset: (theirs.value - mine.value) / 2,
+      worldValue: (theirs.value + mine.value) / 2,
+      axis: mine.axis,
+      thickness: WALL_THICKNESS,
+      partnerRoom: other,
+      shared: true,
+    });
+  }
+
+  candidates.sort((a, b) => a.u0 - b.u0 || String(a.partnerRoom.id).localeCompare(String(b.partnerRoom.id)));
+  const shared = [];
+  for (const candidate of candidates) {
+    let pieces = [{ u0: candidate.u0, u1: candidate.u1 }];
+    for (const used of shared) {
+      pieces = pieces.flatMap((piece) => {
+        if (used.u1 <= piece.u0 || used.u0 >= piece.u1) return [piece];
+        const result = [];
+        if (used.u0 > piece.u0) result.push({ u0: piece.u0, u1: used.u0 });
+        if (used.u1 < piece.u1) result.push({ u0: used.u1, u1: piece.u1 });
+        return result;
+      });
+    }
+    for (const piece of pieces) {
+      if (piece.u1 - piece.u0 <= GEOMETRY_EPSILON) continue;
+      shared.push({
+        ...piece,
+        crossOffset: candidate.crossOffset,
+        worldValue: candidate.worldValue,
+        axis: candidate.axis,
+        thickness: candidate.thickness,
+        partnerRoom: candidate.partnerRoom,
+        shared: true,
+      });
+    }
+  }
+
+  const intervals = shared.map(({ u0, u1 }) => ({ u0, u1 })).sort((a, b) => a.u0 - b.u0);
+  const segments = [];
+  let cursor = start;
+  for (const interval of intervals) {
+    if (interval.u0 > cursor + 1e-6) {
+      segments.push({ u0: cursor, u1: interval.u0, crossOffset: 0, shared: false });
+    }
+    cursor = Math.max(cursor, interval.u1);
+  }
+  if (end > cursor + 1e-6) segments.push({ u0: cursor, u1: end, crossOffset: 0, shared: false });
+
+  for (const segment of shared) {
+    if (String(room.id).localeCompare(String(segment.partnerRoom.id)) < 0) segments.push(segment);
+  }
+  return segments.sort((a, b) => a.u0 - b.u0 || Number(a.shared) - Number(b.shared));
+}
+
+/** Openings for a wall piece, translated into its owning room's wall offsets. */
+export function wallSegmentOpenings(room, wallName, segment) {
+  const along = wallName === 'north' || wallName === 'south' ? 'x' : 'z';
+  const ownCentre = room[along];
+  const sources = [{ room, wall: wallName }];
+  if (segment.shared) sources.push({ room: segment.partnerRoom, wall: OPPOSITE[wallName] });
+
+  const openings = [];
+  for (const source of sources) {
+    for (const opening of roomOpenings(source.room)) {
+      if (opening.wall !== source.wall) continue;
+      const offset = opening.offset + source.room[along] - ownCentre;
+      if (offset < segment.u0 - 1e-6 || offset > segment.u1 + 1e-6) continue;
+      const duplicate = openings.some((existing) =>
+        existing.kind === opening.kind &&
+        Math.abs(existing.offset - offset) <= SHARED_WALL_TOLERANCE &&
+        Math.abs(existing.width - opening.width) <= SHARED_WALL_TOLERANCE);
+      if (!duplicate) openings.push({
+        ...opening,
+        offset,
+        roomId: source.room.id,
+        sourceWall: source.wall,
+      });
+    }
+  }
+  return openings;
+}
+
 /** World-space centre line of a wall: fixed coordinate + extent along it. */
 export function wallLine(room, wallName) {
   const hw = room.width / 2;
@@ -222,11 +346,13 @@ export function partnerWall(rooms, room, wallName, point, span = 0) {
   const half = span / 2;
   const theirName = OPPOSITE[wallName];
   for (const other of rooms) {
-    if (other.id === room.id || other.floor !== room.floor) continue;
+    if (other.id === room.id || floorOf(other) !== floorOf(room)) continue;
     const theirs = wallLine(other, theirName);
-    if (Math.abs(theirs.value - mine.value) > WALL_THICKNESS + 0.05) continue;
-    // an opening `span` wide centred at `along` touches their wall?
-    if (along + half <= theirs.from || along - half >= theirs.to) continue;
+    if (!isSharedBoundary(mine, theirs)) continue;
+    const overlapFrom = Math.max(mine.from, theirs.from);
+    const overlapTo = Math.min(mine.to, theirs.to);
+    if (overlapTo - overlapFrom <= GEOMETRY_EPSILON) continue;
+    if (along + half <= overlapFrom || along - half >= overlapTo) continue;
     return { room: other, wallName: theirName };
   }
   return null;

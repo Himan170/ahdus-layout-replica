@@ -22,6 +22,7 @@ import {
   type RoomType,
   type LayoutObject,
   type Opening,
+  type Anchor,
 } from './schema';
 import { syncAnchors } from './anchors';
 
@@ -35,6 +36,9 @@ interface V1State {
   // exportWorkspace() saves arrays; the live store uses id-keyed records. Accept both.
   rooms?: Record<string, any> | any[];
   objects?: Record<string, any> | any[];
+  anchors?: Layout['anchors'];
+  routes?: Layout['routes'];
+  floorLinks?: Layout['floorLinks'];
   /** Data other modules wrote onto anchors: { [anchorId]: { positionRef?, label? } } */
   anchorData?: Record<string, { positionRef?: string; label?: string }>;
   [key: string]: unknown;
@@ -101,7 +105,8 @@ export function migrateV1toV2(v1: V1State): Layout {
       depth: r.depth ?? 4,
       wallHeight: r.wallHeight ?? 3,
       color: r.color ?? '#4a90d9',
-      floorFinish: 'default',
+      floorFinish: typeof r.floorFinish === 'string' ? r.floorFinish : 'default',
+      ...(typeof r.departmentRef === 'string' ? { departmentRef: r.departmentRef } : {}),
     };
     rooms.push(room);
 
@@ -174,20 +179,37 @@ export function migrateV1toV2(v1: V1State): Layout {
     openings,
     objects,
     anchors: [],
-    routes: [],
-    floorLinks: [],
+    routes: (v1.routes ?? []) as Layout['routes'],
+    floorLinks: (v1.floorLinks ?? []) as Layout['floorLinks'],
   };
-  // Generate anchors, then apply what other modules saved on them (positionRef, label)
+  // Regenerate object anchors at current positions while retaining extension
+  // fields and manual anchors from saves that already used the v2 anchor shape.
   const saved = v1.anchorData ?? {};
-  layout.anchors = syncAnchors(layout).map((a) => {
+  const priorAnchorValue = v1.anchors ?? [];
+  const priorAnchors = Array.isArray(priorAnchorValue) ? priorAnchorValue : [];
+  const priorById = new Map(
+    priorAnchors
+      .filter((anchor): anchor is Anchor => !!anchor && typeof anchor === 'object')
+      .map((anchor) => [anchor.id, anchor]),
+  );
+  const generated = syncAnchors(layout).map((a) => {
+    const previous = priorById.get(a.id);
     const d = saved[a.id];
-    if (!d) return a;
+    if (!d) return { ...previous, ...a };
     return {
+      ...previous,
       ...a,
       ...(d.positionRef ? { positionRef: d.positionRef } : {}),
       ...(d.label ? { label: d.label } : {}),
     };
   });
+  const generatedIds = new Set(generated.map((a) => a.id));
+  layout.anchors = [
+    ...generated,
+    ...priorAnchors.filter((anchor) =>
+      !anchor || typeof anchor !== 'object' || (!anchor.objectId && !generatedIds.has(anchor.id))),
+  ];
+  if (!Array.isArray(priorAnchorValue)) layout.anchors = priorAnchorValue as Layout['anchors'];
   return layout;
 }
 

@@ -3,6 +3,7 @@ import { Vector3, Matrix } from '@babylonjs/core/Maths/math.vector';
 import {
   rectFromCorners, wallSegmentTransform, splitWall, roomWalls, openingOffsetFromHit,
   overlapsExisting, openingAt, findRoomAt, roomOpenings, WALL_THICKNESS,
+  roomWallSegments, wallSegmentOpenings,
 } from '../geometry';
 
 describe('rectFromCorners', () => {
@@ -184,5 +185,84 @@ describe('placeOpening (doors between neighbouring rooms)', () => {
   it('aiming well past the neighbour gives an office-only door', () => {
     const r = placeOpening(rooms, office, 'east', { x: 3, z: 2.2 }, 1);
     expect(r.partner).toBeNull();
+  });
+});
+
+describe('shared physical wall geometry', () => {
+  const westRoom = { id: 'a', floor: 0, x: 0, z: 0, width: 6, depth: 4, wallHeight: 3 };
+  const eastRoom = { id: 'b', floor: 0, x: 5.15, z: 0, width: 4, depth: 4, wallHeight: 3.5 };
+
+  it('emits one 0.15 m wall at the midpoint of back-to-back boundaries', () => {
+    const owned = roomWallSegments(westRoom, 'east', [westRoom, eastRoom]).filter((s) => s.shared);
+    const partner = roomWallSegments(eastRoom, 'west', [westRoom, eastRoom]).filter((s) => s.shared);
+    expect(owned).toHaveLength(1);
+    expect(partner).toHaveLength(0);
+    expect(owned[0]).toMatchObject({
+      worldValue: 3 + WALL_THICKNESS / 2,
+      thickness: WALL_THICKNESS,
+      axis: 'x',
+      partnerRoom: eastRoom,
+    });
+    expect(owned[0].u1 - owned[0].u0).toBeCloseTo(4 - WALL_THICKNESS);
+  });
+
+  it('shares only the overlapping portion of a partial boundary', () => {
+    const shortRoom = { ...eastRoom, z: -1, depth: 2 };
+    const shared = roomWallSegments(westRoom, 'east', [westRoom, shortRoom]).filter((s) => s.shared);
+    expect(shared).toHaveLength(1);
+    expect(shared[0].u0).toBeCloseTo(-1 - (2 - WALL_THICKNESS) / 2);
+    expect(shared[0].u1).toBeCloseTo(-1 + (2 - WALL_THICKNESS) / 2);
+    expect(shared[0].u1 - shared[0].u0).toBeCloseTo(2 - WALL_THICKNESS);
+  });
+
+  it('does not share walls across floors or across a nearby but unsnapped gap', () => {
+    expect(roomWallSegments(westRoom, 'east', [westRoom, { ...eastRoom, floor: 1 }])
+      .some((s) => s.shared)).toBe(false);
+    expect(roomWallSegments(westRoom, 'east', [westRoom, { ...eastRoom, x: 5.1 }])
+      .some((s) => s.shared)).toBe(false);
+  });
+
+  it('deduplicates paired doors and keeps the doorway clear through the shared wall', () => {
+    const a = { ...westRoom, doors: [{ wall: 'east', offset: 0.25, width: 1, height: 2.1 }] };
+    const b = { ...eastRoom, doors: [{ wall: 'west', offset: 0.25, width: 1, height: 2.1 }] };
+    const segment = roomWallSegments(a, 'east', [a, b]).find((s) => s.shared);
+    const openings = wallSegmentOpenings(a, 'east', segment);
+    expect(openings).toHaveLength(1);
+    expect(openings[0]).toMatchObject({ kind: 'door', offset: 0.25, bottom: 0, top: 2.1 });
+    const pieces = splitWall(segment.u1 - segment.u0, 3.5, openings.map((o) => ({
+      ...o, offset: o.offset - (segment.u0 + segment.u1) / 2,
+    })));
+    const localDoorCentre = 0.25 - (segment.u0 + segment.u1) / 2;
+    expect(pieces.some((p) =>
+      localDoorCentre > p.u0 && localDoorCentre < p.u1 && p.y0 < 1 && p.y1 > 1,
+    )).toBe(false);
+  });
+
+  it('keeps a window from either room at its shared-wall world position and sill', () => {
+    const a = { ...westRoom, windows: [] };
+    const b = { ...eastRoom, windows: [{ wall: 'west', offset: 0.5, width: 1.4, height: 1.2, sill: 0.9 }] };
+    const segment = roomWallSegments(a, 'east', [a, b]).find((s) => s.shared);
+    expect(wallSegmentOpenings(a, 'east', segment)).toMatchObject([
+      { kind: 'window', offset: 0.5, width: 1.4, bottom: 0.9, top: 2.1, roomId: 'b', sourceWall: 'west' },
+    ]);
+  });
+
+  it('recomputes boundaries when a room moves or resizes', () => {
+    const moved = { ...eastRoom, x: 6.15 };
+    expect(roomWallSegments(westRoom, 'east', [westRoom, moved]).some((s) => s.shared)).toBe(false);
+    const resizedWest = { ...westRoom, width: 7 };
+    const resizedEast = { ...eastRoom, x: 5.65 };
+    const shared = roomWallSegments(resizedWest, 'east', [resizedWest, resizedEast]).find((s) => s.shared);
+    expect(shared.worldValue).toBeCloseTo(3.575);
+  });
+
+  it('restores a complete external wall when the neighbour is removed', () => {
+    const external = roomWallSegments(westRoom, 'east', [westRoom]);
+    expect(external).toEqual([{
+      u0: -(westRoom.depth - WALL_THICKNESS) / 2,
+      u1: (westRoom.depth - WALL_THICKNESS) / 2,
+      crossOffset: 0,
+      shared: false,
+    }]);
   });
 });

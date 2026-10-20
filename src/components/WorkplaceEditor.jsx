@@ -723,6 +723,11 @@ export default function WorkplaceEditor({ onExit }) {
     const meshMap = roomMeshesRef.current;
     const allRooms = Object.values(roomsMap);
     const stairs = Object.values(objectsMap).filter((o) => o.assetType === 'STAIRCASE');
+    const roomsByFloor = new Map();
+    for (const room of allRooms) {
+      if (!roomsByFloor.has(room.floor)) roomsByFloor.set(room.floor, []);
+      roomsByFloor.get(room.floor).push(room);
+    }
 
     // Build a set of current room IDs
     const currentIds = new Set(allRooms.map((r) => r.id));
@@ -743,6 +748,7 @@ export default function WorkplaceEditor({ onExit }) {
         elevation,
         hasSlab: floorBelow(floorsMap, room.floor) !== null,
         storeyTop: wallSpace(floorsMap, room.floor),
+        rooms: roomsByFloor.get(room.floor) ?? [room],
         ...stairHolesFor(room, stairs, floorsMap),
       };
 
