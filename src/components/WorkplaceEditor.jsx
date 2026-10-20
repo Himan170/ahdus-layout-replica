@@ -8,20 +8,11 @@
  */
 
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
-import { Engine } from '@babylonjs/core/Engines/engine';
-import { Scene } from '@babylonjs/core/scene';
-import { Color4 } from '@babylonjs/core/Maths/math.color';
-// Side-effect imports — Babylon tree-shakes aggressively
-import '@babylonjs/core/Meshes/meshBuilder';
-import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
-import '@babylonjs/core/Meshes/csg';
-// Phase 5: collision + first-person camera support
-import '@babylonjs/core/Collisions/collisionCoordinator';
 
-// Phase 1 utilities
-import { createCamera, switchTo2D, switchTo3D } from '../utils/cameraManager';
-import { createLighting, setLighting2D, setLighting3D } from '../utils/lightingSetup';
-import { createGrid } from '../utils/gridBuilder';
+// Engine, scene, camera, lights and site: shared with the embeddable engine
+import { createLayoutScene } from '../engine/systems/SceneSetup';
+import { switchTo2D, switchTo3D } from '../utils/cameraManager';
+import { setLighting2D, setLighting3D } from '../utils/lightingSetup';
 
 // Phase 2 utilities
 import { ROOM_TYPES } from '../utils/roomStore';
@@ -48,7 +39,6 @@ function stairHolesFor(room, stairs, floors) {
     ceilingHoles: holes(room.floor),
   };
 }
-import { createSiteEnvironment } from '../utils/siteEnvironment';
 
 // Phase 3 utilities
 import { ASSET_TYPES } from '../utils/assetCatalog';
@@ -377,39 +367,19 @@ export default function WorkplaceEditor({ onExit }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Engine
-    const engine = new Engine(canvas, true, {
-      preserveDrawingBuffer: true,
-      stencil: true,
-    });
-    engine.setHardwareScalingLevel(1 / window.devicePixelRatio);
-
-    // Scene
-    const scene = new Scene(engine);
-    scene.clearColor = new Color4(0.06, 0.08, 0.12, 1);
+    // Engine, scene, camera, lights, sky / grass / paving, render loop, resizing.
+    // Studio and Preview share the real-world look; the build grid shows only
+    // while a build tool is active (see below)
+    const layoutScene = createLayoutScene(canvas);
+    const { engine, scene, camera, lights, siteEnv } = layoutScene;
     sceneRef.current = scene;
-
-    // Camera
-    const camera = createCamera(scene, canvas);
     cameraRef.current = camera;
-
-    // Lighting
-    const lights = createLighting(scene);
     lightsRef.current = lights;
-
-    // Grid / Ground
-    const { ground } = createGrid(scene, 60);
+    siteEnvRef.current = siteEnv;
 
     // ── Phase 4: Performance monitor ──
     const perfMonitor = createPerformanceMonitor(engine);
     perfMonitorRef.current = perfMonitor;
-
-    // ── Play mode: realistic site look + character controller ──
-    const siteEnv = createSiteEnvironment(scene, ground, lights);
-    siteEnvRef.current = siteEnv;
-    // Studio and Preview share the real-world look (sky, grass, paving); the
-    // build grid shows only while a build tool is active (see below)
-    siteEnv.setPlayLook(true);
 
     const play = createPlayController(scene, canvas, {
       getState: () => {
@@ -660,11 +630,6 @@ export default function WorkplaceEditor({ onExit }) {
       }
     };
 
-    // Render loop
-    engine.runRenderLoop(() => {
-      scene.render();
-    });
-
     // FPS counter (updates DOM directly to avoid React re-renders)
     const fpsInterval = setInterval(() => {
       fpsRef.current = Math.round(engine.getFps());
@@ -673,22 +638,6 @@ export default function WorkplaceEditor({ onExit }) {
       }
     }, 500);
 
-    // Resize whenever the CANVAS changes size (window resize, or panels/toolbar
-    // hiding in Play mode). Otherwise Babylon keeps rendering at the old size
-    // and the picture is stretched, so the crosshair no longer matches the aim.
-    const onResize = () => {
-      engine.resize();
-      // 2D view: keep the picture's proportions when the card changes size
-      // (an Inspector opening or closing must not stretch it)
-      if (camera.mode === Camera.ORTHOGRAPHIC_CAMERA && camera.orthoTop) {
-        const aspect = engine.getAspectRatio(camera);
-        camera.orthoLeft = -camera.orthoTop * aspect;
-        camera.orthoRight = camera.orthoTop * aspect;
-      }
-    };
-    window.addEventListener('resize', onResize);
-    const resizeObserver = new ResizeObserver(onResize);
-    resizeObserver.observe(canvas);
     setSceneReady(scene);
 
     return () => {
@@ -698,20 +647,15 @@ export default function WorkplaceEditor({ onExit }) {
       layoutBridge._detach(bridgeContext);
       clearTimeout(cardTimerRef.current);
       clearInterval(fpsInterval);
-      window.removeEventListener('resize', onResize);
-      resizeObserver.disconnect();
       perfMonitor.dispose();
       play.dispose();
-      siteEnv.dispose();
       placementMgr.dispose();
       plannerTools.dispose();
       floorOutline.dispose();
       floorOutlineRef.current = null;
       clearTimeout(plannerMessageTimer.current);
       gizmoCtrl.dispose();
-      engine.stopRenderLoop();
-      scene.dispose();
-      engine.dispose();
+      layoutScene.dispose();
       // The scene took every room/item mesh with it. Forget them, or the next
       // scene (React StrictMode mounts twice; Vite hot reload) would reuse
       // disposed meshes: their metadata is null and the sync below crashed
