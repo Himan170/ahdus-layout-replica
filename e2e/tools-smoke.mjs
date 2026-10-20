@@ -365,12 +365,16 @@ const meshW = await p.evaluate((roomId) => {
 }, room.id);
 log('the wall is rebuilt around the new size', near(resized.width, 2.0, 0.001) && near(meshW ?? 0, 2.0, 0.01), `door ${resized.width} × ${resized.height}, opening ${meshW?.toFixed(2)} m`);
 await shot('t6-door-resized-preview.png');
+// Presses less than 2 s apart are one undo step (a burst); make 0 a step of its own
+await p.waitForTimeout(2100);
 await key('Digit0');
 const standard = await doorNow();
 log('0 gives the door its standard size (1.0 × 2.1 m)', near(standard.width, 1.0, 0.001) && near(standard.height, 2.1, 0.001),
   `${standard.width} × ${standard.height}`);
 await key('Control+z');
-log('Ctrl+Z after 0 brings the resized door back', near((await doorNow()).width, 2.0, 0.001));
+const undone = await doorNow();
+log('Ctrl+Z after 0 brings the resized door back', near(undone.width, 2.0, 0.001) && near(undone.height, 2.7, 0.001),
+  `${undone.width} × ${undone.height}`);
 
 log('no page errors', errs.length === 0, errs.slice(0, 3).join(' | '));
 await b.close();
