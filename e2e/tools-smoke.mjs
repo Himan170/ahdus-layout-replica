@@ -200,6 +200,43 @@ log('a monitor clicked onto the desk stands on its top', !!mon && mon.y > 0.5, m
 await key('Escape');
 await shot('t3-planner-built.png');
 
+// ── With the room selected: a click selects what is under the cursor, a drag of its floor moves it ──
+await tile('Select');
+const selectRoom = () => p.evaluate((id) => { const s = window.__ahdusStore.getState(); s.selectObject(null); s.selectRoom(id); }, room.id);
+const sel = () => p.evaluate(() => { const s = window.__ahdusStore.getState(); return { room: s.selectedRoomId, object: s.selectedObjectId }; });
+const roomNow = async () => (await store()).rooms.find((r) => r.id === room.id);
+// 3D, low beside the desk: the floor between its legs
+await tile('3D view'); await frames(3);
+await p.evaluate(([x, z]) => {
+  const cam = window.__ahdusScene.activeCamera; const V = cam.position.constructor;
+  cam.lowerRadiusLimit = 1; cam.setTarget(new V(x, 0.3, z)); cam.alpha = 0; cam.beta = 1.45; cam.radius = 2.2;
+}, [desk.x, desk.z]);
+await frames(3);
+await selectRoom(); await frames(2);
+const r0 = await roomNow();
+await clickAt(desk.x, 0.02, desk.z);
+let s1 = await sel();
+let r1b = await roomNow();
+await shot('t3b-floor-under-desk.png');
+log('room selected: clicking the floor between a desk\'s legs selects the desk (the room stays put)',
+  s1.object === desk.id && r1b.x === r0.x && r1b.z === r0.z, JSON.stringify(s1));
+await p.evaluate(() => { window.__ahdusScene.activeCamera.lowerRadiusLimit = 5; });
+await key('Escape');
+// 2D: an empty spot of its floor. A click keeps it where it is (and selected); a drag moves it.
+await tile('2D view'); await frames(4);
+await selectRoom(); await frames(2);
+await clickAt(0.5, 0.02, -2);
+s1 = await sel(); r1b = await roomNow();
+log('room selected: a click on its floor (no drag) does not move it', s1.room === room.id && r1b.x === r0.x && r1b.z === r0.z,
+  `(${r0.x}, ${r0.z}) → (${r1b.x}, ${r1b.z})`);
+await dragWorld([0.5, 0.02, -2], [1.5, 0.02, -2]);
+const r1m = await roomNow();
+log('room selected: dragging its floor moves it (same size)', near(r1m.x, r0.x + 1) && r1m.z === r0.z && r1m.width === r0.width,
+  `(${r0.x}, ${r0.z}) → (${r1m.x}, ${r1m.z})`);
+await key('Control+z');
+log('Ctrl+Z moves it back', near((await roomNow()).x, r0.x));
+await key('Escape');
+
 // ── Upper floor: the tools draw on the floor being edited ──
 await floorMenu('[aria-label="Add floor above"]');
 await p.click('[aria-label="Empty floor"]'); await frames(3);

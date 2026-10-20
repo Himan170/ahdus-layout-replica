@@ -25,7 +25,7 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { createBuildPreview } from '../utils/buildPreview';
-import { wallTargetOf } from '../utils/pickHelpers';
+import { wallTargetOf, itemOverFloorPoint } from '../utils/pickHelpers';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import {
@@ -38,6 +38,7 @@ import {
 } from '../play/building';
 
 const FLOOR_Y = 0.02;
+const CLICK_SLOP = 5; // px the mouse may move with the button down and still count as a click
 const WALL_LABEL = { north: 'north', south: 'south', east: 'east', west: 'west' };
 const VIEW_KEYS = [['Right-drag', 'Move the view'], ['Wheel', 'Zoom'], ['Esc', 'Stop']];
 
@@ -51,6 +52,7 @@ export function createPlannerTools(scene, canvas, {
 }) {
   let tool = { kind: 'select' };
   let drag = null;   // { kind: 'stretch' | 'room' | 'wall', start?, roomId?, wallName?, plan? }
+  let pendingMove = null; // { drag, x, y }: a room's floor pressed, not dragged yet (armMove)
   let hover = null;  // what a click would do right now
   let enabled = true;
   let lastHint = '';
@@ -309,10 +311,13 @@ export function createPlannerTools(scene, canvas, {
         };
       }
     }
+    // Its floor moves it, unless an item stands there (the floor between a
+    // desk's legs is the desk: a click selects it)
     const floorHit = scene.pick(scene.pointerX, scene.pointerY, (m) =>
       m.isPickable && m.isEnabled() && !pv.owns(m));
     if (floorHit?.hit && floorHit.pickedMesh.metadata?.roomId === room.id &&
-      floorHit.pickedMesh.metadata?.part === 'floor') {
+      floorHit.pickedMesh.metadata?.part === 'floor' &&
+      !itemOverFloorPoint(scene, floorHit.pickedPoint, onLevel)) {
       setCursor('move');
       hover = { type: 'grabRoom', roomId: room.id };
       return {
@@ -565,9 +570,28 @@ export function createPlannerTools(scene, canvas, {
   }
 
   function cancelDrag() {
+    if (pendingMove) onPendingUp();
     if (!drag) return;
     endDrag();
     refresh();
+  }
+
+  // A room's floor pressed: it moves once the mouse travels more than
+  // CLICK_SLOP px with the button down. Meanwhile the camera stays still.
+  function armMove(d) {
+    pendingMove = { drag: d, x: scene.pointerX, y: scene.pointerY };
+    getCamera()?.detachControl();
+    window.addEventListener('pointerup', onPendingUp);
+  }
+  function disarmMove() {
+    if (!pendingMove) return;
+    pendingMove = null;
+    window.removeEventListener('pointerup', onPendingUp);
+  }
+  function onPendingUp() {
+    disarmMove(); // it was a click
+    const camera = getCamera();
+    if (camera && scene.activeCamera === camera) camera.attachControl(canvas, true);
   }
 
   // Releasing the mouse outside the canvas still finishes the drag
@@ -584,6 +608,11 @@ export function createPlannerTools(scene, canvas, {
 
   function refresh() {
     if (!enabled) { hideHandles(); hint(null); return; }
+    if (pendingMove && Math.hypot(scene.pointerX - pendingMove.x, scene.pointerY - pendingMove.y) > CLICK_SLOP) {
+      const d = pendingMove.drag;
+      disarmMove();
+      startDrag(d);
+    }
     let h;
     if (drag) h = updateDrag();
     else if (tool.kind === 'select') h = updateSelect();
@@ -609,9 +638,12 @@ export function createPlannerTools(scene, canvas, {
       } else if (hover?.type === 'grabWall') {
         startDrag({ kind: 'stretch', roomId: hover.roomId, wallName: hover.wallName });
       } else if (hover?.type === 'grabRoom') {
+        // Not yet a move: a click selects what is under the cursor, as usual;
+        // the room moves once the mouse has really been dragged (CLICK_SLOP)
         const p = snappedGround();
         const room = floorRooms().find((r) => r.id === hover.roomId);
-        if (p && room) startDrag({ kind: 'move', roomId: room.id, start: p, origin: { x: room.x, z: room.z } });
+        if (p && room) armMove({ kind: 'move', roomId: room.id, start: p, origin: { x: room.x, z: room.z } });
+        return false;
       } else {
         return false;
       }

@@ -32,8 +32,9 @@ export function wallTargetOf(hit, eye = null) {
 const objectIdOf = (m) => m.metadata?.objectId ?? m.parent?.metadata?.objectId ?? null;
 
 /**
- * The placed item standing over a floor point (the tallest one if several),
- * or null. `accept(mesh, objectId)` can skip meshes (ghosts, other floors).
+ * The placed item standing over a floor point, or null. If several are, the
+ * one standing lowest wins (the desk, not the monitor on it), then the
+ * tallest. `accept(mesh, objectId)` can skip meshes (ghosts, other floors).
  * @returns {string|null} objectId
  */
 export function itemOverFloorPoint(scene, point, accept = () => true) {
@@ -43,7 +44,9 @@ export function itemOverFloorPoint(scene, point, accept = () => true) {
     if (!id || !mesh.isEnabled() || !accept(mesh, id)) continue;
     const { minimumWorld: lo, maximumWorld: hi } = mesh.getBoundingInfo().boundingBox;
     if (point.x >= lo.x && point.x <= hi.x && point.z >= lo.z && point.z <= hi.z) {
-      if (!best || hi.y > best.top) best = { objectId: id, top: hi.y };
+      const lower = best && lo.y < best.bottom - 0.05;
+      const asLow = best && Math.abs(lo.y - best.bottom) <= 0.05;
+      if (!best || lower || (asLow && hi.y > best.top)) best = { objectId: id, bottom: lo.y, top: hi.y };
     }
   }
   return best?.objectId ?? null;
