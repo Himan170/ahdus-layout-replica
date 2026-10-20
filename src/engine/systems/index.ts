@@ -1,5 +1,5 @@
 export { ObjectSystem } from './ObjectSystem';
-export type { ObjectData } from './ObjectSystem';
+export type { ObjectSystemOptions } from './ObjectSystem';
 
 export { RoomSystem, stairHolesFor } from './RoomSystem';
 export type { LayoutRecords, Records, V1Room, V1Object, V1Floor, RoomSystemOptions } from './RoomSystem';
