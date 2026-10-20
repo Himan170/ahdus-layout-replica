@@ -51,7 +51,7 @@ import { buildAssetMesh, ASSET_TYPES } from '../utils/assetCatalog';
 import { setItemLook } from '../utils/assetInstances';
 import { disposeMaterialIfOwned } from '../utils/materialLibrary';
 import { createBuildPreview } from '../utils/buildPreview';
-import { itemOverFloorPoint } from '../utils/pickHelpers';
+import { itemOverFloorPoint, wallTargetOf } from '../utils/pickHelpers';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { createCharacter } from './character';
 import { moveWithSteps } from './movement';
@@ -409,7 +409,7 @@ export function createPlayController(scene, canvas, {
       aim = null;
       return { title: kindLabel, detail: `Aim at a room wall` };
     }
-    const { roomId, wallName } = hit.pickedMesh.metadata;
+    const { roomId, wallName } = wallTargetOf(hit, camera.position);
     const room = floorRooms().find((r) => r.id === roomId);
     if (!room) { pv.hide('box'); aim = null; return { title: kindLabel }; }
 
@@ -495,13 +495,14 @@ export function createPlayController(scene, canvas, {
     // ── Step 1: aim at a wall to grab (its side moves the wall, its top changes the height) ──
     if (!grab) {
       const hit = aimPick((m) => !!m.metadata?.roomId && !!m.metadata?.wallName && onThisLevel(m));
-      const room = hit && rooms.find((r) => r.id === hit.pickedMesh.metadata.roomId);
+      const target = hit && wallTargetOf(hit, camera.position); // a shared wall: the room on your side
+      const room = target && rooms.find((r) => r.id === target.roomId);
       if (!hit || !room || Vector3.Distance(hit.pickedPoint, feet()) > REACH + 4) {
         pv.hide('box');
         aim = null;
         return { title: 'Stretch room', detail: 'Aim at a wall of a room to move it, or at its top to change the height' };
       }
-      const { wallName } = hit.pickedMesh.metadata;
+      const { wallName } = target;
       const wallHeight = room.wallHeight ?? 3;
       const nearTop = levelElev() + wallHeight - hit.pickedPoint.y < TOP_EDGE || (hit.getNormal(true)?.y ?? 0) > 0.7;
       if (nearTop) {
@@ -910,8 +911,12 @@ export function createPlayController(scene, canvas, {
     }
 
     if (tool?.kind === 'room') {
-      actions.deleteRoom(room.id);
-      say(`Removed ${room.name}. Press Ctrl+Z to undo.`);
+      // A shared wall: the room on your side of it
+      const victim = part.part === 'wall'
+        ? floorRooms().find((r) => r.id === wallTargetOf(hit, camera.position).roomId) ?? room
+        : room;
+      actions.deleteRoom(victim.id);
+      say(`Removed ${victim.name}. Press Ctrl+Z to undo.`);
     } else {
       say('To remove a whole room, hold a room item and right-click it.');
     }

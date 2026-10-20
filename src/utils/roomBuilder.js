@@ -22,8 +22,12 @@
  *
  * Mesh metadata (used for picking in the planner and in Play mode):
  *   { roomId, floorId, part: 'floor' | 'wall' | 'door' | 'window' | 'slab' | 'roof' | 'ceiling' | 'band' | 'skirting',
- *     wallName?, openingKind?, openingIndex? }
+ *     wallName?, openingKind?, openingIndex?, sharedWith?, sharedWall?, sharedAt? }
  * Each door/window also has an invisible pickable pane filling its opening.
+ * A wall shared with a neighbour is built once, by one of the two rooms, as its
+ * own mesh: `sharedWith` / `sharedWall` name the other room and its wall,
+ * `sharedAt` the world coordinate of the wall's centre line. A pick on it
+ * means the room on the side it was hit from (pickHelpers.wallTargetOf).
  *
  * Big buildings: parts with the same metadata are merged into one mesh with one
  * sub-mesh per material (one mesh per wall, per door / window frame, one floor,
@@ -38,7 +42,9 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { getMaterials, TILE_SIZE, FLOOR_BY_ROOM_TYPE } from './materialLibrary';
-import { roomWalls, roomOpenings, splitWall, WALL_THICKNESS } from '../play/geometry';
+import {
+  roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, WALL_THICKNESS, OPPOSITE, roomBuildInput,
+} from '../play/geometry';
 import { subtractRects, SLAB } from '../play/building';
 import { mergeByMaterial } from './assetInstances';
 
@@ -82,6 +88,7 @@ function toLocal(rects, room) {
  *                            a lower room gets a wall band up to it
  *   floorHoles?: object[],   world rects {x0,x1,z0,z1} to cut out of the floor (stairs coming up)
  *   ceilingHoles?: object[], world rects to cut out of the ceiling and roof (stairs going up)
+ *   rooms?: object[],      rooms on this floor, used to derive shared walls
  * }} [options]
  * @returns {TransformNode} root node containing all room meshes
  */
@@ -137,20 +144,27 @@ export function buildRoomMesh(roomData, scene, options = {}) {
   // gap shows between storeys (inside, the ceiling stays at wallHeight).
   // Shown only when rooms above cover it (WorkplaceEditor.applyLevelVisibility).
   const storeyTop = options.storeyTop ?? wallHeight;
-  if (storeyTop > wallHeight + 0.01) {
-    const h = storeyTop - wallHeight;
-    const W = outer.x1 - outer.x0;
-    const D = outer.z1 - outer.z0;
-    [
-      [0, D / 2 - T / 2, W, T],
-      [0, -D / 2 + T / 2, W, T],
-      [W / 2 - T / 2, 0, T, D - 2 * T],
-      [-W / 2 + T / 2, 0, T, D - 2 * T],
-    ].forEach(([bx, bz, w, d], i) => {
-      const band = MeshBuilder.CreateBox(`band_${id}_${i}`, { width: w, depth: d, height: h }, scene);
-      band.position.set(bx, wallHeight + h / 2, bz);
+  for (const wall of roomWalls(roomData)) {
+    for (const [i, segment] of roomWallSegments(roomData, wall.name, options.rooms ?? [roomData]).entries()) {
+      const segmentBase = segment.shared
+        ? Math.max(wallHeight, segment.partnerRoom.wallHeight ?? wallHeight)
+        : wallHeight;
+      if (storeyTop <= segmentBase + 0.01) continue;
+      const h = storeyTop - segmentBase;
+      const midpoint = (segment.u0 + segment.u1) / 2;
+      const length = segment.u1 - segment.u0;
+      const band = MeshBuilder.CreateBox(`band_${id}_${wall.name}_${i}`, {
+        width: wall.alongX ? length : T,
+        depth: wall.alongX ? T : length,
+        height: h,
+      }, scene);
+      band.position.set(
+        wall.alongX ? wall.cx + midpoint : wall.cx + segment.crossOffset,
+        segmentBase + h / 2,
+        wall.alongX ? wall.cz + segment.crossOffset : wall.cz + midpoint,
+      );
       addPart(band, { part: 'band' }, mats.plaster(), { pickable: false });
-    });
+    }
   }
 
   // ── Roof: slab + membrane + parapet (shown when nothing is built above) ──
@@ -173,19 +187,24 @@ export function buildRoomMesh(roomData, scene, options = {}) {
       addPart(membrane, { part: 'roof' }, mats.roofTop(), { pickable: false });
     });
 
-    const W = outer.x1 - outer.x0;
-    const D = outer.z1 - outer.z0;
     const py = wallHeight + ROOF_T + PARAPET_H / 2;
-    [
-      [0, D / 2 - PARAPET_T / 2, W, PARAPET_T],
-      [0, -D / 2 + PARAPET_T / 2, W, PARAPET_T],
-      [W / 2 - PARAPET_T / 2, 0, PARAPET_T, D - 2 * PARAPET_T],
-      [-W / 2 + PARAPET_T / 2, 0, PARAPET_T, D - 2 * PARAPET_T],
-    ].forEach(([px, pz, w, d], i) => {
-      const parapet = MeshBuilder.CreateBox(`parapet_${id}_${i}`, { width: w, depth: d, height: PARAPET_H }, scene);
-      parapet.position.set(px, py, pz);
-      addPart(parapet, { part: 'roof' }, mats.plaster(), { pickable: false });
-    });
+    for (const wall of roomWalls(roomData)) {
+      for (const [i, segment] of roomWallSegments(roomData, wall.name, options.rooms ?? [roomData]).entries()) {
+        const midpoint = (segment.u0 + segment.u1) / 2;
+        const length = segment.u1 - segment.u0;
+        const parapet = MeshBuilder.CreateBox(`parapet_${id}_${wall.name}_${i}`, {
+          width: wall.alongX ? length : PARAPET_T,
+          depth: wall.alongX ? PARAPET_T : length,
+          height: PARAPET_H,
+        }, scene);
+        parapet.position.set(
+          wall.alongX ? wall.cx + midpoint : wall.cx + segment.crossOffset,
+          py,
+          wall.alongX ? wall.cz + segment.crossOffset : wall.cz + midpoint,
+        );
+        addPart(parapet, { part: 'roof' }, mats.plaster(), { pickable: false });
+      }
+    }
   }
 
   // ── Indoor ceiling + light panels (shown when you are inside) ──
@@ -210,66 +229,85 @@ export function buildRoomMesh(roomData, scene, options = {}) {
   }
 
   // ── Walls ──
-  const openings = roomOpenings(roomData);
-
+  const sameFloorRooms = options.rooms ?? [roomData];
   for (const wall of roomWalls(roomData)) {
-    const onWall = openings.filter((o) => o.wall === wall.name);
-    const pieces = splitWall(wall.length, wallHeight, onWall);
+    for (const [segmentIndex, segment] of roomWallSegments(roomData, wall.name, sameFloorRooms).entries()) {
+      const segmentCentre = (segment.u0 + segment.u1) / 2;
+      const segmentLength = segment.u1 - segment.u0;
+      const segmentHeight = segment.shared
+        ? Math.max(wallHeight, segment.partnerRoom.wallHeight ?? wallHeight)
+        : wallHeight;
+      const onWall = wallSegmentOpenings(roomData, wall.name, segment);
+      const pieces = splitWall(segmentLength, segmentHeight, onWall.map((o) => ({
+        ...o,
+        offset: o.offset - segmentCentre,
+      })));
+      const wallCx = wall.cx + (wall.alongX ? 0 : segment.crossOffset);
+      const wallCz = wall.cz + (wall.alongX ? segment.crossOffset : 0);
 
-    // Place a box that spans [u0,u1] along the wall and [y0,y1] vertically
-    const placeBox = (name, u0, u1, y0, y1, thickness, material, meta, opts) => {
-      const len = u1 - u0;
-      const box = MeshBuilder.CreateBox(name, {
-        width: wall.alongX ? len : thickness,
-        depth: wall.alongX ? thickness : len,
-        height: y1 - y0,
-      }, scene);
-      const mid = (u0 + u1) / 2;
-      box.position.set(
-        wall.alongX ? wall.cx + mid : wall.cx,
-        (y0 + y1) / 2,
-        wall.alongX ? wall.cz : wall.cz + mid,
-      );
-      return addPart(box, meta, material, opts);
-    };
+      // Place a box that spans [u0,u1] along this wall piece.
+      const placeBox = (name, u0, u1, y0, y1, thickness, material, meta, opts) => {
+        const len = u1 - u0;
+        const box = MeshBuilder.CreateBox(name, {
+          width: wall.alongX ? len : thickness,
+          depth: wall.alongX ? thickness : len,
+          height: y1 - y0,
+        }, scene);
+        const mid = (u0 + u1) / 2;
+        box.position.set(
+          wall.alongX ? wallCx + mid : wallCx,
+          (y0 + y1) / 2,
+          wall.alongX ? wallCz : wallCz + mid,
+        );
+        return addPart(box, meta, material, opts);
+      };
 
-    const wallMeta = { part: 'wall', wallName: wall.name };
-    pieces.forEach((p, i) => {
-      placeBox(`wall_${id}_${wall.name}_${i}`, p.u0, p.u1, p.y0, p.y1, T, mats.plaster(), wallMeta);
-      // Skirting: one mesh for the whole room. Not pickable: a click on it
-      // goes through to the wall right behind it (1.5 cm).
-      if (p.y0 === 0) {
-        placeBox(`skirt_${id}_${wall.name}_${i}`, p.u0, p.u1, 0, SKIRTING_H, T + 0.03,
-          mats.skirting(), { part: 'skirting' }, { castShadow: false, pickable: false });
-      }
-    });
+      // A shared piece is a mesh of its own: picking it and outlining it depend on both rooms
+      const partner = segment.shared ? segment.partnerRoom.id : null;
+      const shared = (roomId, wallName) => (!partner ? {} : {
+        sharedWith: roomId === id ? partner : id,
+        sharedWall: OPPOSITE[wallName],
+        sharedAt: segment.worldValue,
+      });
+      const wallMeta = { part: 'wall', wallName: wall.name, ...shared(id, wall.name) };
+      pieces.forEach((p, i) => {
+        const u0 = p.u0 + segmentCentre;
+        const u1 = p.u1 + segmentCentre;
+        placeBox(`wall_${id}_${wall.name}_${segmentIndex}_${i}`, u0, u1, p.y0, p.y1, T, mats.plaster(), wallMeta);
+        // Skirting: not pickable, a click on it goes through to the wall behind it.
+        if (p.y0 === 0) {
+          placeBox(`skirt_${id}_${wall.name}_${segmentIndex}_${i}`, u0, u1, 0, SKIRTING_H, T + 0.03,
+            mats.skirting(), wallMeta, { castShadow: false });
+        }
+      });
 
-    // ── Door and window frames ──
-    for (const o of onWall) {
-      const u0 = o.offset - o.width / 2;
-      const u1 = o.offset + o.width / 2;
-      const meta = { part: o.kind, wallName: wall.name, openingKind: o.kind, openingIndex: o.index };
-      const frameMat = o.kind === 'door' ? mats.doorFrame() : mats.windowFrame();
-      const D = T + FRAME_DEPTH_EXTRA;
-      const tag = `${o.kind}_${id}_${wall.name}_${o.index}`;
+      // ── Door and window frames ──
+      for (const o of onWall) {
+        const localCentre = o.offset - segmentCentre;
+        const u0 = localCentre - o.width / 2 + segmentCentre;
+        const u1 = localCentre + o.width / 2 + segmentCentre;
+        const meta = {
+          part: o.kind, wallName: o.sourceWall, openingKind: o.kind, openingIndex: o.index,
+          roomId: o.roomId, ...shared(o.roomId, o.sourceWall),
+        };
+        const frameMat = o.kind === 'door' ? mats.doorFrame() : mats.windowFrame();
+        const D = T + FRAME_DEPTH_EXTRA;
+        const tag = `${o.kind}_${id}_${wall.name}_${segmentIndex}_${o.roomId}_${o.index}`;
 
-      // An invisible pane filling the opening: aiming through a doorway (Preview's
-      // Edit item, E, right-click) or clicking it in Studio picks the door, not
-      // only its thin frame. Not drawn (visibility 0) and you walk through doors.
-      // Marked pickPane: Preview's aiming looks through it unless it asks for doors.
-      const pane = placeBox(`${tag}_pick`, u0, u1, o.bottom, o.top, T, null, { ...meta, pickPane: true }, { castShadow: false });
-      pane.visibility = 0;
+        // The invisible pane is pickable, but does not block movement through doors.
+        const pane = placeBox(`${tag}_pick`, u0, u1, o.bottom, o.top, T, null, { ...meta, pickPane: true }, { castShadow: false });
+        pane.visibility = 0;
 
-      // jambs (sides) and head (top)
-      placeBox(`${tag}_jl`, u0, u0 + FRAME_W, o.bottom, o.top, D, frameMat, meta, { castShadow: false });
-      placeBox(`${tag}_jr`, u1 - FRAME_W, u1, o.bottom, o.top, D, frameMat, meta, { castShadow: false });
-      placeBox(`${tag}_hd`, u0, u1, o.top - FRAME_W, o.top, D, frameMat, meta, { castShadow: false });
+        placeBox(`${tag}_jl`, u0, u0 + FRAME_W, o.bottom, o.top, D, frameMat, meta, { castShadow: false });
+        placeBox(`${tag}_jr`, u1 - FRAME_W, u1, o.bottom, o.top, D, frameMat, meta, { castShadow: false });
+        placeBox(`${tag}_hd`, u0, u1, o.top - FRAME_W, o.top, D, frameMat, meta, { castShadow: false });
 
-      if (o.kind === 'window') {
-        placeBox(`${tag}_sl`, u0, u1, o.bottom, o.bottom + FRAME_W, D + 0.06, frameMat, meta, { castShadow: false });
-        placeBox(`${tag}_mu`, o.offset - 0.025, o.offset + 0.025, o.bottom, o.top, D * 0.6, frameMat, meta, { castShadow: false });
-        placeBox(`${tag}_gl`, u0 + FRAME_W, u1 - FRAME_W, o.bottom + FRAME_W, o.top - FRAME_W, 0.02,
-          mats.glass(), meta, { castShadow: false });
+        if (o.kind === 'window') {
+          placeBox(`${tag}_sl`, u0, u1, o.bottom, o.bottom + FRAME_W, D + 0.06, frameMat, meta, { castShadow: false });
+          placeBox(`${tag}_mu`, o.offset - 0.025, o.offset + 0.025, o.bottom, o.top, D * 0.6, frameMat, meta, { castShadow: false });
+          placeBox(`${tag}_gl`, u0 + FRAME_W, u1 - FRAME_W, o.bottom + FRAME_W, o.top - FRAME_W, 0.02,
+            mats.glass(), meta, { castShadow: false });
+        }
       }
     }
   }
@@ -305,7 +343,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
     child.freezeWorldMatrix();
   }
 
-  setRoomSelected(root, !!roomData.isSelected, roomData.color);
+  setRoomSelected(root, roomData.isSelected ? id : null, roomData.color);
   return root;
 }
 
@@ -318,15 +356,20 @@ export function disposeRoomMesh(rootNode) {
 }
 
 /**
- * Show/hide the selection outline on a room (walls + floor edge).
+ * Show/hide the selection outline (walls + floor edge) on the parts of a room's
+ * mesh that belong to the selected room: all of them if it is this room, its
+ * shared walls if it is the neighbour they are shared with.
+ * @param {string|null} selectedRoomId
+ * @param {string} [color]  the selected room's colour
  */
-export function setRoomSelected(rootNode, selected, color = '#6c8cff') {
+export function setRoomSelected(rootNode, selectedRoomId, color = '#6c8cff') {
   if (!rootNode) return;
   const outline = Color3.FromHexString(color);
+  const own = selectedRoomId != null && rootNode.metadata?.roomId === selectedRoomId;
   for (const child of rootNode.getChildMeshes(false)) {
-    const part = child.metadata?.part;
+    const { part, sharedWith } = child.metadata ?? {};
     if (part === 'wall' || part === 'floor') {
-      child.renderOutline = selected;
+      child.renderOutline = own || (selectedRoomId != null && sharedWith === selectedRoomId);
       child.outlineColor = outline;
       child.outlineWidth = 0.04;
     }
@@ -334,13 +377,14 @@ export function setRoomSelected(rootNode, selected, color = '#6c8cff') {
 }
 
 /**
- * A string that changes whenever the room needs to be rebuilt
- * (size, type, doors, windows). Position/selection changes don't need a rebuild.
+ * A string that changes whenever the room needs to be rebuilt: its size, type,
+ * doors, windows, storey, stair holes, and the rooms touching it (shared walls;
+ * geometry.roomBuildInput / roomsToRebuild). A change to a room further away on
+ * the floor, or to the selection, doesn't need a rebuild.
  */
 export function roomGeometryKey(room, options = {}) {
   return JSON.stringify([
-    room.x, room.z, room.width, room.depth, room.wallHeight, room.type, room.color,
-    room.doors ?? [], room.windows ?? [],
+    roomBuildInput(room, options.rooms ?? []),
     options.elevation ?? 0, !!options.hasSlab, options.storeyTop ?? null, options.floorHoles ?? [], options.ceilingHoles ?? [],
   ]);
 }

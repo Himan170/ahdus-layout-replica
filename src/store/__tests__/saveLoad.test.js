@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useWorkspaceStore } from '../workspaceStore';
 import { createEditorHistory } from '../editorHistory';
 import { normaliseLayout, layoutSummary } from '../layoutData';
+import { roomWallSegments, wallSegmentOpenings } from '../../play/geometry';
 import {
   createWorkspace, loadWorkspace, saveNow, listLayouts, deleteLayout, renameLayout,
   startAutoSave, stopAutoSave, reloadLayout, saveAsCopy, exportLayout, importLayout, storageUse,
@@ -96,6 +97,35 @@ describe('save → load round trip', () => {
     createEditorHistory().addRoom({ type: 'OFFICE', x: 20, z: 0, width: 4, depth: 4 });
     const ids = Object.keys(S().rooms);
     expect(new Set(ids).size).toBe(3);
+  });
+
+  it('re-derives shared walls and one paired opening after saving and reloading', async () => {
+    const id = await createWorkspace(COMPANY, 'Shared wall');
+    const editor = createEditorHistory();
+    editor.addRoom({ type: 'OFFICE', name: 'West', x: 0, z: 0, width: 6, depth: 4, floor: 0 });
+    const westId = S().selectedRoomId;
+    editor.addRoom({ type: 'MEETING', name: 'East', x: 5.15, z: 0, width: 4, depth: 4, floor: 0 });
+    const eastId = S().selectedRoomId;
+    editor.addOpenings([
+      { roomId: westId, kind: 'door', wall: 'east', offset: 0.25, width: 1, height: 2.1 },
+      { roomId: eastId, kind: 'door', wall: 'west', offset: 0.25, width: 1, height: 2.1 },
+    ]);
+
+    expect(await saveNow()).toEqual({ ok: true });
+    const saved = JSON.parse(localStorage.getItem(`dwtwin_${COMPANY}_${id}`));
+    expect(saved.rooms.every((room) => !('sharedWalls' in room))).toBe(true);
+
+    S().resetWorkspace();
+    expect(await loadWorkspace(COMPANY, id)).toBe(true);
+    // The room whose id sorts first owns the shared piece; ids are random UUIDs,
+    // so look on both sides: exactly one of them emits it.
+    const rooms = Object.values(S().rooms);
+    const sides = [[S().rooms[westId], 'east'], [S().rooms[eastId], 'west']]
+      .map(([room, wall]) => ({ room, wall, segment: roomWallSegments(room, wall, rooms).find((s) => s.shared) }))
+      .filter((side) => side.segment);
+    expect(sides).toHaveLength(1);
+    const [{ room, wall, segment }] = sides;
+    expect(wallSegmentOpenings(room, wall, segment).filter((opening) => opening.kind === 'door')).toHaveLength(1);
   });
 });
 
@@ -258,6 +288,23 @@ describe('loading saves from older versions of the app', () => {
     expect(n.objects[0]).toMatchObject({ floor: 2, y: 0.75 });
     expect(n.anchorData).toEqual(saved.anchorData);         // anchor ids don't depend on floors
     expect(normaliseLayout(n)).toEqual(n);                    // loading it again changes nothing
+  });
+
+  it('renumbers saved floors to start at floor 0 when a save skipped it', () => {
+    const n = normaliseLayout({
+      layoutName: 'Shifted storey',
+      floors: [{ id: 1, name: 'Floor 1' }, { id: 2, name: 'Floor 2' }],
+      rooms: [
+        { id: 'room_1', floor: 1, width: 4, depth: 4 },
+        { id: 'room_2', floor: 2, width: 4, depth: 4 },
+      ],
+      objects: [{ id: 'obj_1', floor: 2, assetType: 'DESK_STANDARD' }],
+      anchorData: {},
+    });
+
+    expect(Object.keys(n.floors)).toEqual(['0', '1']);
+    expect(n.rooms.map((r) => r.floor)).toEqual([0, 1]);
+    expect(n.objects[0].floor).toBe(1);
   });
 
   it('survives junk: missing lists, maps instead of arrays, nulls', () => {

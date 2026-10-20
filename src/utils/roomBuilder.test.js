@@ -1,0 +1,172 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
+import { Scene } from '@babylonjs/core/scene';
+import { Ray } from '@babylonjs/core/Culling/ray';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+
+vi.mock('./materialLibrary', () => ({
+  TILE_SIZE: { wood: 1, carpet: 1, tile: 1, smallTile: 1, concrete: 1, raised: 1 },
+  FLOOR_BY_ROOM_TYPE: {},
+  getMaterials: () => Object.fromEntries([
+    'floor', 'plaster', 'skirting', 'doorFrame', 'windowFrame',
+    'glass', 'roofTop', 'ceiling', 'lightPanel',
+  ].map((key) => [key, () => null])),
+}));
+
+const { buildRoomMesh, setRoomSelected, roomGeometryKey } = await import('./roomBuilder');
+const { roomsToRebuild } = await import('../play/geometry');
+const { wallTargetOf } = await import('./pickHelpers');
+
+let scene;
+afterEach(() => {
+  scene?.dispose();
+  scene = null;
+});
+
+function build(room, rooms = [room]) {
+  scene = new Scene(new NullEngine());
+  return buildRoomMesh(room, scene, { rooms });
+}
+
+function wallMeshes(root, wallName) {
+  return root.getChildMeshes(false).filter((mesh) =>
+    mesh.name.startsWith('wall_') &&
+    mesh.metadata?.part === 'wall' && mesh.metadata.wallName === wallName);
+}
+
+// The pieces of one wall (or one door / window frame) are merged into one mesh
+// with their positions baked in, so measure world bounds and cast rays.
+const bounds = (mesh) => mesh.getBoundingInfo().boundingBox;
+const size = (mesh, axis) => bounds(mesh).maximumWorld[axis] - bounds(mesh).minimumWorld[axis];
+const centre = (mesh) => bounds(mesh).centerWorld;
+/** Where a ray going +X from x = 2 at (y, z) first hits `mesh`, or null. */
+function hitX(mesh, y, z) {
+  const hit = new Ray(new Vector3(2, y, z), new Vector3(1, 0, 0), 10).intersectsMesh(mesh);
+  return hit.hit ? hit.pickedPoint.x : null;
+}
+
+describe('roomBuilder shared-wall meshes', () => {
+  const west = { id: 'a', floor: 0, x: 0, z: 0, width: 6, depth: 4, wallHeight: 3, doors: [], windows: [] };
+  const east = { id: 'b', floor: 0, x: 5.15, z: 0, width: 4, depth: 4, wallHeight: 3.5, doors: [], windows: [] };
+
+  it('builds one 0.15 m physical wall at the shared boundary', () => {
+    const westRoot = build(west, [west, east]);
+    const eastRoot = buildRoomMesh(east, scene, { rooms: [west, east] });
+    const shared = wallMeshes(westRoot, 'east');
+
+    expect(shared).toHaveLength(1);
+    expect(centre(shared[0]).x).toBeCloseTo(3.075);
+    expect(size(shared[0], 'x')).toBeCloseTo(0.15);
+    expect(size(shared[0], 'z')).toBeCloseTo(3.85);
+    expect(size(shared[0], 'y')).toBeCloseTo(3.5);
+    expect(wallMeshes(eastRoot, 'west')).toHaveLength(0);
+  });
+
+  it('builds the shared portion of a partial wall and leaves the outer section', () => {
+    const shortEast = { ...east, z: -1, depth: 2 };
+    const root = build(west, [west, shortEast]);
+    const eastWalls = wallMeshes(root, 'east');
+
+    // one mesh for the room's own part of the wall, one for the shared piece
+    expect(eastWalls).toHaveLength(2);
+    expect(eastWalls.filter((m) => m.metadata.sharedWith === 'b')).toHaveLength(1);
+    const hit = (y, z) => Math.min(...eastWalls.map((m) => hitX(m, y, z) ?? Infinity));
+    // shared portion (z -1.925 .. -0.075): the 0.15 m wall at x 3.0 .. 3.15
+    expect(hit(1, -1.9)).toBeCloseTo(3.0);
+    expect(hit(1, -0.1)).toBeCloseTo(3.0);
+    // the rest stays this room's own wall at x 2.925 .. 3.075
+    expect(hit(1, 0.1)).toBeCloseTo(2.925);
+    expect(hit(1, 1.9)).toBeCloseTo(2.925);
+  });
+
+  it('builds one passable door and one correctly tagged pane for paired references', () => {
+    const a = { ...west, doors: [{ wall: 'east', offset: 0.25, width: 1, height: 2.1 }] };
+    const b = { ...east, doors: [{ wall: 'west', offset: 0.25, width: 1, height: 2.1 }] };
+    const root = build(a, [a, b]);
+    const doorMeshes = root.getChildMeshes(false).filter((mesh) => mesh.metadata?.part === 'door');
+    const pane = doorMeshes.find((mesh) => mesh.metadata.pickPane);
+    const [wall] = wallMeshes(root, 'east');
+
+    expect(pane).toBeTruthy();
+    expect(centre(pane).x).toBeCloseTo(3.075);
+    expect(centre(pane).z).toBeCloseTo(0.25);
+    expect(doorMeshes).toHaveLength(2); // one frame + one pane, not one of each per room
+    expect(pane.checkCollisions).toBe(false);
+    expect(hitX(wall, 1, 0.25)).toBeNull();      // a hole where the door is
+    expect(hitX(wall, 1, -1.5)).toBeCloseTo(3.0); // solid beside it
+  });
+
+  it('builds a partner-only window at its world position and sill height', () => {
+    const a = { ...west, windows: [] };
+    const b = { ...east, windows: [{ wall: 'west', offset: 0.5, width: 1.4, height: 1.2, sill: 0.9 }] };
+    const root = build(a, [a, b]);
+    const windowMeshes = root.getChildMeshes(false).filter((mesh) => mesh.metadata?.part === 'window');
+    const pane = windowMeshes.find((mesh) => mesh.metadata.pickPane);
+
+    expect(windowMeshes).toHaveLength(2); // frame + glass in one mesh, and the pane
+    expect(centre(pane).x).toBeCloseTo(3.075);
+    expect(centre(pane).z).toBeCloseTo(0.5);
+    expect(centre(pane).y).toBeCloseTo(1.5);
+    expect(pane.metadata).toMatchObject({ roomId: 'b', wallName: 'west', openingIndex: 0 });
+  });
+});
+
+describe('a shared wall belongs to both rooms, whichever builds it', () => {
+  const room = (id, x, width) => ({ id, floor: 0, x, z: 0, width, depth: 4, wallHeight: 3, doors: [], windows: [] });
+  // The room whose id sorts first builds the shared wall: try both ways round
+  const orders = [
+    ['the west room builds it', room('a', 0, 6), room('b', 5.15, 4)],
+    ['the east room builds it', room('z', 0, 6), room('b', 5.15, 4)],
+  ];
+
+  function buildBoth(west, east) {
+    scene = new Scene(new NullEngine());
+    const roots = [west, east].map((r) => buildRoomMesh(r, scene, { rooms: [west, east] }));
+    const all = roots.flatMap((root) => root.getChildMeshes(false));
+    const wall = all.find((m) => m.name.startsWith('wall_') && m.metadata.sharedWith);
+    return { roots, all, wall };
+  }
+  const hitFrom = (mesh, x, dirX) => new Ray(new Vector3(x, 1, 0), new Vector3(dirX, 0, 0), 10).intersectsMesh(mesh);
+
+  it.each(orders)('picking it from a side means the room on that side (%s)', (_, west, east) => {
+    const { wall } = buildBoth(west, east);
+    expect(wall.metadata.roomId).toBe(west.id < east.id ? west.id : east.id);
+    const fromWest = hitFrom(wall, 1, 1);
+    const fromEast = hitFrom(wall, 6, -1);
+    expect(fromWest.hit && fromEast.hit).toBe(true);
+    expect(wallTargetOf(fromWest)).toEqual({ roomId: west.id, wallName: 'east' });
+    expect(wallTargetOf(fromEast)).toEqual({ roomId: east.id, wallName: 'west' });
+    // on its top the eye decides (in the 2D view: which half was hit)
+    const top = new Ray(new Vector3(3.1, 5, 0), new Vector3(0, -1, 0), 10).intersectsMesh(wall);
+    expect(wallTargetOf(top, { x: 6, z: 0 }).roomId).toBe(east.id);
+    expect(wallTargetOf(top).roomId).toBe(east.id);
+  });
+
+  it.each(orders)("either room's selection outline includes it (%s)", (_, west, east) => {
+    const { roots, all, wall } = buildBoth(west, east);
+    const outlined = (selectedId) => {
+      for (const root of roots) setRoomSelected(root, selectedId);
+      return all.filter((m) => m.renderOutline);
+    };
+    for (const selected of [west, east]) {
+      const lit = outlined(selected.id);
+      expect(lit).toContain(wall);
+      // and nothing of the other room except the shared wall (and its skirting)
+      const other = selected === west ? east : west;
+      expect(lit.filter((m) => !m.metadata.sharedWith && m.parent.metadata.roomId === other.id)).toEqual([]);
+    }
+    expect(outlined(null)).toEqual([]);
+  });
+});
+
+describe('roomGeometryKey', () => {
+  it('changes for exactly the rooms roomsToRebuild names (the room and the rooms touching it)', () => {
+    const row = [0, 1, 2, 3].map((i) => ({ id: `r${i}`, floor: 0, x: i * 6.15, z: 0, width: 6, depth: 5, wallHeight: 3.2 }));
+    const after = row.map((r) => (r.id === 'r1' ? { ...r, width: 5.5 } : r));
+    const keys = (rooms) => new Map(rooms.map((r) => [r.id, roomGeometryKey(r, { rooms })]));
+    const [k0, k1] = [keys(row), keys(after)];
+    const changed = new Set(after.filter((r) => k0.get(r.id) !== k1.get(r.id)).map((r) => r.id));
+    expect(changed).toEqual(roomsToRebuild(row, after));
+    expect([...changed].sort()).toEqual(['r0', 'r1', 'r2']);
+  });
+});

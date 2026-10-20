@@ -206,6 +206,20 @@ describe('editor actions are all undoable', () => {
     expect(objs()).toHaveLength(1);
   });
 
+  it('the ground floor cannot be removed, but upper floors still can', () => {
+    editor.addFloor();
+    expect(Object.keys(S().floors)).toHaveLength(2);
+    editor.removeFloor(0);
+    expect(S().floors[0]).toBeDefined();
+
+    editor.addRoom({ type: 'OFFICE', floor: 1 });
+    editor.addObject({ assetType: 'DESK_STANDARD', floor: 1 });
+    editor.removeFloor(1);
+    expect(S().floors[1]).toBeUndefined();
+    expect(rooms()).toHaveLength(0);
+    expect(objs()).toHaveLength(0);
+  });
+
   it('removeFloor refuses the lowest floor (the ground floor), even with floors above', () => {
     editor.addFloor();
     S().selectFloor(1);

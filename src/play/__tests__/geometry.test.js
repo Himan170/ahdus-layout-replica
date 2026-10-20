@@ -3,6 +3,7 @@ import { Vector3, Matrix } from '@babylonjs/core/Maths/math.vector';
 import {
   rectFromCorners, wallSegmentTransform, splitWall, roomWalls, openingOffsetFromHit,
   overlapsExisting, openingAt, findRoomAt, roomOpenings, WALL_THICKNESS,
+  roomWallSegments, wallSegmentOpenings, wallPickTarget, touchingRooms, roomsToRebuild,
 } from '../geometry';
 
 describe('rectFromCorners', () => {
@@ -184,5 +185,164 @@ describe('placeOpening (doors between neighbouring rooms)', () => {
   it('aiming well past the neighbour gives an office-only door', () => {
     const r = placeOpening(rooms, office, 'east', { x: 3, z: 2.2 }, 1);
     expect(r.partner).toBeNull();
+  });
+});
+
+describe('shared physical wall geometry', () => {
+  const westRoom = { id: 'a', floor: 0, x: 0, z: 0, width: 6, depth: 4, wallHeight: 3 };
+  const eastRoom = { id: 'b', floor: 0, x: 5.15, z: 0, width: 4, depth: 4, wallHeight: 3.5 };
+
+  it('emits one 0.15 m wall at the midpoint of back-to-back boundaries', () => {
+    const owned = roomWallSegments(westRoom, 'east', [westRoom, eastRoom]).filter((s) => s.shared);
+    const partner = roomWallSegments(eastRoom, 'west', [westRoom, eastRoom]).filter((s) => s.shared);
+    expect(owned).toHaveLength(1);
+    expect(partner).toHaveLength(0);
+    expect(owned[0]).toMatchObject({
+      worldValue: 3 + WALL_THICKNESS / 2,
+      thickness: WALL_THICKNESS,
+      axis: 'x',
+      partnerRoom: eastRoom,
+    });
+    expect(owned[0].u1 - owned[0].u0).toBeCloseTo(4 - WALL_THICKNESS);
+  });
+
+  it('shares only the overlapping portion of a partial boundary', () => {
+    const shortRoom = { ...eastRoom, z: -1, depth: 2 };
+    const shared = roomWallSegments(westRoom, 'east', [westRoom, shortRoom]).filter((s) => s.shared);
+    expect(shared).toHaveLength(1);
+    expect(shared[0].u0).toBeCloseTo(-1 - (2 - WALL_THICKNESS) / 2);
+    expect(shared[0].u1).toBeCloseTo(-1 + (2 - WALL_THICKNESS) / 2);
+    expect(shared[0].u1 - shared[0].u0).toBeCloseTo(2 - WALL_THICKNESS);
+  });
+
+  it('does not share walls across floors or across a nearby but unsnapped gap', () => {
+    expect(roomWallSegments(westRoom, 'east', [westRoom, { ...eastRoom, floor: 1 }])
+      .some((s) => s.shared)).toBe(false);
+    expect(roomWallSegments(westRoom, 'east', [westRoom, { ...eastRoom, x: 5.1 }])
+      .some((s) => s.shared)).toBe(false);
+  });
+
+  it('deduplicates paired doors and keeps the doorway clear through the shared wall', () => {
+    const a = { ...westRoom, doors: [{ wall: 'east', offset: 0.25, width: 1, height: 2.1 }] };
+    const b = { ...eastRoom, doors: [{ wall: 'west', offset: 0.25, width: 1, height: 2.1 }] };
+    const segment = roomWallSegments(a, 'east', [a, b]).find((s) => s.shared);
+    const openings = wallSegmentOpenings(a, 'east', segment);
+    expect(openings).toHaveLength(1);
+    expect(openings[0]).toMatchObject({ kind: 'door', offset: 0.25, bottom: 0, top: 2.1 });
+    const pieces = splitWall(segment.u1 - segment.u0, 3.5, openings.map((o) => ({
+      ...o, offset: o.offset - (segment.u0 + segment.u1) / 2,
+    })));
+    const localDoorCentre = 0.25 - (segment.u0 + segment.u1) / 2;
+    expect(pieces.some((p) =>
+      localDoorCentre > p.u0 && localDoorCentre < p.u1 && p.y0 < 1 && p.y1 > 1,
+    )).toBe(false);
+  });
+
+  it('keeps a window from either room at its shared-wall world position and sill', () => {
+    const a = { ...westRoom, windows: [] };
+    const b = { ...eastRoom, windows: [{ wall: 'west', offset: 0.5, width: 1.4, height: 1.2, sill: 0.9 }] };
+    const segment = roomWallSegments(a, 'east', [a, b]).find((s) => s.shared);
+    expect(wallSegmentOpenings(a, 'east', segment)).toMatchObject([
+      { kind: 'window', offset: 0.5, width: 1.4, bottom: 0.9, top: 2.1, roomId: 'b', sourceWall: 'west' },
+    ]);
+  });
+
+  it('recomputes boundaries when a room moves or resizes', () => {
+    const moved = { ...eastRoom, x: 6.15 };
+    expect(roomWallSegments(westRoom, 'east', [westRoom, moved]).some((s) => s.shared)).toBe(false);
+    const resizedWest = { ...westRoom, width: 7 };
+    const resizedEast = { ...eastRoom, x: 5.65 };
+    const shared = roomWallSegments(resizedWest, 'east', [resizedWest, resizedEast]).find((s) => s.shared);
+    expect(shared.worldValue).toBeCloseTo(3.575);
+  });
+
+  it('restores a complete external wall when the neighbour is removed', () => {
+    const external = roomWallSegments(westRoom, 'east', [westRoom]);
+    expect(external).toEqual([{
+      u0: -(westRoom.depth - WALL_THICKNESS) / 2,
+      u1: (westRoom.depth - WALL_THICKNESS) / 2,
+      crossOffset: 0,
+      shared: false,
+    }]);
+  });
+});
+
+describe('wallPickTarget: a shared wall means the room on the side it is hit from', () => {
+  // West room x -3..3, east room x 3.15..7.15: the shared wall's centre line is x = 3.075
+  const westSide = { x: 2.95, z: 0 };
+  const eastSide = { x: 3.2, z: 0 };
+
+  it.each([
+    ['the west room builds it', { roomId: 'west', wallName: 'east', sharedWith: 'east', sharedWall: 'west', sharedAt: 3.075 }],
+    ['the east room builds it', { roomId: 'east', wallName: 'west', sharedWith: 'west', sharedWall: 'east', sharedAt: 3.075 }],
+  ])('either owner (%s)', (_, meta) => {
+    expect(wallPickTarget(meta, westSide)).toEqual({ roomId: 'west', wallName: 'east' });
+    expect(wallPickTarget(meta, eastSide)).toEqual({ roomId: 'east', wallName: 'west' });
+  });
+
+  it('works on north / south walls too', () => {
+    // south room z -4..0, north room z 0.15..4.15: centre line z = 0.075
+    const meta = { roomId: 'north', wallName: 'south', sharedWith: 'south', sharedWall: 'north', sharedAt: 0.075 };
+    expect(wallPickTarget(meta, { x: 1, z: 0.5 })).toEqual({ roomId: 'north', wallName: 'south' });
+    expect(wallPickTarget(meta, { x: 1, z: -0.5 })).toEqual({ roomId: 'south', wallName: 'north' });
+  });
+
+  it("a room's own wall (or no side known) is just that wall", () => {
+    expect(wallPickTarget({ roomId: 'west', wallName: 'east' }, eastSide)).toEqual({ roomId: 'west', wallName: 'east' });
+    const meta = { roomId: 'east', wallName: 'west', sharedWith: 'west', sharedWall: 'east', sharedAt: 3.075 };
+    expect(wallPickTarget(meta, null)).toEqual({ roomId: 'east', wallName: 'west' });
+  });
+});
+
+describe('roomsToRebuild: a change rebuilds the room and the rooms touching it', () => {
+  // 4 × 3 offices back to back (shared walls), like the perf probe, plus one far away
+  const grid = [];
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 3; j++) {
+      grid.push({ id: `r${i}${j}`, floor: 0, x: i * 6.15, z: j * 5.15, width: 6, depth: 5, wallHeight: 3.2, doors: [], windows: [] });
+    }
+  }
+  const far = { id: 'far', floor: 0, x: 60, z: 0, width: 4, depth: 4, wallHeight: 3.2, doors: [], windows: [] };
+  const upstairs = { id: 'up', floor: 1, x: 6.15, z: 5.15, width: 6, depth: 5, wallHeight: 3.2, doors: [], windows: [] };
+  const before = [...grid, far, upstairs];
+  const change = (id, patch) => before.map((r) => (r.id === id ? { ...r, ...patch } : r));
+  const sorted = (set) => [...set].sort();
+  const around = (i, j) => grid
+    .filter((r) => Math.abs(Number(r.id[1]) - i) <= 1 && Math.abs(Number(r.id[2]) - j) <= 1)
+    .map((r) => r.id).sort();
+
+  it('touching = back to back or corner to corner on the same floor, not further', () => {
+    const middle = grid.find((r) => r.id === 'r11');
+    expect(touchingRooms(middle, before).map((r) => r.id).sort()).toEqual(around(1, 1).filter((id) => id !== 'r11'));
+    expect(touchingRooms(far, before)).toEqual([]);
+  });
+
+  it('nothing changed: nothing to rebuild', () => {
+    expect(roomsToRebuild(before, before.map((r) => ({ ...r })))).toEqual(new Set());
+  });
+
+  it('resizing a room rebuilds it and its neighbours, not the rest of the floor', () => {
+    expect(sorted(roomsToRebuild(before, change('r11', { width: 5.5 })))).toEqual(around(1, 1));
+  });
+
+  it('moving a room rebuilds the rooms by its old place and by its new one', () => {
+    const moved = change('r00', { x: 3 * 6.15 + 6.15, z: 0 }); // from the west end to past the east end
+    expect(sorted(roomsToRebuild(before, moved))).toEqual(['r00', 'r01', 'r10', 'r11', 'r30', 'r31']);
+  });
+
+  it('a new door in a room rebuilds its neighbours too (it may cut a shared wall)', () => {
+    const withDoor = change('r22', { doors: [{ wall: 'west', offset: 0, width: 0.9, height: 2.1 }] });
+    expect(sorted(roomsToRebuild(before, withDoor))).toEqual(around(2, 2));
+  });
+
+  it('adding or removing a room rebuilds it (if added) and the rooms it touches', () => {
+    const added = { id: 'new', floor: 0, x: 4 * 6.15, z: 5.15, width: 6, depth: 5, wallHeight: 3.2, doors: [], windows: [] };
+    expect(sorted(roomsToRebuild(before, [...before, added]))).toEqual(['new', 'r30', 'r31', 'r32']);
+    expect(sorted(roomsToRebuild(before, before.filter((r) => r.id !== 'r32')))).toEqual(['r21', 'r22', 'r31']);
+  });
+
+  it('rooms on other floors are not rebuilt, and a room moved to another floor is', () => {
+    expect(roomsToRebuild(before, change('r11', { width: 5.5 })).has('up')).toBe(false);
+    expect(sorted(roomsToRebuild(before, change('far', { floor: 1 })))).toEqual(['far']);
   });
 });
