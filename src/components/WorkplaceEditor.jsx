@@ -94,7 +94,7 @@ import { STUDIO_TOOLS, activeTile, toolHint } from '../ui/tools';
 import { createPlayController } from '../play/playController';
 // Planner mouse tools: draw rooms/walls, doors/windows, drag walls (same maths as Build mode)
 import { createPlannerTools } from '../planner/plannerTools';
-import { itemOverFloorPoint } from '../utils/pickHelpers';
+import { itemOverFloorPoint, wallTargetOf } from '../utils/pickHelpers';
 import {
   openingData, openingPartner, openingCentre, openingAt, resizeOpening, planRemoveOpening,
 } from '../play/geometry';
@@ -628,6 +628,11 @@ export default function WorkplaceEditor({ onExit }) {
           if (underId) meta = { objectId: underId };
         }
 
+        // A wall shared by two rooms: the room on the side you clicked it from
+        if (meta?.part === 'wall') {
+          meta = { ...meta, ...wallTargetOf(pickResult, store.is3D ? camera.position : null) };
+        }
+
         // 2D view: from above you see the wall over a door, not the door. Clicking it selects the door.
         if (meta?.part === 'wall' && !store.is3D) {
           const wallRoom = store.rooms[meta.roomId];
@@ -757,9 +762,7 @@ export default function WorkplaceEditor({ onExit }) {
           if (!existing.isDisposed()) disposeRoomMesh(existing);
           meshMap.delete(room.id);
         } else {
-          // Unchanged (its parts' world matrices are frozen): only the selection outline
-          setRoomSelected(existing, room.id === selectedRoomId, room.color);
-          continue;
+          continue; // unchanged (its parts' world matrices are frozen)
         }
       }
 
@@ -772,6 +775,10 @@ export default function WorkplaceEditor({ onExit }) {
       node.metadata._geometryKey = roomGeometryKey(room, buildOptions);
       meshMap.set(room.id, node);
     }
+    // Selection outline: the selected room's parts, and its walls shared with
+    // (and so built by) a neighbour
+    const selectedColor = roomsMap[selectedRoomId]?.color;
+    for (const node of meshMap.values()) setRoomSelected(node, selectedRoomId ?? null, selectedColor);
     applyLevelVisibility();
   }, [roomsMap, objectsMap, floorsMap, selectedRoomId, applyLevelVisibility]);
 

@@ -199,7 +199,7 @@ export function formatRoomSize(width, depth) {
 // placed one wall-thickness outside the neighbour's wall. That avoids two walls
 // in the exact same place (flickering), and lets a door cut through both.
 
-const OPPOSITE = { north: 'south', south: 'north', east: 'west', west: 'east' };
+export const OPPOSITE = { north: 'south', south: 'north', east: 'west', west: 'east' };
 
 const floorOf = (room) => room.floor ?? room.floorId ?? 0;
 const alongCentre = (room, axis) => axis === 'z' ? room.x : room.z;
@@ -321,6 +321,27 @@ export function wallSegmentOpenings(room, wallName, segment) {
     }
   }
   return openings;
+}
+
+/**
+ * Which room and wall a hit on a wall mesh (or a door / window in it) is about.
+ * A shared wall is built by one of its two rooms (the id that sorts first, see
+ * roomWallSegments), but it is a wall of both: it means the wall of the room
+ * on the side it was hit from. roomBuilder tags shared pieces with
+ * { sharedWith, sharedWall, sharedAt } (the other room, its wall, the world
+ * coordinate of the wall's centre line).
+ * @param {{ roomId, wallName, sharedWith?, sharedWall?, sharedAt? }} meta
+ * @param {{ x: number, z: number } | null} from  a world point on the side it was hit from
+ * @returns {{ roomId: string, wallName: string }}
+ */
+export function wallPickTarget(meta, from) {
+  const own = { roomId: meta.roomId, wallName: meta.wallName };
+  if (!meta.sharedWith || !from) return own;
+  const across = meta.wallName === 'north' || meta.wallName === 'south' ? from.z : from.x;
+  // A room is on the inside of its walls: below its north / east wall, above its south / west wall
+  const below = meta.wallName === 'north' || meta.wallName === 'east';
+  const onOwnSide = below ? across <= meta.sharedAt : across >= meta.sharedAt;
+  return onOwnSide ? own : { roomId: meta.sharedWith, wallName: meta.sharedWall };
 }
 
 /** World-space centre line of a wall: fixed coordinate + extent along it. */

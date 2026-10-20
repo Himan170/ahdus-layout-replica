@@ -13,7 +13,8 @@ vi.mock('./materialLibrary', () => ({
   ].map((key) => [key, () => null])),
 }));
 
-const { buildRoomMesh } = await import('./roomBuilder');
+const { buildRoomMesh, setRoomSelected } = await import('./roomBuilder');
+const { wallTargetOf } = await import('./pickHelpers');
 
 let scene;
 afterEach(() => {
@@ -65,13 +66,16 @@ describe('roomBuilder shared-wall meshes', () => {
     const root = build(west, [west, shortEast]);
     const eastWalls = wallMeshes(root, 'east');
 
-    expect(eastWalls).toHaveLength(1); // one mesh per wall
+    // one mesh for the room's own part of the wall, one for the shared piece
+    expect(eastWalls).toHaveLength(2);
+    expect(eastWalls.filter((m) => m.metadata.sharedWith === 'b')).toHaveLength(1);
+    const hit = (y, z) => Math.min(...eastWalls.map((m) => hitX(m, y, z) ?? Infinity));
     // shared portion (z -1.925 .. -0.075): the 0.15 m wall at x 3.0 .. 3.15
-    expect(hitX(eastWalls[0], 1, -1.9)).toBeCloseTo(3.0);
-    expect(hitX(eastWalls[0], 1, -0.1)).toBeCloseTo(3.0);
+    expect(hit(1, -1.9)).toBeCloseTo(3.0);
+    expect(hit(1, -0.1)).toBeCloseTo(3.0);
     // the rest stays this room's own wall at x 2.925 .. 3.075
-    expect(hitX(eastWalls[0], 1, 0.1)).toBeCloseTo(2.925);
-    expect(hitX(eastWalls[0], 1, 1.9)).toBeCloseTo(2.925);
+    expect(hit(1, 0.1)).toBeCloseTo(2.925);
+    expect(hit(1, 1.9)).toBeCloseTo(2.925);
   });
 
   it('builds one passable door and one correctly tagged pane for paired references', () => {
@@ -103,5 +107,53 @@ describe('roomBuilder shared-wall meshes', () => {
     expect(centre(pane).z).toBeCloseTo(0.5);
     expect(centre(pane).y).toBeCloseTo(1.5);
     expect(pane.metadata).toMatchObject({ roomId: 'b', wallName: 'west', openingIndex: 0 });
+  });
+});
+
+describe('a shared wall belongs to both rooms, whichever builds it', () => {
+  const room = (id, x, width) => ({ id, floor: 0, x, z: 0, width, depth: 4, wallHeight: 3, doors: [], windows: [] });
+  // The room whose id sorts first builds the shared wall: try both ways round
+  const orders = [
+    ['the west room builds it', room('a', 0, 6), room('b', 5.15, 4)],
+    ['the east room builds it', room('z', 0, 6), room('b', 5.15, 4)],
+  ];
+
+  function buildBoth(west, east) {
+    scene = new Scene(new NullEngine());
+    const roots = [west, east].map((r) => buildRoomMesh(r, scene, { rooms: [west, east] }));
+    const all = roots.flatMap((root) => root.getChildMeshes(false));
+    const wall = all.find((m) => m.name.startsWith('wall_') && m.metadata.sharedWith);
+    return { roots, all, wall };
+  }
+  const hitFrom = (mesh, x, dirX) => new Ray(new Vector3(x, 1, 0), new Vector3(dirX, 0, 0), 10).intersectsMesh(mesh);
+
+  it.each(orders)('picking it from a side means the room on that side (%s)', (_, west, east) => {
+    const { wall } = buildBoth(west, east);
+    expect(wall.metadata.roomId).toBe(west.id < east.id ? west.id : east.id);
+    const fromWest = hitFrom(wall, 1, 1);
+    const fromEast = hitFrom(wall, 6, -1);
+    expect(fromWest.hit && fromEast.hit).toBe(true);
+    expect(wallTargetOf(fromWest)).toEqual({ roomId: west.id, wallName: 'east' });
+    expect(wallTargetOf(fromEast)).toEqual({ roomId: east.id, wallName: 'west' });
+    // on its top the eye decides (in the 2D view: which half was hit)
+    const top = new Ray(new Vector3(3.1, 5, 0), new Vector3(0, -1, 0), 10).intersectsMesh(wall);
+    expect(wallTargetOf(top, { x: 6, z: 0 }).roomId).toBe(east.id);
+    expect(wallTargetOf(top).roomId).toBe(east.id);
+  });
+
+  it.each(orders)("either room's selection outline includes it (%s)", (_, west, east) => {
+    const { roots, all, wall } = buildBoth(west, east);
+    const outlined = (selectedId) => {
+      for (const root of roots) setRoomSelected(root, selectedId);
+      return all.filter((m) => m.renderOutline);
+    };
+    for (const selected of [west, east]) {
+      const lit = outlined(selected.id);
+      expect(lit).toContain(wall);
+      // and nothing of the other room except the shared wall (and its skirting)
+      const other = selected === west ? east : west;
+      expect(lit.filter((m) => !m.metadata.sharedWith && m.parent.metadata.roomId === other.id)).toEqual([]);
+    }
+    expect(outlined(null)).toEqual([]);
   });
 });

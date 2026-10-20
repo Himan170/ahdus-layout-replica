@@ -22,8 +22,12 @@
  *
  * Mesh metadata (used for picking in the planner and in Play mode):
  *   { roomId, floorId, part: 'floor' | 'wall' | 'door' | 'window' | 'slab' | 'roof' | 'ceiling' | 'band' | 'skirting',
- *     wallName?, openingKind?, openingIndex? }
+ *     wallName?, openingKind?, openingIndex?, sharedWith?, sharedWall?, sharedAt? }
  * Each door/window also has an invisible pickable pane filling its opening.
+ * A wall shared with a neighbour is built once, by one of the two rooms, as its
+ * own mesh: `sharedWith` / `sharedWall` name the other room and its wall,
+ * `sharedAt` the world coordinate of the wall's centre line. A pick on it
+ * means the room on the side it was hit from (pickHelpers.wallTargetOf).
  *
  * Big buildings: parts with the same metadata are merged into one mesh with one
  * sub-mesh per material (one mesh per wall, per door / window frame, one floor,
@@ -39,7 +43,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { getMaterials, TILE_SIZE, FLOOR_BY_ROOM_TYPE } from './materialLibrary';
 import {
-  roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, WALL_THICKNESS,
+  roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, WALL_THICKNESS, OPPOSITE,
 } from '../play/geometry';
 import { subtractRects, SLAB } from '../play/building';
 import { mergeByMaterial } from './assetInstances';
@@ -258,7 +262,14 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         return addPart(box, meta, material, opts);
       };
 
-      const wallMeta = { part: 'wall', wallName: wall.name };
+      // A shared piece is a mesh of its own: picking it and outlining it depend on both rooms
+      const partner = segment.shared ? segment.partnerRoom.id : null;
+      const shared = (roomId, wallName) => (!partner ? {} : {
+        sharedWith: roomId === id ? partner : id,
+        sharedWall: OPPOSITE[wallName],
+        sharedAt: segment.worldValue,
+      });
+      const wallMeta = { part: 'wall', wallName: wall.name, ...shared(id, wall.name) };
       pieces.forEach((p, i) => {
         const u0 = p.u0 + segmentCentre;
         const u1 = p.u1 + segmentCentre;
@@ -277,7 +288,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         const u1 = localCentre + o.width / 2 + segmentCentre;
         const meta = {
           part: o.kind, wallName: o.sourceWall, openingKind: o.kind, openingIndex: o.index,
-          roomId: o.roomId,
+          roomId: o.roomId, ...shared(o.roomId, o.sourceWall),
         };
         const frameMat = o.kind === 'door' ? mats.doorFrame() : mats.windowFrame();
         const D = T + FRAME_DEPTH_EXTRA;
@@ -332,7 +343,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
     child.freezeWorldMatrix();
   }
 
-  setRoomSelected(root, !!roomData.isSelected, roomData.color);
+  setRoomSelected(root, roomData.isSelected ? id : null, roomData.color);
   return root;
 }
 
@@ -345,15 +356,20 @@ export function disposeRoomMesh(rootNode) {
 }
 
 /**
- * Show/hide the selection outline on a room (walls + floor edge).
+ * Show/hide the selection outline (walls + floor edge) on the parts of a room's
+ * mesh that belong to the selected room: all of them if it is this room, its
+ * shared walls if it is the neighbour they are shared with.
+ * @param {string|null} selectedRoomId
+ * @param {string} [color]  the selected room's colour
  */
-export function setRoomSelected(rootNode, selected, color = '#6c8cff') {
+export function setRoomSelected(rootNode, selectedRoomId, color = '#6c8cff') {
   if (!rootNode) return;
   const outline = Color3.FromHexString(color);
+  const own = selectedRoomId != null && rootNode.metadata?.roomId === selectedRoomId;
   for (const child of rootNode.getChildMeshes(false)) {
-    const part = child.metadata?.part;
+    const { part, sharedWith } = child.metadata ?? {};
     if (part === 'wall' || part === 'floor') {
-      child.renderOutline = selected;
+      child.renderOutline = own || (selectedRoomId != null && sharedWith === selectedRoomId);
       child.outlineColor = outline;
       child.outlineWidth = 0.04;
     }

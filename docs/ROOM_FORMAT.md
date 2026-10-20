@@ -63,16 +63,30 @@ the midpoint of the two room wall centre lines (the centre line itself when
 they coincide). The room whose `id` sorts first (string order) owns that
 piece and builds it. With UUID ids the owner of two neighbours is stable but
 not predictable (it is not necessarily the older room), so code and tests must
-not assume which side builds the wall. The owner choice affects mesh lifetime
-and picking metadata only, not the saved room format. A shared wall's height
+not assume which side builds the wall. The owner choice affects which room's
+mesh holds the piece only, not picking, selection or the saved room format. A shared wall's height
 reaches the taller adjoining room's wall height. The same ownership and
 segmentation are used for wall bands and roof parapets. Unshared portions
 retain the existing corner-aware wall lengths and materials.
 
-As for every room part, the pieces of one room wall (its shared and unshared
-segments, split around openings) are merged into one mesh per wall, with one
-sub-mesh per material and a frozen world matrix; a shared piece is part of its
-owner's wall mesh.
+As for every room part, the pieces of one room wall (split around openings)
+are merged into one mesh per wall, with one sub-mesh per material and a frozen
+world matrix. A shared piece is a mesh of its own under its owner, tagged with
+`sharedWith` (the other room's id), `sharedWall` (the other room's wall name)
+and `sharedAt` (the world coordinate of the shared wall's centre line).
+
+### Picking and selection
+
+A shared wall is a wall of both rooms. A click in Studio, or aiming in Preview
+(Stretch, doors and windows, removing a room), means the room on the side it
+was hit from: `geometry.wallPickTarget(meta, from)` compares a point on that
+side with `sharedAt`. `pickHelpers.wallTargetOf(hit, eye)` finds that point
+from the hit face's normal; on the top or end of the wall it uses the camera
+position (3D) or the hit point itself (the 2D view: which half of the top was
+clicked). Doors and windows on a shared piece carry the same tags, so Stretch
+aimed at a frame also grabs the wall on your side. Selecting either room
+outlines the shared wall (`roomBuilder.setRoomSelected` lights a shared piece
+when its owner or `sharedWith` is selected).
 
 ### Adjacent-room example
 

@@ -3,7 +3,7 @@ import { Vector3, Matrix } from '@babylonjs/core/Maths/math.vector';
 import {
   rectFromCorners, wallSegmentTransform, splitWall, roomWalls, openingOffsetFromHit,
   overlapsExisting, openingAt, findRoomAt, roomOpenings, WALL_THICKNESS,
-  roomWallSegments, wallSegmentOpenings,
+  roomWallSegments, wallSegmentOpenings, wallPickTarget,
 } from '../geometry';
 
 describe('rectFromCorners', () => {
@@ -264,5 +264,32 @@ describe('shared physical wall geometry', () => {
       crossOffset: 0,
       shared: false,
     }]);
+  });
+});
+
+describe('wallPickTarget: a shared wall means the room on the side it is hit from', () => {
+  // West room x -3..3, east room x 3.15..7.15: the shared wall's centre line is x = 3.075
+  const westSide = { x: 2.95, z: 0 };
+  const eastSide = { x: 3.2, z: 0 };
+
+  it.each([
+    ['the west room builds it', { roomId: 'west', wallName: 'east', sharedWith: 'east', sharedWall: 'west', sharedAt: 3.075 }],
+    ['the east room builds it', { roomId: 'east', wallName: 'west', sharedWith: 'west', sharedWall: 'east', sharedAt: 3.075 }],
+  ])('either owner (%s)', (_, meta) => {
+    expect(wallPickTarget(meta, westSide)).toEqual({ roomId: 'west', wallName: 'east' });
+    expect(wallPickTarget(meta, eastSide)).toEqual({ roomId: 'east', wallName: 'west' });
+  });
+
+  it('works on north / south walls too', () => {
+    // south room z -4..0, north room z 0.15..4.15: centre line z = 0.075
+    const meta = { roomId: 'north', wallName: 'south', sharedWith: 'south', sharedWall: 'north', sharedAt: 0.075 };
+    expect(wallPickTarget(meta, { x: 1, z: 0.5 })).toEqual({ roomId: 'north', wallName: 'south' });
+    expect(wallPickTarget(meta, { x: 1, z: -0.5 })).toEqual({ roomId: 'south', wallName: 'north' });
+  });
+
+  it("a room's own wall (or no side known) is just that wall", () => {
+    expect(wallPickTarget({ roomId: 'west', wallName: 'east' }, eastSide)).toEqual({ roomId: 'west', wallName: 'east' });
+    const meta = { roomId: 'east', wallName: 'west', sharedWith: 'west', sharedWall: 'east', sharedAt: 3.075 };
+    expect(wallPickTarget(meta, null)).toEqual({ roomId: 'east', wallName: 'west' });
   });
 });

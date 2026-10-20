@@ -25,6 +25,7 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { createBuildPreview } from '../utils/buildPreview';
+import { wallTargetOf } from '../utils/pickHelpers';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import {
@@ -106,6 +107,9 @@ export function createPlannerTools(scene, canvas, {
       m.isPickable && m.isEnabled() && !pv.owns(m));
     return hit?.hit && predicate(hit.pickedMesh) ? hit : null;
   }
+
+  /** Room and wall a wall pick means: a shared wall is the wall of the room on the side you look from. */
+  const wallTarget = (hit) => wallTargetOf(hit, st().is3D ? getCamera()?.position ?? null : null);
 
   // ─────────────────────────────────────────────────────────────────────
   //  Hover: preview + hint for what a click / drag would do
@@ -307,9 +311,11 @@ export function createPlannerTools(scene, canvas, {
     }
     // Doors and windows are not grab points: clicking one selects it. In 2D
     // the wall over a door is what you see of the door, so it counts as the door.
-    let hit = pickAtPointer((m) => m.metadata?.roomId === room.id && m.metadata?.part === 'wall');
-    if (hit && !st().is3D && openingAt(room, hit.pickedMesh.metadata.wallName, hit.pickedPoint)) hit = null;
-    if (!hit) {
+    const hit = pickAtPointer((m) => m.metadata?.part === 'wall');
+    let target = hit && wallTarget(hit);
+    if (target?.roomId !== room.id) target = null; // another room's wall (or a shared one seen from the other side)
+    if (target && !st().is3D && openingAt(room, target.wallName, hit.pickedPoint)) target = null;
+    if (!target) {
       pv.hide('box');
       setCursor('');
       hover = null;
@@ -319,7 +325,7 @@ export function createPlannerTools(scene, canvas, {
         keys: [['Drag a wall', 'Resize the room'], ...(st().is3D ? [['Drag a top handle', 'Wall height']] : []), ['Delete', 'Remove room']],
       };
     }
-    const { wallName } = hit.pickedMesh.metadata;
+    const { wallName } = target;
     pv.wallHighlight(room, wallName, elev(), true);
     setCursor(wallName === 'north' || wallName === 'south' ? 'ns-resize' : 'ew-resize');
     hover = { type: 'grabWall', roomId: room.id, wallName };
@@ -356,7 +362,8 @@ export function createPlannerTools(scene, canvas, {
     const kind = tool.kind;
     const label = kind === 'door' ? 'Door' : 'Window';
     const hit = pickAtPointer((m) => onLevel(m) && (m.metadata?.part === 'wall' || m.metadata?.part === kind));
-    const meta = hit?.pickedMesh.metadata;
+    let meta = hit?.pickedMesh.metadata;
+    if (meta?.part === 'wall') meta = { ...meta, ...wallTarget(hit) };
     const room = meta && floorRooms().find((r) => r.id === meta.roomId);
     if (!room) {
       pv.hide('box');
