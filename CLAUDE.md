@@ -12,7 +12,7 @@ Full history, status and backlog: `docs/PROGRESS_REPORT.md`. Teammate API guide:
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (199, all must pass)
+npm test             # vitest unit tests (251, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run build
 
@@ -22,10 +22,15 @@ npm run e2e:planner  # 31 checks   e2e/editor-smoke.mjs    (Workplace Studio + U
 npm run e2e:play     # 19 checks   e2e/play-smoke.mjs
 npm run e2e:modules  # 17 checks   e2e/modules-smoke.mjs   (uses ?demoModules=1)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
-npm run e2e:tools    # 41 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes + Preview's Edit item)
+npm run e2e:tools    # 45 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
+                     #                                       room's floor + Preview's Edit item)
 npm run e2e:save     # 29 checks   e2e/save-smoke.mjs      (auto-save, reopen, old saves, list, delete, export/import,
                      #                                       companies, two tabs on one layout)
-npm run e2e:perf     #  8 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls)
+npm run e2e:perf     #  9 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls;
+                     #                                       one room change rebuilds only it + its neighbours)
+npm run e2e:shared-walls  # 15     e2e/shared-walls-smoke.mjs (one wall + one doorway; picks with either owner)
+npm run e2e:nested-rooms  # 13     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
+                          #                                    upper floor, save + reopen, Preview screenshots)
 npm run e2e          # all of them
 ```
 
@@ -63,8 +68,9 @@ Spec of the look: `UI_SPEC.md` (repo root).
   **footer**: floor switcher menu, the active tool's hint, "Preview Workplace". The tool list is defined once in
   `src/ui/tools.js` (also gives Preview's hotbar/catalog icons). Studio uses the same sky/grass/paving as Preview;
   the build grid shows only while a build tool is active (or "Show grid" is on).
-  **Build tools** (`src/planner/plannerTools.js`): Select (drag a wall of the selected room to resize it),
-  room (drag corner to corner), wall (drag), door / window (click a wall; click one to remove).
+  **Build tools** (`src/planner/plannerTools.js`): Select (drag a wall of the selected room to resize it, drag its
+  floor to move it), room (drag corner to corner; also inside another room), wall (drag), door / window (click a
+  wall; click one to remove).
   Select a door/window (click it; in 2D the wall over it): Inspector width/height + blue drag handles on its sides
   and top (`store.selectedOpening` = { roomId, kind, index }; one undo step per drag).
   Furniture stacks on table tops. Clicking the floor under a desk selects the desk.
@@ -89,7 +95,10 @@ src/ui/                            Workplace Studio: theme.css, tools.js, Studio
 src/play/playController.js         Preview: movement, camera, aiming, every hotbar tool, Stretch, Edit item, stairs, levels
 src/planner/plannerTools.js        Studio mouse tools: draw room / wall, door / window, drag a wall to resize
 src/utils/buildPreview.js          Blue/red build previews shared by both modes
-src/play/geometry.js               PURE maths: room corners, wall splitting, doors, neighbours, stretchRoom, resizeOpening
+src/play/geometry.js               PURE maths: room corners, wall splitting, doors, neighbours, stretchRoom, resizeOpening,
+                                   shared walls (roomWallSegments, wallPickTarget), nesting (roomContainedBy, planRoomMove),
+                                   roomsToRebuild
+src/utils/pickHelpers.js           Forgiving picks: the floor under an item = that item; a shared wall = the room on your side
 src/play/building.js               PURE maths: storeys, stairs, openings, supportHeight (where you stand)
 src/play/movement.js               Collision-safe movement in 0.1 m substeps (afterStep callback for step-up)
 src/play/character.js              Placeholder character; interface { root, update(dt,speed,flying), setVisible, dispose }
@@ -180,12 +189,38 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 - Build tools act on `currentLevel` (the floor under the character). `__ahdusPlay.setPose({x,z,yaw,pitch,floor,y,fly})`,
   `goToFloor(id)`, `stepFloor(±1)`, `isFlying()`.
 
+## Shared walls and nested rooms (how they work)
+
+Both are **derived from the room rectangles; nothing extra is saved** (no wall records, no parent ids). Details:
+`docs/ROOM_FORMAT.md`.
+- **Shared walls:** two rooms on one floor are back to back when opposite walls are 0 or 0.15 m apart (± 0.02 m).
+  The shared part is built ONCE, 0.15 m thick, by the room whose **id sorts first** (with UUIDs that is unpredictable:
+  never assume which), as its own mesh tagged `{ sharedWith, sharedWall, sharedAt }`.
+  - **Picks:** every pick of a wall goes through `pickHelpers.wallTargetOf(hit, eye)`, which returns the room on the
+    side it was hit from (face normal; camera or hit point on its top). This covers Studio select, wall drag and
+    door/window, and Preview door/window, Stretch, + / − and remove room. Selecting either room outlines the shared wall.
+  - **Doors:** a door through a shared wall is stored on both rooms (`planOpening`) and drawn once.
+- **Rebuilds:** `roomGeometryKey` is made from `geometry.roomBuildInput` (the room and the rooms touching it), so a
+  change rebuilds that room plus the rooms touching its old or new rectangle (`roomsToRebuild`), not the whole floor.
+  Every rebuild input must be in that key.
+- **Nested rooms:** a room may lie completely inside another one, at least 0.15 m from its walls
+  (`roomContainedBy`); partial overlaps stay blocked (`roomPlacementBlocker`).
+  - **Drawing:** the outer room's floor (and ceiling, if the inner walls reach it) is cut out under the inner room
+    (`floorSurfaceHoles`). The inner room's walls are drawn 1 cm thinner on the outside (`nested`), so no wall faces
+    coincide, and it has no roof of its own under an outer room at least as tall (`roofCovered`).
+  - **Studio:** drag a selected room's floor to move it (`planRoomMove`). This happens only after a 5 px drag, and
+    never where an item stands (a click selects what is under the cursor). The Inspector size keeps inner rooms
+    inside (`planRoomResize`).
+
 ## Testing gotchas
 
 - Studio controls have fixed `aria-label`s (UI_SPEC section 7: `Rooms`, `Floor switcher`, `Preview Workplace`, …);
   e2e scripts select by them. While Preview has the mouse captured, clicks go to the canvas: release it first.
 - Dev-only hooks for tests/console: `window.__ahdusPlay`, `__ahdusScene`, `__ahdusStore`, `window.ahdus` (bridge),
-  `__ahdusCards`, `__ahdusEventLog` (demo modules), `__ahdusCrashOnOpen = true` (the editor throws: error card test).
+  `__ahdusCards`, `__ahdusEventLog` (demo modules), `__ahdusCrashOnOpen = true` (the editor throws: error card test),
+  `__ahdusRoomSync` ({ rebuilt, ms } of the last room sync that built something: perf test).
+- Opening a layout builds its scene inside the click (twice in dev, StrictMode): without a GPU that blocks the tab
+  ~10 s, ~25 s with a second tab rendering. Clicks that open a layout need a long timeout (save-smoke uses 90 s).
 - The dev build runs in React StrictMode: effects mount → unmount → mount. Scene teardown must leave no stale
   references (the mesh maps are cleared there; reopening a layout with rooms crashed before that).
 - Without a GPU, Playwright runs on SwiftShader at ~1 fps; e2e scripts allow long timeouts. A long run can use ~2 GB.
@@ -223,7 +258,11 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - A partly covered roof is still drawn; the wall band of a lowered room shows only when ≥ 90 % of it is covered.
 - Lowering a room's walls never lowers its floor (use "Floor height" in the floor menu for that).
 - The outline of the floor below is hidden where it lies exactly under walls of the floor being edited.
-- Rooms are rectangles; neighbouring rooms have two walls 15 cm apart (no shared walls yet).
+- Rooms are rectangles (no L-shapes or free-form walls). Neighbours share one wall only when back to back
+  (0 or 0.15 m apart); further apart they keep two walls.
+- Nested rooms: the outer room's slab and roof are not cut; moving or resizing the outer room doesn't take the rooms
+  inside along (it is blocked if they would stick out of it); moving a room doesn't move its furniture; rooms can be
+  moved by their floor only in Studio. A nested room's walls are drawn 1 cm thinner on the outside than the data says.
 - Furniture is built from primitives (no GLB models yet); item icons are generic lucide icons, not thumbnails.
 - Stretching a wall with a door shared with a neighbour moves only this room's half.
 - The "2D" view is the 3D camera from above, not a real floor plan.
@@ -253,8 +292,15 @@ The planner screen is now **Workplace Studio** and Build mode is **Preview**, pe
 ## DONE: NEXT_FIXES.md Part A (15 Oct 2026)
 
 Ground floor protected, two-tab conflicts, undo bursts, instancing/merging for big buildings, UUIDs, export/import,
-companies screen restyle, clean-up (docs/PROGRESS_REPORT.md section 3.13). Next: Himan picks a Part C feature.
+companies screen restyle, clean-up (docs/PROGRESS_REPORT.md section 3.13).
 
-Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): lifts; free-form walls, shared
-walls, L-shaped rooms; measure tool + dimensions; real GLB furniture (e.g. Kenney Furniture Kit, CC0); SVG 2D
+## DONE: shared walls + nested rooms (v0.3.0, 20 Oct 2026)
+
+Anish's shared walls and nested rooms merged into main (his commits keep his name), plus: shared-wall picks on the
+side you are on, rebuilding only the rooms touching a change, clicks vs drags on a selected room's floor, no
+coinciding faces for nested rooms. See "Shared walls and nested rooms" above. Next: Himan's H2 (embeddable engine,
+`TEAM_TASKS.md` section 4) on `himan/engine`.
+
+Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): lifts; free-form walls,
+L-shaped rooms; measure tool + dimensions; real GLB furniture (e.g. Kenney Furniture Kit, CC0); SVG 2D
 floor plan; templates; floor-plan image tracing; evacuation routes; the Supabase backend.
