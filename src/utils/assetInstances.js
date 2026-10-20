@@ -131,7 +131,10 @@ function attachChild(root, mesh, checkCollisions) {
 
 /**
  * The mesh of a placed item: a root node with an instance of its type's template.
- * @param {{ rise?: number, floorId?: number, solid?: boolean, shadowGenerator?: object }} [options]
+ * @param {string} assetType
+ * @param {Scene} scene
+ * @param {string} objectId
+ * @param {{ rise?: number, floorId?: number, solid?: boolean, shadowGenerator?: object|null }} [options]
  *   rise: a staircase's floor height; solid: furniture blocks the character in Preview
  * @returns {TransformNode}
  */

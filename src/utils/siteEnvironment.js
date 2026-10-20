@@ -23,6 +23,7 @@ const PLANNER_BG = new Color4(0.06, 0.08, 0.12, 1);
 /**
  * @param {Scene} scene
  * @param {Mesh} ground  the 60 m ground created by gridBuilder (uses GridMaterial)
+ * @param {object|null} [lights]  createLighting's result (the ground lights walls from below)
  */
 export function createSiteEnvironment(scene, ground, lights = null) {
   const mats = getMaterials(scene);

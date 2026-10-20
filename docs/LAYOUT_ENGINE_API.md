@@ -18,7 +18,8 @@ This doc describes the **target** API. As of 13 Oct 2026, the running editor (`W
 | Command history (add/delete/transform object, add/update/delete room) | ✅ Done, tested, **used by the editor**: every edit is undoable (`src/store/editorHistory.js`) |
 | `getAnchors`, `getAnchorsByRoom`, `getObjectById`, `on`/`off` events | ✅ Work on loaded data |
 | `setFloor`, `setView`, `focusOn`, `highlight`, `setMode` | ⏳ Stubs |
-| Rendering rooms/objects from a loaded layout; Systems in `engine/systems/` | ⏳ Stubs |
+| Systems in `engine/systems/`: `SceneSetup` (engine, scene, camera, lights, site), `RoomSystem`, `ObjectSystem`, `FloorSystem` (which storeys show) | ✅ Done, tested, **used by Workplace Studio** (20 Oct 2026). `PlacementSystem`, `SelectionSystem`, `WalkthroughSystem` are still stubs |
+| `LayoutEngine` drawing a loaded layout with those systems | ⏳ In progress (TEAM_TASKS H2) |
 | `<LayoutEditor />` / `<LayoutViewer />` React components, `@ahdus/layout-engine` package | ⏳ Not created yet; today import from `src/engine` |
 | **Team integration (`src/integration/layoutBridge.js`)** | ✅ **Use this now.** Anchors live in the editor and are saved with the layout; `interact`, `enterRoom`, `exitRoom`, `anchorsChange` events; "Press E" actions; linking desks to positions (undoable). See **`docs/TEAM_INTEGRATION.md`** |
 

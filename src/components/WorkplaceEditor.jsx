@@ -8,54 +8,27 @@
  */
 
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
-import { Engine } from '@babylonjs/core/Engines/engine';
-import { Scene } from '@babylonjs/core/scene';
-import { Color4 } from '@babylonjs/core/Maths/math.color';
-// Side-effect imports — Babylon tree-shakes aggressively
-import '@babylonjs/core/Meshes/meshBuilder';
-import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
-import '@babylonjs/core/Meshes/csg';
-// Phase 5: collision + first-person camera support
-import '@babylonjs/core/Collisions/collisionCoordinator';
 
-// Phase 1 utilities
-import { createCamera, switchTo2D, switchTo3D } from '../utils/cameraManager';
-import { createLighting, setLighting2D, setLighting3D } from '../utils/lightingSetup';
-import { createGrid } from '../utils/gridBuilder';
+// Engine, scene, camera, lights and site: shared with the embeddable engine
+import { createLayoutScene } from '../engine/systems/SceneSetup';
+import { RoomSystem } from '../engine/systems/RoomSystem';
+import { ObjectSystem } from '../engine/systems/ObjectSystem';
+import { FloorSystem } from '../engine/systems/FloorSystem';
+import { switchTo2D, switchTo3D } from '../utils/cameraManager';
+import { setLighting2D, setLighting3D } from '../utils/lightingSetup';
 
 // Phase 2 utilities
 import { ROOM_TYPES } from '../utils/roomStore';
-import { buildRoomMesh, disposeRoomMesh, setRoomSelected, roomGeometryKey } from '../utils/roomBuilder';
 import {
-  elevationOf, floorBelow, floorsByElevation, coveredFraction, stairOpening, roomRect, intersectRects,
-  floorHeight, wallSpace, stairNeedsRoomAbove, floorPosition,
+  elevationOf, floorBelow,
+  stairNeedsRoomAbove, floorPosition,
 } from '../play/building';
 import { createFloorOutline } from '../utils/floorOutline';
 
-/**
- * Stairwell openings for a room: stairs coming up from the floor below cut its
- * floor; stairs going up from its own floor cut its ceiling. World rects.
- */
-function stairHolesFor(room, stairs, floors) {
-  const rect = roomRect(room);
-  const below = floorBelow(floors, room.floor);
-  const holes = (floorId) => stairs
-    .filter((s) => s.floor === floorId)
-    .map((s) => stairOpening(s))
-    .filter((o) => intersectRects(o, rect));
-  return {
-    floorHoles: below ? holes(below.id) : [],
-    ceilingHoles: holes(room.floor),
-  };
-}
-import { createSiteEnvironment } from '../utils/siteEnvironment';
-
 // Phase 3 utilities
 import { ASSET_TYPES } from '../utils/assetCatalog';
-import { createItemMesh, disposeItemMesh } from '../utils/assetInstances';
 import { createPlacementManager } from '../utils/placementManager';
 import { createGizmoController } from '../utils/gizmoController';
-import { applyLockVisual, removeLockVisual } from '../utils/lockIndicator';
 
 // Phase 4 — Zustand store + API
 import {
@@ -97,7 +70,7 @@ import { createPlannerTools } from '../planner/plannerTools';
 import { itemOverFloorPoint, wallTargetOf } from '../utils/pickHelpers';
 import {
   openingData, openingPartner, openingCentre, openingAt, resizeOpening, planRemoveOpening,
-  roomContainedBy, planRoomResize, WALL_THICKNESS,
+  planRoomResize,
 } from '../play/geometry';
 import { DEFAULT_HOTBAR } from '../play/hotbarItems';
 
@@ -128,7 +101,6 @@ function defaultInteractionCard(t, positions) {
     body: `${facts.join(' · ')}${facts.length ? '\n' : ''}No module has an action for this yet.`,
   };
 }
-import { OBJECT_CATEGORIES } from '../utils/assetCatalog';
 
 // Shallow compare for Zustand selector stability
 const shallow = (a, b) => {
@@ -152,11 +124,11 @@ export default function WorkplaceEditor({ onExit }) {
   const cameraRef = useRef(null);
   const lightsRef = useRef(null);
 
-  // Map of roomId → Babylon TransformNode (the 3D meshes)
-  const roomMeshesRef = useRef(new Map());
+  // Room meshes of every floor (engine/systems/RoomSystem), made with the scene
+  const roomSystemRef = useRef(null);
 
-  // Map of objectId → Babylon Mesh (the 3D object meshes)
-  const objectMeshesRef = useRef(new Map());
+  // Item meshes of every floor (engine/systems/ObjectSystem), made with the scene
+  const objectSystemRef = useRef(null);
 
   // Phase 3 managers
   const placementManagerRef = useRef(null);
@@ -311,49 +283,10 @@ export default function WorkplaceEditor({ onExit }) {
   };
 
   // ─── Which storeys are visible (multi-storey buildings) ───
-  // planner:  floors up to the one you edit; its roof is hidden so you see inside
-  // outside:  the whole building with roofs (Build mode, not in a room)
-  // inside:   the whole building, plus indoor ceilings (Build mode, in a room).
-  //           The camera stays under the ceiling indoors, so upper floors don't
-  //           block the view; you see them through stairwells and windows.
-  const viewRef = useRef({ mode: 'planner', level: 0 });
-  const applyLevelVisibility = useCallback(() => {
-    const st = useWorkspaceStore.getState();
-    const sorted = floorsByElevation(st.floors);
-    const rank = new Map(sorted.map((f, i) => [f.id, i]));
-    const view = viewRef.current;
-    const levelRank = view.mode === 'planner' ? (rank.get(view.level) ?? 0) : Infinity;
-    const roomsByFloor = new Map();
-    for (const r of Object.values(st.rooms)) {
-      if (!roomsByFloor.has(r.floor)) roomsByFloor.set(r.floor, []);
-      roomsByFloor.get(r.floor).push(r);
-    }
-    for (const [roomId, node] of roomMeshesRef.current) {
-      const room = st.rooms[roomId];
-      if (!room) continue;
-      const r = rank.get(room.floor) ?? 0;
-      const visible = r <= levelRank;
-      node.setEnabled(visible);
-      if (!visible) continue;
-      const above = sorted[r + 1];
-      const covered = above ? coveredFraction(room, roomsByFloor.get(above.id) ?? []) >= 0.9 : false;
-      const isCurrent = r === levelRank;
-      const showRoof = !covered && !isCurrent;
-      const showCeiling = view.mode === 'inside';
-      // A room lower than its floor: the wall band closes the gap under the floor above
-      const showBand = covered && !isCurrent;
-      for (const child of node.getChildMeshes(false)) {
-        const part = child.metadata?.part;
-        if (part === 'roof') child.setEnabled(showRoof);
-        else if (part === 'ceiling') child.setEnabled(showCeiling);
-        else if (part === 'band') child.setEnabled(showBand);
-      }
-    }
-    for (const [objId, mesh] of objectMeshesRef.current) {
-      const o = st.objects[objId];
-      if (o) mesh.setEnabled((rank.get(o.floor) ?? 0) <= levelRank);
-    }
-  }, []);
+  // engine/systems/FloorSystem: planner (floors up to the one you edit, without
+  // its roof), outside (all, with roofs) or inside (all, with ceilings: Preview)
+  const floorSystemRef = useRef(null);
+  const applyLevelVisibility = useCallback(() => floorSystemRef.current?.apply(), []);
 
   // ─── Start/stop auto-save on mount/unmount ───
   useEffect(() => {
@@ -377,39 +310,25 @@ export default function WorkplaceEditor({ onExit }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Engine
-    const engine = new Engine(canvas, true, {
-      preserveDrawingBuffer: true,
-      stencil: true,
-    });
-    engine.setHardwareScalingLevel(1 / window.devicePixelRatio);
-
-    // Scene
-    const scene = new Scene(engine);
-    scene.clearColor = new Color4(0.06, 0.08, 0.12, 1);
+    // Engine, scene, camera, lights, sky / grass / paving, render loop, resizing.
+    // Studio and Preview share the real-world look; the build grid shows only
+    // while a build tool is active (see below)
+    const layoutScene = createLayoutScene(canvas);
+    const { engine, scene, camera, lights, siteEnv } = layoutScene;
     sceneRef.current = scene;
-
-    // Camera
-    const camera = createCamera(scene, canvas);
     cameraRef.current = camera;
-
-    // Lighting
-    const lights = createLighting(scene);
     lightsRef.current = lights;
-
-    // Grid / Ground
-    const { ground } = createGrid(scene, 60);
+    siteEnvRef.current = siteEnv;
+    const roomSystem = new RoomSystem(scene, { shadowGenerator: lights.shadowGenerator });
+    roomSystemRef.current = roomSystem;
+    const objectSystem = new ObjectSystem(scene, { shadowGenerator: lights.shadowGenerator });
+    objectSystemRef.current = objectSystem;
+    const floorSystem = new FloorSystem(roomSystem, objectSystem, () => useWorkspaceStore.getState());
+    floorSystemRef.current = floorSystem;
 
     // ── Phase 4: Performance monitor ──
     const perfMonitor = createPerformanceMonitor(engine);
     perfMonitorRef.current = perfMonitor;
-
-    // ── Play mode: realistic site look + character controller ──
-    const siteEnv = createSiteEnvironment(scene, ground, lights);
-    siteEnvRef.current = siteEnv;
-    // Studio and Preview share the real-world look (sky, grass, paving); the
-    // build grid shows only while a build tool is active (see below)
-    siteEnv.setPlayLook(true);
 
     const play = createPlayController(scene, canvas, {
       getState: () => {
@@ -435,7 +354,7 @@ export default function WorkplaceEditor({ onExit }) {
         removeOpenings: (list) => editor.removeOpenings(list),
         resizeOpening: (list, opts) => editor.resizeOpening(list, opts),
       },
-      getObjectMesh: (id) => objectMeshesRef.current.get(id) ?? null,
+      getObjectMesh: (id) => objectSystem.getObjectMesh(id),
       onHud: setPlayHud,
       onSlotKey: (i) => setSelectedSlot(i),
       onSlotScroll: (d) => setSelectedSlot((cur) => (cur + d + 9) % 9),
@@ -500,8 +419,7 @@ export default function WorkplaceEditor({ onExit }) {
         updateFloorOutlineRef.current();
       },
       onViewChange: ({ inside, level }) => {
-        viewRef.current = { mode: inside ? 'inside' : 'outside', level };
-        applyLevelVisibility();
+        floorSystem.setView({ mode: inside ? 'inside' : 'outside', level });
       },
       shadowGenerator: lights.shadowGenerator,
     });
@@ -660,11 +578,6 @@ export default function WorkplaceEditor({ onExit }) {
       }
     };
 
-    // Render loop
-    engine.runRenderLoop(() => {
-      scene.render();
-    });
-
     // FPS counter (updates DOM directly to avoid React re-renders)
     const fpsInterval = setInterval(() => {
       fpsRef.current = Math.round(engine.getFps());
@@ -673,22 +586,6 @@ export default function WorkplaceEditor({ onExit }) {
       }
     }, 500);
 
-    // Resize whenever the CANVAS changes size (window resize, or panels/toolbar
-    // hiding in Play mode). Otherwise Babylon keeps rendering at the old size
-    // and the picture is stretched, so the crosshair no longer matches the aim.
-    const onResize = () => {
-      engine.resize();
-      // 2D view: keep the picture's proportions when the card changes size
-      // (an Inspector opening or closing must not stretch it)
-      if (camera.mode === Camera.ORTHOGRAPHIC_CAMERA && camera.orthoTop) {
-        const aspect = engine.getAspectRatio(camera);
-        camera.orthoLeft = -camera.orthoTop * aspect;
-        camera.orthoRight = camera.orthoTop * aspect;
-      }
-    };
-    window.addEventListener('resize', onResize);
-    const resizeObserver = new ResizeObserver(onResize);
-    resizeObserver.observe(canvas);
     setSceneReady(scene);
 
     return () => {
@@ -698,182 +595,47 @@ export default function WorkplaceEditor({ onExit }) {
       layoutBridge._detach(bridgeContext);
       clearTimeout(cardTimerRef.current);
       clearInterval(fpsInterval);
-      window.removeEventListener('resize', onResize);
-      resizeObserver.disconnect();
       perfMonitor.dispose();
       play.dispose();
-      siteEnv.dispose();
       placementMgr.dispose();
       plannerTools.dispose();
       floorOutline.dispose();
       floorOutlineRef.current = null;
       clearTimeout(plannerMessageTimer.current);
       gizmoCtrl.dispose();
-      engine.stopRenderLoop();
-      scene.dispose();
-      engine.dispose();
+      layoutScene.dispose();
       // The scene took every room/item mesh with it. Forget them, or the next
       // scene (React StrictMode mounts twice; Vite hot reload) would reuse
       // disposed meshes: their metadata is null and the sync below crashed
       // ("Cannot read properties of null (reading '_geometryKey')").
-      roomMeshesRef.current.clear();
-      objectMeshesRef.current.clear();
+      roomSystemRef.current = null;
+      objectSystemRef.current = null;
+      floorSystemRef.current = null;
     };
   }, []);
 
-  // ─── Sync Babylon meshes for EVERY floor (each at its own height) ───
+  // ─── Sync room meshes for EVERY floor (each at its own height) ───
   useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene) return;
-
-    const meshMap = roomMeshesRef.current;
-    const syncStart = performance.now();
-    let rebuilt = 0;
-    const allRooms = Object.values(roomsMap);
-    const stairs = Object.values(objectsMap).filter((o) => o.assetType === 'STAIRCASE');
-    const roomsByFloor = new Map();
-    for (const room of allRooms) {
-      if (!roomsByFloor.has(room.floor)) roomsByFloor.set(room.floor, []);
-      roomsByFloor.get(room.floor).push(room);
-    }
-
-    // Build a set of current room IDs
-    const currentIds = new Set(allRooms.map((r) => r.id));
-
-    // Remove meshes for rooms that no longer exist
-    for (const [id, node] of meshMap.entries()) {
-      if (!currentIds.has(id)) {
-        if (!node.isDisposed()) disposeRoomMesh(node);
-        meshMap.delete(id);
-      }
-    }
-
-    // Add or rebuild meshes for each room
-    for (const room of allRooms) {
-      const existing = meshMap.get(room.id);
-      const elevation = elevationOf(floorsMap, room.floor);
-      const sameFloorRooms = roomsByFloor.get(room.floor) ?? [room];
-      const nestedRooms = sameFloorRooms.filter((other) =>
-        other.id !== room.id && roomContainedBy(room, other));
-      const containers = sameFloorRooms.filter((other) =>
-        other.id !== room.id && roomContainedBy(other, room));
-      const nestedCutouts = (nestedRooms) => nestedRooms.map((nested) => ({
-        x0: nested.x - nested.width / 2 - WALL_THICKNESS / 2,
-        x1: nested.x + nested.width / 2 + WALL_THICKNESS / 2,
-        z0: nested.z - nested.depth / 2 - WALL_THICKNESS / 2,
-        z1: nested.z + nested.depth / 2 + WALL_THICKNESS / 2,
-      }));
-      const buildOptions = {
-        elevation,
-        hasSlab: floorBelow(floorsMap, room.floor) !== null,
-        storeyTop: wallSpace(floorsMap, room.floor),
-        rooms: sameFloorRooms,
-        floorSurfaceHoles: nestedCutouts(nestedRooms),
-        ceilingSurfaceHoles: nestedCutouts(nestedRooms.filter((nested) =>
-          (nested.wallHeight ?? room.wallHeight) >= (room.wallHeight ?? 3) - 0.005)),
-        // inside another room: walls drawn 1 cm in, and no roof of its own under a room as tall
-        nested: containers.length > 0,
-        roofCovered: containers.some((outer) => (outer.wallHeight ?? 3) >= (room.wallHeight ?? 3) - 0.005),
-        ...stairHolesFor(room, stairs, floorsMap),
-      };
-
-      if (existing) {
-        if (existing.isDisposed() || existing.metadata?._geometryKey !== roomGeometryKey(room, buildOptions)) {
-          if (!existing.isDisposed()) disposeRoomMesh(existing);
-          meshMap.delete(room.id);
-        } else {
-          continue; // unchanged (its parts' world matrices are frozen)
-        }
-      }
-
-      // Build new mesh
-      const node = buildRoomMesh(
-        { ...room, isSelected: room.id === selectedRoomId },
-        scene,
-        { shadowGenerator: lightsRef.current?.shadowGenerator, ...buildOptions },
-      );
-      node.metadata._geometryKey = roomGeometryKey(room, buildOptions);
-      meshMap.set(room.id, node);
-      rebuilt++;
-    }
+    const roomSystem = roomSystemRef.current;
+    if (!roomSystem) return;
+    const { rebuilt, ms } = roomSystem.sync({ rooms: roomsMap, objects: objectsMap, floors: floorsMap }, selectedRoomId);
     // Dev only (e2e/perf-smoke.mjs): how many rooms the last sync that built any rebuilt, and how long it took
-    if (import.meta.env.DEV && rebuilt) window.__ahdusRoomSync = { rebuilt, ms: performance.now() - syncStart };
-    // Selection outline: the selected room's parts, and its walls shared with
-    // (and so built by) a neighbour
-    const selectedColor = roomsMap[selectedRoomId]?.color;
-    for (const node of meshMap.values()) setRoomSelected(node, selectedRoomId ?? null, selectedColor);
+    if (import.meta.env.DEV && rebuilt) window.__ahdusRoomSync = { rebuilt, ms };
     applyLevelVisibility();
   }, [roomsMap, objectsMap, floorsMap, selectedRoomId, applyLevelVisibility]);
 
-  // ─── Sync Object meshes whenever objects change ───
+  // ─── Sync item meshes whenever items change (every floor) ───
   useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene) return;
-
-    const meshMap = objectMeshesRef.current;
-    const allObjects = Object.values(objectsMap);
-    const currentIds = new Set(allObjects.map((o) => o.id));
-
-    // Remove meshes for deleted objects (their template and materials are shared and stay)
-    for (const [id, mesh] of meshMap.entries()) {
-      if (!currentIds.has(id)) {
-        disposeItemMesh(mesh);
-        meshMap.delete(id);
-      }
-    }
-
-    // Add or update meshes for each object (every floor)
-    for (const obj of allObjects) {
-      let mesh = meshMap.get(obj.id);
-      if (mesh?.isDisposed()) mesh = null;
-      // Stairs climb exactly their floor's height: a taller or lower floor rebuilds them
-      const rise = obj.assetType === 'STAIRCASE' ? floorHeight(floorsMap, obj.floor ?? 0) : undefined;
-      if (mesh && (mesh.metadata?.rise !== rise || mesh.metadata?.floorId !== (obj.floor ?? 0))) {
-        disposeItemMesh(mesh);
-        meshMap.delete(obj.id);
-        mesh = null;
-      }
-
-      if (!mesh) {
-        // An instance of its type's template (assetInstances.js), tagged for
-        // picking. Furniture blocks the character in Preview; markers (spawn
-        // points) don't, and stairs are walked ON (Preview computes the slope).
-        // Bigger items cast soft shadows.
-        mesh = createItemMesh(obj.assetType, scene, obj.id, {
-          rise,
-          floorId: obj.floor ?? 0,
-          solid: ASSET_TYPES[obj.assetType]?.category !== OBJECT_CATEGORIES.MARKER && obj.assetType !== 'STAIRCASE',
-          shadowGenerator: lightsRef.current?.shadowGenerator,
-        });
-        meshMap.set(obj.id, mesh);
-      }
-
-      // Sync transforms (height is above the object's own floor)
-      mesh.position.x = obj.x;
-      mesh.position.y = elevationOf(floorsMap, obj.floor ?? 0) + (obj.y ?? 0);
-      mesh.position.z = obj.z;
-      mesh.rotation.x = obj.rotationX;
-      mesh.rotation.y = obj.rotationY;
-      mesh.rotation.z = obj.rotationZ;
-      mesh.scaling.x = obj.scaleX;
-      mesh.scaling.y = obj.scaleY;
-      mesh.scaling.z = obj.scaleZ;
-
-      // Lock visuals
-      if (obj.isLocked) {
-        applyLockVisual(mesh);
-      } else {
-        removeLockVisual(mesh);
-      }
-    }
+    const objectSystem = objectSystemRef.current;
+    if (!objectSystem) return;
+    objectSystem.sync({ objects: objectsMap, floors: floorsMap });
     applyLevelVisibility();
   }, [objectsMap, floorsMap, applyLevelVisibility]);
 
   // ─── Planner: show the floor being edited, and point the camera at its height ───
   useEffect(() => {
     if (isPlaying) return;
-    viewRef.current = { mode: 'planner', level: currentFloor };
-    applyLevelVisibility();
+    floorSystemRef.current?.setFloor(currentFloor);
     const camera = cameraRef.current;
     if (camera) {
       const elev = elevationOf(useWorkspaceStore.getState().floors, currentFloor);
@@ -888,7 +650,7 @@ export default function WorkplaceEditor({ onExit }) {
 
     // The move/rotate/scale gizmo is a planner tool; never show it in Play mode
     if (selectedObjectId && !isPlaying) {
-      const mesh = objectMeshesRef.current.get(selectedObjectId);
+      const mesh = objectSystemRef.current?.getObjectMesh(selectedObjectId);
       const objData = objects.find((o) => o.id === selectedObjectId);
 
       if (mesh && objData && !objData.isLocked) {
@@ -942,8 +704,7 @@ export default function WorkplaceEditor({ onExit }) {
     play.deactivate();
     saveNow();
     isPlayingRef.current = false;
-    viewRef.current = { mode: 'planner', level: useWorkspaceStore.getState().currentFloor };
-    applyLevelVisibility();
+    floorSystemRef.current?.setFloor(useWorkspaceStore.getState().currentFloor);
     setIsPlaying(false);
     setCatalogOpen(false);
     setNewFloorAsk(false);
@@ -1275,7 +1036,7 @@ export default function WorkplaceEditor({ onExit }) {
     } else {
       handleSelectObject(id);
     }
-    const node = type === 'room' ? roomMeshesRef.current.get(id) : objectMeshesRef.current.get(id);
+    const node = type === 'room' ? roomSystemRef.current?.getRoomMesh(id) : objectSystemRef.current?.getObjectMesh(id);
     const b = boundsOf(node);
     if (b) flyTo(b.min, b.max);
   }, [storeActions, handleSelectObject, boundsOf, flyTo]);
@@ -1537,8 +1298,8 @@ export default function WorkplaceEditor({ onExit }) {
   })();
 
   const getSelectionBounds = useCallback(() => {
-    if (selectedObjectId) return boundsOf(objectMeshesRef.current.get(selectedObjectId));
-    if (selectedRoomId) return boundsOf(roomMeshesRef.current.get(selectedRoomId));
+    if (selectedObjectId) return boundsOf(objectSystemRef.current?.getObjectMesh(selectedObjectId));
+    if (selectedRoomId) return boundsOf(roomSystemRef.current?.getRoomMesh(selectedRoomId));
     return null;
   }, [selectedObjectId, selectedRoomId, boundsOf]);
 
