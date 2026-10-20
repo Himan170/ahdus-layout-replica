@@ -2,8 +2,9 @@
 //   Probe building: 3 floors × 24 rooms (each with a door and a window) and
 //   864 items (desks, chairs, plants), loaded through the store.
 //   Checks mesh and draw-call counts (not fps: the test machine has no GPU),
-//   that changing one room rebuilds only that room, and that single items can
-//   still be selected, locked and removed.
+//   that changing one room rebuilds only that room and the rooms touching it
+//   (and how long that takes next to rebuilding two floors), and that single
+//   items can still be selected, locked and removed.
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run dev          (in one terminal)
@@ -125,18 +126,40 @@ await p.screenshot({ path: 'e2e/screens/perf-building.png', timeout: 120000 });
 log(`Studio 3D, top floor (all 3 floors shown): ≤ ${MAX_DRAW_CALLS} draw calls`,
   top.drawCalls <= MAX_DRAW_CALLS && top.meshes <= MAX_MESHES, JSON.stringify(top));
 
-// ── Changing one room rebuilds only that room ──
-const rebuilt = await p.evaluate(async () => {
+// ── Changing one room rebuilds only that room and the rooms touching it ──
+// The probe rooms are back to back (shared walls), so its 8 neighbours, not
+// the other 15 rooms on its floor. The room sync reports its time and count
+// (window.__ahdusRoomSync, dev only): compare with rebuilding two whole floors.
+// what: { room, patch } (updateRoom) or { floor, height } (setFloorHeight)
+const change = (what) => p.evaluate(async (what) => {
   const sc = window.__ahdusScene;
   const ids = () => new Map(sc.transformNodes.filter((t) => t.name.startsWith('room_room_')).map((t) => [t.name, t.uniqueId]));
   const before = ids();
-  window.__ahdusStore.getState().updateRoom('room_1_2_1', { width: 5.5 });
+  const store = window.__ahdusStore.getState();
+  window.__ahdusRoomSync = null;
+  if (what.room) store.updateRoom(what.room, what.patch);
+  else store.setFloorHeight(what.floor, what.height);
   await new Promise((r) => setTimeout(r, 300));
   const after = ids();
-  return [...after].filter(([name, uid]) => before.get(name) !== uid).map(([name]) => name);
-});
+  return {
+    rebuilt: [...after].filter(([name, uid]) => before.get(name) !== uid).map(([name]) => name.slice('room_'.length)),
+    sync: window.__ahdusRoomSync,
+  };
+}, what);
+const one = await change({ room: 'room_1_2_1', patch: { width: 5.5 } });
 await frames(2);
-log('changing one room rebuilds only that room', rebuilt.length === 1 && rebuilt[0] === 'room_room_1_2_1', rebuilt.join(', '));
+const neighbourhood = new Set([1, 2, 3].flatMap((i) => [0, 1, 2].map((j) => `room_1_${i}_${j}`)));
+log('changing one room rebuilds only it and the rooms touching it',
+  one.rebuilt.includes('room_1_2_1') && one.rebuilt.length <= 9 && one.rebuilt.every((id) => neighbourhood.has(id)),
+  `${one.rebuilt.length} rebuilt: ${one.rebuilt.join(', ')}`);
+// A floor height change rebuilds floor 1 (its wall space) and floor 2 (its elevation): 48 rooms
+const all = await change({ floor: 1, height: 3.6 });
+await frames(2);
+await change({ floor: 1, height: 3.5 });
+await frames(2);
+log('rebuilding one room and its neighbours takes under half the time of 2 floors',
+  !!one.sync && !!all.sync && all.rebuilt.length === 48 && one.sync.ms < all.sync.ms / 2,
+  `one room: ${one.sync?.rebuilt} rebuilt in ${Math.round(one.sync?.ms)} ms; 2 floors: ${all.sync?.rebuilt} in ${Math.round(all.sync?.ms)} ms`);
 
 // ── Single items still work: pick, lock tint, remove one ──
 const items = await p.evaluate(async () => {

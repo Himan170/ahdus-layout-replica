@@ -726,6 +726,8 @@ export default function WorkplaceEditor({ onExit }) {
     if (!scene) return;
 
     const meshMap = roomMeshesRef.current;
+    const syncStart = performance.now();
+    let rebuilt = 0;
     const allRooms = Object.values(roomsMap);
     const stairs = Object.values(objectsMap).filter((o) => o.assetType === 'STAIRCASE');
     const roomsByFloor = new Map();
@@ -774,7 +776,10 @@ export default function WorkplaceEditor({ onExit }) {
       );
       node.metadata._geometryKey = roomGeometryKey(room, buildOptions);
       meshMap.set(room.id, node);
+      rebuilt++;
     }
+    // Dev only (e2e/perf-smoke.mjs): how many rooms the last sync that built any rebuilt, and how long it took
+    if (import.meta.env.DEV && rebuilt) window.__ahdusRoomSync = { rebuilt, ms: performance.now() - syncStart };
     // Selection outline: the selected room's parts, and its walls shared with
     // (and so built by) a neighbour
     const selectedColor = roomsMap[selectedRoomId]?.color;

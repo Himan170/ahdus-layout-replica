@@ -43,7 +43,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { getMaterials, TILE_SIZE, FLOOR_BY_ROOM_TYPE } from './materialLibrary';
 import {
-  roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, WALL_THICKNESS, OPPOSITE,
+  roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, WALL_THICKNESS, OPPOSITE, roomBuildInput,
 } from '../play/geometry';
 import { subtractRects, SLAB } from '../play/building';
 import { mergeByMaterial } from './assetInstances';
@@ -377,17 +377,14 @@ export function setRoomSelected(rootNode, selectedRoomId, color = '#6c8cff') {
 }
 
 /**
- * A string that changes whenever the room needs to be rebuilt
- * (size, type, doors, windows). Position/selection changes don't need a rebuild.
+ * A string that changes whenever the room needs to be rebuilt: its size, type,
+ * doors, windows, storey, stair holes, and the rooms touching it (shared walls;
+ * geometry.roomBuildInput / roomsToRebuild). A change to a room further away on
+ * the floor, or to the selection, doesn't need a rebuild.
  */
 export function roomGeometryKey(room, options = {}) {
   return JSON.stringify([
-    room.x, room.z, room.width, room.depth, room.wallHeight, room.type, room.color,
-    room.doors ?? [], room.windows ?? [],
+    roomBuildInput(room, options.rooms ?? []),
     options.elevation ?? 0, !!options.hasSlab, options.storeyTop ?? null, options.floorHoles ?? [], options.ceilingHoles ?? [],
-    (options.rooms ?? []).map((r) => [
-      r.id, r.floor ?? r.floorId ?? 0, r.x, r.z, r.width, r.depth, r.wallHeight,
-      r.doors ?? [], r.windows ?? [],
-    ]),
   ]);
 }

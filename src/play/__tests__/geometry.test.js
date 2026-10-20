@@ -3,7 +3,7 @@ import { Vector3, Matrix } from '@babylonjs/core/Maths/math.vector';
 import {
   rectFromCorners, wallSegmentTransform, splitWall, roomWalls, openingOffsetFromHit,
   overlapsExisting, openingAt, findRoomAt, roomOpenings, WALL_THICKNESS,
-  roomWallSegments, wallSegmentOpenings, wallPickTarget,
+  roomWallSegments, wallSegmentOpenings, wallPickTarget, touchingRooms, roomsToRebuild,
 } from '../geometry';
 
 describe('rectFromCorners', () => {
@@ -291,5 +291,58 @@ describe('wallPickTarget: a shared wall means the room on the side it is hit fro
     expect(wallPickTarget({ roomId: 'west', wallName: 'east' }, eastSide)).toEqual({ roomId: 'west', wallName: 'east' });
     const meta = { roomId: 'east', wallName: 'west', sharedWith: 'west', sharedWall: 'east', sharedAt: 3.075 };
     expect(wallPickTarget(meta, null)).toEqual({ roomId: 'east', wallName: 'west' });
+  });
+});
+
+describe('roomsToRebuild: a change rebuilds the room and the rooms touching it', () => {
+  // 4 × 3 offices back to back (shared walls), like the perf probe, plus one far away
+  const grid = [];
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 3; j++) {
+      grid.push({ id: `r${i}${j}`, floor: 0, x: i * 6.15, z: j * 5.15, width: 6, depth: 5, wallHeight: 3.2, doors: [], windows: [] });
+    }
+  }
+  const far = { id: 'far', floor: 0, x: 60, z: 0, width: 4, depth: 4, wallHeight: 3.2, doors: [], windows: [] };
+  const upstairs = { id: 'up', floor: 1, x: 6.15, z: 5.15, width: 6, depth: 5, wallHeight: 3.2, doors: [], windows: [] };
+  const before = [...grid, far, upstairs];
+  const change = (id, patch) => before.map((r) => (r.id === id ? { ...r, ...patch } : r));
+  const sorted = (set) => [...set].sort();
+  const around = (i, j) => grid
+    .filter((r) => Math.abs(Number(r.id[1]) - i) <= 1 && Math.abs(Number(r.id[2]) - j) <= 1)
+    .map((r) => r.id).sort();
+
+  it('touching = back to back or corner to corner on the same floor, not further', () => {
+    const middle = grid.find((r) => r.id === 'r11');
+    expect(touchingRooms(middle, before).map((r) => r.id).sort()).toEqual(around(1, 1).filter((id) => id !== 'r11'));
+    expect(touchingRooms(far, before)).toEqual([]);
+  });
+
+  it('nothing changed: nothing to rebuild', () => {
+    expect(roomsToRebuild(before, before.map((r) => ({ ...r })))).toEqual(new Set());
+  });
+
+  it('resizing a room rebuilds it and its neighbours, not the rest of the floor', () => {
+    expect(sorted(roomsToRebuild(before, change('r11', { width: 5.5 })))).toEqual(around(1, 1));
+  });
+
+  it('moving a room rebuilds the rooms by its old place and by its new one', () => {
+    const moved = change('r00', { x: 3 * 6.15 + 6.15, z: 0 }); // from the west end to past the east end
+    expect(sorted(roomsToRebuild(before, moved))).toEqual(['r00', 'r01', 'r10', 'r11', 'r30', 'r31']);
+  });
+
+  it('a new door in a room rebuilds its neighbours too (it may cut a shared wall)', () => {
+    const withDoor = change('r22', { doors: [{ wall: 'west', offset: 0, width: 0.9, height: 2.1 }] });
+    expect(sorted(roomsToRebuild(before, withDoor))).toEqual(around(2, 2));
+  });
+
+  it('adding or removing a room rebuilds it (if added) and the rooms it touches', () => {
+    const added = { id: 'new', floor: 0, x: 4 * 6.15, z: 5.15, width: 6, depth: 5, wallHeight: 3.2, doors: [], windows: [] };
+    expect(sorted(roomsToRebuild(before, [...before, added]))).toEqual(['new', 'r30', 'r31', 'r32']);
+    expect(sorted(roomsToRebuild(before, before.filter((r) => r.id !== 'r32')))).toEqual(['r21', 'r22', 'r31']);
+  });
+
+  it('rooms on other floors are not rebuilt, and a room moved to another floor is', () => {
+    expect(roomsToRebuild(before, change('r11', { width: 5.5 })).has('up')).toBe(false);
+    expect(sorted(roomsToRebuild(before, change('far', { floor: 1 })))).toEqual(['far']);
   });
 });

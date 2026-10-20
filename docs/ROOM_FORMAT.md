@@ -122,10 +122,12 @@ undoable operation when a partner exists.
 ## Editing and lifecycle
 
 Moving or resizing a room changes its boundary and therefore the derived
-shared segment on the next mesh sync. The mesh key (`roomGeometryKey`)
-includes the geometry and openings of every room on the same floor, so both
-affected sides rebuild when either room changes (and so do the other rooms on
-that floor). Removing a neighbour removes the shared segment and restores the
+shared segment on the next mesh sync. The mesh key (`roomGeometryKey`) is
+made from `geometry.roomBuildInput`: the room and the rooms touching it on its
+floor (within `0.15 + 0.02 m`, the reach of a shared wall), with their
+geometry and openings. So a change rebuilds the room and the rooms touching
+its old or new rectangle, not the other rooms on the floor;
+`geometry.roomsToRebuild(before, after)` gives that set. Removing a neighbour removes the shared segment and restores the
 remaining room's full external wall. Undo/redo uses the existing room
 commands; no shared-wall command or persistent link needs to be synchronized.
 Rebuilt room meshes dispose their child meshes but keep shared materials.

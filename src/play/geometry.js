@@ -344,6 +344,46 @@ export function wallPickTarget(meta, from) {
   return onOwnSide ? own : { roomId: meta.sharedWith, wallName: meta.sharedWall };
 }
 
+// ── Which rooms to rebuild ────────────────────────────────────────────────
+// A room's mesh depends on the rooms it can share a wall with: back to back
+// they are at most WALL_THICKNESS (+ tolerance) apart.
+const TOUCH_GAP = WALL_THICKNESS + SHARED_WALL_TOLERANCE + GEOMETRY_EPSILON;
+
+/** Rooms on `room`'s floor whose rectangle touches (or overlaps) it, close enough to share a wall. */
+export function touchingRooms(room, rooms) {
+  return rooms.filter((other) => other.id !== room.id && floorOf(other) === floorOf(room) &&
+    Math.abs(other.x - room.x) - (other.width + room.width) / 2 <= TOUCH_GAP &&
+    Math.abs(other.z - room.z) - (other.depth + room.depth) / 2 <= TOUCH_GAP);
+}
+
+/**
+ * What a room's mesh is built from, of the rooms on its floor: the room itself
+ * and the rooms touching it (their shared walls, and the doors and windows in
+ * them). roomBuilder.roomGeometryKey is made from it.
+ */
+export function roomBuildInput(room, rooms) {
+  return [
+    floorOf(room), room.x, room.z, room.width, room.depth, room.wallHeight, room.type, room.color,
+    room.doors ?? [], room.windows ?? [],
+    touchingRooms(room, rooms).map((r) => [r.id, r.x, r.z, r.width, r.depth, r.wallHeight, r.doors ?? [], r.windows ?? []]),
+  ];
+}
+
+/**
+ * Which rooms need a new mesh when the rooms go from `before` to `after`
+ * (lists of rooms, any floors): new and changed rooms, and the rooms touching
+ * a changed (or removed) room's old or new rectangle on its floor. Not the
+ * other rooms on that floor.
+ * @returns {Set<string>} ids of rooms in `after`
+ */
+export function roomsToRebuild(before, after) {
+  const old = new Map(before.map((r) => [r.id, r]));
+  const input = (room, rooms) => JSON.stringify(roomBuildInput(room, rooms));
+  return new Set(after
+    .filter((r) => !old.has(r.id) || input(r, after) !== input(old.get(r.id), before))
+    .map((r) => r.id));
+}
+
 /** World-space centre line of a wall: fixed coordinate + extent along it. */
 export function wallLine(room, wallName) {
   const hw = room.width / 2;

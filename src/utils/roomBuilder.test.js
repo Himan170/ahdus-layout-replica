@@ -13,7 +13,8 @@ vi.mock('./materialLibrary', () => ({
   ].map((key) => [key, () => null])),
 }));
 
-const { buildRoomMesh, setRoomSelected } = await import('./roomBuilder');
+const { buildRoomMesh, setRoomSelected, roomGeometryKey } = await import('./roomBuilder');
+const { roomsToRebuild } = await import('../play/geometry');
 const { wallTargetOf } = await import('./pickHelpers');
 
 let scene;
@@ -155,5 +156,17 @@ describe('a shared wall belongs to both rooms, whichever builds it', () => {
       expect(lit.filter((m) => !m.metadata.sharedWith && m.parent.metadata.roomId === other.id)).toEqual([]);
     }
     expect(outlined(null)).toEqual([]);
+  });
+});
+
+describe('roomGeometryKey', () => {
+  it('changes for exactly the rooms roomsToRebuild names (the room and the rooms touching it)', () => {
+    const row = [0, 1, 2, 3].map((i) => ({ id: `r${i}`, floor: 0, x: i * 6.15, z: 0, width: 6, depth: 5, wallHeight: 3.2 }));
+    const after = row.map((r) => (r.id === 'r1' ? { ...r, width: 5.5 } : r));
+    const keys = (rooms) => new Map(rooms.map((r) => [r.id, roomGeometryKey(r, { rooms })]));
+    const [k0, k1] = [keys(row), keys(after)];
+    const changed = new Set(after.filter((r) => k0.get(r.id) !== k1.get(r.id)).map((r) => r.id));
+    expect(changed).toEqual(roomsToRebuild(row, after));
+    expect([...changed].sort()).toEqual(['r0', 'r1', 'r2']);
   });
 });
