@@ -57,6 +57,7 @@ const PARAPET_H = 0.25;        // low wall around the roof edge
 const PARAPET_T = 0.15;
 const LIGHT_SPACING = 2.4;     // ceiling light panels every 2.4 m
 const LIGHT_SIZE = 0.6;
+const NESTED_INSET = 0.01;     // a nested room's walls are drawn this much in on the outside
 
 /** Texture repeats by WORLD position, so floor pieces around an opening line up seamlessly. */
 function worldUVs(mesh, worldX0, worldZ0, tile) {
@@ -89,6 +90,9 @@ function toLocal(rects, room) {
  *   floorHoles?: object[],   world rects {x0,x1,z0,z1} to cut out of the floor (stairs coming up)
  *   ceilingHoles?: object[], world rects to cut out of the ceiling and roof (stairs going up)
  *   rooms?: object[],      rooms on this floor, used to derive shared walls
+ *   floorSurfaceHoles?, ceilingSurfaceHoles?: object[]  world rects cut out under / over rooms inside this one
+ *   nested?: boolean,       this room is inside another: its walls are drawn 1 cm in on the outside
+ *   roofCovered?: boolean,  ...and that room is at least as tall: no roof of its own
  * }} [options]
  * @returns {TransformNode} root node containing all room meshes
  */
@@ -172,7 +176,8 @@ export function buildRoomMesh(roomData, scene, options = {}) {
   // ── Roof: slab + membrane + parapet (shown when nothing is built above) ──
   // Stairs going up need a hole in it too: with no room above, looking up the
   // stairwell must show the sky, not the underside of the roof.
-  {
+  // A room inside an at-least-as-tall room has none: its roof would lie in that room's.
+  if (!options.roofCovered) {
     subtractRects(outer, ceilingHoles).forEach((p, i) => {
       const roof = MeshBuilder.CreateBox(`roof_${id}_${i}`, {
         width: p.x1 - p.x0, depth: p.z1 - p.z0, height: ROOF_T,
@@ -233,10 +238,20 @@ export function buildRoomMesh(roomData, scene, options = {}) {
 
   // ── Walls ──
   const sameFloorRooms = options.rooms ?? [roomData];
+  const inset = options.nested ? NESTED_INSET : 0;
   for (const wall of roomWalls(roomData)) {
     for (const [segmentIndex, segment] of roomWallSegments(roomData, wall.name, sameFloorRooms).entries()) {
-      const segmentCentre = (segment.u0 + segment.u1) / 2;
-      const segmentLength = segment.u1 - segment.u0;
+      // A room inside a room: its own walls are drawn NESTED_INSET thinner on
+      // the outside (and their corner ends that much shorter), so their outer
+      // faces never lie in the enclosing room's wall faces (they would flicker).
+      // The room's inside stays exactly its size.
+      const trim = inset > 0 && !segment.shared;
+      const su0 = trim && wall.alongX ? Math.max(segment.u0, -wall.length / 2 + inset) : segment.u0;
+      const su1 = trim && wall.alongX ? Math.min(segment.u1, wall.length / 2 - inset) : segment.u1;
+      const segmentCentre = (su0 + su1) / 2;
+      const segmentLength = su1 - su0;
+      const inward = trim ? -Math.sign(wall.alongX ? wall.cz : wall.cx) * inset / 2 : 0;
+      const wallT = trim ? T - inset : T;
       const segmentHeight = segment.shared
         ? Math.max(wallHeight, segment.partnerRoom.wallHeight ?? wallHeight)
         : wallHeight;
@@ -245,8 +260,8 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         ...o,
         offset: o.offset - segmentCentre,
       })));
-      const wallCx = wall.cx + (wall.alongX ? 0 : segment.crossOffset);
-      const wallCz = wall.cz + (wall.alongX ? segment.crossOffset : 0);
+      const wallCx = wall.cx + (wall.alongX ? 0 : segment.crossOffset + inward);
+      const wallCz = wall.cz + (wall.alongX ? segment.crossOffset + inward : 0);
 
       // Place a box that spans [u0,u1] along this wall piece.
       const placeBox = (name, u0, u1, y0, y1, thickness, material, meta, opts) => {
@@ -276,7 +291,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
       pieces.forEach((p, i) => {
         const u0 = p.u0 + segmentCentre;
         const u1 = p.u1 + segmentCentre;
-        placeBox(`wall_${id}_${wall.name}_${segmentIndex}_${i}`, u0, u1, p.y0, p.y1, T, mats.plaster(), wallMeta);
+        placeBox(`wall_${id}_${wall.name}_${segmentIndex}_${i}`, u0, u1, p.y0, p.y1, wallT, mats.plaster(), wallMeta);
         // Skirting: not pickable, a click on it goes through to the wall behind it.
         if (p.y0 === 0) {
           placeBox(`skirt_${id}_${wall.name}_${segmentIndex}_${i}`, u0, u1, 0, SKIRTING_H, T + 0.03,
@@ -391,5 +406,6 @@ export function roomGeometryKey(room, options = {}) {
     options.elevation ?? 0, !!options.hasSlab, options.storeyTop ?? null,
     options.floorHoles ?? [], options.ceilingHoles ?? [],
     options.floorSurfaceHoles ?? [], options.ceilingSurfaceHoles ?? [],
+    !!options.nested, !!options.roofCovered,
   ]);
 }

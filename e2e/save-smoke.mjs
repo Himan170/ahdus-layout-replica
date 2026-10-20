@@ -259,6 +259,9 @@ const tab = async () => {
   await t.waitForSelector('input[placeholder="Company name…"]', { timeout: 90000 });
   return t;
 };
+// Opening a layout builds its 3D scene inside the click (twice in dev: StrictMode); without a
+// GPU that blocks the tab ~10 s, ~25 s with the other tab rendering too: allow as long as opened()
+const OPEN_TIMEOUT = 90000;
 const opened = async (t) => {
   await t.waitForSelector('canvas', { timeout: 90000 });
   await t.evaluate(() => window.__ahdusScene.getEngine().setHardwareScalingLevel(2));
@@ -286,7 +289,7 @@ await opened(tA);
 const sharedId = await tA.evaluate(() => window.__ahdusStore.getState().layoutId);
 const tB = await tab();
 await tB.click('button:has-text("Tabs Co")');
-await tB.locator('button[aria-label="Open Shared"]').click();
+await tB.locator('button[aria-label="Open Shared"]').click({ timeout: OPEN_TIMEOUT });
 await opened(tB);
 log('two tabs: opening a layout that is open in another tab says "Also open in another tab"',
   await until(() => shown(tB, 'Also open in another tab')) && await until(() => shown(tA, 'Also open in another tab')));
@@ -317,7 +320,7 @@ log('two tabs: on different layouts the "also open" note goes away',
 // Tab B opens the shared layout again; tab A saves; tab B reloads theirs
 await tB.click('[aria-label="All layouts"]');
 await tB.waitForSelector('text=Workspace Layouts', { timeout: 30000 });
-await tB.locator('button[aria-label="Open Shared"]').click();
+await tB.locator('button[aria-label="Open Shared"]').click({ timeout: OPEN_TIMEOUT });
 await opened(tB);
 await addRoomIn(tA, 'Room A2', 8);
 await until(() => shown(tB, 'Changed in another tab'), 15000);

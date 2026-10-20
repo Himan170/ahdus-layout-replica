@@ -13,6 +13,8 @@
 //                   npm run e2e:nested-rooms   (in another)
 // Exits with code 1 if any check fails.
 import { chromium } from 'playwright';
+import { mkdirSync } from 'node:fs';
+mkdirSync('e2e/screens', { recursive: true });
 
 const url = process.argv[2] ?? 'http://localhost:3000/';
 const exe = process.env.CHROME;
@@ -124,6 +126,10 @@ try {
   }, ids, { timeout: 30000 }).then(() => true, () => false);
   log('dragging a selected nested room moves it without changing its size', moved);
 
+  // A room in the office's north-west corner, as close to its walls as allowed (0.15 m): x -5.85..-3.85, z 2.85..4.85
+  ids.corner = await page.evaluate(() => window.__ahdusStore.getState().addRoom({
+    type: 'CUSTOM', name: 'Corner Room', x: -4.85, z: 3.85, width: 2, depth: 2, floor: 0 }).id);
+
   // ── Floor 1: nested room next to a shared wall, with doors ──
   const up = await page.evaluate(() => {
     const store = window.__ahdusStore.getState();
@@ -144,10 +150,21 @@ try {
     const rooms = window.__ahdusStore.getState().rooms;
     const box = n.sharedWalls(up.office, up.neighbour)[0]?.getBoundingInfo().boundingBox;
     const pick = (r) => ({ x: r.x, z: r.z, width: r.width, depth: r.depth, floor: r.floor, doors: r.doors.length });
+    const wallBox = (roomId, wallName) => window.__ahdusScene.meshes.find((m) => m.name.startsWith('wall_') &&
+      m.metadata?.roomId === roomId && m.metadata.wallName === wallName && m.metadata.part === 'wall')?.getBoundingInfo().boundingBox;
+    const west = wallBox(ids.corner, 'west');
+    const north = wallBox(ids.corner, 'north');
     return {
       rooms: Object.keys(rooms).length,
+      corner: {
+        // the office's inner wall faces are at x -5.925 and z 4.925
+        westGap: west ? west.minimumWorld.x - -5.925 : null,
+        northGap: north ? 4.925 - north.maximumWorld.z : null,
+        cornerGap: north ? north.minimumWorld.x - -5.925 : null,
+        ownRoof: window.__ahdusScene.meshes.some((m) => m.metadata?.roomId === ids.corner && m.metadata.part === 'roof'),
+      },
       ground: {
-        area: n.floorArea(ids.office) + n.floorArea(ids.meeting) + n.floorArea(ids.cabin),
+        area: n.floorArea(ids.office) + n.floorArea(ids.meeting) + n.floorArea(ids.cabin) + n.floorArea(ids.corner),
         holeUnderMeeting: !n.floorAt(ids.office, -3, 0) && n.floorAt(ids.meeting, -3, 0),
         officeFloorElsewhere: n.floorAt(ids.office, 5, 4),
         meeting: pick(rooms[ids.meeting]), cabin: pick(rooms[ids.cabin]),
@@ -167,10 +184,14 @@ try {
   const check = (state, when) => {
     const g = state.ground;
     const u = state.upper;
-    // office 12 × 10 minus two 3.15 × 3.15 cutouts, plus the two 3 × 3 rooms
+    // office 12 × 10 minus two 3.15 × 3.15 and one 2.15 × 2.15 cutouts, plus the rooms (3 × 3, 3 × 3, 2 × 2)
     log(`${when}: ground floor, the office floor is cut out under the rooms inside it`,
-      state.rooms === 6 && near(g.area, 118.155) && g.holeUnderMeeting && g.officeFloorElsewhere,
+      state.rooms === 7 && near(g.area, 120 - 2 * 3.15 * 3.15 - 2.15 * 2.15 + 9 + 9 + 4) && g.holeUnderMeeting && g.officeFloorElsewhere,
       JSON.stringify(g));
+    const c = state.corner;
+    log(`${when}: a room 0.15 m from the office's walls: its wall faces stay 1 cm off the office's, no roof of its own`,
+      near(c.westGap, 0.01, 0.002) && near(c.northGap, 0.01, 0.002) && near(c.cornerGap, 0.01, 0.002) && !c.ownRoof,
+      JSON.stringify(c));
     log(`${when}: ground floor, the nested rooms keep their place and size`,
       g.meeting.x === -3 && g.meeting.z === 0 && g.cabin.x === 4 && g.cabin.z === 1 && g.cabin.width === 3);
     log(`${when}: Floor 1, a nested room next to a shared wall: one shared wall, not shared with the nested room`,
@@ -192,6 +213,32 @@ try {
     window.__nested.floorArea(ids.office) > 0 && window.__nested.sharedWalls(up.office, up.neighbour).length > 0,
   { ids, up }, { timeout: 60000 });
   check(await inspect(), 'after reopening');
+
+  // ── Preview, next to the corner room where its walls meet the office's ──
+  const frames = (n = 3) => page.evaluate((n) => new Promise((res) => {
+    const sc = window.__ahdusScene; let c = 0; let t = null;
+    const o = sc.onAfterRenderObservable.add(() => { if (++c >= n) done(); });
+    function done() { sc.onAfterRenderObservable.remove(o); clearTimeout(t); res(); }
+    t = setTimeout(done, 60000);
+  }), n);
+  await page.mouse.move(640, 380);
+  await page.click('[aria-label="Preview Workplace"]'); await page.waitForTimeout(800);
+  if (!(await page.evaluate(() => !!document.pointerLockElement))) {
+    await page.click('button:has-text("Start preview")'); await page.waitForTimeout(400);
+  }
+  // first person, standing in the office south-east of the corner room, looking at where
+  // its south-west corner meets the office's west wall (-5.9, 2.85)
+  await page.keyboard.press('KeyV'); await frames(3);
+  const [sx, sz] = [-1.2, 2.4]; // in the office, north of the meeting room, ~4.7 m from the spot
+  await page.evaluate(([x, z]) => window.__ahdusPlay.setPose({ x, z, yaw: Math.atan2(-5.9 - x, 2.85 - z), pitch: -0.15, floor: 0 }), [sx, sz]);
+  await frames(6);
+  await page.screenshot({ path: 'e2e/screens/nested-wall-joint-preview.png', timeout: 120000 });
+  // flying over Floor 1: the meeting room inside the upper office has no roof lying in the office's roof
+  await page.evaluate(() => window.__ahdusPlay.setPose({ x: 4.35, z: -9, yaw: 0, pitch: -0.55, floor: 1, y: 7, fly: true }));
+  await frames(6);
+  await page.screenshot({ path: 'e2e/screens/nested-roof-preview.png', timeout: 120000 });
+  await page.keyboard.press('KeyV');
+  log('Preview screenshots taken next to the corner room (e2e/screens/nested-*-preview.png)', true);
 } finally {
   log('no page errors', errs.length === 0, errs.slice(0, 3).join(' | '));
   await browser.close();
