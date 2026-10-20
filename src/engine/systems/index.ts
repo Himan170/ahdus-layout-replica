@@ -1,8 +1,11 @@
 export { ObjectSystem } from './ObjectSystem';
 export type { ObjectData } from './ObjectSystem';
 
-export { RoomSystem } from './RoomSystem';
-export type { RoomData } from './RoomSystem';
+export { RoomSystem, stairHolesFor } from './RoomSystem';
+export type { LayoutRecords, Records, V1Room, V1Object, V1Floor, RoomSystemOptions } from './RoomSystem';
+
+export { createLayoutScene } from './SceneSetup';
+export type { LayoutScene, LayoutSceneOptions } from './SceneSetup';
 
 export { SelectionSystem } from './SelectionSystem';
 export type { SelectionState, EntityType, GizmoMode } from './SelectionSystem';

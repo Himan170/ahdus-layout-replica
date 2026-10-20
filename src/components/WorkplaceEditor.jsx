@@ -11,34 +11,17 @@ import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 
 // Engine, scene, camera, lights and site: shared with the embeddable engine
 import { createLayoutScene } from '../engine/systems/SceneSetup';
+import { RoomSystem } from '../engine/systems/RoomSystem';
 import { switchTo2D, switchTo3D } from '../utils/cameraManager';
 import { setLighting2D, setLighting3D } from '../utils/lightingSetup';
 
 // Phase 2 utilities
 import { ROOM_TYPES } from '../utils/roomStore';
-import { buildRoomMesh, disposeRoomMesh, setRoomSelected, roomGeometryKey } from '../utils/roomBuilder';
 import {
-  elevationOf, floorBelow, floorsByElevation, coveredFraction, stairOpening, roomRect, intersectRects,
-  floorHeight, wallSpace, stairNeedsRoomAbove, floorPosition,
+  elevationOf, floorBelow, floorsByElevation, coveredFraction,
+  floorHeight, stairNeedsRoomAbove, floorPosition,
 } from '../play/building';
 import { createFloorOutline } from '../utils/floorOutline';
-
-/**
- * Stairwell openings for a room: stairs coming up from the floor below cut its
- * floor; stairs going up from its own floor cut its ceiling. World rects.
- */
-function stairHolesFor(room, stairs, floors) {
-  const rect = roomRect(room);
-  const below = floorBelow(floors, room.floor);
-  const holes = (floorId) => stairs
-    .filter((s) => s.floor === floorId)
-    .map((s) => stairOpening(s))
-    .filter((o) => intersectRects(o, rect));
-  return {
-    floorHoles: below ? holes(below.id) : [],
-    ceilingHoles: holes(room.floor),
-  };
-}
 
 // Phase 3 utilities
 import { ASSET_TYPES } from '../utils/assetCatalog';
@@ -87,7 +70,7 @@ import { createPlannerTools } from '../planner/plannerTools';
 import { itemOverFloorPoint, wallTargetOf } from '../utils/pickHelpers';
 import {
   openingData, openingPartner, openingCentre, openingAt, resizeOpening, planRemoveOpening,
-  roomContainedBy, planRoomResize, WALL_THICKNESS,
+  planRoomResize,
 } from '../play/geometry';
 import { DEFAULT_HOTBAR } from '../play/hotbarItems';
 
@@ -142,8 +125,8 @@ export default function WorkplaceEditor({ onExit }) {
   const cameraRef = useRef(null);
   const lightsRef = useRef(null);
 
-  // Map of roomId → Babylon TransformNode (the 3D meshes)
-  const roomMeshesRef = useRef(new Map());
+  // Room meshes of every floor (engine/systems/RoomSystem), made with the scene
+  const roomSystemRef = useRef(null);
 
   // Map of objectId → Babylon Mesh (the 3D object meshes)
   const objectMeshesRef = useRef(new Map());
@@ -318,7 +301,7 @@ export default function WorkplaceEditor({ onExit }) {
       if (!roomsByFloor.has(r.floor)) roomsByFloor.set(r.floor, []);
       roomsByFloor.get(r.floor).push(r);
     }
-    for (const [roomId, node] of roomMeshesRef.current) {
+    for (const [roomId, node] of roomSystemRef.current?.meshes ?? []) {
       const room = st.rooms[roomId];
       if (!room) continue;
       const r = rank.get(room.floor) ?? 0;
@@ -376,6 +359,8 @@ export default function WorkplaceEditor({ onExit }) {
     cameraRef.current = camera;
     lightsRef.current = lights;
     siteEnvRef.current = siteEnv;
+    const roomSystem = new RoomSystem(scene, { shadowGenerator: lights.shadowGenerator });
+    roomSystemRef.current = roomSystem;
 
     // ── Phase 4: Performance monitor ──
     const perfMonitor = createPerformanceMonitor(engine);
@@ -660,92 +645,18 @@ export default function WorkplaceEditor({ onExit }) {
       // scene (React StrictMode mounts twice; Vite hot reload) would reuse
       // disposed meshes: their metadata is null and the sync below crashed
       // ("Cannot read properties of null (reading '_geometryKey')").
-      roomMeshesRef.current.clear();
+      roomSystemRef.current = null;
       objectMeshesRef.current.clear();
     };
   }, []);
 
-  // ─── Sync Babylon meshes for EVERY floor (each at its own height) ───
+  // ─── Sync room meshes for EVERY floor (each at its own height) ───
   useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene) return;
-
-    const meshMap = roomMeshesRef.current;
-    const syncStart = performance.now();
-    let rebuilt = 0;
-    const allRooms = Object.values(roomsMap);
-    const stairs = Object.values(objectsMap).filter((o) => o.assetType === 'STAIRCASE');
-    const roomsByFloor = new Map();
-    for (const room of allRooms) {
-      if (!roomsByFloor.has(room.floor)) roomsByFloor.set(room.floor, []);
-      roomsByFloor.get(room.floor).push(room);
-    }
-
-    // Build a set of current room IDs
-    const currentIds = new Set(allRooms.map((r) => r.id));
-
-    // Remove meshes for rooms that no longer exist
-    for (const [id, node] of meshMap.entries()) {
-      if (!currentIds.has(id)) {
-        if (!node.isDisposed()) disposeRoomMesh(node);
-        meshMap.delete(id);
-      }
-    }
-
-    // Add or rebuild meshes for each room
-    for (const room of allRooms) {
-      const existing = meshMap.get(room.id);
-      const elevation = elevationOf(floorsMap, room.floor);
-      const sameFloorRooms = roomsByFloor.get(room.floor) ?? [room];
-      const nestedRooms = sameFloorRooms.filter((other) =>
-        other.id !== room.id && roomContainedBy(room, other));
-      const containers = sameFloorRooms.filter((other) =>
-        other.id !== room.id && roomContainedBy(other, room));
-      const nestedCutouts = (nestedRooms) => nestedRooms.map((nested) => ({
-        x0: nested.x - nested.width / 2 - WALL_THICKNESS / 2,
-        x1: nested.x + nested.width / 2 + WALL_THICKNESS / 2,
-        z0: nested.z - nested.depth / 2 - WALL_THICKNESS / 2,
-        z1: nested.z + nested.depth / 2 + WALL_THICKNESS / 2,
-      }));
-      const buildOptions = {
-        elevation,
-        hasSlab: floorBelow(floorsMap, room.floor) !== null,
-        storeyTop: wallSpace(floorsMap, room.floor),
-        rooms: sameFloorRooms,
-        floorSurfaceHoles: nestedCutouts(nestedRooms),
-        ceilingSurfaceHoles: nestedCutouts(nestedRooms.filter((nested) =>
-          (nested.wallHeight ?? room.wallHeight) >= (room.wallHeight ?? 3) - 0.005)),
-        // inside another room: walls drawn 1 cm in, and no roof of its own under a room as tall
-        nested: containers.length > 0,
-        roofCovered: containers.some((outer) => (outer.wallHeight ?? 3) >= (room.wallHeight ?? 3) - 0.005),
-        ...stairHolesFor(room, stairs, floorsMap),
-      };
-
-      if (existing) {
-        if (existing.isDisposed() || existing.metadata?._geometryKey !== roomGeometryKey(room, buildOptions)) {
-          if (!existing.isDisposed()) disposeRoomMesh(existing);
-          meshMap.delete(room.id);
-        } else {
-          continue; // unchanged (its parts' world matrices are frozen)
-        }
-      }
-
-      // Build new mesh
-      const node = buildRoomMesh(
-        { ...room, isSelected: room.id === selectedRoomId },
-        scene,
-        { shadowGenerator: lightsRef.current?.shadowGenerator, ...buildOptions },
-      );
-      node.metadata._geometryKey = roomGeometryKey(room, buildOptions);
-      meshMap.set(room.id, node);
-      rebuilt++;
-    }
+    const roomSystem = roomSystemRef.current;
+    if (!roomSystem) return;
+    const { rebuilt, ms } = roomSystem.sync({ rooms: roomsMap, objects: objectsMap, floors: floorsMap }, selectedRoomId);
     // Dev only (e2e/perf-smoke.mjs): how many rooms the last sync that built any rebuilt, and how long it took
-    if (import.meta.env.DEV && rebuilt) window.__ahdusRoomSync = { rebuilt, ms: performance.now() - syncStart };
-    // Selection outline: the selected room's parts, and its walls shared with
-    // (and so built by) a neighbour
-    const selectedColor = roomsMap[selectedRoomId]?.color;
-    for (const node of meshMap.values()) setRoomSelected(node, selectedRoomId ?? null, selectedColor);
+    if (import.meta.env.DEV && rebuilt) window.__ahdusRoomSync = { rebuilt, ms };
     applyLevelVisibility();
   }, [roomsMap, objectsMap, floorsMap, selectedRoomId, applyLevelVisibility]);
 
@@ -1219,7 +1130,7 @@ export default function WorkplaceEditor({ onExit }) {
     } else {
       handleSelectObject(id);
     }
-    const node = type === 'room' ? roomMeshesRef.current.get(id) : objectMeshesRef.current.get(id);
+    const node = type === 'room' ? roomSystemRef.current?.getRoomMesh(id) : objectMeshesRef.current.get(id);
     const b = boundsOf(node);
     if (b) flyTo(b.min, b.max);
   }, [storeActions, handleSelectObject, boundsOf, flyTo]);
@@ -1482,7 +1393,7 @@ export default function WorkplaceEditor({ onExit }) {
 
   const getSelectionBounds = useCallback(() => {
     if (selectedObjectId) return boundsOf(objectMeshesRef.current.get(selectedObjectId));
-    if (selectedRoomId) return boundsOf(roomMeshesRef.current.get(selectedRoomId));
+    if (selectedRoomId) return boundsOf(roomSystemRef.current?.getRoomMesh(selectedRoomId));
     return null;
   }, [selectedObjectId, selectedRoomId, boundsOf]);
 

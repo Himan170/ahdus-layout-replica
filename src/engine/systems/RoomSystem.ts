@@ -1,52 +1,186 @@
-import { Scene } from '@babylonjs/core/scene';
-import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
+/**
+ * RoomSystem.ts
+ *
+ * The room meshes of a whole layout, every floor at its own height. sync()
+ * builds new rooms, rebuilds only the rooms whose build input changed
+ * (roomGeometryKey: the room, the rooms touching it, stair holes, nesting),
+ * removes deleted ones and outlines the selected room. Used by Workplace
+ * Studio and LayoutEngine. Reads layout records with the store's (v1) field
+ * names; shared walls and nested rooms: docs/ROOM_FORMAT.md.
+ */
 
-export interface RoomData {
+import type { Scene } from '@babylonjs/core/scene';
+import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+
+import { buildRoomMesh, disposeRoomMesh, setRoomSelected, roomGeometryKey } from '../../utils/roomBuilder';
+import {
+  elevationOf, floorBelow, stairOpening, roomRect, intersectRects, wallSpace,
+} from '../../play/building';
+import { roomContainedBy, WALL_THICKNESS } from '../../play/geometry';
+
+/** A record keyed by id (the store) or a plain list. */
+export type Records<T> = Record<string, T> | T[];
+
+/** A room as the store keeps it (v1 field names). */
+export interface V1Room {
   id: string;
-  name: string;
-  floorId: string;
-  vertices: Array<{ x: number; z: number }>;
-  height: number;
+  floor: number;
+  x: number;
+  z: number;
+  width: number;
+  depth: number;
+  wallHeight?: number;
   color?: string;
-  metadata?: Record<string, unknown>;
+  [key: string]: any;
 }
 
+/** A placed item as the store keeps it (v1 field names). */
+export interface V1Object {
+  id: string;
+  assetType: string;
+  floor?: number;
+  x: number;
+  y?: number;
+  z: number;
+  [key: string]: any;
+}
+
+/** A floor as the store keeps it: its elevation is derived (play/building.js). */
+export interface V1Floor {
+  id: number;
+  name: string;
+  height?: number;
+  [key: string]: any;
+}
+
+/** What the systems draw: the store's rooms, objects and floors (or the same shape). */
+export interface LayoutRecords {
+  rooms: Records<V1Room>;
+  objects: Records<V1Object>;
+  floors: Record<string | number, V1Floor>;
+}
+
+export interface RoomSystemOptions {
+  /** Room parts cast and receive shadows from this generator. */
+  shadowGenerator?: unknown;
+}
+
+const NEAR = 0.005;
+
+/**
+ * Stairwell openings for a room: stairs coming up from the floor below cut its
+ * floor; stairs going up from its own floor cut its ceiling (and roof). World rects.
+ */
+export function stairHolesFor(room: V1Room, stairs: V1Object[], floors: LayoutRecords['floors']) {
+  const rect = roomRect(room);
+  const below = floorBelow(floors, room.floor);
+  const holes = (floorId: number) => stairs
+    .filter((s) => s.floor === floorId)
+    .map((s) => stairOpening(s))
+    .filter((o) => intersectRects(o, rect));
+  return {
+    floorHoles: below ? holes(below.id) : [],
+    ceilingHoles: holes(room.floor),
+  };
+}
+
+/** Floor / ceiling cutouts under rooms nested inside this one (to the outside of their walls). */
+const nestedCutouts = (nestedRooms: V1Room[]) => nestedRooms.map((nested) => ({
+  x0: nested.x - nested.width / 2 - WALL_THICKNESS / 2,
+  x1: nested.x + nested.width / 2 + WALL_THICKNESS / 2,
+  z0: nested.z - nested.depth / 2 - WALL_THICKNESS / 2,
+  z1: nested.z + nested.depth / 2 + WALL_THICKNESS / 2,
+}));
+
 export class RoomSystem {
+  /** roomId → the room's root node (its parts are children). */
+  readonly meshes = new Map<string, TransformNode>();
   private scene: Scene;
-  private meshMap: Map<string, AbstractMesh> = new Map();
+  private shadowGenerator: unknown;
 
-  constructor(scene: Scene) {
+  constructor(scene: Scene, options: RoomSystemOptions = {}) {
     this.scene = scene;
+    this.shadowGenerator = options.shadowGenerator ?? null;
   }
 
-  /** Create room geometry from vertices and add to scene */
-  addRoom(room: RoomData): void {
-    // TODO: Extrude polygon from room.vertices, apply material/color, store in meshMap
+  /**
+   * Bring the meshes up to date with the layout and outline `selectedRoomId`.
+   * @returns how many rooms were (re)built and how long it took (ms)
+   */
+  sync(layout: LayoutRecords, selectedRoomId: string | null = null): { rebuilt: number; ms: number } {
+    const start = performance.now();
+    const { floors } = layout;
+    const allRooms = Object.values(layout.rooms);
+    const stairs = Object.values(layout.objects).filter((o) => o.assetType === 'STAIRCASE');
+    const roomsByFloor = new Map<number, V1Room[]>();
+    for (const room of allRooms) {
+      if (!roomsByFloor.has(room.floor)) roomsByFloor.set(room.floor, []);
+      roomsByFloor.get(room.floor)!.push(room);
+    }
+
+    // Remove meshes of rooms that no longer exist
+    const currentIds = new Set(allRooms.map((r) => r.id));
+    for (const [id, node] of this.meshes) {
+      if (!currentIds.has(id)) {
+        if (!node.isDisposed()) disposeRoomMesh(node);
+        this.meshes.delete(id);
+      }
+    }
+
+    // Add or rebuild each room
+    let rebuilt = 0;
+    for (const room of allRooms) {
+      const existing = this.meshes.get(room.id);
+      const sameFloorRooms = roomsByFloor.get(room.floor) ?? [room];
+      const nestedRooms = sameFloorRooms.filter((other) =>
+        other.id !== room.id && roomContainedBy(room, other));
+      const containers = sameFloorRooms.filter((other) =>
+        other.id !== room.id && roomContainedBy(other, room));
+      const buildOptions = {
+        elevation: elevationOf(floors, room.floor),
+        hasSlab: floorBelow(floors, room.floor) !== null,
+        storeyTop: wallSpace(floors, room.floor),
+        rooms: sameFloorRooms,
+        floorSurfaceHoles: nestedCutouts(nestedRooms),
+        ceilingSurfaceHoles: nestedCutouts(nestedRooms.filter((nested) =>
+          (nested.wallHeight ?? room.wallHeight ?? 3) >= (room.wallHeight ?? 3) - NEAR)),
+        // inside another room: walls drawn 1 cm in, and no roof of its own under a room as tall
+        nested: containers.length > 0,
+        roofCovered: containers.some((outer) => (outer.wallHeight ?? 3) >= (room.wallHeight ?? 3) - NEAR),
+        ...stairHolesFor(room, stairs, floors),
+      };
+      const key = roomGeometryKey(room, buildOptions);
+
+      if (existing) {
+        if (!existing.isDisposed() && existing.metadata?._geometryKey === key) continue; // unchanged
+        if (!existing.isDisposed()) disposeRoomMesh(existing);
+        this.meshes.delete(room.id);
+      }
+
+      const node = buildRoomMesh(
+        { ...room, isSelected: room.id === selectedRoomId },
+        this.scene,
+        { shadowGenerator: this.shadowGenerator, ...buildOptions },
+      );
+      node.metadata!._geometryKey = key;
+      this.meshes.set(room.id, node);
+      rebuilt++;
+    }
+
+    // Selection outline: the selected room's parts, and its walls shared with
+    // (and so built by) a neighbour
+    const selectedColor = allRooms.find((r) => r.id === selectedRoomId)?.color;
+    for (const node of this.meshes.values()) setRoomSelected(node, selectedRoomId ?? null, selectedColor);
+    return { rebuilt, ms: performance.now() - start };
   }
 
-  /** Remove a room mesh from the scene by id */
-  removeRoom(id: string): void {
-    // TODO: Dispose mesh from meshMap, remove entry
+  getRoomMesh(roomId: string): TransformNode | null {
+    return this.meshes.get(roomId) ?? null;
   }
 
-  /** Patch properties on an existing room */
-  updateRoom(id: string, patch: Partial<RoomData>): void {
-    // TODO: Look up mesh in meshMap, rebuild geometry or update material as needed
-  }
-
-  /** Return the mesh instance for a given room id */
-  getRoomMesh(id: string): AbstractMesh | undefined {
-    // TODO: Return mesh from meshMap
-    return this.meshMap.get(id);
-  }
-
-  /** Toggle visual selection state on a room */
-  setRoomSelected(id: string, selected: boolean): void {
-    // TODO: Apply or remove selection highlight/outline on room mesh
-  }
-
-  /** Dispose all managed room meshes */
+  /** Dispose every room mesh (materials are shared and stay). */
   disposeAll(): void {
-    // TODO: Iterate meshMap, dispose each mesh, clear the map
+    for (const node of this.meshes.values()) if (!node.isDisposed()) disposeRoomMesh(node);
+    this.meshes.clear();
   }
 }
