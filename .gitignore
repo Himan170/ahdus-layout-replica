@@ -8,3 +8,7 @@ e2e/screens/
 .claude/settings.local.json
 .DS_Store
 Thumbs.db
+
+# Reference documents (requirements PDFs) in the repo root are not part of the code
+Company_Digital_Twin_Software_Requirements_Document-1.pdf
+/*.pdf
