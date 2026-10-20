@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  planRoom, planOpening, planRemoveOpening, wallSegmentData, resizeItem,
+  planRoom, planRoomMove, planRoomResize, planOpening, planRemoveOpening, wallSegmentData, resizeItem,
   WALL_THICKNESS, DOOR_DEFAULTS, WINDOW_DEFAULTS, MAX_ITEM_SCALE,
 } from '../geometry';
 import { placementHeight, STOREY_HEIGHT } from '../building';
@@ -27,6 +27,98 @@ describe('planRoom (Build mode clicks and planner drags)', () => {
   it('reports the room it would overlap', () => {
     const { blocker } = planRoom({ x: 1, z: 1 }, { x: 5, z: 5 }, [office()]);
     expect(blocker?.id).toBe('office');
+  });
+
+  it('allows a meeting room fully inside an office without snapping it outside', () => {
+    const outer = { ...office(), width: 12, depth: 10 };
+    const { rect, blocker } = planRoom({ x: -2, z: -1.5 }, { x: 2, z: 1.5 }, [outer]);
+    expect(rect).toEqual({ x: 0, z: 0, width: 4, depth: 3 });
+    expect(blocker).toBeNull();
+  });
+
+  it('allows multiple fully-contained rooms but still blocks overlapping inner rooms', () => {
+    const outer = { ...office(), width: 12, depth: 10 };
+    const first = { id: 'meeting-1', floor: 0, x: -3, z: 0, width: 3, depth: 3 };
+    const second = planRoom({ x: 1.5, z: -1.5 }, { x: 4.5, z: 1.5 }, [outer, first]);
+    expect(second.blocker).toBeNull();
+
+    const overlapping = planRoom({ x: -2, z: -1.5 }, { x: 2, z: 1.5 }, [
+      outer,
+      { id: 'cabin', floor: 0, x: 0, z: 0, width: 3, depth: 2 },
+    ]);
+    expect(overlapping.blocker?.id).toBe('cabin');
+  });
+
+  it('allows a room up to the usable inner boundary and rejects one beyond it', () => {
+    const outer = { ...office(), width: 12, depth: 10 };
+    const atBoundary = planRoom({ x: 1.85, z: -1.5 }, { x: 5.85, z: 1.5 }, [outer]);
+    expect(atBoundary.blocker).toBeNull();
+    expect(atBoundary.rect.x).toBeCloseTo(3.85);
+
+    const tooFar = planRoom({ x: 1.9, z: -1.5 }, { x: 5.9, z: 1.5 }, [outer]);
+    expect(tooFar.blocker?.id).toBe(outer.id);
+    expect(tooFar.rect.x).toBeCloseTo(3.9);
+  });
+
+  it('does not snap a boundary-crossing nested attempt to the office exterior', () => {
+    const outer = { ...office(), width: 12, depth: 10 };
+    const plan = planRoom({ x: 5.8, z: -1 }, { x: 7.3, z: 1 }, [outer]);
+    expect(plan.rect).toEqual({ x: 6.55, z: 0, width: 1.5, depth: 2 });
+    expect(plan.blocker?.id).toBe(outer.id);
+  });
+
+  it('validates nesting on upper floors without blocking against rooms on other floors', () => {
+    const upstairs = { ...office(), floor: 1, width: 12, depth: 10 };
+    const groundRoom = { ...office(), id: 'ground', floor: 0, width: 12, depth: 10 };
+    const rooms = [upstairs, groundRoom];
+    const inside = planRoom({ x: -2, z: -1.5 }, { x: 2, z: 1.5 }, rooms);
+    expect(inside.rect).toEqual({ x: 0, z: 0, width: 4, depth: 3 });
+    expect(inside.blocker).toBeNull();
+
+    const outside = planRoom({ x: 1.9, z: -1.5 }, { x: 5.9, z: 1.5 }, rooms);
+    expect(outside.blocker?.id).toBe('office');
+  });
+});
+
+describe('planRoomMove', () => {
+  const outer = { id: 'office', name: 'Office', floor: 0, x: 0, z: 0, width: 12, depth: 10 };
+  const meeting = { id: 'meeting', name: 'Meeting', floor: 0, x: 0, z: 0, width: 3, depth: 3 };
+
+  it('moves a nested room inside its enclosing room', () => {
+    expect(planRoomMove(meeting, 2, 1, [outer, meeting])).toEqual({
+      rect: { x: 2, z: 1, width: 3, depth: 3 },
+      blocker: null,
+    });
+  });
+
+  it('prevents moving a nested room beyond its enclosing room', () => {
+    const plan = planRoomMove(meeting, 6, 0, [outer, meeting]);
+    expect(plan.rect).toEqual({ x: 6, z: 0, width: 3, depth: 3 });
+    expect(plan.blocker?.id).toBe('office');
+  });
+
+  it('still rejects overlap with another inner room', () => {
+    const cabin = { id: 'cabin', name: 'Cabin', floor: 0, x: 3, z: 0, width: 3, depth: 3 };
+    expect(planRoomMove(meeting, 2.5, 0, [outer, meeting, cabin]).blocker?.id).toBe('cabin');
+  });
+});
+
+describe('planRoomResize', () => {
+  const outer = { id: 'office', name: 'Office', floor: 0, x: 0, z: 0, width: 12, depth: 10 };
+  const meeting = { id: 'meeting', name: 'Meeting', floor: 0, x: 0, z: 0, width: 3, depth: 3 };
+
+  it('allows a nested room resize that remains inside the usable boundary', () => {
+    expect(planRoomResize(meeting, 5, 4, [outer, meeting]).blocker).toBeNull();
+  });
+
+  it('rejects a nested room resize that crosses the enclosing wall', () => {
+    expect(planRoomResize(meeting, 12, 3, [outer, meeting]).blocker?.id).toBe('office');
+  });
+
+  it('keeps children inside when resizing their enclosing room', () => {
+    const cabin = { id: 'cabin', name: 'Cabin', floor: 0, x: 3, z: 0, width: 3, depth: 3 };
+    expect(planRoomResize(outer, 10, 10, [outer, cabin]).blocker).toBeNull();
+    expect(planRoomResize(outer, 6, 10, [outer, cabin]).blocker?.id).toBe('cabin');
   });
 });
 

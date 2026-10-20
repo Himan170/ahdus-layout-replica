@@ -115,10 +115,12 @@ export function buildRoomMesh(roomData, scene, options = {}) {
   const outer = { x0: -width / 2 - T / 2, x1: width / 2 + T / 2, z0: -depth / 2 - T / 2, z1: depth / 2 + T / 2 };
   const floorHoles = toLocal(options.floorHoles, roomData);
   const ceilingHoles = toLocal(options.ceilingHoles, roomData);
+  const floorSurfaceHoles = toLocal(options.floorSurfaceHoles, roomData);
+  const ceilingSurfaceHoles = toLocal(options.ceilingSurfaceHoles, roomData);
 
   // ── Floor (in pieces around any stairwell opening) ──
   const floorKind = FLOOR_BY_ROOM_TYPE[type] ?? 'wood';
-  subtractRects(inner, floorHoles).forEach((p, i) => {
+  subtractRects(inner, [...floorHoles, ...floorSurfaceHoles]).forEach((p, i) => {
     const w = p.x1 - p.x0;
     const d = p.z1 - p.z0;
     const piece = MeshBuilder.CreateGround(`floor_${id}_${i}`, { width: w, height: d }, scene);
@@ -208,7 +210,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
   }
 
   // ── Indoor ceiling + light panels (shown when you are inside) ──
-  subtractRects(inner, ceilingHoles).forEach((p, i) => {
+  subtractRects(inner, [...ceilingHoles, ...ceilingSurfaceHoles]).forEach((p, i) => {
     const ceiling = MeshBuilder.CreateGround(`ceiling_${id}_${i}`, { width: p.x1 - p.x0, height: p.z1 - p.z0 }, scene);
     ceiling.rotation.x = Math.PI; // face down
     ceiling.position.set((p.x0 + p.x1) / 2, wallHeight - 0.005, (p.z0 + p.z1) / 2);
@@ -221,7 +223,8 @@ export function buildRoomMesh(roomData, scene, options = {}) {
       const lx = -width / 2 + (i + 0.5) * (width / nx);
       const lz = -depth / 2 + (j + 0.5) * (depth / nz);
       const h = LIGHT_SIZE / 2 + 0.1;
-      if (ceilingHoles.some((r) => lx > r.x0 - h && lx < r.x1 + h && lz > r.z0 - h && lz < r.z1 + h)) continue;
+      if ([...ceilingHoles, ...ceilingSurfaceHoles].some((r) =>
+        lx > r.x0 - h && lx < r.x1 + h && lz > r.z0 - h && lz < r.z1 + h)) continue;
       const panel = MeshBuilder.CreateBox(`light_${id}_${i}_${j}`, { width: LIGHT_SIZE, depth: LIGHT_SIZE, height: 0.03 }, scene);
       panel.position.set(lx, wallHeight - 0.02, lz);
       addPart(panel, { part: 'ceiling' }, mats.lightPanel(), { castShadow: false, pickable: false });
@@ -385,6 +388,8 @@ export function setRoomSelected(rootNode, selectedRoomId, color = '#6c8cff') {
 export function roomGeometryKey(room, options = {}) {
   return JSON.stringify([
     roomBuildInput(room, options.rooms ?? []),
-    options.elevation ?? 0, !!options.hasSlab, options.storeyTop ?? null, options.floorHoles ?? [], options.ceilingHoles ?? [],
+    options.elevation ?? 0, !!options.hasSlab, options.storeyTop ?? null,
+    options.floorHoles ?? [], options.ceilingHoles ?? [],
+    options.floorSurfaceHoles ?? [], options.ceilingSurfaceHoles ?? [],
   ]);
 }
