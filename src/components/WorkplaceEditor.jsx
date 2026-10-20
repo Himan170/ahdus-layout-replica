@@ -755,6 +755,8 @@ export default function WorkplaceEditor({ onExit }) {
       const sameFloorRooms = roomsByFloor.get(room.floor) ?? [room];
       const nestedRooms = sameFloorRooms.filter((other) =>
         other.id !== room.id && roomContainedBy(room, other));
+      const containers = sameFloorRooms.filter((other) =>
+        other.id !== room.id && roomContainedBy(other, room));
       const nestedCutouts = (nestedRooms) => nestedRooms.map((nested) => ({
         x0: nested.x - nested.width / 2 - WALL_THICKNESS / 2,
         x1: nested.x + nested.width / 2 + WALL_THICKNESS / 2,
@@ -769,6 +771,9 @@ export default function WorkplaceEditor({ onExit }) {
         floorSurfaceHoles: nestedCutouts(nestedRooms),
         ceilingSurfaceHoles: nestedCutouts(nestedRooms.filter((nested) =>
           (nested.wallHeight ?? room.wallHeight) >= (room.wallHeight ?? 3) - 0.005)),
+        // inside another room: walls drawn 1 cm in, and no roof of its own under a room as tall
+        nested: containers.length > 0,
+        roofCovered: containers.some((outer) => (outer.wallHeight ?? 3) >= (room.wallHeight ?? 3) - 0.005),
         ...stairHolesFor(room, stairs, floorsMap),
       };
 

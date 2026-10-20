@@ -219,3 +219,28 @@ describe('roomGeometryKey', () => {
     expect([...changed].sort()).toEqual(['r0', 'r1', 'r2']);
   });
 });
+
+describe('a room inside a room never has a wall face in the same place as the enclosing room', () => {
+  // office x -6..6 (its east wall's inner face at 5.925); meeting room as close as allowed (0.15 m): x 2.85..5.85
+  const office = { id: 'office', floor: 0, x: 0, z: 0, width: 12, depth: 10, wallHeight: 3.2, doors: [], windows: [] };
+  const meeting = { id: 'meeting', floor: 0, x: 4.35, z: 0, width: 3, depth: 3, wallHeight: 3.2, doors: [], windows: [] };
+
+  it('its walls are drawn 1 cm in on the outside (inside size unchanged), and it has no roof of its own', () => {
+    const root = build(meeting, [office, meeting], { nested: true, roofCovered: true });
+    const [east] = wallMeshes(root, 'east');
+    const [north] = wallMeshes(root, 'north');
+    const officeInnerFace = office.width / 2 - 0.075;
+    expect(bounds(east).maximumWorld.x).toBeCloseTo(officeInnerFace - 0.01);   // 1 cm gap, not touching
+    expect(bounds(east).minimumWorld.x).toBeCloseTo(5.85 - 0.075);             // inside face where it always was
+    expect(bounds(north).maximumWorld.x).toBeCloseTo(officeInnerFace - 0.01);  // the corner end too
+    expect(bounds(north).maximumWorld.z).toBeCloseTo(1.5 + 0.075 - 0.01);
+    expect(bounds(north).minimumWorld.z).toBeCloseTo(1.5 - 0.075);
+    expect(root.getChildMeshes(false).filter((m) => m.metadata.part === 'roof')).toEqual([]);
+  });
+
+  it('a room on its own keeps full walls and its roof', () => {
+    const root = build(meeting);
+    expect(bounds(wallMeshes(root, 'east')[0]).maximumWorld.x).toBeCloseTo(5.85 + 0.075);
+    expect(root.getChildMeshes(false).some((m) => m.metadata.part === 'roof')).toBe(true);
+  });
+});
