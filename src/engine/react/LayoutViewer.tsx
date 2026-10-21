@@ -39,6 +39,8 @@ export interface LayoutViewerProps {
   onExitRoom?: (event: ExitRoomEvent) => void;
   /** The layout could not be loaded (not found, or not a layout). */
   onError?: (error: Error) => void;
+  /** A card was shown (the default card of E, layoutBridge.showCard): to show it in your own panel too. */
+  onCard?: (card: { title: string; body?: string; text?: string; duration?: number }) => void;
   className?: string;
   style?: CSSProperties;
 }
@@ -49,7 +51,8 @@ interface Hud {
   hint?: { title?: string; detail?: string };
   message?: string | null;
   roomName?: string;
-  floor?: string;
+  /** "Floor 1 of 3" (building.floorPosition) */
+  floor?: { index: number; count: number };
   prompt?: { label: string; name: string } | null;
 }
 
@@ -94,6 +97,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
       created = e;
       disconnect = connectEngine(e, {
         showCard: (c: Card) => {
+          propsRef.current.onCard?.(c);
           clearTimeout(cardTimer);
           setCard(c);
           cardTimer = setTimeout(() => setCard(null), c.duration ?? 6000);
@@ -126,6 +130,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
     if (!engine) return;
     try {
       engine.loadLayout(layoutFrom({ layout, companyId, layoutId }));
+      engine.fitView({ animate: false });
       setError(null);
       if (readyFor.current !== engine) {
         readyFor.current = engine;
@@ -156,14 +161,17 @@ export function LayoutViewer(props: LayoutViewerProps) {
         <>
           {hud.locked && <div aria-hidden style={styles.crosshair}>+</div>}
           <div style={styles.hud} aria-live="polite">
-            <strong>{hud.roomName}</strong>{hud.floor ? ` · ${hud.floor}` : ''}
-            <div>{hud.locked ? (hud.message ?? hud.hint?.detail) : 'Click to look around (Esc releases the mouse)'}</div>
-            {hud.locked && hud.prompt && <div><kbd style={styles.key}>E</kbd> {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</div>}
+            <span data-hud="room"><strong>{hud.roomName}</strong></span>
+            {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · Floor {hud.floor.index} of {hud.floor.count}</span>}
+            <div data-hud="hint">{hud.locked ? (hud.message ?? hud.hint?.detail) : 'Click to look around (Esc releases the mouse)'}</div>
+            {hud.locked && hud.prompt && (
+              <div data-hud="prompt"><kbd style={styles.key}>E</kbd> {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</div>
+            )}
           </div>
         </>
       )}
       {card && (
-        <div role="status" style={styles.card}>
+        <div role="status" data-viewer-card style={styles.card}>
           <strong>{card.title}</strong>
           <div style={{ whiteSpace: 'pre-line' }}>{card.body ?? card.text}</div>
         </div>

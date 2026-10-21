@@ -12,7 +12,7 @@ Full history, status and backlog: `docs/PROGRESS_REPORT.md`. Teammate API guide:
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (262, all must pass)
+npm test             # vitest unit tests (339, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run build
 
@@ -31,6 +31,9 @@ npm run e2e:perf     #  9 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items
 npm run e2e:shared-walls  # 15     e2e/shared-walls-smoke.mjs (one wall + one doorway; picks with either owner)
 npm run e2e:nested-rooms  # 13     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
                           #                                    upper floor, save + reopen, Preview screenshots)
+npm run e2e:viewer   # 14 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
+                     #                                       the vite build), walk in, E + a module's action, edits
+                     #                                       refused, Page Up, view mode, a saved layout)
 npm run e2e          # all of them
 ```
 
@@ -113,9 +116,12 @@ src/utils/materialLibrary.js       Procedural textures; SHARED materials
 src/utils/assetCatalog.js          30+ furniture/equipment built from primitives (incl. STAIRCASE, CNC_MACHINE, LATHE)
 src/utils/siteEnvironment.js       Sky, fog, grass, paving, build grid
 src/integration/layoutBridge.js    Public API for teammates' modules (events, anchors, Press-E actions)
-src/engine/                        Embeddable engine: v2 schema, v1→v2 migration, anchors, commands. systems/: SceneSetup,
-                                   RoomSystem, ObjectSystem, FloorSystem draw a layout (Studio uses them); LayoutEngine
-                                   itself and the Placement/Selection/Walkthrough systems are still stubs (H2 in progress).
+src/engine/                        Embeddable engine (H2): LayoutEngine (own store, loadLayout / getLayout, camera,
+                                   highlights, modes, `editor` refused outside edit mode); model/ (v2 schema, v1→v2 and
+                                   back: toV1), anchors, commands; systems/: SceneSetup, RoomSystem, ObjectSystem,
+                                   FloorSystem (Studio uses these four), CameraSystem, HighlightSystem, WalkthroughSystem
+                                   (Placement/Selection still stubs); react/: <LayoutViewer />, <LayoutEditor />
+viewer.html + src/viewer/          Blank test page for <LayoutViewer /> (sample company, bridge event list)
 src/services/apiService.js         Save/load + auto-save (1 s debounce, tab close), revisions + other tabs, export/import,
                                    companies: localStorage mock backend for now
 db/schema.sql                      PostgreSQL schema (base for the Supabase backend)
@@ -218,6 +224,9 @@ Both are **derived from the room rectangles; nothing extra is saved** (no wall r
 
 - Studio controls have fixed `aria-label`s (UI_SPEC section 7: `Rooms`, `Floor switcher`, `Preview Workplace`, …);
   e2e scripts select by them. While Preview has the mouse captured, clicks go to the canvas: release it first.
+- viewer.html's dev hooks: `__ahdusViewer` (the LayoutEngine; `.walkthrough.setPose`), `__ahdusScene`, `ahdus`,
+  `__viewerEvents` (bridge events), `__ahdusCards`. A viewer captures the mouse on pointerdown (Babylon prevents
+  the default of pointerdown, so the browser sends no mousedown; Studio captures it from its button).
 - Dev-only hooks for tests/console: `window.__ahdusPlay`, `__ahdusScene`, `__ahdusStore`, `window.ahdus` (bridge),
   `__ahdusCards`, `__ahdusEventLog` (demo modules), `__ahdusCrashOnOpen = true` (the editor throws: error card test),
   `__ahdusRoomSync` ({ rebuilt, ms } of the last room sync that built something: perf test).
@@ -250,7 +259,7 @@ Both are **derived from the room rectangles; nothing extra is saved** (no wall r
 ## Team (other interns' modules plug in through layoutBridge)
 
 Harsh: characters & voice · Karthik: machine videos & files · Yashashwi: handover of previous employees' work ·
-Dhruv: frontend app shell (needs an embeddable `<LayoutEditor />` later) · Sunil & Kavyashree: logins,
+Dhruv: frontend app shell (`<LayoutEditor />` / `<LayoutViewer />` from `src/engine/react`) · Sunil & Kavyashree: logins,
 activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demoModules.js`).
 
 ## Known limitations
@@ -300,8 +309,20 @@ companies screen restyle, clean-up (docs/PROGRESS_REPORT.md section 3.13).
 
 Anish's shared walls and nested rooms merged into main (his commits keep his name), plus: shared-wall picks on the
 side you are on, rebuilding only the rooms touching a change, clicks vs drags on a selected room's floor, no
-coinciding faces for nested rooms. See "Shared walls and nested rooms" above. Next: Himan's H2 (embeddable engine,
-`TEAM_TASKS.md` section 4) on `himan/engine`.
+coinciding faces for nested rooms. See "Shared walls and nested rooms" above.
+
+## DONE: H2 embeddable engine (22 Oct 2026, branch `himan/engine`)
+
+`LayoutEngine` draws a layout without the editor UI (docs/LAYOUT_ENGINE_API.md, docs/PROGRESS_REPORT.md 3.14):
+- **Own copy:** each engine has its own workspace store (`createWorkspaceStore()`, the app's shape); `loadLayout`
+  takes a save, an exported file or v2 (`toV1`), `getLayout` returns v2 (`mergeV2Extras` keeps routes, links, …).
+- **Modes:** `edit` / `view` (orbit) / `walkthrough` (Preview's controller with `readOnly`). `engine.editor` =
+  `createEditorHistory(_, { workspace })` on its store; outside edit mode every command answers `{ problem: READ_ONLY }`.
+- **Bridge:** Studio and connected engines (`connectEngine`) attach contexts; the bridge uses the last attached in
+  edit / walkthrough mode, else the last attached (TEAM_INTEGRATION.md). Writes return false in view / walkthrough.
+- **React:** `<LayoutViewer />` (no Studio code: checked in the vite build) and `<LayoutEditor />` (edit = today's
+  Studio on the app store, lazily loaded; `onChange(layoutV2)`). viewer.html is the test page.
+- Studio now uses CameraSystem's `setCameraView` / `flyTo` and the bridge's `_interact` / `_prompt` / `_roomView`.
 
 Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): lifts; free-form walls,
 L-shaped rooms; measure tool + dimensions; real GLB furniture (e.g. Kenney Furniture Kit, CC0); SVG 2D

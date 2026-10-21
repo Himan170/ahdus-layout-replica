@@ -24,7 +24,7 @@
  *          systems/SceneSetup, RoomSystem, ObjectSystem, FloorSystem,
  *          systems/CameraSystem, HighlightSystem,
  *          loadLayout (saves, export files, v2) draws the layout; getLayout
- *          returns it as v2; setFloor, setView, focusOn, highlight, clearHighlights;
+ *          returns it as v2; setFloor, setView, focusOn, fitView, highlight, clearHighlights;
  *          modes (setMode); `editor` (store/editorHistory.js on this engine's
  *          store) refuses every edit outside edit mode.
  *   Stubs (TODO):  systems/PlacementSystem, SelectionSystem.
@@ -48,6 +48,7 @@ import type { Command } from './commands/CommandHistory';
 import { createLayoutScene } from './systems/SceneSetup';
 import type { LayoutScene } from './systems/SceneSetup';
 import { RoomSystem } from './systems/RoomSystem';
+import type { V1Room } from './systems/RoomSystem';
 import { ObjectSystem } from './systems/ObjectSystem';
 import { FloorSystem } from './systems/FloorSystem';
 import { setCameraView, flyTo, boundsOf } from './systems/CameraSystem';
@@ -342,6 +343,17 @@ export class LayoutEngine {
       flyTo(camera, this.scene, box(), { duration: animate ? 300 : 0 });
     }
     return true;
+  }
+
+  /** Fit the whole building in view (Studio's Fit view, for every floor). */
+  fitView({ animate = true } = {}): void {
+    const camera = this._layoutScene.camera;
+    const rooms = Object.values(this._store.getState().rooms) as V1Room[];
+    if (!camera || rooms.length === 0) return;
+    flyTo(camera, this.scene, {
+      min: { x: Math.min(...rooms.map((r) => r.x - r.width / 2)), z: Math.min(...rooms.map((r) => r.z - r.depth / 2)) },
+      max: { x: Math.max(...rooms.map((r) => r.x + r.width / 2)), z: Math.max(...rooms.map((r) => r.z + r.depth / 2)) },
+    }, { duration: animate ? 300 : 0 });
   }
 
   /**

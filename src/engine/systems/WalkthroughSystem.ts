@@ -59,6 +59,16 @@ export interface WalkthroughState extends LayoutRecords {
 
 export class WalkthroughSystem {
   private controller: PlayController;
+  private canvas: HTMLCanvasElement;
+
+  /**
+   * A click on the view captures the mouse. Preview's controller asks on
+   * mousedown, but Babylon prevents the default of pointerdown, so the browser
+   * never sends mousedown (Studio captures it from its "Preview Workplace" button).
+   */
+  private onPointerDown = () => {
+    if (this.controller.isActive() && document.pointerLockElement !== this.canvas) this.canvas.requestPointerLock?.();
+  };
 
   /**
    * @param getState  the layout to walk through (the store's v1 records)
@@ -71,6 +81,7 @@ export class WalkthroughSystem {
     getObjectMesh: (objectId: string) => TransformNode | null,
     callbacks: WalkthroughCallbacks = {},
   ) {
+    this.canvas = canvas;
     this.controller = createController(scene, canvas, {
       getState: () => {
         const s = getState();
@@ -96,10 +107,12 @@ export class WalkthroughSystem {
   /** Take over the camera and the keys; the character starts at the spawn point. */
   activate(): void {
     this.controller.activate();
+    this.canvas?.addEventListener('pointerdown', this.onPointerDown);
   }
 
   /** Give the camera back (the orbit camera). */
   deactivate(): void {
+    this.canvas?.removeEventListener('pointerdown', this.onPointerDown);
     this.controller.deactivate();
   }
 
@@ -142,6 +155,7 @@ export class WalkthroughSystem {
   }
 
   dispose(): void {
+    this.canvas?.removeEventListener('pointerdown', this.onPointerDown);
     this.controller.dispose();
   }
 }

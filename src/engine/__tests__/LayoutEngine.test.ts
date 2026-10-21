@@ -287,6 +287,17 @@ describe('camera: setView and focusOn', () => {
     expect(camera.target.x).toBeCloseTo(1, 0);
   });
 
+  it('fitView centres the camera on the whole building', () => {
+    const engine = makeEngine();
+    const layout = save();
+    layout.rooms[1] = { ...layout.rooms[1], x: 20 }; // upper floor room further east
+    engine.loadLayout(layout);
+    engine.fitView({ animate: false });
+    const camera = engine.scene.activeCamera as ArcRotateCamera;
+    expect(camera.target.x).toBeCloseTo(10); // rooms span -3 … 23
+    expect(camera.target.z).toBeCloseTo(0);
+  });
+
   it('with animation the camera gets there over the next frames', async () => {
     const engine = makeEngine();
     engine.loadLayout(save());

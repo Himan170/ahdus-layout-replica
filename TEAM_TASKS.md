@@ -58,9 +58,10 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 - **Done when:** all three can clone, run the app and see the tests pass.
 
 ### H2. Embeddable engine (the main task)
-- [ ] Implement the stubs in `src/engine/LayoutEngine.ts`: `setFloor`, `setView`, `focusOn`, `highlight`, `clearHighlights`, `setMode`.
-- [ ] Move the rendering of rooms and objects into `src/engine/systems/` so the engine can draw a layout without the editor UI.
-- [ ] Build `<LayoutViewer />` (read-only, orbit) and `<LayoutEditor />`, both taking `layoutId`, `mode` (`edit`, `view`, `walkthrough`) and `quality` (`high`, `low`).
+- [x] Implement the stubs in `src/engine/LayoutEngine.ts`: `setFloor`, `setView`, `focusOn`, `highlight`, `clearHighlights`, `setMode`.
+- [x] Move the rendering of rooms and objects into `src/engine/systems/` so the engine can draw a layout without the editor UI.
+- [x] Build `<LayoutViewer />` (read-only, orbit) and `<LayoutEditor />`, both taking `layoutId`, `mode` (`edit`, `view`, `walkthrough`) and `quality` (`high`, `low`).
+  (Done 22 Oct 2026: they take a `layout` prop, or `companyId` + `layoutId`; `viewer.html` + `e2e/viewer-smoke.mjs`. H3's test is in `LayoutEngine.test.ts`.)
 - **Files:** `src/engine/LayoutEngine.ts`, `src/engine/systems/*`, `src/components/WorkplaceEditor.jsx`, `docs/LAYOUT_ENGINE_API.md`.
 - **Done when:** a blank test page can mount `<LayoutViewer layoutId="..." mode="walkthrough" />` and walk around, with no editor UI loaded. `LAYOUT_ENGINE_API.md` shows ✅ for these rows.
 
