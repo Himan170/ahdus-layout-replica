@@ -108,6 +108,9 @@ export function createPlayController(scene, canvas, {
   onBuildToolChange = () => {}, // (isBuildTool) => void
   onAskNewFloor = () => {}, // () => void   N on the top floor: ask "copy rooms or empty", then call goToFloor
   shadowGenerator = null,
+  // Walk around only (LayoutEngine's walkthrough mode): no tool in hand, right-click
+  // removes nothing, N adds no floor. E, rooms and floors work as always.
+  readOnly = false,
 }) {
   // ── Camera ──
   const camera = new FreeCamera('playCamera', new Vector3(0, 3, -10), scene);
@@ -875,6 +878,7 @@ export function createPlayController(scene, canvas, {
   }
 
   function secondaryAction() {
+    if (readOnly) return;
     // First: cancel a half-drawn room or wall, a grabbed wall, or a carried item
     if (cornerA || grab || carry) {
       clearPreview();
@@ -964,6 +968,7 @@ export function createPlayController(scene, canvas, {
         onCatalog();
         break;
       case 'KeyN': {
+        if (readOnly) break;
         if (floorAbove(state().floors, currentLevel)) {
           say('There is already a floor above. Page Up takes you there.');
         } else {
@@ -1335,6 +1340,7 @@ export function createPlayController(scene, canvas, {
 
     /** Put an item in the player's hand */
     setTool(next) {
+      if (readOnly) next = null;
       const same = tool && next && JSON.stringify(tool) === JSON.stringify(next);
       if (same) return;
       tool = next;

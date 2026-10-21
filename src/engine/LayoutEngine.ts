@@ -24,8 +24,17 @@
  *          systems/SceneSetup, RoomSystem, ObjectSystem, FloorSystem,
  *          systems/CameraSystem, HighlightSystem,
  *          loadLayout (saves, export files, v2) draws the layout; getLayout
- *          returns it as v2; setFloor, setView, focusOn, highlight, clearHighlights.
- *   Stubs (TODO):  setMode, systems/PlacementSystem, SelectionSystem, WalkthroughSystem.
+ *          returns it as v2; setFloor, setView, focusOn, highlight, clearHighlights;
+ *          modes (setMode); `editor` (store/editorHistory.js on this engine's
+ *          store) refuses every edit outside edit mode.
+ *   Stubs (TODO):  systems/PlacementSystem, SelectionSystem.
+ *
+ * Modes:
+ *   edit         orbit camera; `editor` changes the layout (undoable)
+ *   view         orbit camera; nothing can change the layout
+ *   walkthrough  Preview's character (W A S D, mouse, E, Page Up / Down:
+ *                systems/WalkthroughSystem); nothing can change the layout;
+ *                fires enterRoom, exitRoom, interact
  */
 
 import type { Engine } from '@babylonjs/core/Engines/engine';
@@ -45,7 +54,11 @@ import { setCameraView, flyTo, boundsOf } from './systems/CameraSystem';
 import type { GroundBox } from './systems/CameraSystem';
 import { HighlightSystem } from './systems/HighlightSystem';
 import { elevationOf } from '../play/building';
+import { WalkthroughSystem } from './systems/WalkthroughSystem';
+import type { WalkthroughTarget } from './systems/WalkthroughSystem';
 import { createWorkspaceStore } from '../store/workspaceStore';
+import { createEditorHistory } from '../store/editorHistory';
+import { primaryAnchor } from '../integration/anchorsFromStore';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -81,6 +94,15 @@ export interface EnterRoomEvent {
   floorId: string | number;
   roomName: string;
   roomType: string;
+  /** The room the character came from (null: from outside). */
+  fromRoomId: string | null;
+}
+
+export interface ExitRoomEvent {
+  roomId: string;
+  floorId: string | number;
+  /** The room the character went into (null: outside). */
+  toRoomId: string | null;
 }
 
 type EventMap = {
@@ -88,7 +110,19 @@ type EventMap = {
   change: ChangeEvent;
   interact: InteractEvent;
   enterRoom: EnterRoomEvent;
+  exitRoom: ExitRoomEvent;
+  /** What Preview's HUD would show while walking through (aim, hint, floor). */
+  hud: unknown;
 };
+
+/** What every edit answers outside edit mode. */
+export const READ_ONLY = 'This layout is view-only here';
+
+/** Editor calls that change nothing, so they work in every mode. */
+const ALWAYS_ALLOWED = new Set(['clear', 'endBurst']);
+
+/** The editor's commands (store/editorHistory.js), on an engine's own store. */
+export type LayoutEditorApi = ReturnType<typeof createEditorHistory>;
 
 type EventHandler<K extends keyof EventMap> = (event: EventMap[K]) => void;
 
@@ -121,8 +155,14 @@ export class LayoutEngine {
   readonly floors: FloorSystem;
   readonly highlights: HighlightSystem;
 
-  // Command history (undo/redo)
+  // Edits: the editor's commands on this engine's store, refused outside edit mode
+  readonly editor: LayoutEditorApi;
+  /** The undo/redo history of `editor` (and executeCommand). */
   readonly history: CommandHistory;
+
+  // Walkthrough mode (made the first time it is needed: it needs the canvas)
+  private _walkthrough: WalkthroughSystem | null = null;
+  private _loading = false;
 
   // Event bus (one Set per event name; typed at the on/off/emit boundary)
   private _listeners = new Map<keyof EventMap, Set<(event: any) => void>>();
@@ -170,16 +210,21 @@ export class LayoutEngine {
     this.floors.setView({ mode: 'outside', level: 0 });
     this.highlights = new HighlightSystem(this.rooms, this.objects);
 
-    // Redraw whatever changes in this engine's layout
+    // Redraw whatever changes in this engine's layout; an edit is a 'change'
     this._unsubscribe = this._store.subscribe((s, prev) => {
-      if (s.rooms === prev.rooms && s.objects === prev.objects && s.floors === prev.floors
-        && s.anchorData === prev.anchorData && s.selectedRoomId === prev.selectedRoomId) return;
+      const edited = s.rooms !== prev.rooms || s.objects !== prev.objects || s.floors !== prev.floors
+        || s.anchorData !== prev.anchorData;
+      if (!edited && s.selectedRoomId === prev.selectedRoomId) return;
       this._cachedLayout = null;
       this._draw();
+      if (edited && !this._loading) this._emitChange('edit', 'layout');
     });
 
-    // Command History
-    this.history = new CommandHistory({ maxSize: 200 });
+    const editor = createEditorHistory(undefined, { workspace: this._store });
+    this.history = editor.history;
+    this.editor = this._guarded(editor);
+
+    this._applyMode();
   }
 
   // ── Layout Data ────────────────────────────────────────────────────────
@@ -194,12 +239,19 @@ export class LayoutEngine {
     const v2 = parseLayout(data);
     const v1 = toV1(v2);
     const store = this._store.getState();
-    store.loadWorkspace(v1);
-    store.setTenant(null, null, v1.layoutName, v1.layoutVersion);
+    this._loading = true;
+    try {
+      store.loadWorkspace(v1);
+      store.setTenant(null, null, v1.layoutName, v1.layoutVersion);
+    } finally {
+      this._loading = false;
+    }
     this._loaded = v2;
     this._cachedLayout = null;
     this.history.clear();
     this._draw();
+    // Walking through: start at this layout's spawn point
+    if (this._walkthrough?.isActive()) this._walkthrough.respawn();
     this._emitChange('loadLayout', 'root');
   }
 
@@ -325,31 +377,55 @@ export class LayoutEngine {
     return this._mode;
   }
 
+  /** Whether the layout can be changed now (edit mode). */
+  get canEdit(): boolean {
+    return this._mode === 'edit';
+  }
+
+  /**
+   * Switch mode: 'edit', 'view' (orbit, read-only) or 'walkthrough'
+   * (Preview's character, read-only). The app shell decides it from the
+   * user's role (admin: edit, employee: walkthrough).
+   */
   setMode(mode: EngineMode): void {
+    if (mode === this._mode) return;
     this._mode = mode;
-    // TODO: enable/disable editing controls based on mode
+    this._applyMode();
+  }
+
+  /** The walkthrough (character, its room and floor); null until walkthrough mode is first used. */
+  get walkthrough(): WalkthroughSystem | null {
+    return this._walkthrough;
   }
 
   // ── Undo/Redo ──────────────────────────────────────────────────────────
 
-  /** Execute a command through the history system */
-  executeCommand(cmd: Command): void {
+  /** Execute a command through the history system. Refused (false) outside edit mode. */
+  executeCommand(cmd: Command): boolean {
+    if (!this.canEdit) return false;
     this.history.execute(cmd);
     this._emitChange(cmd.label, 'command');
+    return true;
   }
 
-  undo(): void {
+  /** Undo the last edit. Refused (false) outside edit mode. */
+  undo(): boolean {
+    if (!this.canEdit) return false;
     const cmd = this.history.undo();
     if (cmd) {
       this._emitChange(`Undo: ${cmd.label}`, 'command');
     }
+    return !!cmd;
   }
 
-  redo(): void {
+  /** Redo the last undone edit. Refused (false) outside edit mode. */
+  redo(): boolean {
+    if (!this.canEdit) return false;
     const cmd = this.history.redo();
     if (cmd) {
       this._emitChange(`Redo: ${cmd.label}`, 'command');
     }
+    return !!cmd;
   }
 
   // ── Events ─────────────────────────────────────────────────────────────
@@ -387,6 +463,8 @@ export class LayoutEngine {
 
   /** Stop rendering and dispose the scene and the Babylon engine. */
   dispose(): void {
+    this._walkthrough?.dispose();
+    this._walkthrough = null;
     this._unsubscribe();
     this._listeners.clear();
     // The scene takes every room and item mesh with it; forget them
@@ -396,6 +474,70 @@ export class LayoutEngine {
   }
 
   // ── Internals ──────────────────────────────────────────────────────────
+
+  /**
+   * The editor with every command that changes something refused outside
+   * edit mode: it changes nothing and answers { problem: READ_ONLY }.
+   */
+  private _guarded(editor: LayoutEditorApi): LayoutEditorApi {
+    const guarded: Record<string, unknown> = {};
+    for (const [name, value] of Object.entries(editor)) {
+      guarded[name] = typeof value === 'function' && !ALWAYS_ALLOWED.has(name)
+        ? (...args: unknown[]) => (this.canEdit ? (value as (...a: unknown[]) => unknown)(...args) : { problem: READ_ONLY })
+        : value;
+    }
+    return guarded as LayoutEditorApi;
+  }
+
+  /** Walk through in walkthrough mode; give the orbit camera back otherwise. */
+  private _applyMode(): void {
+    if (this._mode === 'walkthrough') {
+      if (this._view === '2d') this.setView('3d'); // walking is always 3D
+      this._ensureWalkthrough().activate();
+    } else if (this._walkthrough?.isActive()) {
+      this._walkthrough.deactivate();
+      this.floors.setView({ mode: 'outside', level: 0 });
+    }
+  }
+
+  private _ensureWalkthrough(): WalkthroughSystem {
+    if (this._walkthrough) return this._walkthrough;
+    const state = () => this._store.getState();
+    this._walkthrough = new WalkthroughSystem(
+      this.scene,
+      this.babylonEngine.getRenderingCanvas() as HTMLCanvasElement,
+      state,
+      (id) => this.objects.getObjectMesh(id),
+      {
+        onRoomChange: (from, to) => {
+          if (from) this.emit('exitRoom', { roomId: from.id, floorId: from.floor, toRoomId: to?.id ?? null });
+          if (to) {
+            this.emit('enterRoom', {
+              roomId: to.id, floorId: to.floor, roomName: to.name ?? '', roomType: to.type ?? '',
+              fromRoomId: from?.id ?? null,
+            });
+          }
+        },
+        onInteract: (target) => this.emit('interact', this._interactEvent(target)),
+        onLevelChange: (floorId) => state().selectFloor(floorId),
+        onViewChange: ({ inside, level }) => this.floors.setView({ mode: inside ? 'inside' : 'outside', level }),
+        onHud: (info) => this.emit('hud', info),
+      },
+    );
+    return this._walkthrough;
+  }
+
+  /** E on an item (its main anchor, as layoutBridge picks it) or on a door / window. */
+  private _interactEvent(target: WalkthroughTarget): InteractEvent {
+    const obj = target.objectId ? this._store.getState().objects[target.objectId] : null;
+    const anchor = obj ? primaryAnchor(this.getAnchors().filter((a) => a.objectId === obj.id)) : null;
+    return {
+      anchorId: anchor?.id ?? null,
+      objectId: obj?.id ?? null,
+      position: target.point,
+      roomId: obj?.roomId ?? target.roomId ?? this._walkthrough?.getRoomId() ?? '',
+    };
+  }
 
   /** Bring the meshes up to date with this engine's layout. */
   private _draw(): void {

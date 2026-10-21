@@ -3,8 +3,11 @@
  */
 
 // Core engine
-export { LayoutEngine } from './LayoutEngine';
-export type { EngineMode, ViewMode, QualityLevel, EngineOptions } from './LayoutEngine';
+export { LayoutEngine, READ_ONLY } from './LayoutEngine';
+export type {
+  EngineMode, ViewMode, QualityLevel, EngineOptions, LayoutEditorApi, WorkspaceStore,
+  SelectEvent, ChangeEvent, InteractEvent, EnterRoomEvent, ExitRoomEvent,
+} from './LayoutEngine';
 
 // Data model
 export * from './model';

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
@@ -36,8 +36,29 @@ vi.mock('../../utils/lockIndicator', () => ({
   applyLockVisual: vi.fn(),
   removeLockVisual: vi.fn(),
 }));
+// Preview's controller needs a browser window; e2e/viewer-smoke.mjs walks for real.
+// Here: what the engine gives it and does with what it reports.
+const controllers = vi.hoisted(() => [] as any[]);
+vi.mock('../../play/playController', () => ({
+  createPlayController: vi.fn((_scene: unknown, _canvas: unknown, options: any) => {
+    const c: any = {
+      options, active: false,
+      activate: vi.fn(() => { c.active = true; }),
+      deactivate: vi.fn(() => { c.active = false; }),
+      isActive: () => c.active,
+      respawn: vi.fn(),
+      setPose: vi.fn(),
+      getRoomId: () => null,
+      getLevel: () => 0,
+      stepFloor: vi.fn(),
+      dispose: vi.fn(),
+    };
+    controllers.push(c);
+    return c;
+  }),
+}));
 
-const { LayoutEngine } = await import('../LayoutEngine');
+const { LayoutEngine, READ_ONLY } = await import('../LayoutEngine');
 const { loadLayout } = await import('../model/migrate');
 const { useWorkspaceStore } = await import('../../store/workspaceStore');
 const { createLighting } = await import('../../utils/lightingSetup');
@@ -323,5 +344,159 @@ describe('highlight and clearHighlights', () => {
     expect(engine.highlights.ids()).toEqual(['obj_desk']);
     engine.clearHighlights();
     expect(desk.metadata.looks.has('highlight')).toBe(false);
+  });
+});
+
+/**
+ * Every editor command, with arguments that change the layout in edit mode.
+ * A command added to editorHistory later must be added here (the first test checks).
+ */
+const EDITS: Record<string, unknown[]> = {
+  addObject: [{ assetType: 'DESK_STANDARD', x: 3, z: 3 }],
+  updateObject: ['obj_desk', { x: 2 }],
+  deleteObject: ['obj_desk'],
+  duplicateObject: ['obj_desk'],
+  toggleLock: ['obj_desk'],
+  addRoom: [{ type: 'OFFICE', x: 20, z: 0, width: 4, depth: 4 }],
+  deleteRoom: ['room_b'],
+  updateRoom: ['room_a', { name: 'Renamed' }],
+  setWallHeight: ['room_a', 3.0],
+  setFloorHeight: [0, 4.0],
+  toggleDoor: ['room_a', 'west'],
+  addOpenings: [[{ roomId: 'room_a', kind: 'window', wall: 'east', offset: 0, width: 1, height: 1, sill: 1 }]],
+  removeOpenings: [[{ roomId: 'room_a', kind: 'door', index: 0 }]],
+  resizeOpening: [[{ roomId: 'room_a', kind: 'door', index: 0, patch: { width: 1.0 } }]],
+  setAnchorData: [anchorId('obj_desk', 'workstation'), { positionRef: 'P-9' }],
+  addFloor: [{ copyRooms: true }],
+  removeFloor: [1],
+  renameFloor: [1, 'Top'],
+  undo: [],
+  redo: [],
+};
+const HARMLESS = ['clear', 'endBurst']; // change nothing: allowed in every mode
+
+describe('modes: only edit mode can change the layout (H3)', () => {
+  it('the list above has every editor command', () => {
+    const engine = makeEngine();
+    const commands = Object.entries(engine.editor).filter(([, v]) => typeof v === 'function').map(([k]) => k);
+    expect(commands.filter((k) => !HARMLESS.includes(k)).sort()).toEqual(Object.keys(EDITS).sort());
+  });
+
+  it('in edit mode each command changes the layout', () => {
+    for (const [name, args] of Object.entries(EDITS)) {
+      if (name === 'undo' || name === 'redo') continue;
+      const engine = makeEngine({ mode: 'edit' });
+      engine.loadLayout(save());
+      const before = JSON.stringify(engine.getLayout());
+      (engine.editor as any)[name](...args);
+      expect(JSON.stringify(engine.getLayout()), name).not.toBe(before);
+    }
+  });
+
+  it('edit mode: undo and redo work, and every edit is a change event', () => {
+    const engine = makeEngine({ mode: 'edit' });
+    engine.loadLayout(save());
+    const changes: string[] = [];
+    engine.on('change', (e) => changes.push(e.type));
+    engine.editor.updateRoom('room_a', { name: 'Renamed' });
+    expect(changes).toContain('edit');
+    expect(engine.undo()).toBe(true);
+    expect(engine.getLayout()!.rooms.find((r) => r.id === 'room_a')!.name).toBe('Office 1');
+    expect(engine.redo()).toBe(true);
+    expect(engine.getLayout()!.rooms.find((r) => r.id === 'room_a')!.name).toBe('Renamed');
+  });
+
+  for (const mode of ['view', 'walkthrough'] as const) {
+    it(`${mode} mode refuses every edit command: nothing changes, no change event`, () => {
+      const engine = makeEngine({ mode: 'edit' });
+      engine.loadLayout(save());
+      engine.editor.updateRoom('room_a', { name: 'Edited first' }); // something to undo
+      engine.editor.undo();                                           // and to redo
+      engine.setMode(mode);
+      expect(engine.canEdit).toBe(false);
+      const before = engine.getLayout();
+      const changes: unknown[] = [];
+      engine.on('change', (e) => changes.push(e));
+
+      for (const [name, args] of Object.entries(EDITS)) {
+        expect((engine.editor as any)[name](...args), name).toEqual({ problem: READ_ONLY });
+      }
+      expect(engine.undo()).toBe(false);
+      expect(engine.redo()).toBe(false);
+      expect(engine.executeCommand({ label: 'x', execute: () => engine.getStore().getState().removeRoom('room_a'), undo: () => {} })).toBe(false);
+      expect(engine.getLayout()).toEqual(before);
+      expect(changes).toEqual([]);
+
+      // back in edit mode the same commands work again
+      engine.setMode('edit');
+      engine.editor.updateRoom('room_a', { name: 'Allowed' });
+      expect(engine.getLayout()!.rooms.find((r) => r.id === 'room_a')!.name).toBe('Allowed');
+    });
+  }
+});
+
+describe('walkthrough mode', () => {
+  beforeEach(() => { controllers.length = 0; });
+
+  it("walks with Preview's controller, read-only and with every action refused", () => {
+    const engine = makeEngine({ mode: 'walkthrough' });
+    const [c] = controllers;
+    expect(c.options.readOnly).toBe(true);
+    expect(c.active).toBe(true);
+    expect(c.options.actions.addObject({ assetType: 'DESK_STANDARD' })).toEqual({ problem: expect.any(String) });
+    expect(c.options.actions.deleteRoom('room_a')).toEqual({ problem: expect.any(String) });
+    // it walks through this engine's layout, and starts at its spawn point
+    engine.loadLayout(save());
+    expect(c.options.getState().rooms.map((r: any) => r.id).sort()).toEqual(['room_a', 'room_b']);
+    expect(c.respawn).toHaveBeenCalled();
+  });
+
+  it('walking into and out of rooms fires enterRoom / exitRoom', () => {
+    const engine = makeEngine({ mode: 'walkthrough' });
+    engine.loadLayout(save());
+    const events: [string, unknown][] = [];
+    engine.on('enterRoom', (e) => events.push(['enter', e]));
+    engine.on('exitRoom', (e) => events.push(['exit', e]));
+    const { rooms } = engine.getStore().getState();
+    controllers[0].options.onRoomChange(null, rooms.room_a);
+    controllers[0].options.onRoomChange(rooms.room_a, null);
+    expect(events).toEqual([
+      ['enter', { roomId: 'room_a', floorId: 0, roomName: 'Office 1', roomType: 'OFFICE', fromRoomId: null }],
+      ['exit', { roomId: 'room_a', floorId: 0, toRoomId: null }],
+    ]);
+  });
+
+  it("E on an item fires interact with the item's main anchor and its room", () => {
+    const engine = makeEngine({ mode: 'walkthrough' });
+    engine.loadLayout(save());
+    const events: unknown[] = [];
+    engine.on('interact', (e) => events.push(e));
+    controllers[0].options.onInteract({ objectId: 'obj_desk', point: { x: 1, y: 0.7, z: 1 }, distance: 1 });
+    controllers[0].options.onInteract({ roomId: 'room_a', part: 'door', point: { x: 0, y: 1, z: -2 }, distance: 1 });
+    expect(events).toEqual([
+      { anchorId: anchorId('obj_desk', 'workstation'), objectId: 'obj_desk', position: { x: 1, y: 0.7, z: 1 }, roomId: 'room_a' },
+      { anchorId: null, objectId: null, position: { x: 0, y: 1, z: -2 }, roomId: 'room_a' },
+    ]);
+  });
+
+  it('inside a room the ceilings show; another mode gives the orbit camera back', () => {
+    const engine = makeEngine({ mode: 'walkthrough' });
+    engine.loadLayout(save());
+    controllers[0].options.onViewChange({ inside: true, level: 0 });
+    expect(engine.floors.getView().mode).toBe('inside');
+    engine.setMode('view');
+    expect(controllers[0].deactivate).toHaveBeenCalled();
+    expect(engine.floors.getView().mode).toBe('outside');
+    expect(controllers).toHaveLength(1); // made once, reused
+    engine.setMode('walkthrough');
+    expect(controllers[0].active).toBe(true);
+  });
+
+  it('the 2D view goes back to 3D for walking', () => {
+    const engine = makeEngine({ mode: 'view' });
+    engine.loadLayout(save());
+    engine.setView('2d');
+    engine.setMode('walkthrough');
+    expect(engine.view).toBe('3d');
   });
 });
