@@ -5,6 +5,11 @@
 //   Floor 1: an office with a neighbour back to back (shared wall, a door
 //     through it) and a meeting room inside it right next to that shared wall,
 //     with its own door. Whichever room builds the shared wall (ids are UUIDs).
+//   Himan's case, on both floors (x ≈ 30): a 16 × 10 m office with two rooms
+//     drawn inside it with the room tool, side by side (they snap back to back:
+//     one wall) and one against the office's east wall (that wall is its wall:
+//     one wall, built once), a door through each; picks select the room on
+//     your side; saved and reopened. Screenshot: e2e/screens/nested-walls-after.png.
 // Floor / ceiling pieces are merged into one mesh per room, so areas are
 // measured from the mesh's triangles and holes with rays.
 //
@@ -73,6 +78,20 @@ await page.addInitScript(() => {
       return (window.__ahdusScene?.meshes ?? []).filter((m) =>
         ids.includes(m.metadata?.roomId) && m.metadata?.part === 'door' && m.metadata.pickPane).length;
     },
+    /** Wall pieces an inner room builds where it stands on its outer room's wall. */
+    sameSideWalls(innerId, outerId) {
+      return (window.__ahdusScene?.meshes ?? []).filter((m) => m.name.startsWith('wall_') && m.metadata?.part === 'wall' &&
+        m.metadata.sameSide && m.metadata.innerRoom === innerId && m.metadata.outerRoom === outerId);
+    },
+    /** Wall meshes a ray along +x from (x, y, z) passes through (pieces of one wall are merged: rays, not boxes). */
+    wallsAlongX(x, y, z, length) {
+      const sc = window.__ahdusScene;
+      const ray = sc.activeCamera.getForwardRay();
+      const V = sc.activeCamera.position.constructor;
+      ray.origin = new V(x, y, z); ray.direction = new V(1, 0, 0); ray.length = length;
+      return sc.meshes.filter((m) => m.name.startsWith('wall_') && m.metadata?.part === 'wall' && ray.intersectsMesh(m).hit)
+        .map((m) => ({ roomId: m.metadata.roomId, sameSide: !!m.metadata.sameSide }));
+    },
   };
 });
 
@@ -130,6 +149,99 @@ try {
   ids.corner = await page.evaluate(() => window.__ahdusStore.getState().addRoom({
     type: 'CUSTOM', name: 'Corner Room', x: -4.85, z: 3.85, width: 2, depth: 2, floor: 0 }).id);
 
+  // ── Himan's case (ground floor here, Floor 1 below): drawn with the room tool ──
+  const frames = (n = 3) => page.evaluate((n) => new Promise((res) => {
+    const sc = window.__ahdusScene; let c = 0; let t = null;
+    const o = sc.onAfterRenderObservable.add(() => { if (++c >= n) done(); });
+    function done() { sc.onAfterRenderObservable.remove(o); clearTimeout(t); res(); }
+    t = setTimeout(done, 60000);
+  }), n);
+  const hover = async (x, y, z) => { const p = await toScreen(x, y, z); await page.mouse.move(p.x, p.y, { steps: 3 }); await frames(2); };
+  const clickAt = async (x, y, z) => { await hover(x, y, z); await page.mouse.down(); await page.mouse.up(); await frames(3); };
+  const dragWorld = async (from, to) => {
+    await hover(...from);
+    await page.mouse.down();
+    const p = await toScreen(...to);
+    await page.mouse.move(p.x, p.y, { steps: 10 });
+    await frames(2);
+    await page.mouse.up();
+    await frames(3);
+  };
+  const tile = async (label) => { await page.click(`[aria-label="${label}"]`); await frames(2); };
+  const pick = async (tileLabel, option) => {
+    await tile(tileLabel);
+    await page.click(`[aria-label="${tileLabel} options"] button:has-text("${option}")`);
+    await frames(2);
+  };
+  // 2D: look at (x, z), half a view height of `half` metres
+  const look2D = async (x, z, half) => {
+    await page.evaluate(([x, z, half]) => {
+      const c = window.__ahdusScene.activeCamera;
+      c.target.x = x; c.target.z = z;
+      const a = window.__ahdusScene.getEngine().getAspectRatio(c);
+      c.orthoTop = half; c.orthoBottom = -half; c.orthoLeft = -half * a; c.orthoRight = half * a;
+    }, [x, z, half]);
+    await frames(3);
+  };
+  const T = 0.15;
+  async function buildCase(floor) {
+    await page.evaluate((f) => window.__ahdusStore.getState().selectFloor(f), floor);
+    await frames(3);
+    const y = await page.evaluate((f) => {
+      const floors = window.__ahdusStore.getState().floors;
+      return Object.values(floors).filter((fl) => fl.id < f).reduce((sum, fl) => sum + (fl.height ?? 3.5), 0);
+    }, floor);
+    const big = await page.evaluate((f) => window.__ahdusStore.getState().addRoom({
+      type: 'OFFICE', name: 'Office 1', x: 30, z: 0, width: 16, depth: 10, floor: f }).id, floor);   // x 22..38, z -5..5
+    await look2D(30, 0, 9);
+    await pick('Rooms', 'Office');
+    await dragWorld([31.2, y, -2], [37.8, y, 3]);   // to the office's east wall (x 38)
+    await dragWorld([26.1, y, -2], [30.9, y, 3]);   // ends near the first room's west wall: snaps back to back
+    const ids = await page.evaluate(({ big, f }) => {
+      const rooms = Object.values(window.__ahdusStore.getState().rooms).filter((r) => r.floor === f && r.id !== big && r.x > 22 && r.x < 38);
+      const byX = rooms.sort((a, b) => b.x - a.x);
+      return { big, o5: byX[0]?.id, o8: byX[1]?.id, count: rooms.length };
+    }, { big, f: floor });
+    const edges = await page.evaluate(({ o5, o8 }) => {
+      const r = window.__ahdusStore.getState().rooms;
+      const e = (x) => x && { west: x.x - x.width / 2, east: x.x + x.width / 2, south: x.z - x.depth / 2, north: x.z + x.depth / 2 };
+      return { o5: e(r[o5]), o8: e(r[o8]) };
+    }, ids);
+    log(`Floor ${floor}: two rooms drawn inside the office: one stands on its east wall, the other snaps back to back with it`,
+      ids.count === 2 && near(edges.o5?.east, 38, 0.01) && near(edges.o8?.east, edges.o5?.west - T, 0.01),
+      JSON.stringify(edges));
+    // Ctrl+Z / Ctrl+Y the second room
+    await page.keyboard.press('Control+z'); await frames(3);
+    const undone = await page.evaluate((id) => !window.__ahdusStore.getState().rooms[id], ids.o8);
+    await page.keyboard.press('Control+y'); await frames(3);
+    const redone = await page.evaluate((id) => !!window.__ahdusStore.getState().rooms[id], ids.o8);
+    log(`Floor ${floor}: Ctrl+Z / Ctrl+Y undo and redo the snapped room`, undone && redone);
+    // A door through each wall: between the two rooms, and through the office's east wall
+    await pick('Doors & Windows', 'Door');
+    await clickAt(edges.o5.west - T / 2 - 0.03, y + 3, 0.5);
+    await clickAt(37.97, y + 3, 0.5);
+    await tile('Select');
+    // Picks: the shared outer wall from inside is the inner room, from outside the office
+    await clickAt(37.98, y + 3, -1.2);
+    const fromInside = await page.evaluate(() => window.__ahdusStore.getState().selectedRoomId);
+    await clickAt(38.05, y + 3, -1.2);
+    const fromOutside = await page.evaluate(() => window.__ahdusStore.getState().selectedRoomId);
+    log(`Floor ${floor}: clicking the wall the room stands on selects it from inside, the office from outside`,
+      fromInside === ids.o5 && fromOutside === big, `${fromInside === ids.o5 ? 'inner' : fromInside} / ${fromOutside === big ? 'office' : fromOutside}`);
+    return ids;
+  }
+  const caseGround = await buildCase(0);
+  // The same view as Himan's screenshot (3D, from the south-west over the office), before = main
+  await tile('3D view');
+  await page.evaluate(() => {
+    window.__ahdusStore.getState().selectRoom(null); // no Inspector: the same canvas size as the "before" shot
+    const c = window.__ahdusScene.activeCamera;
+    c.target.set(30, 0, 0); c.alpha = -2.1; c.beta = 0.9; c.radius = 24;
+  });
+  await frames(6);
+  await page.screenshot({ path: 'e2e/screens/nested-walls-after.png', timeout: 120000 });
+  await tile('2D view'); await frames(3);
+
   // ── Floor 1: nested room next to a shared wall, with doors ──
   const up = await page.evaluate(() => {
     const store = window.__ahdusStore.getState();
@@ -144,8 +256,10 @@ try {
     store.updateRoom(nested, { doors: [{ wall: 'west', offset: 0, width: 0.9, height: 2.1 }] });
     return { office, neighbour, nested };
   });
+  const caseUpper = await buildCase(1);
+  const cases = [caseGround, caseUpper];
 
-  const inspect = () => page.evaluate(({ ids, up }) => {
+  const inspect = () => page.evaluate(({ ids, up, cases }) => {
     const n = window.__nested;
     const rooms = window.__ahdusStore.getState().rooms;
     const box = n.sharedWalls(up.office, up.neighbour)[0]?.getBoundingInfo().boundingBox;
@@ -178,15 +292,38 @@ try {
         doorPanes: n.doorPanes([up.office, up.neighbour, up.nested]),
         nested: pick(rooms[up.nested]),
       },
+      cases: cases.map((c) => {
+        const o5 = rooms[c.o5];
+        // across the office's east wall (x 38) where Office 5 stands, 1 m up
+        const elev = Object.values(window.__ahdusStore.getState().floors).filter((f) => f.id < o5.floor)
+          .reduce((sum, f) => sum + (f.height ?? 3.5), 0);
+        const hits = n.wallsAlongX(37.5, elev + 1, -1.2, 1);
+        return {
+          between: n.sharedWalls(c.o5, c.o8).length,
+          onOuter: n.sameSideWalls(c.o5, c.big).length,
+          // the office's own east wall pieces leave out where Office 5 stands (z -2 .. 3)
+          wallsThere: hits.length,
+          officeWallThere: hits.filter((h) => h.roomId === c.big).length,
+          doors: [rooms[c.big].doors.length, o5.doors.length, rooms[c.o8].doors.length],
+          doorPanes: n.doorPanes([c.big, c.o5, c.o8]),
+          contained: window.__ahdusStore.getState().rooms[c.o5].x + o5.width / 2,
+        };
+      }),
     };
-  }, { ids, up });
+  }, { ids, up, cases });
 
   const check = (state, when) => {
     const g = state.ground;
     const u = state.upper;
     // office 12 × 10 minus two 3.15 × 3.15 and one 2.15 × 2.15 cutouts, plus the rooms (3 × 3, 3 × 3, 2 × 2)
+    state.cases.forEach((c, floor) => {
+      log(`${when}: Floor ${floor}, one wall between the two rooms and one where a room stands on the office's wall`,
+        c.between === 1 && c.onOuter >= 1 && c.wallsThere === 1 && c.officeWallThere === 0, JSON.stringify(c));
+      log(`${when}: Floor ${floor}, a door through each wall, stored on both rooms, drawn once`,
+        JSON.stringify(c.doors) === '[1,2,1]' && c.doorPanes === 2, JSON.stringify(c.doors));
+    });
     log(`${when}: ground floor, the office floor is cut out under the rooms inside it`,
-      state.rooms === 7 && near(g.area, 120 - 2 * 3.15 * 3.15 - 2.15 * 2.15 + 9 + 9 + 4) && g.holeUnderMeeting && g.officeFloorElsewhere,
+      state.rooms === 13 && near(g.area, 120 - 2 * 3.15 * 3.15 - 2.15 * 2.15 + 9 + 9 + 4) && g.holeUnderMeeting && g.officeFloorElsewhere,
       JSON.stringify(g));
     const c = state.corner;
     log(`${when}: a room 0.15 m from the office's walls: its wall faces stay 1 cm off the office's, no roof of its own`,
@@ -209,18 +346,13 @@ try {
   await page.waitForSelector('button[aria-label="Open Nested Room Layout"]', { timeout: 30000 });
   await page.click('button[aria-label="Open Nested Room Layout"]');
   await page.waitForSelector('canvas', { timeout: 90000 });
-  await page.waitForFunction(({ ids, up }) => window.__ahdusScene && window.__ahdusStore &&
-    window.__nested.floorArea(ids.office) > 0 && window.__nested.sharedWalls(up.office, up.neighbour).length > 0,
-  { ids, up }, { timeout: 60000 });
+  await page.waitForFunction(({ ids, up, cases }) => window.__ahdusScene && window.__ahdusStore &&
+    window.__nested.floorArea(ids.office) > 0 && window.__nested.sharedWalls(up.office, up.neighbour).length > 0 &&
+    window.__nested.sameSideWalls(cases[1].o5, cases[1].big).length > 0,
+  { ids, up, cases }, { timeout: 60000 });
   check(await inspect(), 'after reopening');
 
   // ── Preview, next to the corner room where its walls meet the office's ──
-  const frames = (n = 3) => page.evaluate((n) => new Promise((res) => {
-    const sc = window.__ahdusScene; let c = 0; let t = null;
-    const o = sc.onAfterRenderObservable.add(() => { if (++c >= n) done(); });
-    function done() { sc.onAfterRenderObservable.remove(o); clearTimeout(t); res(); }
-    t = setTimeout(done, 60000);
-  }), n);
   await page.mouse.move(640, 380);
   await page.click('[aria-label="Preview Workplace"]'); await page.waitForTimeout(800);
   if (!(await page.evaluate(() => !!document.pointerLockElement))) {
