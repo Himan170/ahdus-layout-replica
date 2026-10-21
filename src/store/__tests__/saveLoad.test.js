@@ -192,6 +192,39 @@ describe('backup: export and import layout files', () => {
 describe('ids', () => {
   const UUID = /^(room|obj)_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
+  it('preserves room, object, and anchor identities across save/load and copy', async () => {
+    const id = await createWorkspace(COMPANY, 'Identity');
+    const editor = createEditorHistory();
+    editor.addRoom({ type: 'OFFICE', name: 'Stable room', x: 0, z: 0, width: 4, depth: 4 });
+    const roomId = S().selectedRoomId;
+    editor.addObject({ assetType: 'DESK_STANDARD', x: 1, z: 2, roomId });
+    const objectId = S().selectedObjectId;
+    editor.setAnchorData(`anchor-${objectId}`, { positionRef: 'POSITION-1' });
+    const anchorId = `anchor-${objectId}`;
+
+    await saveNow();
+    const before = {
+      roomId,
+      objectId,
+      anchorId,
+      room: { id: roomId, name: S().rooms[roomId].name, width: S().rooms[roomId].width },
+      object: { id: objectId, assetType: S().objects[objectId].assetType, x: S().objects[objectId].x },
+      anchor: S().anchorData[anchorId],
+    };
+
+    S().resetWorkspace();
+    expect(await loadWorkspace(COMPANY, id)).toBe(true);
+    expect(S().rooms[before.roomId]).toMatchObject(before.room);
+    expect(S().objects[before.objectId]).toMatchObject(before.object);
+    expect(S().anchorData[before.anchorId]).toEqual(before.anchor);
+
+    const copy = await saveAsCopy();
+    expect(copy.ok).toBe(true);
+    expect(S().rooms[before.roomId]).toMatchObject(before.room);
+    expect(S().objects[before.objectId]).toMatchObject(before.object);
+    expect(S().anchorData[before.anchorId]).toEqual(before.anchor);
+  });
+
   it('new rooms and items get UUIDs: two sessions (tabs, people) never make the same id', () => {
     const session = () => {
       S().resetWorkspace();                       // a fresh browser session
