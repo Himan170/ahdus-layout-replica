@@ -220,35 +220,109 @@ function isSharedBoundary(a, b, tolerance = SHARED_WALL_TOLERANCE) {
   return distance <= tolerance || Math.abs(distance - WALL_THICKNESS) <= tolerance;
 }
 
+/** True when `room`'s `wallName` lies on the same wall of `other` (same line, ± tolerance). */
+function onSameWallLine(room, other, wallName) {
+  return Math.abs(wallLine(room, wallName).value - wallLine(other, wallName).value) <= SHARED_WALL_TOLERANCE;
+}
+
 /**
- * Physical wall pieces for a room boundary. Opposing boundaries either share
- * a centreline (older/manual layouts) or are separated by WALL_THICKNESS (the
- * current planner's back-to-back placement). Shared pieces are emitted by
- * exactly one room, chosen by stable ID order.
+ * The rooms inside `room` that stand on its wall `wallName`: their wall there
+ * IS that wall (one wall, built by them; see roomWallSegments).
+ */
+export function roomsStandingOnWall(room, wallName, rooms) {
+  return rooms.filter((other) => other.id !== room.id && floorOf(other) === floorOf(room) &&
+    roomContainedBy(room, other) && onSameWallLine(other, room, wallName));
+}
+
+/** The room `room` stands in whose wall `wallName` is also `room`'s wall there, or null. */
+export function outerRoomOfWall(room, wallName, rooms) {
+  let best = null;
+  for (const other of rooms) {
+    if (other.id === room.id || floorOf(other) !== floorOf(room)) continue;
+    if (!roomContainedBy(other, room) || !onSameWallLine(room, other, wallName)) continue;
+    if (!best || other.width * other.depth < best.width * best.depth) best = other; // the innermost
+  }
+  return best;
+}
+
+/** [from, to] world intervals minus other intervals. */
+function subtractSpans(spans, holes) {
+  let pieces = spans;
+  for (const hole of holes) {
+    pieces = pieces.flatMap((p) => {
+      if (hole.to <= p.from || hole.from >= p.to) return [p];
+      const out = [];
+      if (hole.from > p.from) out.push({ from: p.from, to: hole.from });
+      if (hole.to < p.to) out.push({ from: hole.to, to: p.to });
+      return out;
+    });
+  }
+  return pieces.filter((p) => p.to - p.from > GEOMETRY_EPSILON);
+}
+
+/**
+ * A room's physical wall, with the ends cut back where it meets the wall of
+ * an outer room it stands on (a north / south wall ends at that wall's inside
+ * face instead of reaching into it).
+ */
+function wallExtent(room, wallName, rooms) {
+  const line = physicalWallLine(room, wallName);
+  if (!ALONG_X(wallName) || outerRoomOfWall(room, wallName, rooms)) return line;
+  const T = WALL_THICKNESS;
+  if (outerRoomOfWall(room, 'west', rooms)) line.from = room.x - room.width / 2 + T / 2;
+  if (outerRoomOfWall(room, 'east', rooms)) line.to = room.x + room.width / 2 - T / 2;
+  return line;
+}
+
+/** The parts of a room's wall it builds (or shares) itself: not where rooms inside stand on it. */
+function ownWallSpans(room, wallName, rooms, extent = wallExtent(room, wallName, rooms)) {
+  return subtractSpans([{ from: extent.from, to: extent.to }],
+    roomsStandingOnWall(room, wallName, rooms).map((inner) => physicalWallLine(inner, wallName)));
+}
+
+/**
+ * Physical wall pieces for a room boundary.
+ * - Back to back: opposing boundaries either share a centreline (older/manual
+ *   layouts) or are WALL_THICKNESS apart (the planner's back-to-back
+ *   placement). Shared pieces are emitted by exactly one room, chosen by
+ *   stable ID order.
+ * - A room inside a room may stand on the outer room's wall (same line): there
+ *   the outer room builds nothing and the inner room builds the wall, full
+ *   thickness on that line, as a piece shared with the outer room
+ *   (`sameSide`: both rooms are on its inner side; outside it is the outer
+ *   room's). The inner room's other walls stop at that wall's inside face.
+ * Shared pieces carry partnerRoom and partnerWall (the partner's wall name).
  */
 export function roomWallSegments(room, wallName, rooms = []) {
-  const mine = physicalWallLine(room, wallName);
-  const start = mine.from - alongCentre(room, mine.axis);
-  const end = mine.to - alongCentre(room, mine.axis);
+  const mine = wallExtent(room, wallName, rooms);
+  const centre = alongCentre(room, mine.axis);
+  const ownSpans = ownWallSpans(room, wallName, rooms, mine);
+  const theirName = OPPOSITE[wallName];
   const candidates = [];
 
   for (const other of rooms) {
     if (other.id === room.id || floorOf(other) !== floorOf(room)) continue;
-    const theirs = physicalWallLine(other, OPPOSITE[wallName]);
+    const theirs = physicalWallLine(other, theirName);
     if (!isSharedBoundary(mine, theirs)) continue;
-    const worldFrom = Math.max(mine.from, theirs.from);
-    const worldTo = Math.min(mine.to, theirs.to);
-    if (worldTo - worldFrom <= GEOMETRY_EPSILON) continue;
-    candidates.push({
-      u0: worldFrom - alongCentre(room, mine.axis),
-      u1: worldTo - alongCentre(room, mine.axis),
-      crossOffset: (theirs.value - mine.value) / 2,
-      worldValue: (theirs.value + mine.value) / 2,
-      axis: mine.axis,
-      thickness: WALL_THICKNESS,
-      partnerRoom: other,
-      shared: true,
-    });
+    // Where rooms inside `other` stand on its wall, the wall is theirs (they are in this loop too)
+    for (const span of ownWallSpans(other, theirName, rooms)) {
+      for (const own of ownSpans) {
+        const worldFrom = Math.max(own.from, span.from);
+        const worldTo = Math.min(own.to, span.to);
+        if (worldTo - worldFrom <= GEOMETRY_EPSILON) continue;
+        candidates.push({
+          u0: worldFrom - centre,
+          u1: worldTo - centre,
+          crossOffset: (theirs.value - mine.value) / 2,
+          worldValue: (theirs.value + mine.value) / 2,
+          axis: mine.axis,
+          thickness: WALL_THICKNESS,
+          partnerRoom: other,
+          partnerWall: theirName,
+          shared: true,
+        });
+      }
+    }
   }
 
   candidates.sort((a, b) => a.u0 - b.u0 || String(a.partnerRoom.id).localeCompare(String(b.partnerRoom.id)));
@@ -266,28 +340,19 @@ export function roomWallSegments(room, wallName, rooms = []) {
     }
     for (const piece of pieces) {
       if (piece.u1 - piece.u0 <= GEOMETRY_EPSILON) continue;
-      shared.push({
-        ...piece,
-        crossOffset: candidate.crossOffset,
-        worldValue: candidate.worldValue,
-        axis: candidate.axis,
-        thickness: candidate.thickness,
-        partnerRoom: candidate.partnerRoom,
-        shared: true,
-      });
+      shared.push({ ...candidate, ...piece });
     }
   }
 
-  const intervals = shared.map(({ u0, u1 }) => ({ u0, u1 })).sort((a, b) => a.u0 - b.u0);
-  const segments = [];
-  let cursor = start;
-  for (const interval of intervals) {
-    if (interval.u0 > cursor + 1e-6) {
-      segments.push({ u0: cursor, u1: interval.u0, crossOffset: 0, shared: false });
+  // The rest of the room's own wall: plain, or (standing on an outer room's wall) shared with that room
+  const outer = outerRoomOfWall(room, wallName, rooms);
+  const plain = subtractSpans(ownSpans, shared.map((s) => ({ from: s.u0 + centre, to: s.u1 + centre })));
+  const segments = plain.map(({ from, to }) => (outer
+    ? {
+      u0: from - centre, u1: to - centre, crossOffset: 0, worldValue: mine.value, axis: mine.axis,
+      thickness: WALL_THICKNESS, partnerRoom: outer, partnerWall: wallName, shared: true, sameSide: true,
     }
-    cursor = Math.max(cursor, interval.u1);
-  }
-  if (end > cursor + 1e-6) segments.push({ u0: cursor, u1: end, crossOffset: 0, shared: false });
+    : { u0: from - centre, u1: to - centre, crossOffset: 0, shared: false }));
 
   for (const segment of shared) {
     if (String(room.id).localeCompare(String(segment.partnerRoom.id)) < 0) segments.push(segment);
@@ -300,7 +365,7 @@ export function wallSegmentOpenings(room, wallName, segment) {
   const along = wallName === 'north' || wallName === 'south' ? 'x' : 'z';
   const ownCentre = room[along];
   const sources = [{ room, wall: wallName }];
-  if (segment.shared) sources.push({ room: segment.partnerRoom, wall: OPPOSITE[wallName] });
+  if (segment.shared) sources.push({ room: segment.partnerRoom, wall: segment.partnerWall ?? OPPOSITE[wallName] });
 
   const openings = [];
   for (const source of sources) {
@@ -330,7 +395,10 @@ export function wallSegmentOpenings(room, wallName, segment) {
  * on the side it was hit from. roomBuilder tags shared pieces with
  * { sharedWith, sharedWall, sharedAt } (the other room, its wall, the world
  * coordinate of the wall's centre line).
- * @param {{ roomId, wallName, sharedWith?, sharedWall?, sharedAt? }} meta
+ * A room inside a room standing on its wall shares it the other way round
+ * (`sameSide`, with `innerRoom` / `outerRoom`): from inside it is the inner
+ * room's wall, from outside the outer room's.
+ * @param {{ roomId, wallName, sharedWith?, sharedWall?, sharedAt?, sameSide?, innerRoom?, outerRoom? }} meta
  * @param {{ x: number, z: number } | null} from  a world point on the side it was hit from
  * @returns {{ roomId: string, wallName: string }}
  */
@@ -340,8 +408,9 @@ export function wallPickTarget(meta, from) {
   const across = meta.wallName === 'north' || meta.wallName === 'south' ? from.z : from.x;
   // A room is on the inside of its walls: below its north / east wall, above its south / west wall
   const below = meta.wallName === 'north' || meta.wallName === 'east';
-  const onOwnSide = below ? across <= meta.sharedAt : across >= meta.sharedAt;
-  return onOwnSide ? own : { roomId: meta.sharedWith, wallName: meta.sharedWall };
+  const inside = below ? across <= meta.sharedAt : across >= meta.sharedAt;
+  if (meta.sameSide) return { roomId: inside ? meta.innerRoom : meta.outerRoom, wallName: meta.wallName };
+  return inside ? own : { roomId: meta.sharedWith, wallName: meta.sharedWall };
 }
 
 // ── Which rooms to rebuild ────────────────────────────────────────────────
@@ -405,17 +474,28 @@ export function partnerWall(rooms, room, wallName, point, span = 0) {
   const mine = wallLine(room, wallName);
   const along = mine.axis === 'z' ? point.x : point.z;
   const half = span / 2;
+  const covers = (from, to) => to - from > GEOMETRY_EPSILON && along + half > from && along - half < to;
+  const sameFloor = rooms.filter((other) => other.id !== room.id && floorOf(other) === floorOf(room));
+
+  // An outer room's wall where a room inside stands on it: that room's wall
+  for (const inner of roomsStandingOnWall(room, wallName, sameFloor.concat(room))) {
+    const line = wallLine(inner, wallName);
+    if (covers(line.from, line.to)) return { room: inner, wallName };
+  }
+  // Back to back (where rooms inside the other room stand on its wall, it is theirs)
   const theirName = OPPOSITE[wallName];
-  for (const other of rooms) {
-    if (other.id === room.id || floorOf(other) !== floorOf(room)) continue;
+  for (const other of sameFloor) {
     const theirs = wallLine(other, theirName);
     if (!isSharedBoundary(mine, theirs)) continue;
-    const overlapFrom = Math.max(mine.from, theirs.from);
-    const overlapTo = Math.min(mine.to, theirs.to);
-    if (overlapTo - overlapFrom <= GEOMETRY_EPSILON) continue;
-    if (along + half <= overlapFrom || along - half >= overlapTo) continue;
-    return { room: other, wallName: theirName };
+    const spans = subtractSpans([{ from: theirs.from, to: theirs.to }],
+      roomsStandingOnWall(other, theirName, rooms).map((inner) => wallLine(inner, theirName)));
+    for (const span of spans) {
+      if (covers(Math.max(mine.from, span.from), Math.min(mine.to, span.to))) return { room: other, wallName: theirName };
+    }
   }
+  // Standing on an outer room's wall: the outer room's wall too
+  const outer = outerRoomOfWall(room, wallName, rooms);
+  if (outer && covers(mine.from, mine.to)) return { room: outer, wallName };
   return null;
 }
 
@@ -427,18 +507,23 @@ export function rectsOverlap(a, b, eps = 0.05) {
 }
 
 /**
- * True when the complete inner room footprint (including its wall thickness)
- * fits inside the usable interior of the outer room on the same floor.
+ * True when the inner room lies inside the outer room on the same floor: on
+ * each side its walls are at least `clearance` in from the outer walls (so
+ * they don't touch), or it stands exactly on the outer wall (same line, ±
+ * SHARED_WALL_TOLERANCE: that wall is then its wall too). Anything between
+ * (walls partly in each other) or the very same rectangle is not inside.
  */
 export function roomContainedBy(outer, inner, clearance = WALL_THICKNESS) {
   if (floorOf(outer) !== floorOf(inner)) return false;
-  const halfWidth = outer.width / 2 - clearance;
-  const halfDepth = outer.depth / 2 - clearance;
-  return halfWidth > 0 && halfDepth > 0 &&
-    inner.x - inner.width / 2 >= outer.x - halfWidth - GEOMETRY_EPSILON &&
-    inner.x + inner.width / 2 <= outer.x + halfWidth + GEOMETRY_EPSILON &&
-    inner.z - inner.depth / 2 >= outer.z - halfDepth - GEOMETRY_EPSILON &&
-    inner.z + inner.depth / 2 <= outer.z + halfDepth + GEOMETRY_EPSILON;
+  if (outer.width / 2 - clearance <= 0 || outer.depth / 2 - clearance <= 0) return false;
+  const side = (gap) => gap >= clearance - GEOMETRY_EPSILON || Math.abs(gap) <= SHARED_WALL_TOLERANCE;
+  const sameRect = Math.abs(outer.width - inner.width) <= SHARED_WALL_TOLERANCE &&
+    Math.abs(outer.depth - inner.depth) <= SHARED_WALL_TOLERANCE;
+  return !sameRect &&
+    side((inner.x - inner.width / 2) - (outer.x - outer.width / 2)) &&
+    side((outer.x + outer.width / 2) - (inner.x + inner.width / 2)) &&
+    side((inner.z - inner.depth / 2) - (outer.z - outer.depth / 2)) &&
+    side((outer.z + outer.depth / 2) - (inner.z + inner.depth / 2));
 }
 
 /** A placement may overlap only a room whose usable interior fully contains it. */
@@ -449,33 +534,53 @@ export function roomPlacementBlocker(rect, rooms) {
     rectsOverlap(room, rect)) ?? null;
 }
 
-function roomTransformBlocker(room, rect, rooms) {
+/**
+ * What stops an existing room from taking the rectangle `rect` (moved,
+ * stretched, resized), or null: the rooms it stands in must still contain
+ * it, the rooms inside it must still be inside, and it may not overlap others.
+ */
+export function roomRectBlocker(room, rect, rooms) {
   const others = rooms.filter((other) => other.id !== room.id && floorOf(other) === floorOf(room));
+  const children = others.filter((other) => roomContainedBy(room, other));
   const containers = others.filter((other) => roomContainedBy(other, room));
-  return containers.find((container) => !roomContainedBy(container, rect)) ??
-    roomPlacementBlocker(rect, others);
+  const target = { ...rect, floor: floorOf(room) };
+  return children.find((child) => !roomContainedBy(target, child)) ??
+    containers.find((container) => !roomContainedBy(container, target)) ??
+    roomPlacementBlocker(target, others.filter((other) => !children.includes(other))) ??
+    null;
 }
 
-/** Validate a whole-room move while preserving any existing enclosing rooms. */
+/**
+ * Validate a whole-room move while preserving any existing enclosing rooms.
+ * The room keeps its size; it lands back to back on a neighbour (or on the
+ * wall of the room it stands in) when it comes close (snapRoomRect).
+ */
 export function planRoomMove(room, x, z, rooms) {
-  const rect = { x, z, width: room.width, depth: room.depth, floor: floorOf(room) };
-  const blocker = roomTransformBlocker(room, rect, rooms);
+  const rect = snapRoomRect({ x, z, width: room.width, depth: room.depth, floor: floorOf(room) }, rooms, {
+    id: room.id, container: containerOf(room, rooms), translate: true,
+  });
   return {
     rect: { x: rect.x, z: rect.z, width: rect.width, depth: rect.depth },
-    blocker,
+    blocker: roomRectBlocker(room, rect, rooms),
   };
 }
 
-/** Validate an Inspector resize against enclosing rooms and neighbouring rooms. */
+/**
+ * Validate an Inspector resize (about the room's centre) against enclosing
+ * rooms and neighbouring rooms. The edges that move snap like everywhere else,
+ * so the centre can move a little: use rect.x / rect.z too.
+ */
 export function planRoomResize(room, width, depth, rooms) {
-  const rect = { x: room.x, z: room.z, width, depth, floor: floorOf(room) };
-  const others = rooms.filter((other) => other.id !== room.id && floorOf(other) === floorOf(room));
-  const children = others.filter((other) => roomContainedBy(room, other));
-  const blocker = children.find((child) => !roomContainedBy(rect, child)) ??
-    roomTransformBlocker(room, rect, others.filter((other) => !children.includes(other)));
+  const edges = [
+    ...(Math.abs(width - room.width) > GEOMETRY_EPSILON ? ['west', 'east'] : []),
+    ...(Math.abs(depth - room.depth) > GEOMETRY_EPSILON ? ['south', 'north'] : []),
+  ];
+  const rect = snapRoomRect({ x: room.x, z: room.z, width, depth, floor: floorOf(room) }, rooms, {
+    id: room.id, container: containerOf(room, rooms), edges,
+  });
   return {
     rect: { x: rect.x, z: rect.z, width: rect.width, depth: rect.depth },
-    blocker,
+    blocker: roomRectBlocker(room, rect, rooms),
   };
 }
 
@@ -564,6 +669,133 @@ export function snapRectToOutline(rect, belowRooms, tolerance = OUTLINE_SNAP) {
   return { x: (x0 + x1) / 2, z: (z0 + z1) / 2, width: x1 - x0, depth: z1 - z0 };
 }
 
+// ── Snapping rooms (one rule for drawing, Stretch, wall drag, Inspector, moving) ──
+
+/** How close (metres) an edge must come to a neighbour's wall, or its outer room's wall, to snap. */
+export const ROOM_SNAP = 0.35;
+
+/**
+ * The room a room (or rectangle) stands in: the smallest other room on its
+ * floor whose footprint holds it, or null. `room.id` itself never counts.
+ */
+export function containerOf(rect, rooms) {
+  let best = null;
+  for (const other of rooms) {
+    if (other.id === rect.id || floorOf(other) !== floorOf(rect)) continue;
+    if (!insideRoomFootprint(other, rect)) continue;
+    if (other.width * other.depth <= rect.width * rect.depth + GEOMETRY_EPSILON) continue; // the same rectangle
+    if (!best || other.width * other.depth < best.width * best.depth) best = other;
+  }
+  return best;
+}
+
+const EDGES = ['west', 'east', 'south', 'north'];
+
+/**
+ * Snap a room's rectangle, the same way wherever a room is drawn or changed:
+ * - back to back (WALL_THICKNESS apart) onto rooms in the same room as it
+ *   (inside the same outer room, or both outside): they then share one wall;
+ *   rooms inside other rooms, or inside this one, are not neighbours;
+ * - onto the wall of the room it stands in (`container`): that wall becomes
+ *   its wall on that side; and the other way round, a room's edge onto the
+ *   rooms standing inside it;
+ * - else onto a wall of the floor below (`below`, OUTLINE_SNAP), so walls stand on walls.
+ * The nearest wall within ROOM_SNAP wins. Nothing changes that isn't close.
+ * @param {{x,z,width,depth,floor?}} rect
+ * @param {object[]} rooms  rooms (any floors; only the rect's floor counts)
+ * @param {{
+ *   id?: string,              the room being changed (it and the rooms inside it are left out)
+ *   container?: object|null,  the room it stands in (default: containerOf(rect))
+ *   edges?: string[],         which edges may move (default all four; Stretch: the one being dragged)
+ *   translate?: boolean,      move the whole rectangle instead (moving a room: its size stays)
+ *   below?: object[]|null,    rooms on the floor below
+ * }} [options]
+ * @returns {{x,z,width,depth,floor}}
+ */
+export function snapRoomRect(rect, rooms, options = {}) {
+  const { id = null, edges = EDGES, translate = false, below = null } = options;
+  const floor = floorOf(rect);
+  const T = WALL_THICKNESS;
+  const same = rooms.filter((r) => r.id !== id && floorOf(r) === floor);
+  const container = options.container !== undefined ? options.container : containerOf({ ...rect, id }, same);
+  const containerId = container?.id ?? null;
+  const parentOf = (r) => containerOf(r, rooms)?.id ?? null;
+  const siblings = same.filter((r) => r.id !== containerId && !insideRoomFootprint(rect, r) &&
+    !insideRoomFootprint(r, rect) && parentOf(r) === containerId);
+  const children = id === null ? [] : same.filter((r) => parentOf(r) === id);
+
+  const box = {
+    west: rect.x - rect.width / 2, east: rect.x + rect.width / 2,
+    south: rect.z - rect.depth / 2, north: rect.z + rect.depth / 2,
+  };
+  const edgesOf = (r) => ({
+    west: r.x - r.width / 2, east: r.x + r.width / 2, south: r.z - r.depth / 2, north: r.z + r.depth / 2,
+  });
+  const overlapsAlong = (r, edge) => {
+    const e = edgesOf(r);
+    return edge === 'west' || edge === 'east'
+      ? Math.min(box.north, e.north) - Math.max(box.south, e.south) > 0.1
+      : Math.min(box.east, e.east) - Math.max(box.west, e.west) > 0.1;
+  };
+  // Where each edge could go: [value, tolerance] pairs, best first by kind
+  const targets = (edge) => {
+    const near = [];
+    for (const r of siblings) {
+      if (!overlapsAlong(r, edge)) continue;
+      const e = edgesOf(r);
+      if (edge === 'west') near.push(e.east + T);
+      else if (edge === 'east') near.push(e.west - T);
+      else if (edge === 'south') near.push(e.north + T);
+      else near.push(e.south - T);
+    }
+    if (container) near.push(edgesOf(container)[edge]);
+    for (const r of children) near.push(edgesOf(r)[edge]);
+    const outline = [];
+    if (below && !container) {
+      for (const r of below) {
+        const e = edgesOf(r);
+        const along = edge === 'west' || edge === 'east'
+          ? Math.min(box.north, e.north) - Math.max(box.south, e.south)
+          : Math.min(box.east, e.east) - Math.max(box.west, e.west);
+        if (along > -OUTLINE_SNAP) outline.push(...(edge === 'west' || edge === 'east' ? [e.west, e.east] : [e.south, e.north]));
+      }
+    }
+    return { near, outline };
+  };
+  const nearestShift = (edge) => {
+    const v = box[edge];
+    const { near, outline } = targets(edge);
+    const best = (list, tolerance) => list.reduce((acc, c) => {
+      const d = c - v;
+      return Math.abs(d) < tolerance && (acc === null || Math.abs(d) < Math.abs(acc)) ? d : acc;
+    }, null);
+    return best(near, ROOM_SNAP) ?? best(outline, OUTLINE_SNAP);
+  };
+
+  const next = { ...box };
+  if (translate) {
+    for (const [a, b] of [['west', 'east'], ['south', 'north']]) {
+      const shifts = [nearestShift(a), nearestShift(b)].filter((d) => d !== null);
+      if (!shifts.length) continue;
+      const d = shifts.reduce((m, s) => (Math.abs(s) < Math.abs(m) ? s : m));
+      next[a] += d;
+      next[b] += d;
+    }
+  } else {
+    for (const edge of edges) {
+      const d = nearestShift(edge);
+      if (d !== null) next[edge] = box[edge] + d;
+    }
+    // Never snap a room smaller than allowed: that axis stays as it was
+    if (next.east - next.west < MIN_ROOM_SIZE - 1e-6) { next.west = box.west; next.east = box.east; }
+    if (next.north - next.south < MIN_ROOM_SIZE - 1e-6) { next.south = box.south; next.north = box.north; }
+  }
+  return {
+    x: (next.west + next.east) / 2, z: (next.south + next.north) / 2,
+    width: next.east - next.west, depth: next.north - next.south, floor,
+  };
+}
+
 /**
  * Where a door/window aimed at `point` on `room`'s `wallName` will go.
  * If a neighbour is built back-to-back there, the opening must fit BOTH walls
@@ -628,7 +860,6 @@ export function wallCoordinate(room, wallName) {
 export function stretchRoom(room, wallName, target, context = {}) {
   const { rooms = [], objects = [], below = null, nameOf = (o) => o.label || o.name || 'An item' } = context;
   const others = rooms.filter((r) => r.id !== room.id && floorOf(r) === floorOf(room));
-  const containers = others.filter((r) => insideRoomFootprint(r, room));
 
   let x0 = room.x - room.width / 2;
   let x1 = room.x + room.width / 2;
@@ -640,11 +871,12 @@ export function stretchRoom(room, wallName, target, context = {}) {
   else if (wallName === 'north') z1 = target;
   else z0 = target;
 
-  // Over a wall of the floor below, or back-to-back with a neighbour? Only the
-  // moving edge is allowed to snap.
-  let moved = { x: (x0 + x1) / 2, z: (z0 + z1) / 2, width: x1 - x0, depth: z1 - z0, floor: floorOf(room) };
-  if (below) moved = { ...snapRectToOutline(moved, below), floor: floorOf(room) };
-  const snapped = snapRectToNeighbours(moved, others.filter((r) => !containers.includes(r)));
+  // Back to back with a neighbour, onto the wall of the room it stands in, or
+  // over a wall of the floor below? Only the moving edge is allowed to snap.
+  const moved = { x: (x0 + x1) / 2, z: (z0 + z1) / 2, width: x1 - x0, depth: z1 - z0, floor: floorOf(room) };
+  const snapped = snapRoomRect(moved, rooms, {
+    id: room.id, container: containerOf(room, rooms), edges: [wallName], below,
+  });
   const sx0 = snapped.x - snapped.width / 2, sx1 = snapped.x + snapped.width / 2;
   const sz0 = snapped.z - snapped.depth / 2, sz1 = snapped.z + snapped.depth / 2;
   if (wallName === 'east') x1 = sx1;
@@ -681,7 +913,7 @@ export function stretchRoom(room, wallName, target, context = {}) {
     problem = `Too small (rooms are at least ${MIN_ROOM_SIZE} m)`;
   }
   if (!problem) {
-    const blocker = roomPlacementBlocker(rect, others);
+    const blocker = roomRectBlocker(room, rect, others);
     if (blocker) problem = `Would overlap ${blocker.name}`;
   }
   if (!problem && delta < 0) {
@@ -717,16 +949,17 @@ export function stretchRoom(room, wallName, target, context = {}) {
  */
 export function planRoom(a, b, rooms, below = null) {
   const placementFloor = rooms[0] ? floorOf(rooms[0]) : 0;
-  let rect = { ...rectFromCorners(a, b), floor: placementFloor };
-  const nestedIntent = rooms.some((room) =>
-    floorOf(room) === floorOf(rect) && (
-      insideRoomFootprint(room, rect) ||
+  const drawn = { ...rectFromCorners(a, b), floor: placementFloor };
+  // Drawn inside a room (it holds the rectangle, or a corner or the middle is
+  // inside it): that room is its container, the smallest if several
+  const container = rooms.filter((room) =>
+    floorOf(room) === placementFloor && (
+      insideRoomFootprint(room, drawn) ||
       pointInsideRoomInterior(room, a) ||
       pointInsideRoomInterior(room, b) ||
-      pointInsideRoomInterior(room, rect)
-    ));
-  if (!nestedIntent && below) rect = { ...snapRectToOutline(rect, below), floor: placementFloor };
-  if (!nestedIntent) rect = { ...snapRectToNeighbours(rect, rooms), floor: placementFloor };
+      pointInsideRoomInterior(room, drawn)
+    )).sort((p, q) => p.width * p.depth - q.width * q.depth)[0] ?? null;
+  const rect = snapRoomRect(drawn, rooms, { container, below });
   const blocker = roomPlacementBlocker(rect, rooms);
   return {
     rect: { x: rect.x, z: rect.z, width: rect.width, depth: rect.depth },

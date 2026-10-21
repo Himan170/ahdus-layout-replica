@@ -35,23 +35,44 @@ interchangeable at the renderer boundary.
 
 Room nesting uses the same centre-based rectangles and world coordinates; it
 does not add a parent ID or change either serialized format. The enclosing room
-is derived from same-floor containment. A child footprint must fit completely
-inside the parent's usable interior, leaving `0.15 m` from each parent room
-boundary so the two `0.15 m` walls do not overlap. The full width and depth are
+is derived from same-floor containment (`roomContainedBy`; the innermost one is
+`containerOf`). On each side a child either keeps at least `0.15 m` from the
+parent's boundary (its own wall, clear of the parent's), or **stands on the
+parent's wall**: its edge lies on the parent's edge (± `0.02 m`), and the
+parent's wall is its wall there. Anything between (the two walls partly in each
+other), sticking out, or the very same rectangle is not contained. A child may
+stand on two opposite walls (a full-width strip). The full width and depth are
 checked, not just the child's centre. A `1e-6 m` comparison epsilon handles
 floating-point edge values.
 
-When a new room is being drawn inside an existing room, neighbour snapping is
-skipped when the drawn rectangle, its centre, or either drag endpoint indicates
-an interior placement attempt. An attempt that crosses the usable boundary is
-rejected rather than pushed to the parent's exterior.
-Normal back-to-back edge snapping remains active for adjacent rooms. A
-contained room may overlap its enclosing room, but a candidate that overlaps
-or encloses an unrelated room remains blocked. The same containment rule applies when a room wall is resized or when a
-selected room is dragged by its floor in Workplace Studio. Whole-room movement
-preserves the room's dimensions, is undoable, and is blocked if it leaves an
-existing parent or overlaps a sibling. Rooms on different floors do not
-contain or block one another.
+**Snapping (one rule everywhere): `geometry.snapRoomRect`.** Drawing (Studio and
+Preview), Stretch, the Studio wall drag, the Inspector size and dragging a room
+by its floor all use it; Stretch moves only the dragged edge, the Inspector the
+edges that change, moving keeps the size (`translate`). Within `ROOM_SNAP`
+(`0.35 m`) an edge moves to the nearest of:
+- a **sibling's** wall, back to back (`0.15 m` apart): rooms in the same parent,
+  or both top-level. Rooms inside other rooms, or inside the room being
+  changed, are never neighbours;
+- the **parent's** wall on the same side (the child then stands on it); and the
+  other way round, a parent's edge onto the children standing inside it;
+- otherwise (top-level rooms only) a wall of the floor below (`OUTLINE_SNAP`).
+
+A room drawn with a corner or its middle inside a room has that room as its
+parent (the smallest if several). A contained room may overlap its parent, but
+a candidate that overlaps or encloses an unrelated room remains blocked
+(`roomPlacementBlocker`). Changing an existing room (`roomRectBlocker`): its
+parents must still contain it, its children must still be inside it, and it may
+not overlap anything else. Whole-room movement preserves the room's dimensions
+and is undoable. Rooms on different floors do not contain or block one another.
+
+**A child standing on the parent's wall** (`roomWallSegments`): the parent
+builds nothing along the child's stretch of that wall; the child builds it,
+full thickness, on the parent's line, as a piece shared with the parent
+(`sameSide`, `partnerWall` = the same wall name). The child's other walls stop
+at that wall's inside face, so no faces coincide. If an outside neighbour is back
+to back with the parent there, the child shares that stretch with the neighbour
+instead (the parent's spans exclude it, `ownWallSpans`). A door on that stretch
+goes through the one wall and is stored on both rooms (`partnerWall`).
 
 The parent floor surface is cut out beneath a nested room's wall footprint to
 avoid coplanar floor surfaces. If the child wall reaches the parent's ceiling,
@@ -64,9 +85,12 @@ undoable store record.
 
 For example, a `12 × 10 m` office centred at `(0, 0)` has a usable interior
 from `-5.85` to `5.85 m` on X and `-4.85` to `4.85 m` on Z. A `4 × 3 m`
-meeting room centred at `(0, 0)` fits inside it. The same meeting room centred
-at `(3.9, 0)` does not: its right edge reaches `5.9 m`, past the usable
-interior. Multiple non-overlapping child rooms can be placed in the office.
+meeting room centred at `(0, 0)` fits inside it. Centred at `(4, 0)` its right
+edge is on the office's east wall (`6 m`): it stands on it. Centred at `(3.9, 0)`
+(right edge `5.9 m`) the walls would be in each other: not contained, but
+drawing or moving it there snaps it onto the wall. Multiple non-overlapping
+child rooms can be placed in the office. Rooms saved `0.15 m` or more in from the
+wall (before this rule) stay as they are, with their own wall.
 
 ## Shared-wall representation
 
@@ -121,7 +145,9 @@ side with `sharedAt`. `pickHelpers.wallTargetOf(hit, eye)` finds that point
 from the hit face's normal; on the top or end of the wall it uses the camera
 position (3D) or the hit point itself (the 2D view: which half of the top was
 clicked). Doors and windows on a shared piece carry the same tags, so Stretch
-aimed at a frame also grabs the wall on your side. Selecting either room
+aimed at a frame also grabs the wall on your side. A child's piece on the
+parent's wall carries `sameSide`, `innerRoom` and `outerRoom`: from inside it is
+the child's wall, from outside the parent's. Selecting either room
 outlines the shared wall (`roomBuilder.setRoomSelected` lights a shared piece
 when its owner or `sharedWith` is selected).
 

@@ -51,10 +51,10 @@ describe('stretchRoom', () => {
   it('rejects a nested room resize that exceeds the enclosing room interior', () => {
     const parent = { id: 'office', name: 'Office', floor: 0, x: 0, z: 0, width: 12, depth: 10 };
     const nested = { id: 'meeting', name: 'Meeting', floor: 0, x: 0, z: 0, width: 4, depth: 3 };
-    const resized = stretchRoom(nested, 'east', 6.2, { rooms: [parent, nested] });
+    const resized = stretchRoom(nested, 'east', 6.5, { rooms: [parent, nested] });
     expect(resized.problem).toBe('Would overlap Office');
-    expect(resized.rect.x).toBeCloseTo(2.1);
-    expect(resized.rect.width).toBeCloseTo(8.2);
+    expect(resized.rect.x).toBeCloseTo(2.25);
+    expect(resized.rect.width).toBeCloseTo(8.5);
   });
 
   it('released near a neighbour, the wall lands exactly back-to-back', () => {
