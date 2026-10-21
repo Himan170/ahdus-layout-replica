@@ -316,19 +316,35 @@ Each fix is its own commit on branch `fix/next-fixes`, with tests.
 | A7 | The companies / layouts screen had the old look | Old inline styles and emoji | Restyled with the Studio tokens and lucide icons; companies can be renamed and deleted (with their layouts, after confirming) |
 | A8 | Clean-up | | Stray files removed; `uuid` 9 → 11 (anchor IDs checked identical); `LayoutEngine.ts` says which engine parts are real |
 
+### 3.14 Embeddable engine (TEAM_TASKS H2, 20–22 Oct)
+
+Nine steps on branch `himan/engine`, one commit each; Studio looks and works the same after every step.
+
+| # | Step | Result |
+|---|---|---|
+| 1–4 | Scene setup, rooms, items, which floors show move into `engine/systems/` | Studio draws through them (merged into main 20 Oct) |
+| 5 | `LayoutEngine` loads and draws a layout | Own store per engine; a save, an exported file or v2 in; the same v2 out (`toV1`, round-trip tests) |
+| 6 | Camera API | `setView` (3D / 2D), `focusOn` (room, item, anchor), `highlight` / `clearHighlights`; Studio's Fit view and 2D switch now live in `CameraSystem` |
+| 7 | Modes | `edit`, `view` (orbit), `walkthrough` (Preview's walking, read-only). Outside edit mode every edit command is refused: a test runs all 20 (H3) |
+| 8 | React components, bridge | `<LayoutViewer />`, `<LayoutEditor />` (edit = today's Studio, `onChange(layoutV2)`); the bridge reads the active Studio or viewer, tests run on both |
+| 9 | Test page | `viewer.html` mounts `<LayoutViewer mode="walkthrough" />`; `e2e/viewer-smoke.mjs` (14 checks): no Studio code (dev and production bundle), walking in, E with a module's action, edits refused, floors, view mode |
+
+Fixes found on the way: two engines on one page shared the saved 3D camera and 2D shadow list; a node with nothing
+visible gave a camera box of the whole world (Babylon returns ±MAX_VALUE).
+
 ---
 
 ## 4. Status against the plan
 
 | Workstream | Status | Notes |
 |---|---|---|
-| **A. Engine / embeddable** | 🟡 Partly | Schema, migration, anchors, undo: done. `LayoutEngine` and the 6 systems are still stubs (45 TODOs); `WorkplaceEditor.jsx` is 1,348 lines and doesn't use the engine |
+| **A. Engine / embeddable** | ✅ Done (H2, 22 Oct) | `LayoutEngine` draws, navigates, highlights and walks a layout on its own; `<LayoutViewer />` / `<LayoutEditor />`. Still to come: Studio rebuilt on the engine, `quality="low"` (H7), a package |
 | **B. Replica-grade building** | 🟡 Partly | Rooms, Stretch, doors and windows in-world: done. Free-form walls with shared walls, floor-plan tracing, dimensions/measure tool, templates: not started |
 | **C. Visual realism** | 🟡 Partly | Textured floors/walls/furniture, site, lighting, roofs, ceilings with lights: done. Real 3D models (GLB), post-processing: not done |
 | **D. Floors, routes, safety** | 🟡 Partly | Stacked floors, slabs, walkable stairs with openings: done. Elevators, evacuation routes, safety checks: not done |
 | **E. 2D floor plan (SVG)** | ❌ Not started | The "2D view" is still the 3D camera from above |
 | **F. Saving, versions, sync** | 🟡 Local only | Reliable auto-save and reopening in browser localStorage; two tabs can't overwrite each other (revisions); export / import files as a backup (15 Oct). No backend, versions or change events yet |
-| **Teammate integration** | ✅ In the editor | Bridge, saved hook points, real events, E actions, position links, demo modules. Still needed: embedding in Dhruv's app (Workstream A) |
+| **Teammate integration** | ✅ In Studio and viewers | Bridge, saved hook points, real events, E actions, position links, demo modules; works in `<LayoutViewer />` too. Next: Dhruv embeds the components |
 
 ---
 
@@ -346,7 +362,7 @@ Each fix is its own commit on branch `fix/next-fixes`, with tests.
 
 6. **Real backend and database.** Today all work is in browser localStorage: **clearing the browser deletes the layout**, and there is no login (anyone can open any company). Needs the database decision (section 7).
 7. **Versioned saves:** save version, list, restore, and conflict detection when two people edit.
-8. **Engine/UI split** (Workstream A): move scene setup and mesh syncing out of `WorkplaceEditor.jsx` into `LayoutEngine`, so Dhruv can embed `<LayoutEditor />` / `<LayoutViewer />`.
+8. ~~**Engine/UI split** (Workstream A)~~ ✅ done (H2, section 3.14). Later: rebuild Studio itself on `LayoutEngine`.
 9. **Floor-plan tracing:** upload a floor-plan image, set the scale, build over it.
 10. **Layout templates:** Small Office, Factory Floor, Clinic, etc.
 

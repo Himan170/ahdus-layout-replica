@@ -87,7 +87,8 @@ export function createPerformanceMonitor(engine) {
 // ─── 2D mode scene-level optimisations ───
 
 // Stash the shadow render list so we can restore it
-let _savedShadowRenderList = null;
+// Per shadow generator: two scenes on one page (a viewer and Studio) keep their own
+const _savedShadowRenderLists = new WeakMap();
 
 /**
  * Apply optimisations suited for 2D (top-down) rendering. Call this
@@ -100,7 +101,7 @@ export function apply2DOptimisations(scene, lights) {
   // 1. Disable shadows entirely — save the list first
   if (lights.shadowGenerator) {
     const shadowMap = lights.shadowGenerator.getShadowMap();
-    _savedShadowRenderList = shadowMap.renderList ? [...shadowMap.renderList] : [];
+    _savedShadowRenderLists.set(lights.shadowGenerator, shadowMap.renderList ? [...shadowMap.renderList] : []);
     shadowMap.renderList = [];
   }
 
@@ -152,10 +153,10 @@ export function apply2DOptimisations(scene, lights) {
  */
 export function restore3DRendering(scene, lights) {
   // 0. Restore shadow render list
-  if (lights.shadowGenerator && _savedShadowRenderList) {
-    const shadowMap = lights.shadowGenerator.getShadowMap();
-    shadowMap.renderList = _savedShadowRenderList;
-    _savedShadowRenderList = null;
+  const savedList = lights.shadowGenerator && _savedShadowRenderLists.get(lights.shadowGenerator);
+  if (savedList) {
+    lights.shadowGenerator.getShadowMap().renderList = savedList;
+    _savedShadowRenderLists.delete(lights.shadowGenerator);
   }
 
   // 1. Restore material detail

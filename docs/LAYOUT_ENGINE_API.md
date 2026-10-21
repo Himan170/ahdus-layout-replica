@@ -2,25 +2,28 @@
 
 **Module:** Company Digital Twin (Layout Replica)  
 **Owner:** Himan  
-**Version:** Draft 1 — 11 October 2026  
-**Status:** Proposed — discuss in the team integration meeting before coding begins
+**Version:** Draft 1 — 11 October 2026, updated 22 October 2026  
+**Status:** Built (see the status table below); the package name is still to come
 
 ---
 
 ## Implementation Status (read this first)
 
-This doc describes the **target** API. As of 13 Oct 2026, the running editor (`WorkplaceEditor.jsx`) uses the engine's **command history** for all edits, but does not mount `LayoutEngine` itself yet.
+As of 22 Oct 2026 (TEAM_TASKS H2 done): `LayoutEngine` draws a layout on its own, and `<LayoutViewer />` / `<LayoutEditor />` mount it in any page. The blank test page `viewer.html` (`e2e/viewer-smoke.mjs`) mounts `<LayoutViewer mode="walkthrough" />` with no editor UI loaded. There is no `@ahdus/layout-engine` package yet: import from `src/engine` (`@engine`) and `src/engine/react` (`@engine/react`).
 
 | Part | Status |
 |---|---|
-| Layout v2 schema (Zod) + v1 → v2 migration | ✅ Done, tested |
+| Layout v2 schema (Zod) + v1 → v2 migration, and back (`toV1`): a save, an exported file or v2 in, the same v2 out | ✅ Done, tested |
 | Anchors: auto-created, stable IDs, follow their object, keep `positionRef`/`label` | ✅ Done, tested |
-| Command history (add/delete/transform object, add/update/delete room) | ✅ Done, tested, **used by the editor**: every edit is undoable (`src/store/editorHistory.js`) |
-| `getAnchors`, `getAnchorsByRoom`, `getObjectById`, `on`/`off` events | ✅ Work on loaded data |
-| `setFloor`, `setView`, `focusOn`, `highlight`, `setMode` | ⏳ Stubs |
-| Systems in `engine/systems/`: `SceneSetup` (engine, scene, camera, lights, site), `RoomSystem`, `ObjectSystem`, `FloorSystem` (which storeys show) | ✅ Done, tested, **used by Workplace Studio** (20 Oct 2026). `PlacementSystem`, `SelectionSystem`, `WalkthroughSystem` are still stubs |
-| `LayoutEngine` drawing a loaded layout with those systems | ⏳ In progress (TEAM_TASKS H2) |
-| `<LayoutEditor />` / `<LayoutViewer />` React components, `@ahdus/layout-engine` package | ⏳ Not created yet; today import from `src/engine` |
+| Command history: every edit is undoable (`src/store/editorHistory.js`, also `engine.editor`) | ✅ Done, tested, used by Workplace Studio |
+| `loadLayout`, `getLayout`, `getAnchors`, `getAnchorsByRoom`, `getObjectById`, `on`/`off` events | ✅ Done, tested |
+| `setFloor`, `setView`, `focusOn`, `fitView`, `highlight`, `clearHighlights` | ✅ Done, tested |
+| `setMode`: `edit`, `view`, `walkthrough`; outside `edit` every edit is refused (TEAM_TASKS H3's test) | ✅ Done, tested |
+| Systems in `engine/systems/`: `SceneSetup`, `RoomSystem`, `ObjectSystem`, `FloorSystem`, `CameraSystem`, `HighlightSystem`, `WalkthroughSystem` | ✅ Done, tested (Studio draws with the first four). `PlacementSystem`, `SelectionSystem` are still stubs |
+| `<LayoutViewer />` (view / walkthrough) and `<LayoutEditor />` (edit = today's Workplace Studio) | ✅ Done; `e2e/viewer-smoke.mjs` |
+| `layoutBridge` in viewers (teammates' modules, "Press E" actions) | ✅ Done (`connectEngine`; rule in `TEAM_INTEGRATION.md`) |
+| `quality="low"` | ⏳ Accepted, changes nothing yet (TEAM_TASKS H7) |
+| `onSelect` in a viewer, clicking things in `view` mode | ⏳ Not yet (Studio's selection, through `<LayoutEditor />`, works) |
 | **Team integration (`src/integration/layoutBridge.js`)** | ✅ **Use this now.** Anchors live in the editor and are saved with the layout; `interact`, `enterRoom`, `exitRoom`, `anchorsChange` events; "Press E" actions; linking desks to positions (undoable). See **`docs/TEAM_INTEGRATION.md`** |
 
 Teammates should connect through **`layoutBridge`** today (see `docs/TEAM_INTEGRATION.md`). It uses the same Anchor type and event names as this document, and `LayoutEngine` will offer the same calls once the engine/UI split is done.
@@ -45,29 +48,33 @@ Dhruv's AHDUS app mounts the layout as a React component or instantiates the eng
 ### 2.1 React Component
 
 ```tsx
-import { LayoutEditor } from '@ahdus/layout-engine/react';
-import { LayoutViewer } from '@ahdus/layout-engine/react';
+import { LayoutEditor, LayoutViewer } from '@engine/react';   // later: '@ahdus/layout-engine/react'
 
-// Admin / designer view — full editing
+// Admin / designer: Workplace Studio (for now <LayoutEditor mode="edit"> wraps today's Studio)
 <LayoutEditor
-  layoutId="uuid-of-the-layout"
-  mode="edit"                     // "edit" | "view" | "walkthrough"
-  quality="high"                  // "high" | "low" (low = mobile / weak GPU)
-  onReady={(engine) => { ... }}   // called when engine is mounted and scene is ready
-  onSelect={(entity) => { ... }} // user clicked an object or room
-  onChange={(event) => { ... }}   // any state change (for activity monitoring)
+  layout={layoutJson}             // the layout you fetched: a save, an exported file or v2
+  mode="edit"                     // "edit" | "view" | "walkthrough" (view / walkthrough show a viewer)
+  onReady={(handle) => { ... }}   // edit: { mode: 'edit', getLayout() }; else the viewer's LayoutEngine
+  onSelect={({ entityId, entityType }) => { ... }} // a room or an item was selected
+  onChange={(layoutV2) => save(layoutV2)}          // the layout changed (v2; at most every 300 ms)
+  onExit={() => { ... }}          // Studio's "All layouts" was clicked
 />
 
-// Employee / visitor view — read-only, can walkthrough
+// Employee / visitor: read-only, look around or walk through
 <LayoutViewer
-  layoutId="uuid-of-the-layout"
-  mode="walkthrough"
-  quality="low"
-  onReady={(engine) => { ... }}
-  onInteract={({ anchorId, objectId }) => { ... }}
-  onEnterRoom={({ roomId }) => { ... }}
+  layout={layoutJson}
+  mode="walkthrough"              // "view" (orbit) | "walkthrough" (W A S D, mouse, E, Page Up / Down)
+  quality="low"                   // accepted; changes nothing yet (H7)
+  onReady={(engine) => { ... }}   // the LayoutEngine (focusOn, highlight, getAnchors, …)
+  onInteract={({ anchorId, objectId, roomId, part }) => { ... }}
+  onEnterRoom={({ roomId, roomName, fromRoomId }) => { ... }}
+  onExitRoom={({ roomId, toRoomId }) => { ... }}
+  onCard={(card) => { ... }}      // a card was shown (to show it in your own panel)
+  onError={(error) => { ... }}    // the layout could not be loaded
 />
 ```
+
+Instead of `layout`, both take `companyId` + `layoutId`: a layout saved in this browser (our test page uses it). Giving `<LayoutEditor />` back the layout `onChange` gave you doesn't reload Studio. Both connect to `layoutBridge` for you.
 
 ### 2.2 Imperative Engine API
 
@@ -83,13 +90,14 @@ const engine = await LayoutEngine.create(canvas, {
 });
 
 // --- Loading & Reading Data ---
-engine.loadLayout(layoutJson);       // Load a layout from JSON (schema v2)
-engine.getLayout(): Layout;          // Get the full current layout state as JSON
+engine.loadLayout(layoutJson);       // A save, an exported file or v2 (throws on bad data)
+engine.getLayout(): Layout;          // The current layout as v2 (null before loadLayout)
 
 // --- Navigation ---
 engine.setFloor(floorId);            // Switch to a specific floor
 engine.setView('3d');                // Switch between "3d" and "2d" views
-engine.focusOn(entityId);            // Animate camera to fly to a room or object
+engine.focusOn(entityId);            // Fly to a room, object or anchor (false if unknown)
+engine.fitView();                    // The whole building in view
 engine.highlight(entityIds, color?); // Highlight entities (e.g., for training,
                                      // explanations, or search results)
 engine.clearHighlights();            // Remove all highlights
@@ -106,18 +114,27 @@ engine.on('change', (event) => { ... });            // Any state mutation happen
 engine.on('enterRoom', ({ roomId }) => { ... });    // Walkthrough: entered a room
 engine.on('interact', ({ anchorId, objectId }) => { ... }); // E key / click in walkthrough
 
+// --- Mode and edits ---
+engine.setMode('walkthrough');       // "edit" | "view" | "walkthrough"
+engine.editor.addRoom({ ... });      // every Studio edit (store/editorHistory.js); outside edit mode
+                                     // each one changes nothing and returns { problem }
+engine.undo(); engine.redo();        // false outside edit mode
+engine.on('exitRoom', ({ roomId, toRoomId }) => { ... });
+
 // --- Cleanup ---
 engine.dispose();  // Destroy the Babylon scene and release GPU resources
 ```
 
+Without React: `connectEngine(engine)` from `src/integration/layoutBridge.js` connects an engine to the bridge (call the function it returns before `dispose()`).
+
 ### 2.3 Notes for Dhruv
 
 - The engine handles its own canvas sizing — just give it a container div and mount `<LayoutEditor />` inside it.
-- The engine does **not** handle authentication or API calls. The app shell (Dhruv's frontend) fetches the layout JSON from the backend and passes it to `loadLayout()`. Saving works the same way: call `engine.getLayout()` and POST it.
+- The engine does **not** handle authentication or API calls. The app shell (Dhruv's frontend) fetches the layout JSON from the backend and passes it as `layout` (or to `loadLayout()`). Saving: `<LayoutEditor onChange>` gives you the layout (v2) to POST, or call `engine.getLayout()`.
 - The `mode` determines what the user can do:
-  - `"edit"` — full editor with toolbar, side panels, placement, gizmos
+  - `"edit"` — Workplace Studio: Build panel, Inspector, gizmos, its Preview
   - `"view"` — read-only 3D view, can orbit and zoom but not change anything
-  - `"walkthrough"` — first-person WASD camera, interactions fire events
+  - `"walkthrough"` — Preview's character (third person; V switches to first person), W A S D, mouse, E; interactions fire events; nothing can be changed
 - Role-based mode selection (admin = edit, employee = walkthrough) is Dhruv's responsibility — the engine just follows the mode it's given.
 
 ---

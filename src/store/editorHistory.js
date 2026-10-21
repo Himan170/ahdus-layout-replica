@@ -30,31 +30,35 @@ import {
   UpdateRoomCommand,
 } from '../engine/commands/LayoutCommands';
 
-const store = () => useWorkspaceStore.getState();
-
 /**
- * Adapter: implements the engine's LayoutStore interface on top of the
- * Zustand store. Records keep the store's current (v1) field names
- * (floor, isLocked, scaleX...) — the commands only move patches around,
- * so they don't care about the shape.
+ * Adapter: implements the engine's LayoutStore interface on top of a
+ * workspace store (the app's, or a LayoutEngine's own). Records keep the
+ * store's current (v1) field names (floor, isLocked, scaleX...) — the
+ * commands only move patches around, so they don't care about the shape.
  */
-export const zustandLayoutStore = {
-  addObject: (data) => store().addObject(data).id,
-  updateObject: (id, patch) => store().updateObject(id, patch),
-  removeObject: (id) => store().removeObject(id),
-  getObject: (id) => store().objects[id],
+export function layoutStoreFor(workspace) {
+  const store = () => workspace.getState();
+  return {
+    addObject: (data) => store().addObject(data).id,
+    updateObject: (id, patch) => store().updateObject(id, patch),
+    removeObject: (id) => store().removeObject(id),
+    getObject: (id) => store().objects[id],
 
-  addRoom: (data) => store().addRoom(data).id,
-  updateRoom: (id, patch) => store().updateRoom(id, patch),
-  removeRoom: (id) => store().removeRoom(id),
-  getRoom: (id) => store().rooms[id],
+    addRoom: (data) => store().addRoom(data).id,
+    updateRoom: (id, patch) => store().updateRoom(id, patch),
+    removeRoom: (id) => store().removeRoom(id),
+    getRoom: (id) => store().rooms[id],
 
-  // Anchor POSITIONS are derived from objects (integration/anchorsFromStore.js);
-  // the store only keeps what other modules write on them (store.anchorData),
-  // which is changed through setAnchorData below.
-  addAnchor: () => {},
-  removeAnchor: () => {},
-};
+    // Anchor POSITIONS are derived from objects (integration/anchorsFromStore.js);
+    // the store only keeps what other modules write on them (store.anchorData),
+    // which is changed through setAnchorData below.
+    addAnchor: () => {},
+    removeAnchor: () => {},
+  };
+}
+
+/** The adapter on the app's store. */
+export const zustandLayoutStore = layoutStoreFor(useWorkspaceStore);
 
 /** Fields that describe the record itself, not UI state. */
 function withoutUiState(record) {
@@ -68,27 +72,28 @@ function withoutUiState(record) {
  * floor deletes its rooms and objects). Snapshots before and after.
  */
 class SnapshotCommand {
-  constructor(label, mutate) {
+  constructor(label, mutate, store) {
     this.label = label;
     this.mutate = mutate;
+    this.store = store;
     this.before = null;
     this.after = null;
   }
-  static capture() {
-    const { floors, rooms, objects, currentFloor } = store();
+  capture() {
+    const { floors, rooms, objects, currentFloor } = this.store();
     return { floors, rooms, objects, currentFloor };
   }
   execute() {
     if (!this.after) {
-      this.before = SnapshotCommand.capture();
+      this.before = this.capture();
       this.mutate();
-      this.after = SnapshotCommand.capture();
+      this.after = this.capture();
     } else {
-      store().replaceLayoutState(this.after);
+      this.store().replaceLayoutState(this.after);
     }
   }
   undo() {
-    store().replaceLayoutState(this.before);
+    this.store().replaceLayoutState(this.before);
   }
 }
 
@@ -108,9 +113,9 @@ class CompositeCommand {
  * door shared by two rooms is one undo step).
  */
 class RoomGroupCommand extends CompositeCommand {
-  constructor(label, roomPatches, mergeKey) {
+  constructor(label, roomPatches, mergeKey, layoutStore) {
     super(label, roomPatches.map(([roomId, patch]) =>
-      new UpdateRoomCommand(zustandLayoutStore, roomId, patch, { mergeKey: mergeKey ? `group:${mergeKey}` : undefined })));
+      new UpdateRoomCommand(layoutStore, roomId, patch, { mergeKey: mergeKey ? `group:${mergeKey}` : undefined })));
     this.mergeKey = mergeKey;
     this.roomIds = roomPatches.map(([roomId]) => roomId).join('|');
   }
@@ -131,17 +136,18 @@ class RoomGroupCommand extends CompositeCommand {
  * the same target (a burst of + / − presses on one room, typing in a field).
  */
 class HeightsCommand {
-  constructor(label, planFn, mergeKey, target) {
+  constructor(label, planFn, mergeKey, target, store) {
     this.label = label;
     this.planFn = planFn;
+    this.store = store;
     this.mergeKey = mergeKey;
     this.target = target; // 'room:<id>' or 'floor:<id>'
     this.before = null;
     this.after = null;
   }
-  static apply(floorId, { height, rooms }) {
-    store().setFloorHeight(floorId, height);
-    for (const [id, wallHeight] of rooms) store().updateRoom(id, { wallHeight });
+  apply(floorId, { height, rooms }) {
+    this.store().setFloorHeight(floorId, height);
+    for (const [id, wallHeight] of rooms) this.store().updateRoom(id, { wallHeight });
   }
   execute() {
     if (!this.after) {
@@ -149,14 +155,14 @@ class HeightsCommand {
       this.floorId = plan.floorId;
       this.after = { height: plan.height, rooms: new Map(plan.rooms) };
       this.before = {
-        height: floorHeight(store().floors, plan.floorId),
-        rooms: new Map(plan.rooms.map(([id]) => [id, store().rooms[id]?.wallHeight])),
+        height: floorHeight(this.store().floors, plan.floorId),
+        rooms: new Map(plan.rooms.map(([id]) => [id, this.store().rooms[id]?.wallHeight])),
       };
     }
-    HeightsCommand.apply(this.floorId, this.after);
+    this.apply(this.floorId, this.after);
   }
   undo() {
-    HeightsCommand.apply(this.floorId, this.before);
+    this.apply(this.floorId, this.before);
   }
   mergeWith(next) {
     if (!(next instanceof HeightsCommand) || !this.mergeKey || next.mergeKey !== this.mergeKey ||
@@ -177,7 +183,8 @@ const OPENING_LIST = { door: 'doors', window: 'windows' };
  * (typing a position ID letter by letter).
  */
 class AnchorDataCommand {
-  constructor(anchorId, patch, { label = 'Edit link', mergeKey } = {}) {
+  constructor(anchorId, patch, { label = 'Edit link', mergeKey } = {}, store) {
+    this.store = store;
     this.anchorId = anchorId;
     this.patch = { ...patch };
     this.label = label;
@@ -185,13 +192,13 @@ class AnchorDataCommand {
     this.before = undefined;
   }
   execute() {
-    if (this.before === undefined) this.before = store().anchorData[this.anchorId] ?? null;
-    store().setAnchorData(this.anchorId, this.patch);
+    if (this.before === undefined) this.before = this.store().anchorData[this.anchorId] ?? null;
+    this.store().setAnchorData(this.anchorId, this.patch);
   }
   undo() {
     // Restore exactly what was there before: clear every key we touched, then put old values back
     const clear = Object.fromEntries(Object.keys(this.patch).map((k) => [k, null]));
-    store().setAnchorData(this.anchorId, { ...clear, ...(this.before ?? {}) });
+    this.store().setAnchorData(this.anchorId, { ...clear, ...(this.before ?? {}) });
   }
   mergeWith(next) {
     if (!(next instanceof AnchorDataCommand) || !this.mergeKey ||
@@ -218,9 +225,11 @@ export function inputTime() {
 /**
  * Create the editor's action set with its own undo history.
  * @param {(state: {canUndo: boolean, canRedo: boolean, undoLabel: string|null, redoLabel: string|null}) => void} [onChange]
- * @param {{ now?: () => number }} [options]  now: input clock (tests pass a fake one)
+ * @param {{ now?: () => number, workspace?: object }} [options]  now: input clock (tests pass a fake one);
+ *   workspace: the store to edit (default the app's; a LayoutEngine passes its own)
  */
-export function createEditorHistory(onChange, { now = inputTime } = {}) {
+export function createEditorHistory(onChange, { now = inputTime, workspace = useWorkspaceStore } = {}) {
+  const store = () => workspace.getState();
   const history = new CommandHistory({
     maxSize: 200,
     now,
@@ -232,7 +241,7 @@ export function createEditorHistory(onChange, { now = inputTime } = {}) {
         redoLabel: history.redoLabel,
       }),
   });
-  const s = zustandLayoutStore;
+  const s = workspace === useWorkspaceStore ? zustandLayoutStore : layoutStoreFor(workspace);
   const run = (cmd) => history.execute(cmd);
 
   const api = {
@@ -293,7 +302,7 @@ export function createEditorHistory(onChange, { now = inputTime } = {}) {
       run(new CompositeCommand(add.label, [add, new HeightsCommand(add.label, () => {
         const room = s.getRoom(store().selectedRoomId);
         return planWallHeight(store().floors, Object.values(store().rooms), room, room.wallHeight);
-      })]));
+      }, undefined, undefined, store)]));
     },
     deleteRoom(id) {
       if (!s.getRoom(id)) return;
@@ -326,7 +335,7 @@ export function createEditorHistory(onChange, { now = inputTime } = {}) {
       if (!room) return { problem: 'This room is gone' };
       const plan = planWallHeight(store().floors, Object.values(store().rooms), room, wallHeight);
       if (plan.problem || plan.rooms.length === 0) return plan;
-      run(new HeightsCommand(label ?? `Wall height of ${room.name}`, () => plan, mergeKey, `room:${id}`));
+      run(new HeightsCommand(label ?? `Wall height of ${room.name}`, () => plan, mergeKey, `room:${id}`, store));
       return plan;
     },
 
@@ -340,7 +349,7 @@ export function createEditorHistory(onChange, { now = inputTime } = {}) {
       const plan = planFloorHeight(store().floors, Object.values(store().rooms), floorId, height);
       if (plan.problem) return plan;
       if (Math.abs(plan.height - floorHeight(store().floors, floorId)) < 1e-6 && plan.rooms.length === 0) return plan;
-      run(new HeightsCommand(label ?? `Height of ${store().floors[floorId].name}`, () => plan, mergeKey, `floor:${floorId}`));
+      run(new HeightsCommand(label ?? `Height of ${store().floors[floorId].name}`, () => plan, mergeKey, `floor:${floorId}`, store));
       return plan;
     },
     toggleDoor(roomId, wall) {
@@ -421,7 +430,7 @@ export function createEditorHistory(onChange, { now = inputTime } = {}) {
           JSON.stringify(room.windows ?? []) !== JSON.stringify(patch.windows);
       });
       if (patches.length === 0) return;
-      run(new RoomGroupCommand(label ?? `Resize ${list[0].kind}`, patches, mergeKey));
+      run(new RoomGroupCommand(label ?? `Resize ${list[0].kind}`, patches, mergeKey, s));
     },
 
     // ── Anchors (hook points for other modules) ──
@@ -434,7 +443,7 @@ export function createEditorHistory(onChange, { now = inputTime } = {}) {
       const current = store().anchorData[anchorId] ?? {};
       const changed = Object.entries(patch).some(([k, v]) => (current[k] ?? null) !== (v || null));
       if (!changed) return;
-      run(new AnchorDataCommand(anchorId, patch, options));
+      run(new AnchorDataCommand(anchorId, patch, options, store));
     },
 
     // ── Floors ──
@@ -456,7 +465,7 @@ export function createEditorHistory(onChange, { now = inputTime } = {}) {
         if (from === null) return;
         for (const data of copyRoomsUp(Object.values(st.rooms), from, newId)) store().addRoom(data);
         store().selectRoom(null);
-      }));
+      }, store));
       return newId;
     },
     /**
@@ -466,11 +475,11 @@ export function createEditorHistory(onChange, { now = inputTime } = {}) {
     removeFloor(floorId) {
       if (!store().floors[floorId]) return { problem: 'This floor is gone' };
       if (isGroundFloor(store().floors, floorId)) return { problem: GROUND_FLOOR_STAYS };
-      run(new SnapshotCommand('Remove floor', () => store().removeFloor(floorId)));
+      run(new SnapshotCommand('Remove floor', () => store().removeFloor(floorId), store));
       return { problem: null };
     },
     renameFloor(floorId, newName) {
-      run(new SnapshotCommand('Rename floor', () => store().renameFloor(floorId, newName)));
+      run(new SnapshotCommand('Rename floor', () => store().renameFloor(floorId, newName), store));
     },
 
     // ── History ──

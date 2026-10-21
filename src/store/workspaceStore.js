@@ -44,7 +44,12 @@ function nextName(label, records) {
 }
 
 // ─── Zustand Store ───
-export const useWorkspaceStore = create(
+/**
+ * A new, empty store. The app has one (useWorkspaceStore, below); each
+ * LayoutEngine (engine/LayoutEngine.ts) keeps its own copy of a layout in
+ * another, so a viewer and Workplace Studio can be open on one page.
+ */
+export const createWorkspaceStore = () => create(
   subscribeWithSelector((set, get) => ({
     // ━━ Tenant / Layout context ━━
     companyId:  null,
@@ -523,6 +528,9 @@ export const useWorkspaceStore = create(
     },
   }))
 );
+
+/** The app's store: Workplace Studio and Preview edit the layout in it. */
+export const useWorkspaceStore = createWorkspaceStore();
 
 // ─── Convenience selectors ───
 

@@ -47,7 +47,13 @@ describe('v1 → v2 migration', () => {
     const layout = loadLayout(v1Fixture());
     const desk = layout.objects.find((o) => o.id === 'obj_1')!;
     expect(desk.label).toBe('DESK_STANDARD 1');
-    expect(desk.metadata).toEqual({ category: 'furniture' });
+    // name too: it isn't the label (that was empty), so toV1 can give both back
+    expect(desk.metadata).toEqual({ category: 'furniture', name: 'DESK_STANDARD 1' });
+  });
+
+  it('reads an exported layout file (the layout is inside it)', () => {
+    const file = { format: 'ahdus-layout', formatVersion: 1, layout: v1Fixture() };
+    expect(loadLayout(file).rooms.map((r) => r.id)).toEqual(loadLayout(v1Fixture()).rooms.map((r) => r.id));
   });
 
   it('converts doors to openings with stable IDs', () => {
