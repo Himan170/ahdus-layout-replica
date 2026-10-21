@@ -853,7 +853,8 @@ export default function WorkplaceEditor({ onExit }) {
         showStudioMessage(`Would overlap ${plan.blocker.name}`, true);
         return;
       }
-      patch = { ...patch, width: plan.rect.width, depth: plan.rect.depth };
+      // An edge that lands near a wall snaps onto it, which can move the centre a little
+      patch = { ...patch, ...plan.rect };
     }
     editor.updateRoom(id, patch, { mergeKey });
   }, [editor, showStudioMessage]);

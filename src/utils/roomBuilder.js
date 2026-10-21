@@ -280,14 +280,17 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         return addPart(box, meta, material, opts);
       };
 
-      // A shared piece is a mesh of its own: picking it and outlining it depend on both rooms
+      // A shared piece is a mesh of its own: picking it and outlining it depend on both rooms.
+      // (`roomId` is whose wall the part is: this room's, or the partner's for its doors and windows.)
       const partner = segment.shared ? segment.partnerRoom.id : null;
-      const shared = (roomId, wallName) => (!partner ? {} : {
+      const shared = (roomId) => (!partner ? {} : {
         sharedWith: roomId === id ? partner : id,
-        sharedWall: OPPOSITE[wallName],
+        sharedWall: roomId === id ? segment.partnerWall ?? OPPOSITE[wall.name] : wall.name,
         sharedAt: segment.worldValue,
+        // standing on the outer room's wall: from inside it is this room's, from outside the outer room's
+        ...(segment.sameSide ? { sameSide: true, innerRoom: id, outerRoom: partner } : {}),
       });
-      const wallMeta = { part: 'wall', wallName: wall.name, ...shared(id, wall.name) };
+      const wallMeta = { part: 'wall', wallName: wall.name, ...shared(id) };
       pieces.forEach((p, i) => {
         const u0 = p.u0 + segmentCentre;
         const u1 = p.u1 + segmentCentre;
@@ -306,7 +309,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         const u1 = localCentre + o.width / 2 + segmentCentre;
         const meta = {
           part: o.kind, wallName: o.sourceWall, openingKind: o.kind, openingIndex: o.index,
-          roomId: o.roomId, ...shared(o.roomId, o.sourceWall),
+          roomId: o.roomId, ...shared(o.roomId),
         };
         const frameMat = o.kind === 'door' ? mats.doorFrame() : mats.windowFrame();
         const D = T + FRAME_DEPTH_EXTRA;

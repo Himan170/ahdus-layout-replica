@@ -244,3 +244,48 @@ describe('a room inside a room never has a wall face in the same place as the en
     expect(root.getChildMeshes(false).some((m) => m.metadata.part === 'roof')).toBe(true);
   });
 });
+
+describe('a room inside a room standing on its wall: one wall, built by the inner room', () => {
+  // office x -8..8, z -5..5; B stands on its east wall (x = 8) and north wall (z = 5)
+  const office = { id: 'office', floor: 0, x: 0, z: 0, width: 16, depth: 10, wallHeight: 3.2, doors: [], windows: [] };
+  const b = { id: 'b', floor: 0, x: 6.075, z: 2, width: 3.85, depth: 6, wallHeight: 3.2, doors: [], windows: [] };
+  const rooms = [office, b];
+  const T = 0.15;
+  const rayHits = (root, from, dir) => root.getChildMeshes(false)
+    .filter((m) => m.metadata?.part === 'wall' && m.isPickable)
+    .map((m) => ({ m, hit: new Ray(from, dir, 10).intersectsMesh(m) }))
+    .filter((r) => r.hit.hit);
+
+  it('the office builds no wall where B stands on it; B builds it on the office\'s line, full thickness', () => {
+    const officeRoot = build(office, rooms);
+    expect(rayHits(officeRoot, new Vector3(7, 1, 2), new Vector3(1, 0, 0))).toEqual([]);   // across B's stretch: nothing
+    expect(rayHits(officeRoot, new Vector3(7, 1, -3), new Vector3(1, 0, 0))).toHaveLength(1); // south of B: the office's wall
+    const bRoot = build(b, rooms, { nested: true, roofCovered: true });
+    const [east] = wallMeshes(bRoot, 'east');
+    expect(bounds(east).minimumWorld.x).toBeCloseTo(8 - T / 2);
+    expect(bounds(east).maximumWorld.x).toBeCloseTo(8 + T / 2);
+    expect(east.metadata).toMatchObject({ sharedWith: 'office', sharedWall: 'east', sameSide: true, innerRoom: 'b', outerRoom: 'office' });
+  });
+
+  it('picking it from inside means B, from outside the office', () => {
+    const bRoot = build(b, rooms, { nested: true, roofCovered: true });
+    const [inside] = rayHits(bRoot, new Vector3(7, 1, 2), new Vector3(1, 0, 0));
+    const [outside] = rayHits(bRoot, new Vector3(9.5, 1, 2), new Vector3(-1, 0, 0));
+    expect(wallTargetOf(inside.hit)).toEqual({ roomId: 'b', wallName: 'east' });
+    expect(wallTargetOf(outside.hit)).toEqual({ roomId: 'office', wallName: 'east' });
+  });
+
+  it('B\'s south wall stops at the office wall\'s inside face (nothing in the same place)', () => {
+    const bRoot = build(b, rooms, { nested: true, roofCovered: true });
+    const [south] = wallMeshes(bRoot, 'south');
+    expect(bounds(south).maximumWorld.x).toBeCloseTo(8 - T / 2);
+  });
+
+  it('a door stored on both rooms is drawn once, in B\'s piece', () => {
+    const door = { wall: 'east', width: 1, height: 2.1 };
+    const withDoor = [{ ...office, doors: [{ ...door, offset: 2 }] }, { ...b, doors: [{ ...door, offset: 0 }] }];
+    const frames = (root) => root.getChildMeshes(false).filter((m) => m.metadata?.part === 'door' && !m.metadata.pickPane);
+    expect(frames(build(withDoor[0], withDoor))).toEqual([]);
+    expect(frames(build(withDoor[1], withDoor, { nested: true })).length).toBeGreaterThan(0);
+  });
+});

@@ -49,15 +49,19 @@ describe('planRoom (Build mode clicks and planner drags)', () => {
     expect(overlapping.blocker?.id).toBe('cabin');
   });
 
-  it('allows a room up to the usable inner boundary and rejects one beyond it', () => {
-    const outer = { ...office(), width: 12, depth: 10 };
-    const atBoundary = planRoom({ x: 1.85, z: -1.5 }, { x: 5.85, z: 1.5 }, [outer]);
-    expect(atBoundary.blocker).toBeNull();
-    expect(atBoundary.rect.x).toBeCloseTo(3.85);
+  it('a room drawn up to the outer wall stands on it; one sticking out further is blocked', () => {
+    const outer = { ...office(), width: 12, depth: 10 };   // x -6..6
+    const nearWall = planRoom({ x: 1.85, z: -1.5 }, { x: 5.85, z: 1.5 }, [outer]);
+    expect(nearWall.blocker).toBeNull();
+    expect(nearWall.rect.x + nearWall.rect.width / 2).toBeCloseTo(6); // on the outer wall's line
 
-    const tooFar = planRoom({ x: 1.9, z: -1.5 }, { x: 5.9, z: 1.5 }, [outer]);
+    const clear = planRoom({ x: 1.5, z: -1.5 }, { x: 5.5, z: 1.5 }, [outer]); // 0.5 m in: stays
+    expect(clear.rect.x + clear.rect.width / 2).toBeCloseTo(5.5);
+    expect(clear.blocker).toBeNull();
+
+    const tooFar = planRoom({ x: 2.5, z: -1.5 }, { x: 6.5, z: 1.5 }, [outer]);
     expect(tooFar.blocker?.id).toBe(outer.id);
-    expect(tooFar.rect.x).toBeCloseTo(3.9);
+    expect(tooFar.rect.x).toBeCloseTo(4.5);
   });
 
   it('does not snap a boundary-crossing nested attempt to the office exterior', () => {
@@ -75,7 +79,7 @@ describe('planRoom (Build mode clicks and planner drags)', () => {
     expect(inside.rect).toEqual({ x: 0, z: 0, width: 4, depth: 3 });
     expect(inside.blocker).toBeNull();
 
-    const outside = planRoom({ x: 1.9, z: -1.5 }, { x: 5.9, z: 1.5 }, rooms);
+    const outside = planRoom({ x: 2.5, z: -1.5 }, { x: 6.5, z: 1.5 }, rooms);
     expect(outside.blocker?.id).toBe('office');
   });
 });
@@ -112,7 +116,13 @@ describe('planRoomResize', () => {
   });
 
   it('rejects a nested room resize that crosses the enclosing wall', () => {
-    expect(planRoomResize(meeting, 12, 3, [outer, meeting]).blocker?.id).toBe('office');
+    expect(planRoomResize(meeting, 13, 3, [outer, meeting]).blocker?.id).toBe('office');
+  });
+
+  it('a resize that ends near the outer walls makes the room stand on them (wall to wall)', () => {
+    const plan = planRoomResize(meeting, 11.8, 3, [outer, meeting]);
+    expect(plan.blocker).toBeNull();
+    expect(plan.rect).toEqual({ x: 0, z: 0, width: 12, depth: 3 });
   });
 
   it('keeps children inside when resizing their enclosing room', () => {
