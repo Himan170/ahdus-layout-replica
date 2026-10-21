@@ -2,7 +2,7 @@
 
 **For:** Harsh, Karthik, Yashashwi, Dhruv, Sunil & Kavyashree
 **Owner of the layout module:** Himan
-**Status:** working in the editor's Build mode (13 Oct 2026)
+**Status:** working in Workplace Studio's Preview and in viewers (`<LayoutViewer />`, 22 Oct 2026)
 
 The layout module is the 3D company building. It knows **where** things are (desks, chairs, machines, reception desks) and **when** the user does something (presses **E** on an object, walks into a room). Your module decides **what happens**: play a video, start a conversation, show handover notes.
 
@@ -69,7 +69,7 @@ Each anchor looks like this:
 | `getObject(objectId)` | `{ id, assetType, label, category, department, roomId, floorId, position, rotationY, isLocked }` |
 | `getRoom(roomId)` / `getRooms({ floorId? })` | `{ id, name, type, typeLabel, floorId, center, width, depth }` |
 | `getCurrentFloor()` | `{ id, name }` |
-| `getPlayer()` | `{ position, yaw, roomId }`, or null outside Build mode |
+| `getPlayer()` | `{ position, yaw, roomId }`, or null when no one is walking (Studio's Preview or a viewer's walkthrough) |
 | `getScene()` | The Babylon.js scene, for drawing your own 3D things |
 
 ### Writing (undoable with Ctrl+Z, saved with the layout)
@@ -78,6 +78,8 @@ Each anchor looks like this:
 |---|---|
 | `setPositionRef(anchorId, positionId \| null)` | Link a desk to an org position, or remove the link |
 | `setAnchorLabel(anchorId, label)` | Give a hook point a name |
+
+Both return `false` (and change nothing) when the anchor doesn't exist, or when the layout in use can't be changed: a viewer in `view` or `walkthrough` mode (employees only look and walk).
 
 ### Events
 
@@ -132,6 +134,18 @@ layoutBridge.showCard({ title: 'CNC Machine', body: 'Line one\nLine two', durati
 A simple card in Build mode, until Dhruv's app shell gives each module its own UI area.
 
 ---
+
+### In a viewer: which layout the bridge uses
+
+Most of your modules will run inside a **viewer**, `<LayoutViewer mode="walkthrough" />` (see `LAYOUT_ENGINE_API.md`), not in Workplace Studio. The bridge works the same there, with the same calls and events. Walking into rooms gives `enterRoom` / `exitRoom`, pressing E gives `interact` and runs your "Press E" action, and `getScene()` is the viewer's scene.
+
+Each viewer keeps its own copy of the layout, and Studio uses the app's. When more than one is on the page, the bridge uses **one** of them:
+
+1. The one in **edit** (Studio) or **walkthrough** mode. A `view`-mode viewer only shows the layout, so it doesn't take the bridge from Studio.
+2. If several qualify, the one **mounted last**.
+3. When it closes, the bridge goes back to the one before it (no viewer and no Studio: the app's saved layout).
+
+`anchorsChange` fires when the bridge switches to a layout with other anchors. Events (`enterRoom`, `interact`, …) come from whichever one the user is walking in. A viewer made with `<LayoutViewer />` or `<LayoutEditor />` is connected for you. If you use `LayoutEngine` directly, call `connectEngine(engine)` from `@/integration/layoutBridge` (it returns `disconnect`).
 
 ## 4. Recipes per teammate
 
@@ -211,15 +225,15 @@ The user and company should be added **by the backend from the login**, not trus
 
 ### Dhruv: app shell
 
-- The editor is still mounted as `<WorkplaceEditor />`. The embeddable `<LayoutEditor />` / `<LayoutViewer />` from `LAYOUT_ENGINE_API.md` is the next big step.
-- `layoutBridge` works as long as the editor is open, and is the same object whichever page imports it.
+- Mount `<LayoutEditor layout={json} mode="edit" onChange={save} />` for admins and `<LayoutViewer layout={json} mode="walkthrough" />` for employees (`src/engine/react`, props in `LAYOUT_ENGINE_API.md`). You fetch the layout JSON and save what `onChange` gives you (v2).
+- `layoutBridge` is the same object whichever page imports it, and follows the rule above when Studio and viewers share a page.
 - `showCard` is temporary. When your shell has a panel area, modules should render there instead.
 
 ---
 
 ## 5. Limits right now
 
-- Events and E-interactions happen in **Build mode** only (not in the planner).
+- Events and E-interactions happen while walking: Studio's **Preview**, or a viewer in **walkthrough** mode (not in Studio's planner, not in a `view`-mode viewer).
 - Multi-storey: anchor and object positions are world positions (an object on Floor 1 is one floor height higher, 3.5 m by default; floors can be taller). Use `floorId` to tell floors apart; the `getPlayer()` result and room events follow the floor the character is on.
 - `showCard` is a placeholder UI.
 - Layout data is saved in the browser (localStorage) until the backend exists. Links (`positionRef`) are saved with it.

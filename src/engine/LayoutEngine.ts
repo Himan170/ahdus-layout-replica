@@ -42,7 +42,7 @@ import type { Scene } from '@babylonjs/core/scene';
 
 import type { Layout, Anchor, LayoutObject, AnchorKind } from './model/schema';
 import { loadLayout as parseLayout } from './model/migrate';
-import { toV1, storeFloorIds } from './model/toV1';
+import { toV1, storeFloorIds, mergeV2Extras } from './model/toV1';
 import { CommandHistory } from './commands/CommandHistory';
 import type { Command } from './commands/CommandHistory';
 import { createLayoutScene } from './systems/SceneSetup';
@@ -87,6 +87,10 @@ export interface InteractEvent {
   objectId: string | null;
   position: { x: number; y: number; z: number };
   roomId: string;
+  /** 'door' or 'window' when E was pressed on one; null on an item. */
+  part: string | null;
+  /** How far the character stood from it (m). */
+  distance: number;
 }
 
 export interface EnterRoomEvent {
@@ -162,6 +166,12 @@ export class LayoutEngine {
 
   // Walkthrough mode (made the first time it is needed: it needs the canvas)
   private _walkthrough: WalkthroughSystem | null = null;
+
+  /**
+   * What E would do on what the character looks at, for the walkthrough's
+   * prompt; layoutBridge.connectEngine sets it (modules' "Press E" actions).
+   */
+  describeInteraction: ((target: WalkthroughTarget) => { label: string; name: string; handled: boolean } | null) | null = null;
   private _loading = false;
 
   // Event bus (one Set per event name; typed at the on/off/emit boundary)
@@ -522,6 +532,7 @@ export class LayoutEngine {
         onLevelChange: (floorId) => state().selectFloor(floorId),
         onViewChange: ({ inside, level }) => this.floors.setView({ mode: inside ? 'inside' : 'outside', level }),
         onHud: (info) => this.emit('hud', info),
+        describeInteraction: (target) => this.describeInteraction?.(target) ?? null,
       },
     );
     return this._walkthrough;
@@ -536,6 +547,8 @@ export class LayoutEngine {
       objectId: obj?.id ?? null,
       position: target.point,
       roomId: obj?.roomId ?? target.roomId ?? this._walkthrough?.getRoomId() ?? '',
+      part: obj ? null : target.part ?? null,
+      distance: target.distance,
     };
   }
 
@@ -549,26 +562,9 @@ export class LayoutEngine {
     this.highlights.apply();
   }
 
-  /**
-   * The store's layout as v2, plus what only v2 has, from the layout as it
-   * was loaded: the building's address and north angle, routes, floor links,
-   * floor underlays and anchors that aren't on an object.
-   */
+  /** The store's layout as v2, plus what only v2 has (model/toV1.mergeV2Extras). */
   private _exportLayout(loaded: Layout): Layout {
-    const layout = parseLayout(this._store.getState().exportWorkspace());
-    const floorOf = storeFloorIds(loaded.floors);
-    const underlays = new Map(loaded.floors.filter((f) => f.underlay).map((f) => [floorOf(f.id), f.underlay]));
-    return {
-      ...layout,
-      building: { ...loaded.building, name: layout.building.name },
-      floors: layout.floors.map((f) => (underlays.has(Number(f.id)) ? { ...f, underlay: underlays.get(Number(f.id)) } : f)),
-      anchors: [
-        ...loaded.anchors.filter((a) => !a.objectId).map((a) => ({ ...a, floorId: floorOf(a.floorId) })),
-        ...layout.anchors,
-      ],
-      routes: loaded.routes.map((r) => ({ ...r, floorId: floorOf(r.floorId) })),
-      floorLinks: loaded.floorLinks,
-    };
+    return mergeV2Extras(parseLayout(this._store.getState().exportWorkspace()), loaded);
   }
 
   private _emitChange(type: string, entityId: string): void {

@@ -218,3 +218,25 @@ export function toV1(layout: Layout): V1Layout {
     anchorData: buildAnchorData(layout.anchors),
   };
 }
+
+/**
+ * The store's layout (exported and migrated back to v2) plus what only v2
+ * has, from the layout as it was loaded: the building's address and north
+ * angle, routes, floor links, floor underlays and anchors that aren't on an
+ * object. So v2 in → edit → v2 out keeps them.
+ */
+export function mergeV2Extras(current: Layout, loaded: Layout): Layout {
+  const floorOf = storeFloorIds(loaded.floors);
+  const underlays = new Map(loaded.floors.filter((f) => f.underlay).map((f) => [floorOf(f.id), f.underlay]));
+  return {
+    ...current,
+    building: { ...loaded.building, name: current.building.name },
+    floors: current.floors.map((f) => (underlays.has(Number(f.id)) ? { ...f, underlay: underlays.get(Number(f.id)) } : f)),
+    anchors: [
+      ...loaded.anchors.filter((a) => !a.objectId).map((a) => ({ ...a, floorId: floorOf(a.floorId) })),
+      ...current.anchors,
+    ],
+    routes: loaded.routes.map((r) => ({ ...r, floorId: floorOf(r.floorId) })),
+    floorLinks: loaded.floorLinks,
+  };
+}

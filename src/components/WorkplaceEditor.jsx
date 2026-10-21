@@ -75,27 +75,6 @@ import { anchorsForObject } from '../integration/anchorsFromStore';
 const DEMO_MODULES = typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('demoModules');
 
-const ANCHOR_KIND_LABEL = {
-  machine: 'Machine', workstation: 'Workstation', seat: 'Seat',
-  reception: 'Reception', spawn: 'Spawn point', 'info-point': 'Info point',
-};
-
-/** Card shown when no module has an action for what you pressed E on. */
-function defaultInteractionCard(t, positions) {
-  const name = t.object?.label ?? (t.kind === 'door' ? 'Door' : t.kind === 'window' ? 'Window' : 'This');
-  const facts = [];
-  if (t.anchorKind) facts.push(`Hook point: ${ANCHOR_KIND_LABEL[t.anchorKind] ?? t.anchorKind}`);
-  if (t.room) facts.push(t.room.name);
-  if (t.positionRef) {
-    const pos = positions.find((p) => p.id === t.positionRef);
-    facts.push(`Linked position: ${pos?.title ?? t.positionRef}`);
-  }
-  return {
-    title: name,
-    body: `${facts.join(' · ')}${facts.length ? '\n' : ''}No module has an action for this yet.`,
-  };
-}
-
 // Shallow compare for Zustand selector stability
 const shallow = (a, b) => {
   if (Object.is(a, b)) return true;
@@ -360,38 +339,18 @@ export default function WorkplaceEditor({ onExit }) {
       },
       onExit: () => exitPlayRef.current(),
       // ── Team integration: E and rooms become events other modules listen to ──
-      describeInteraction: (raw) => {
-        const t = layoutBridge._describeTarget(raw);
-        const action = layoutBridge._interactionFor(t);
-        return {
-          label: action?.label ?? 'Details',
-          name: t.object?.label ?? (t.kind === 'door' ? 'Door' : t.kind === 'window' ? 'Window' : ''),
-          handled: !!action,
-        };
-      },
-      onInteract: (raw) => {
-        const t = layoutBridge._describeTarget(raw);
-        layoutBridge._emit('interact', t);
-        const action = layoutBridge._interactionFor(t);
-        if (action) {
-          try {
-            action.run(t);
-          } catch (err) {
-            console.error(`[layoutBridge] interaction "${action.id}" failed:`, err);
-          }
-        } else {
-          showCard(defaultInteractionCard(t, layoutBridge.getPositions()));
-        }
-      },
+      // (described from Studio's own layout, even with a viewer open on the page)
+      describeInteraction: (raw) => layoutBridge._prompt(raw, bridgeContext),
+      onInteract: (raw) => layoutBridge._interact(raw, bridgeContext),
       onRoomChange: (from, to) => {
         if (from) {
           layoutBridge._emit('exitRoom', {
-            roomId: from.id, room: layoutBridge.getRoom(from.id), floorId: from.floor, toRoomId: to?.id ?? null,
+            roomId: from.id, room: layoutBridge._roomView(from.id, bridgeContext), floorId: from.floor, toRoomId: to?.id ?? null,
           });
         }
         if (to) {
           layoutBridge._emit('enterRoom', {
-            roomId: to.id, room: layoutBridge.getRoom(to.id), floorId: to.floor, fromRoomId: from?.id ?? null,
+            roomId: to.id, room: layoutBridge._roomView(to.id, bridgeContext), floorId: to.floor, fromRoomId: from?.id ?? null,
           });
         }
       },
@@ -428,6 +387,7 @@ export default function WorkplaceEditor({ onExit }) {
       cardTimerRef.current = setTimeout(() => setInteraction(null), duration);
     }
     const bridgeContext = {
+      mode: 'edit', // Studio edits the app's store (no `store`: the default)
       editor,
       scene,
       play,

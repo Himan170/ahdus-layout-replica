@@ -19,6 +19,13 @@
  * UI helper    showCard({ title, body, duration })
  * Positions    setPositionProvider(() => [{ id, title, department? }])   (Yashashwi)
  *
+ * Which layout: Workplace Studio and every viewer (a LayoutEngine connected
+ * with connectEngine, e.g. by <LayoutViewer />) attach a context. The bridge
+ * reads and writes the ACTIVE one: the last attached of those in edit or
+ * walkthrough mode, else the last attached (so with Studio and a view-only
+ * viewer on one page, Studio). With none attached: the app's store.
+ * In view and walkthrough mode the layout can't be changed (writes return false).
+ *
  * See docs/TEAM_INTEGRATION.md for examples per teammate.
  */
 
@@ -34,15 +41,29 @@ const listeners = new Map(EVENTS.map((e) => [e, new Set()]));
 let interactions = [];
 let positionProvider = null;
 
-// Set by the editor while it is open (see WorkplaceEditor): undo history,
-// Babylon scene, play controller, and the HUD card function.
-let ctx = null;
+// Contexts attached by Workplace Studio and connected engines, oldest first:
+//   { store?, editor?, scene?, play?, showCard?, onPositionsChange?, mode? }
+// store: a workspace store (default the app's); editor: its editorHistory;
+// play: the character (isActive, getPosition, getYaw, getRoomId);
+// mode: 'edit' (default) | 'view' | 'walkthrough' (may be a getter).
+let contexts = [];
 
-const state = () => useWorkspaceStore.getState();
+const modeOf = (c) => c.mode ?? 'edit';
+
+/** The context the bridge works on (see the top of this file), or null. */
+function activeContext() {
+  for (let i = contexts.length - 1; i >= 0; i--) {
+    if (modeOf(contexts[i]) !== 'view') return contexts[i];
+  }
+  return contexts.at(-1) ?? null;
+}
+
+const storeOf = (c) => c?.store ?? useWorkspaceStore;
+const state = () => storeOf(activeContext()).getState();
 
 // ── Public views (plain data, safe to keep; never the live store objects) ──
 
-function objectView(o) {
+function objectView(o, s = state()) {
   if (!o) return null;
   return {
     id: o.id,
@@ -53,7 +74,7 @@ function objectView(o) {
     roomId: o.roomId ?? null,
     floorId: o.floor ?? 0,
     // world position (y includes the floor's height)
-    position: { x: o.x, y: elevationOf(state().floors, o.floor ?? 0) + (o.y ?? 0), z: o.z },
+    position: { x: o.x, y: elevationOf(s.floors, o.floor ?? 0) + (o.y ?? 0), z: o.z },
     rotationY: o.rotationY ?? 0,
     isLocked: !!o.isLocked,
   };
@@ -88,9 +109,10 @@ function emit(event, payload) {
   }
 }
 
-// ── anchorsChange: watch the store only while someone is listening ──
+// ── anchorsChange: watch the active store only while someone is listening ──
 
 let unsubscribeStore = null;
+let watchedStore = null;
 let anchorsKey = '';
 let pendingAnchorsEmit = false;
 
@@ -99,30 +121,51 @@ function keyOf(anchors) {
     a.rotationY, a.roomId, a.floorId, a.positionRef ?? '', a.label ?? '']));
 }
 
-function watchAnchors() {
-  if (unsubscribeStore) return;
-  anchorsKey = keyOf(allAnchors());
-  unsubscribeStore = useWorkspaceStore.subscribe((s, prev) => {
-    if (s.objects === prev.objects && s.anchorData === prev.anchorData) return;
-    if (pendingAnchorsEmit) return;
-    pendingAnchorsEmit = true;
-    // Batch: several store updates in one action → one event
-    queueMicrotask(() => {
-      pendingAnchorsEmit = false;
-      const anchors = allAnchors();
-      const key = keyOf(anchors);
-      if (key === anchorsKey) return;
-      anchorsKey = key;
-      emit('anchorsChange', { anchors });
-    });
+/** Tell anchorsChange listeners if the anchors are no longer the ones they had. */
+function anchorsMayHaveChanged() {
+  if (pendingAnchorsEmit) return;
+  pendingAnchorsEmit = true;
+  // Batch: several store updates in one action → one event
+  queueMicrotask(() => {
+    pendingAnchorsEmit = false;
+    if (!unsubscribeStore) return;
+    const anchors = allAnchors();
+    const key = keyOf(anchors);
+    if (key === anchorsKey) return;
+    anchorsKey = key;
+    emit('anchorsChange', { anchors });
   });
 }
 
+function watchAnchors() {
+  if (unsubscribeStore) return;
+  watchedStore = storeOf(activeContext());
+  anchorsKey = keyOf(allAnchors());
+  unsubscribeStore = watchedStore.subscribe((s, prev) => {
+    if (s.objects === prev.objects && s.anchorData === prev.anchorData) return;
+    anchorsMayHaveChanged();
+  });
+}
+
+function unwatchAnchors() {
+  unsubscribeStore?.();
+  unsubscribeStore = null;
+  watchedStore = null;
+}
+
 function unwatchAnchorsIfUnused() {
-  if (unsubscribeStore && listeners.get('anchorsChange').size === 0) {
-    unsubscribeStore();
-    unsubscribeStore = null;
-  }
+  if (unsubscribeStore && listeners.get('anchorsChange').size === 0) unwatchAnchors();
+}
+
+/** Another context became active: watch its store; its anchors are news if they differ. */
+function contextsChanged() {
+  if (!unsubscribeStore || watchedStore === storeOf(activeContext())) return;
+  const key = anchorsKey;
+  unwatchAnchors();
+  watchAnchors();
+  const next = anchorsKey;
+  anchorsKey = key;
+  if (next !== key) anchorsMayHaveChanged();
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -154,7 +197,8 @@ export const layoutBridge = {
   },
 
   getObject(objectId) {
-    return objectView(state().objects[objectId]);
+    const s = state();
+    return objectView(s.objects[objectId], s);
   },
 
   getRoom(roomId) {
@@ -175,7 +219,7 @@ export const layoutBridge = {
 
   /** Where the user's character is (null when not in Build mode). */
   getPlayer() {
-    const play = ctx?.play;
+    const play = activeContext()?.play;
     if (!play?.isActive()) return null;
     const p = play.getPosition();
     return { position: { x: p.x, y: p.y, z: p.z }, yaw: play.getYaw(), roomId: play.getRoomId?.() ?? null };
@@ -186,14 +230,15 @@ export const layoutBridge = {
    * Add your own meshes; never dispose or change the layout's meshes or materials.
    */
   getScene() {
-    return ctx?.scene ?? null;
+    return activeContext()?.scene ?? null;
   },
 
   // ── Writing (undoable, saved with the layout) ──────────────────────────
 
   /**
    * Link a workstation (or any anchor) to an org position, e.g. "Engineering Head".
-   * Pass null to remove the link. Returns false if the anchor doesn't exist.
+   * Pass null to remove the link. Returns false if the anchor doesn't exist, or
+   * the layout can't be changed (a viewer in view or walkthrough mode).
    */
   setPositionRef(anchorId, positionId) {
     if (!this.getAnchor(anchorId)) return false;
@@ -257,7 +302,7 @@ export const layoutBridge = {
    * @param {{title: string, body?: string, duration?: number}} card  duration in ms (default 6000)
    */
   showCard(card) {
-    ctx?.showCard?.(card);
+    activeContext()?.showCard?.(card);
   },
 
   // ── Positions (org chart) ──────────────────────────────────────────────
@@ -269,7 +314,7 @@ export const layoutBridge = {
    */
   setPositionProvider(provider) {
     positionProvider = provider;
-    ctx?.onPositionsChange?.();
+    for (const c of contexts) c.onPositionsChange?.();
   },
 
   getPositions() {
@@ -283,16 +328,25 @@ export const layoutBridge = {
 
   // ── Used by the layout editor itself (not for other modules) ───────────
 
-  _attach(context) { ctx = context; },
-  _detach(context) { if (ctx === context) ctx = null; },
+  _attach(context) {
+    contexts = contexts.filter((c) => c !== context).concat(context);
+    contextsChanged();
+  },
+  _detach(context) {
+    contexts = contexts.filter((c) => c !== context);
+    contextsChanged();
+  },
   _emit: emit,
+  /** Only for tests: the context the bridge works on. */
+  _activeContext: activeContext,
 
   /**
    * Turn what the player is looking at into the payload modules receive.
    * @param {{objectId?: string, roomId?: string, part?: string, point?: {x,y,z}, distance?: number}} raw
+   * @param {object} [context]  whose layout it is in (default the active one)
    */
-  _describeTarget(raw) {
-    const s = state();
+  _describeTarget(raw, context = activeContext()) {
+    const s = storeOf(context).getState();
     const obj = raw.objectId ? s.objects[raw.objectId] : null;
     const anchors = obj ? anchorsForObject(obj, s.anchorData, s.floors) : [];
     const anchor = primaryAnchor(anchors);
@@ -301,7 +355,7 @@ export const layoutBridge = {
     return {
       kind: obj ? 'object' : (raw.part ?? 'unknown'),
       objectId: obj?.id ?? null,
-      object: objectView(obj),
+      object: objectView(obj, s),
       anchors,
       anchor,
       anchorId: anchor?.id ?? null,
@@ -330,22 +384,119 @@ export const layoutBridge = {
     return null;
   },
 
-  /** Only for tests: forget all listeners, interactions and providers. */
+  /** Card shown when no module has an action for what you pressed E on. */
+  _defaultCard(t) {
+    const name = t.object?.label ?? (t.kind === 'door' ? 'Door' : t.kind === 'window' ? 'Window' : 'This');
+    const facts = [];
+    if (t.anchorKind) facts.push(`Hook point: ${ANCHOR_KIND_LABEL[t.anchorKind] ?? t.anchorKind}`);
+    if (t.room) facts.push(t.room.name);
+    if (t.positionRef) {
+      const pos = this.getPositions().find((p) => p.id === t.positionRef);
+      facts.push(`Linked position: ${pos?.title ?? t.positionRef}`);
+    }
+    return {
+      title: name,
+      body: `${facts.join(' · ')}${facts.length ? '\n' : ''}No module has an action for this yet.`,
+    };
+  },
+
+  /** What E would do on a raw target, for the prompt ("E  Watch operation video"). */
+  _prompt(raw, context = activeContext()) {
+    const t = this._describeTarget(raw, context);
+    const action = this._interactionFor(t);
+    return {
+      label: action?.label ?? 'Details',
+      name: t.object?.label ?? (t.kind === 'door' ? 'Door' : t.kind === 'window' ? 'Window' : ''),
+      handled: !!action,
+    };
+  },
+
+  /** A room as modules see it, from a context's layout (enterRoom / exitRoom payloads). */
+  _roomView(roomId, context = activeContext()) {
+    return roomView(storeOf(context).getState().rooms[roomId]);
+  },
+
+  /** E on a target: tell the modules, run the first matching action, else show the default card. */
+  _interact(raw, context = activeContext()) {
+    const t = this._describeTarget(raw, context);
+    emit('interact', t);
+    const action = this._interactionFor(t);
+    if (action) {
+      try {
+        action.run(t);
+      } catch (err) {
+        console.error(`[layoutBridge] interaction "${action.id}" failed:`, err);
+      }
+    } else {
+      context?.showCard?.(this._defaultCard(t));
+    }
+  },
+
+  /** Only for tests: forget all listeners, interactions, providers and contexts. */
   _resetForTests() {
     for (const set of listeners.values()) set.clear();
     interactions = [];
     positionProvider = null;
-    unwatchAnchorsIfUnused();
-    ctx = null;
+    unwatchAnchors();
+    contexts = [];
   },
 };
 
+const ANCHOR_KIND_LABEL = {
+  machine: 'Machine', workstation: 'Workstation', seat: 'Seat',
+  reception: 'Reception', spawn: 'Spawn point', 'info-point': 'Info point',
+};
+
 function applyAnchorData(anchorId, patch, label) {
+  const ctx = activeContext();
   if (ctx?.editor) {
-    ctx.editor.setAnchorData(anchorId, patch, { label });
-  } else {
-    // No editor open (e.g. a background module): write directly, not undoable
-    state().setAnchorData(anchorId, patch);
+    // refused outside edit mode (a LayoutEngine's editor answers { problem })
+    return !ctx.editor.setAnchorData(anchorId, patch, { label })?.problem;
   }
+  if (ctx && modeOf(ctx) !== 'edit') return false;
+  // No editor open (e.g. a background module): write directly, not undoable
+  state().setAnchorData(anchorId, patch);
   return true;
+}
+
+/**
+ * Connect a LayoutEngine (a viewer) to the bridge: modules read its layout
+ * and get its walkthrough's events (enterRoom, exitRoom, interact), and their
+ * "Press E" actions run in it. <LayoutViewer /> and <LayoutEditor /> do this;
+ * call it yourself only when you use LayoutEngine without them.
+ * @param {import('../engine/LayoutEngine').LayoutEngine} engine
+ * @param {{ showCard?: (card: {title: string, body?: string, duration?: number}) => void }} [options]
+ *   showCard: how this viewer shows a card (the default card of E, layoutBridge.showCard)
+ * @returns {() => void} disconnect (call before engine.dispose())
+ */
+export function connectEngine(engine, { showCard } = {}) {
+  const context = {
+    store: engine.getStore(),
+    editor: engine.editor,
+    scene: engine.scene,
+    get play() { return engine.walkthrough; },
+    get mode() { return engine.mode; },
+    showCard,
+  };
+  const room = (id) => layoutBridge._roomView(id, context);
+  const offs = [
+    engine.on('enterRoom', (e) => emit('enterRoom', {
+      roomId: e.roomId, room: room(e.roomId), floorId: e.floorId, fromRoomId: e.fromRoomId,
+    })),
+    engine.on('exitRoom', (e) => emit('exitRoom', {
+      roomId: e.roomId, room: room(e.roomId), floorId: e.floorId, toRoomId: e.toRoomId,
+    })),
+    engine.on('interact', (e) => layoutBridge._interact({
+      objectId: e.objectId ?? undefined, roomId: e.roomId || undefined, part: e.part ?? undefined,
+      point: e.position, distance: e.distance,
+    }, context)),
+  ];
+  // What E would do, for the walkthrough's prompt ("E  Watch operation video")
+  engine.describeInteraction = (raw) => layoutBridge._prompt(raw, context);
+  layoutBridge._attach(context);
+  return () => {
+    for (const off of offs) off();
+    engine.describeInteraction = null;
+    layoutBridge._detach(context);
+  };
 }

@@ -37,6 +37,8 @@ export interface WalkthroughCallbacks {
   onViewChange?: (view: { inside: boolean; level: number }) => void;
   /** What Preview's HUD would show (aim, hint, floor). */
   onHud?: (info: unknown) => void;
+  /** What E would do on a target, for the prompt; null: no prompt label. */
+  describeInteraction?: (target: WalkthroughTarget) => { label: string; name: string; handled: boolean } | null;
 }
 
 /** The answer to any edit asked for while walking through. */
@@ -87,6 +89,7 @@ export class WalkthroughSystem {
       onRoomChange: callbacks.onRoomChange,
       onLevelChange: callbacks.onLevelChange,
       onViewChange: callbacks.onViewChange,
+      describeInteraction: callbacks.describeInteraction,
     });
   }
 
@@ -116,6 +119,11 @@ export class WalkthroughSystem {
 
   getPosition(): Vector3 {
     return this.controller.getPosition();
+  }
+
+  /** Which way the character faces (radians, 0 = +Z / north). */
+  getYaw(): number {
+    return this.controller.getYaw();
   }
 
   /** The room the character is in, or null. */

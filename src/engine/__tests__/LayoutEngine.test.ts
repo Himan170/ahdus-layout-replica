@@ -50,6 +50,8 @@ vi.mock('../../play/playController', () => ({
       setPose: vi.fn(),
       getRoomId: () => null,
       getLevel: () => 0,
+      getYaw: () => 0.5,
+      getPosition: () => ({ x: 1, y: 0, z: 2 }),
       stepFloor: vi.fn(),
       dispose: vi.fn(),
     };
@@ -63,6 +65,7 @@ const { loadLayout } = await import('../model/migrate');
 const { useWorkspaceStore } = await import('../../store/workspaceStore');
 const { createLighting } = await import('../../utils/lightingSetup');
 const { anchorId } = await import('../model/anchors');
+const { layoutBridge, connectEngine } = await import('../../integration/layoutBridge');
 type Engine = ReturnType<typeof LayoutEngine.fromScene>;
 
 /** A save as the app writes it: two storeys, a door and a window, a desk and stairs. */
@@ -474,8 +477,8 @@ describe('walkthrough mode', () => {
     controllers[0].options.onInteract({ objectId: 'obj_desk', point: { x: 1, y: 0.7, z: 1 }, distance: 1 });
     controllers[0].options.onInteract({ roomId: 'room_a', part: 'door', point: { x: 0, y: 1, z: -2 }, distance: 1 });
     expect(events).toEqual([
-      { anchorId: anchorId('obj_desk', 'workstation'), objectId: 'obj_desk', position: { x: 1, y: 0.7, z: 1 }, roomId: 'room_a' },
-      { anchorId: null, objectId: null, position: { x: 0, y: 1, z: -2 }, roomId: 'room_a' },
+      { anchorId: anchorId('obj_desk', 'workstation'), objectId: 'obj_desk', position: { x: 1, y: 0.7, z: 1 }, roomId: 'room_a', part: null, distance: 1 },
+      { anchorId: null, objectId: null, position: { x: 0, y: 1, z: -2 }, roomId: 'room_a', part: 'door', distance: 1 },
     ]);
   });
 
@@ -498,5 +501,36 @@ describe('walkthrough mode', () => {
     engine.setView('2d');
     engine.setMode('walkthrough');
     expect(engine.view).toBe('3d');
+  });
+});
+
+describe('a real engine connected to layoutBridge', () => {
+  beforeEach(() => { controllers.length = 0; layoutBridge._resetForTests(); });
+
+  it('modules read its layout; in walkthrough the bridge cannot change it, in edit mode it can (undoably)', () => {
+    const engine = makeEngine({ mode: 'walkthrough' });
+    engine.loadLayout(save());
+    const disconnect = connectEngine(engine);
+    const ws = layoutBridge.getAnchors({ kind: 'workstation' })[0];
+    expect(ws.objectId).toBe('obj_desk');
+    expect(layoutBridge.setPositionRef(ws.id, 'pos-1')).toBe(false);
+    expect(engine.getAnchors({ kind: 'workstation' })[0].positionRef).toBeUndefined();
+
+    engine.setMode('edit');
+    expect(layoutBridge.setPositionRef(ws.id, 'pos-1')).toBe(true);
+    expect(engine.getAnchors({ kind: 'workstation' })[0].positionRef).toBe('pos-1');
+    engine.undo();
+    expect(engine.getAnchors({ kind: 'workstation' })[0].positionRef).toBeUndefined();
+    disconnect();
+  });
+
+  it('walking into a room reaches the modules', () => {
+    const engine = makeEngine({ mode: 'walkthrough' });
+    engine.loadLayout(save());
+    connectEngine(engine);
+    const got: string[] = [];
+    layoutBridge.on('enterRoom', (e: any) => got.push(e.room.name));
+    controllers[0].options.onRoomChange(null, engine.getStore().getState().rooms.room_a);
+    expect(got).toEqual(['Office 1']);
   });
 });

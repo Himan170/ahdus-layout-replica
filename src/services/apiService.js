@@ -178,6 +178,15 @@ export async function loadWorkspace(companyId, layoutId) {
 }
 
 /**
+ * A saved layout as it is stored (a save: v1), without opening it in the app's
+ * store. For <LayoutViewer companyId layoutId />, which keeps its own copy.
+ * @returns {object|null} null if there is no such layout
+ */
+export function readSavedLayout(companyId, layoutId) {
+  return _loadFromBackend(companyId, layoutId);
+}
+
+/**
  * "Reload": throw away this tab's unsaved changes and load what the other tab
  * saved. The caller clears its undo history (it describes the old state).
  * @returns {Promise<boolean>} false if the layout is gone

@@ -1205,7 +1205,8 @@ export function createPlayController(scene, canvas, {
 
     // ── Tool preview ──
     let hint;
-    if (!tool) hint = { title: 'Empty hand', detail: 'Pick an item with 1–9, or press B for the catalog' };
+    if (readOnly) hint = { title: 'Walking through', detail: 'W A S D walk, mouse looks, E uses, Page Up / Down changes floor' };
+    else if (!tool) hint = { title: 'Empty hand', detail: 'Pick an item with 1–9, or press B for the catalog' };
     else if (tool.kind === 'object') hint = updateObjectTool();
     else if (tool.kind === 'room') hint = updateRoomTool();
     else if (tool.kind === 'wall') hint = updateWallTool();
