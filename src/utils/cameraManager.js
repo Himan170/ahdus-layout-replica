@@ -12,8 +12,9 @@
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 
-// Saved 3D state so we can restore it when switching back from 2D
-let saved3DState = null;
+// Saved 3D state of each camera, so we can restore it when switching back
+// from 2D (two engines on one page each have a camera)
+const saved3DStates = new WeakMap();
 
 /**
  * Create the main camera.
@@ -58,13 +59,13 @@ export function createCamera(scene, canvas) {
  */
 export function switchTo2D(camera) {
   // Save current 3D state
-  saved3DState = {
+  saved3DStates.set(camera, {
     alpha: camera.alpha,
     beta: camera.beta,
     radius: camera.radius,
     target: camera.target.clone(),
     mode: camera.mode,
-  };
+  });
 
   // Animate to top-down: beta = 0 (straight down), alpha doesn't matter
   camera.alpha = -Math.PI / 2;
@@ -103,6 +104,7 @@ export function switchTo3D(camera) {
   camera.upperBetaLimit = Math.PI / 2 - 0.05;
 
   // Restore saved state if we have one
+  const saved3DState = saved3DStates.get(camera);
   if (saved3DState) {
     camera.alpha = saved3DState.alpha;
     camera.beta = saved3DState.beta;

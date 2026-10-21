@@ -17,3 +17,8 @@ export { FloorSystem } from './FloorSystem';
 export type { LevelView } from './FloorSystem';
 
 export { WalkthroughSystem } from './WalkthroughSystem';
+
+export { setCameraView, flyTo, framing, boundsOf } from './CameraSystem';
+export type { GroundBox } from './CameraSystem';
+
+export { HighlightSystem } from './HighlightSystem';

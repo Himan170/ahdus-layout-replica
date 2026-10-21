@@ -22,10 +22,10 @@
  *   Real:  model/ (v2 schema, v1 → v2 migration and back: toV1, anchor ids),
  *          commands/ (the editor's undo/redo, through store/editorHistory.js),
  *          systems/SceneSetup, RoomSystem, ObjectSystem, FloorSystem,
+ *          systems/CameraSystem, HighlightSystem,
  *          loadLayout (saves, export files, v2) draws the layout; getLayout
- *          returns it as v2; setFloor.
- *   Stubs (TODO):  setView, focusOn, highlight, clearHighlights, setMode,
- *          systems/PlacementSystem, SelectionSystem, WalkthroughSystem.
+ *          returns it as v2; setFloor, setView, focusOn, highlight, clearHighlights.
+ *   Stubs (TODO):  setMode, systems/PlacementSystem, SelectionSystem, WalkthroughSystem.
  */
 
 import type { Engine } from '@babylonjs/core/Engines/engine';
@@ -41,6 +41,10 @@ import type { LayoutScene } from './systems/SceneSetup';
 import { RoomSystem } from './systems/RoomSystem';
 import { ObjectSystem } from './systems/ObjectSystem';
 import { FloorSystem } from './systems/FloorSystem';
+import { setCameraView, flyTo, boundsOf } from './systems/CameraSystem';
+import type { GroundBox } from './systems/CameraSystem';
+import { HighlightSystem } from './systems/HighlightSystem';
+import { elevationOf } from '../play/building';
 import { createWorkspaceStore } from '../store/workspaceStore';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -115,6 +119,7 @@ export class LayoutEngine {
   readonly rooms: RoomSystem;
   readonly objects: ObjectSystem;
   readonly floors: FloorSystem;
+  readonly highlights: HighlightSystem;
 
   // Command history (undo/redo)
   readonly history: CommandHistory;
@@ -163,6 +168,7 @@ export class LayoutEngine {
     this.floors = new FloorSystem(this.rooms, this.objects, () => this._store.getState());
     // Until a floor is chosen, the whole building shows, with roofs
     this.floors.setView({ mode: 'outside', level: 0 });
+    this.highlights = new HighlightSystem(this.rooms, this.objects);
 
     // Redraw whatever changes in this engine's layout
     this._unsubscribe = this._store.subscribe((s, prev) => {
@@ -225,25 +231,71 @@ export class LayoutEngine {
     this.floors.setFloor(id);
   }
 
-  /** Switch between 3D perspective and 2D top-down */
+  /** Switch between 3D (orbit) and 2D (from above, as Studio's 2D). */
   setView(view: ViewMode): void {
+    if (view === this._view) return;
     this._view = view;
-    // TODO: camera animation
+    if (this._layoutScene.camera) setCameraView(this._layoutScene, view);
   }
 
-  /** Animate the camera to fly to an entity */
-  focusOn(entityId: string): void {
-    // TODO: look up entity position, animate camera
+  /** The current camera view, '3d' or '2d'. */
+  get view(): ViewMode {
+    return this._view;
   }
 
-  /** Highlight entities with an outline glow */
-  highlight(entityIds: string[], color?: string): void {
-    // TODO: HighlightLayer per entity
+  /**
+   * Fly the camera to a room, an item or an anchor (300 ms; animate: false
+   * jumps). Shows its floor as setFloor does, so nothing above hides it.
+   * @returns false if no room, item or anchor has this id
+   */
+  focusOn(entityId: string, { animate = true } = {}): boolean {
+    const { rooms, objects, floors } = this._store.getState();
+    const anchor = rooms[entityId] || objects[entityId] ? undefined : this.getAnchors().find((a) => a.id === entityId);
+    const room = rooms[entityId];
+    const obj = objects[anchor?.objectId ?? entityId];
+    const around = (x: number, z: number, d: number): GroundBox => ({ min: { x: x - d, z: z - d }, max: { x: x + d, z: z + d } });
+
+    let floor: number;
+    let box: () => GroundBox;
+    if (room) {
+      floor = room.floor;
+      box = () => ({
+        min: { x: room.x - room.width / 2, z: room.z - room.depth / 2 },
+        max: { x: room.x + room.width / 2, z: room.z + room.depth / 2 },
+      });
+    } else if (obj) {
+      floor = obj.floor ?? 0;
+      box = () => boundsOf(this.objects.getObjectMesh(obj.id)) ?? around(obj.x, obj.z, 0.5);
+    } else if (anchor) {
+      floor = storeFloorIds(this._loaded!.floors)(anchor.floorId);
+      box = () => around(anchor.position.x, anchor.position.z, 1);
+    } else {
+      return false;
+    }
+
+    this.setFloor(floor);
+    const camera = this._layoutScene.camera;
+    if (camera) {
+      camera.target.y = elevationOf(floors, floor);
+      flyTo(camera, this.scene, box(), { duration: animate ? 300 : 0 });
+    }
+    return true;
   }
 
-  /** Remove all highlights */
+  /**
+   * Outline rooms and items (an anchor's id outlines its item) in a colour,
+   * e.g. for training, explanations or search results. Adds to the ones
+   * highlighted already; they stay while the layout changes.
+   */
+  highlight(entityIds: string[], color = '#FFD700'): void {
+    const anchors = new Map(this.getAnchors().map((a) => [a.id, a.objectId]));
+    this.highlights.add(entityIds.map((id) => anchors.get(id) ?? id), color);
+  }
+
+  /** Remove all highlights. */
   clearHighlights(): void {
-    // TODO: clear HighlightLayer
+    this.highlights.clear();
+    this._draw();
   }
 
   // ── Querying ───────────────────────────────────────────────────────────
@@ -352,6 +404,7 @@ export class LayoutEngine {
     this.rooms.sync(state, state.selectedRoomId);
     this.objects.sync(state);
     this.floors.apply();
+    this.highlights.apply();
   }
 
   /**

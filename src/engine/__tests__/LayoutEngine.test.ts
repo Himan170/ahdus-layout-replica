@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
+import { Camera } from '@babylonjs/core/Cameras/camera';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 
 // Rooms are built for real (procedural textures stubbed); items are plain
 // nodes standing in for instances, as in ObjectSystem.test.ts.
@@ -22,6 +25,12 @@ vi.mock('../../utils/assetInstances', async (importOriginal) => ({
     return root;
   }),
   disposeItemMesh: vi.fn((root: TransformNode) => root.dispose()),
+  // which looks an item has (the real one swaps its instance for a clone)
+  setItemLook: vi.fn((root: TransformNode, reason: string, on: boolean) => {
+    const looks: Set<string> = (root.metadata.looks ??= new Set());
+    if (on) looks.add(reason); else looks.delete(reason);
+    return null;
+  }),
 }));
 vi.mock('../../utils/lockIndicator', () => ({
   applyLockVisual: vi.fn(),
@@ -31,6 +40,8 @@ vi.mock('../../utils/lockIndicator', () => ({
 const { LayoutEngine } = await import('../LayoutEngine');
 const { loadLayout } = await import('../model/migrate');
 const { useWorkspaceStore } = await import('../../store/workspaceStore');
+const { createLighting } = await import('../../utils/lightingSetup');
+const { anchorId } = await import('../model/anchors');
 type Engine = ReturnType<typeof LayoutEngine.fromScene>;
 
 /** A save as the app writes it: two storeys, a door and a window, a desk and stairs. */
@@ -91,8 +102,9 @@ afterEach(() => {
 function makeEngine(options = {}) {
   const engine = new NullEngine();
   const scene = new Scene(engine);
+  const camera = new ArcRotateCamera('camera', -Math.PI / 3, Math.PI / 4, 30, Vector3.Zero(), scene);
   const layoutScene = {
-    engine, scene, camera: null, lights: { shadowGenerator: null }, siteEnv: null,
+    engine, scene, camera, lights: createLighting(scene), siteEnv: null,
     dispose() { scene.dispose(); engine.dispose(); },
   } as any;
   const layoutEngine = LayoutEngine.fromScene(layoutScene, options);
@@ -208,5 +220,108 @@ describe('each engine keeps its own copy of the layout', () => {
     engine.dispose();
     expect(engine.scene.isDisposed).toBe(true);
     expect(engine.rooms.meshes.size).toBe(0);
+  });
+});
+
+describe('camera: setView and focusOn', () => {
+  it("setView('2d') looks straight down (orthographic); '3d' goes back to where the camera was", () => {
+    const engine = makeEngine();
+    engine.loadLayout(save());
+    const camera = engine.scene.activeCamera as ArcRotateCamera;
+    const alpha = camera.alpha;
+    engine.setView('2d');
+    expect(engine.view).toBe('2d');
+    expect(camera.mode).toBe(Camera.ORTHOGRAPHIC_CAMERA);
+    expect(camera.beta).toBeLessThan(0.05);
+    engine.setView('3d');
+    expect(camera.mode).toBe(Camera.PERSPECTIVE_CAMERA);
+    expect(camera.alpha).toBeCloseTo(alpha);
+  });
+
+  it("focusOn a room on an upper floor: the camera centres on it at that floor's height, and the floor shows", () => {
+    const engine = makeEngine();
+    const layout = save();
+    layout.rooms[1] = { ...layout.rooms[1], x: 10, z: -4 };
+    engine.loadLayout(layout);
+    engine.setFloor(0);
+    expect(engine.focusOn('room_b', { animate: false })).toBe(true);
+    const camera = engine.scene.activeCamera as ArcRotateCamera;
+    expect(camera.target.x).toBeCloseTo(10);
+    expect(camera.target.z).toBeCloseTo(-4);
+    expect(camera.target.y).toBeCloseTo(3.5);
+    expect(enabled(engine.rooms.getRoomMesh('room_b'))).toBe(true);
+  });
+
+  it('focusOn an anchor flies to its item; an unknown id changes nothing', () => {
+    const engine = makeEngine();
+    engine.loadLayout(save());
+    const camera = engine.scene.activeCamera as ArcRotateCamera;
+    expect(engine.focusOn(anchorId('obj_desk', 'workstation'), { animate: false })).toBe(true);
+    expect(camera.target.x).toBeCloseTo(1, 0);
+    expect(camera.target.z).toBeCloseTo(1, 0);
+    expect(engine.focusOn('nothing', { animate: false })).toBe(false);
+    expect(camera.target.x).toBeCloseTo(1, 0);
+  });
+
+  it('with animation the camera gets there over the next frames', async () => {
+    const engine = makeEngine();
+    engine.loadLayout(save());
+    const camera = engine.scene.activeCamera as ArcRotateCamera;
+    engine.focusOn('room_a');
+    await new Promise((r) => setTimeout(r, 350));
+    engine.scene.render();
+    expect(camera.target.x).toBeCloseTo(0);
+    expect(camera.target.z).toBeCloseTo(0);
+  });
+});
+
+describe('highlight and clearHighlights', () => {
+  const outlined = (engine: Engine, roomId: string) => engine.rooms.getRoomMesh(roomId)!.getChildMeshes(false)
+    .filter((m) => ['wall', 'floor'].includes(m.metadata?.part))
+    .map((m) => m.renderOutline);
+
+  it("outlines a room's walls and floor in the colour, also after it is rebuilt; clear takes it away", () => {
+    const engine = makeEngine();
+    engine.loadLayout(save());
+    engine.highlight(['room_a'], '#ff0000');
+    expect(outlined(engine, 'room_a').every(Boolean)).toBe(true);
+    expect(outlined(engine, 'room_b').some(Boolean)).toBe(false);
+    const wall = engine.rooms.getRoomMesh('room_a')!.getChildMeshes(false).find((m) => m.metadata?.part === 'wall')!;
+    expect(wall.outlineColor.toHexString()).toBe('#FF0000');
+
+    engine.getStore().getState().updateRoom('room_a', { width: 7 });
+    expect(outlined(engine, 'room_a').every(Boolean)).toBe(true);
+
+    engine.clearHighlights();
+    expect(outlined(engine, 'room_a').some(Boolean)).toBe(false);
+    expect(engine.highlights.ids()).toEqual([]);
+  });
+
+  it('a wall shared with a neighbour is outlined whichever of the two rooms builds it', () => {
+    for (const [west, east] of [['room_w', 'room_x'], ['room_x', 'room_w']]) {
+      const engine = makeEngine();
+      const layout = save();
+      layout.rooms = [
+        { ...layout.rooms[0], id: west, x: 0, doors: [], windows: [] },
+        { ...layout.rooms[0], id: east, x: 6.15, doors: [], windows: [] },
+      ];
+      engine.loadLayout(layout);
+      engine.highlight([east]);
+      const shared = [...engine.rooms.meshes.values()].flatMap((n) => n.getChildMeshes(false))
+        .filter((m) => m.metadata?.sharedWall);
+      expect(shared.length).toBeGreaterThan(0);
+      expect(shared.every((m) => m.renderOutline)).toBe(true);
+    }
+  });
+
+  it("an anchor's id highlights its item (own look while outlined), and clear gives the look back", () => {
+    const engine = makeEngine();
+    engine.loadLayout(save());
+    engine.highlight([anchorId('obj_desk', 'workstation')]);
+    const desk = engine.objects.getObjectMesh('obj_desk')!;
+    expect(desk.metadata.looks.has('highlight')).toBe(true);
+    expect(engine.highlights.ids()).toEqual(['obj_desk']);
+    engine.clearHighlights();
+    expect(desk.metadata.looks.has('highlight')).toBe(false);
   });
 });

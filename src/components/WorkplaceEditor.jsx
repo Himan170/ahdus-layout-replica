@@ -14,8 +14,7 @@ import { createLayoutScene } from '../engine/systems/SceneSetup';
 import { RoomSystem } from '../engine/systems/RoomSystem';
 import { ObjectSystem } from '../engine/systems/ObjectSystem';
 import { FloorSystem } from '../engine/systems/FloorSystem';
-import { switchTo2D, switchTo3D } from '../utils/cameraManager';
-import { setLighting2D, setLighting3D } from '../utils/lightingSetup';
+import { setCameraView, flyTo as flyCamera } from '../engine/systems/CameraSystem';
 
 // Phase 2 utilities
 import { ROOM_TYPES } from '../utils/roomStore';
@@ -41,14 +40,9 @@ import {
 import { downloadText } from '../ui/download';
 
 // Phase 4 — Performance optimisation
-import {
-  createPerformanceMonitor,
-  apply2DOptimisations,
-  restore3DRendering,
-} from '../utils/performanceOptimiser';
+import { createPerformanceMonitor } from '../utils/performanceOptimiser';
 
 // Components
-import { Camera } from '@babylonjs/core/Cameras/camera';
 import PlayHUD from './PlayHUD';
 
 // Workplace Studio UI (UI_SPEC.md)
@@ -681,9 +675,7 @@ export default function WorkplaceEditor({ onExit }) {
       // Play mode is always 3D: restore 3D lighting/camera first
       const camera = cameraRef.current;
       const lights = lightsRef.current;
-      switchTo3D(camera);
-      setLighting3D(lights.hemispheric, lights.directional, lights.shadowGenerator);
-      restore3DRendering(sceneRef.current, lights);
+      setCameraView({ scene: sceneRef.current, camera, lights }, '3d');
       storeActions.setIs3D(true);
     }
 
@@ -748,15 +740,7 @@ export default function WorkplaceEditor({ onExit }) {
     if (!camera || !lights || !scene) return;
 
     const store = useWorkspaceStore.getState();
-    if (store.is3D) {
-      switchTo2D(camera);
-      setLighting2D(lights.hemispheric, lights.directional, lights.shadowGenerator);
-      apply2DOptimisations(scene, lights);
-    } else {
-      switchTo3D(camera);
-      setLighting3D(lights.hemispheric, lights.directional, lights.shadowGenerator);
-      restore3DRendering(scene, lights);
-    }
+    setCameraView({ scene, camera, lights }, store.is3D ? '2d' : '3d');
     storeActions.setIs3D(!store.is3D);
   }, [storeActions]);
 
@@ -968,42 +952,14 @@ export default function WorkplaceEditor({ onExit }) {
   const flyTo = useCallback((min, max) => {
     const camera = cameraRef.current;
     const scene = sceneRef.current;
-    if (!camera || !scene) return;
-    const cx = (min.x + max.x) / 2;
-    const cz = (min.z + max.z) / 2;
-    const span = Math.max(max.x - min.x, max.z - min.z, 2);
-    const from = { x: camera.target.x, z: camera.target.z, r: camera.radius, top: camera.orthoTop ?? 0 };
-    const ortho = camera.mode === Camera.ORTHOGRAPHIC_CAMERA;
-    const to = {
-      x: cx,
-      z: cz,
-      r: Math.min(camera.upperRadiusLimit ?? 80, Math.max(camera.lowerRadiusLimit ?? 5, span * 1.5 + 6)),
-      top: Math.max(4, span * 0.65 + 1.5),
-    };
-    const start = performance.now();
-    const DURATION = 300;
-    const obs = scene.onBeforeRenderObservable.add(() => {
-      const t = Math.min(1, (performance.now() - start) / DURATION);
-      const k = 1 - (1 - t) ** 3;
-      camera.target.x = from.x + (to.x - from.x) * k;
-      camera.target.z = from.z + (to.z - from.z) * k;
-      if (ortho) {
-        const top = from.top + (to.top - from.top) * k;
-        const aspect = scene.getEngine().getAspectRatio(camera);
-        camera.orthoTop = top; camera.orthoBottom = -top;
-        camera.orthoLeft = -top * aspect; camera.orthoRight = top * aspect;
-      } else {
-        camera.radius = from.r + (to.r - from.r) * k;
-      }
-      if (t >= 1) scene.onBeforeRenderObservable.remove(obs);
-    });
+    if (camera && scene) flyCamera(camera, scene, { min, max });
   }, []);
 
   /** World box of a room or object mesh (enabled parts only). */
   const boundsOf = useCallback((node) => {
     if (!node) return null;
     const { min, max } = node.getHierarchyBoundingVectors(true, (m) => m.isEnabled());
-    return Number.isFinite(min.x) ? { min, max } : null;
+    return min.x <= max.x ? { min, max } : null; // nothing enabled: ±MAX_VALUE
   }, []);
 
   const handleFitView = useCallback(() => {
