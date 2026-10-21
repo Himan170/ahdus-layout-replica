@@ -12,7 +12,7 @@ Full history, status and backlog: `docs/PROGRESS_REPORT.md`. Teammate API guide:
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (339, all must pass)
+npm test             # vitest unit tests (370, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run build
 
@@ -29,8 +29,9 @@ npm run e2e:save     # 29 checks   e2e/save-smoke.mjs      (auto-save, reopen, o
 npm run e2e:perf     #  9 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls;
                      #                                       one room change rebuilds only it + its neighbours)
 npm run e2e:shared-walls  # 15     e2e/shared-walls-smoke.mjs (one wall + one doorway; picks with either owner)
-npm run e2e:nested-rooms  # 13     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
-                          #                                    upper floor, save + reopen, Preview screenshots)
+npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
+                          #                                    rooms drawn inside sharing walls with each other and
+                          #                                    the outer wall, doors, picks, upper floor, save + reopen)
 npm run e2e:viewer   # 14 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
                      #                                       the vite build), walk in, E + a module's action, edits
                      #                                       refused, Page Up, view mode, a saved layout)
@@ -100,7 +101,8 @@ src/play/playController.js         Preview: movement, camera, aiming, every hotb
 src/planner/plannerTools.js        Studio mouse tools: draw room / wall, door / window, drag a wall to resize
 src/utils/buildPreview.js          Blue/red build previews shared by both modes
 src/play/geometry.js               PURE maths: room corners, wall splitting, doors, neighbours, stretchRoom, resizeOpening,
-                                   shared walls (roomWallSegments, wallPickTarget), nesting (roomContainedBy, planRoomMove),
+                                   shared walls (roomWallSegments, wallPickTarget), nesting (roomContainedBy, containerOf,
+                                   planRoomMove, roomRectBlocker), snapping (snapRoomRect),
                                    roomsToRebuild
 src/utils/pickHelpers.js           Forgiving picks: the floor under an item = that item; a shared wall = the room on your side
 src/play/building.js               PURE maths: storeys, stairs, openings, supportHeight (where you stand)
@@ -211,14 +213,24 @@ Both are **derived from the room rectangles; nothing extra is saved** (no wall r
 - **Rebuilds:** `roomGeometryKey` is made from `geometry.roomBuildInput` (the room and the rooms touching it), so a
   change rebuilds that room plus the rooms touching its old or new rectangle (`roomsToRebuild`), not the whole floor.
   Every rebuild input must be in that key.
-- **Nested rooms:** a room may lie completely inside another one, at least 0.15 m from its walls
-  (`roomContainedBy`); partial overlaps stay blocked (`roomPlacementBlocker`).
+- **Nested rooms:** a room may lie inside another one (`roomContainedBy`; the innermost is `containerOf`): on each
+  side at least 0.15 m from the outer walls, or **standing on the outer wall** (its edge on the outer room's edge,
+  ± 0.02 m: that wall is its wall there). Walls partly in each other, partial overlaps and sticking out stay blocked.
+  - **Snapping: one rule, `geometry.snapRoomRect`**, used by drawing (Studio + Preview), Stretch, the Studio wall drag,
+    the Inspector size and moving a room by its floor (`translate`: the size stays). Within `ROOM_SNAP` 0.35 m an edge
+    goes back to back onto a **sibling** (same outer room, or both top-level; never rooms inside other rooms), or onto
+    the **outer room's wall** (an outer room's edge also onto the rooms standing inside it); else, top-level only,
+    onto the floor below. `roomRectBlocker`: changing a room keeps its children inside and itself inside its parent.
+  - **One wall on the outer wall:** where an inner room stands on it the outer room builds nothing; the inner room
+    builds that stretch, full thickness on the outer line, shared with the outer room (`sameSide`, `innerRoom`,
+    `outerRoom` tags: a pick from inside is the inner room, from outside the outer room). Its other walls stop at that
+    wall's inside face. A door there is stored on both rooms (`partnerWall`). Siblings share through the normal code.
   - **Drawing:** the outer room's floor (and ceiling, if the inner walls reach it) is cut out under the inner room
-    (`floorSurfaceHoles`). The inner room's walls are drawn 1 cm thinner on the outside (`nested`), so no wall faces
-    coincide, and it has no roof of its own under an outer room at least as tall (`roofCovered`).
+    (`floorSurfaceHoles`). The inner room's own walls are drawn 1 cm thinner on the outside (`nested`), so no wall
+    faces coincide, and it has no roof of its own under an outer room at least as tall (`roofCovered`).
   - **Studio:** drag a selected room's floor to move it (`planRoomMove`). This happens only after a 5 px drag, and
-    never where an item stands (a click selects what is under the cursor). The Inspector size keeps inner rooms
-    inside (`planRoomResize`).
+    never where an item stands (a click selects what is under the cursor). The Inspector size snaps the edges it
+    moves (so it sets x / z too) and keeps inner rooms inside (`planRoomResize`).
 
 ## Testing gotchas
 
@@ -273,7 +285,13 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
   (0 or 0.15 m apart); further apart they keep two walls.
 - Nested rooms: the outer room's slab and roof are not cut; moving or resizing the outer room doesn't take the rooms
   inside along (it is blocked if they would stick out of it); moving a room doesn't move its furniture; rooms can be
-  moved by their floor only in Studio. A nested room's walls are drawn 1 cm thinner on the outside than the data says.
+  moved by their floor only in Studio. A nested room's own walls are drawn 1 cm thinner on the outside than the data says.
+- Rooms saved before 22 Oct with a gap (0.15 m or more from the outer wall, or apart from a sibling) keep their own
+  walls; stretching or moving the edge to within 0.35 m snaps it. With the 0.5 m grid on, drawing to a grid line
+  0.5 m from a wall doesn't snap (draw to the wall itself). Nested rooms don't snap to the floor below.
+- Two levels deep (a room inside a room inside a room, all on one wall line): from outside, the wall picks the
+  middle room, not the outermost.
+- An Inspector size whose edge snaps moves the room's centre a little; doors on the other two walls move with it.
 - Furniture is built from primitives (no GLB models yet); item icons are generic lucide icons, not thumbnails.
 - Stretching a wall with a door shared with a neighbour moves only this room's half.
 - The "2D" view is the 3D camera from above, not a real floor plan.

@@ -332,6 +332,21 @@ Nine steps on branch `himan/engine`, one commit each; Studio looks and works the
 Fixes found on the way: two engines on one page shared the saved 3D camera and 2D shadow list; a node with nothing
 visible gave a camera box of the whole world (Babylon returns ±MAX_VALUE).
 
+### 3.15 Rooms inside a room share walls (22 Oct, branch `fix/nested-walls`)
+
+**Problem (Himan):** inside Office 1, rooms side by side each had their own wall with a gap, and rooms against the
+office's wall got a second wall next to it.
+**Cause:** drawing inside a room skipped all snapping; an inner room had to stay 0.15 m from the outer walls (so its
+wall stood next to the outer one); walls were only ever shared between opposite walls of neighbours.
+**Fix (still derived from the rectangles; nothing new is saved, old saves load unchanged):**
+- One snapping rule, `geometry.snapRoomRect`, for drawing, Stretch, the wall drag, the Inspector and moving: siblings
+  snap back to back (one shared wall), an edge near the outer room's wall snaps onto it.
+- An inner room may stand on the outer wall: there the outer room builds nothing and the inner room builds the one
+  wall on the outer line (picks: from inside the inner room, from outside the outer room; doors stored on both).
+- Stretching or moving an outer room no longer is blocked by the rooms inside it while they stay inside.
+- Tests: `nestedWalls.test.js` (26), 4 builder tests, `e2e/nested-rooms-smoke.mjs` 13 → 27 checks (Himan's case on
+  both floors). Screenshots `e2e/screens/nested-walls-before.png` (main before) and `nested-walls-after.png`.
+
 ---
 
 ## 4. Status against the plan
