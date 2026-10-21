@@ -1,212 +1,494 @@
--- ============================================================
--- Company Digital Twin — PostgreSQL Schema
--- Phase 4 · Multi-Tenant & Data Sync
+-- Company Digital Twin — Supabase schema
 --
--- Designed for multi-tenant isolation via company_id foreign keys
--- and Row-Level Security (RLS).  Run this file against a fresh
--- database or wrap in a migration tool (e.g. node-pg-migrate).
--- ============================================================
+-- R3 database foundation:
+--   - tenant-scoped layout-v2 entities
+--   - floors, anchors, routes, and stairs/elevator floor links
+--   - revision column reserved for server-side compare-and-set saves
+--   - Row-Level Security derived from Supabase Auth membership
+--
+-- Run this file against a fresh Supabase database.
 
--- Enable UUID generation
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- ──────────────────────────────────
---  1. COMPANIES (tenants)
--- ──────────────────────────────────
+-- ────────────────────────────────────────────────────────────────────────
+-- Tenants and Auth user membership
+-- ────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE companies (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name        VARCHAR(255) NOT NULL,
-  slug        VARCHAR(100) NOT NULL UNIQUE, -- URL-friendly identifier
+  name        TEXT NOT NULL,
+  slug        TEXT NOT NULL UNIQUE,
   logo_url    TEXT,
-  created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_companies_slug ON companies (slug);
-
--- ──────────────────────────────────
---  2. USERS
--- ──────────────────────────────────
-
+-- Profile row for a Supabase Auth user. A user can belong to multiple
+-- companies through company_memberships.
 CREATE TABLE users (
-  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  company_id  UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
-  email       VARCHAR(320) NOT NULL,
-  display_name VARCHAR(100),
-  role        VARCHAR(30)  NOT NULL DEFAULT 'editor',
-    -- roles: 'admin', 'editor', 'viewer'
-  avatar_url  TEXT,
-  created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-
-  UNIQUE (company_id, email)
+  id           UUID PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE,
+  email        TEXT NOT NULL,
+  display_name TEXT,
+  avatar_url   TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_users_company ON users (company_id);
+CREATE TABLE company_memberships (
+  user_id     UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  company_id  UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  role        TEXT NOT NULL DEFAULT 'editor'
+              CHECK (role IN ('admin', 'editor', 'viewer')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, company_id)
+);
 
--- ──────────────────────────────────
---  3. WORKSPACE LAYOUTS
--- ──────────────────────────────────
+CREATE INDEX idx_memberships_company
+  ON company_memberships (company_id);
+
+-- ────────────────────────────────────────────────────────────────────────
+-- Layout and layout-v2 entities
+-- ────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE workspace_layouts (
-  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  company_id   UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
-  name         VARCHAR(255) NOT NULL DEFAULT 'Untitled Layout',
-  version      INTEGER      NOT NULL DEFAULT 1,
-  is_active    BOOLEAN      NOT NULL DEFAULT TRUE,
-  created_by   UUID         REFERENCES users (id) ON DELETE SET NULL,
-  metadata     JSONB        NOT NULL DEFAULT '{}',
-  created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id  UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  name        TEXT NOT NULL DEFAULT 'Untitled Layout',
+  revision    INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  version     INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+  is_active   BOOLEAN NOT NULL DEFAULT true,
+  metadata    JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by  UUID REFERENCES users (id) ON DELETE SET NULL,
+  updated_by  UUID REFERENCES users (id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (company_id, id)
 );
 
-CREATE INDEX idx_layouts_company  ON workspace_layouts (company_id);
-CREATE INDEX idx_layouts_active   ON workspace_layouts (company_id, is_active);
+CREATE INDEX idx_layouts_company_updated
+  ON workspace_layouts (company_id, updated_at DESC);
 
--- ──────────────────────────────────
---  4. ROOMS
--- ──────────────────────────────────
+CREATE TABLE floors (
+  id          TEXT NOT NULL,
+  layout_id   UUID NOT NULL,
+  company_id  UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  name        TEXT NOT NULL DEFAULT 'Ground Floor',
+  height      REAL NOT NULL DEFAULT 3.5 CHECK (height > 0),
+  elevation   REAL,
+  underlay    JSONB,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (layout_id, id),
+  FOREIGN KEY (company_id, layout_id)
+    REFERENCES workspace_layouts (company_id, id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_floors_company_layout
+  ON floors (company_id, layout_id);
 
 CREATE TABLE rooms (
-  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  layout_id    UUID         NOT NULL REFERENCES workspace_layouts (id) ON DELETE CASCADE,
-  company_id   UUID         NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
-  -- Denormalised company_id makes RLS policies simpler & avoids JOINs.
-
-  type         VARCHAR(50)  NOT NULL DEFAULT 'OFFICE',
-  name         VARCHAR(255) NOT NULL,
-  x            REAL         NOT NULL DEFAULT 0,
-  z            REAL         NOT NULL DEFAULT 0,
-  width        REAL         NOT NULL DEFAULT 6,
-  depth        REAL         NOT NULL DEFAULT 5,
-  wall_height  REAL         NOT NULL DEFAULT 3,
-  color        VARCHAR(9)   NOT NULL DEFAULT '#4a7dff',
-  doors        JSONB        NOT NULL DEFAULT '[]',
-    -- e.g. [{ "wall": "north", "offset": 0, "width": 1.2 }]
-  sort_order   INTEGER      NOT NULL DEFAULT 0,
-
-  created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+  id              TEXT NOT NULL,
+  layout_id       UUID NOT NULL,
+  company_id      UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  floor_id        TEXT NOT NULL,
+  type            TEXT NOT NULL DEFAULT 'OFFICE',
+  name            TEXT NOT NULL,
+  x               REAL NOT NULL DEFAULT 0,
+  z               REAL NOT NULL DEFAULT 0,
+  width           REAL NOT NULL DEFAULT 6 CHECK (width > 0),
+  depth           REAL NOT NULL DEFAULT 5 CHECK (depth > 0),
+  wall_height     REAL NOT NULL DEFAULT 3 CHECK (wall_height > 0),
+  color           TEXT NOT NULL DEFAULT '#4a7dff',
+  floor_finish    TEXT NOT NULL DEFAULT 'default',
+  department_ref  TEXT,
+  openings        JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (layout_id, id),
+  FOREIGN KEY (company_id, layout_id)
+    REFERENCES workspace_layouts (company_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (layout_id, floor_id)
+    REFERENCES floors (layout_id, id) ON DELETE RESTRICT
 );
 
-CREATE INDEX idx_rooms_layout  ON rooms (layout_id);
-CREATE INDEX idx_rooms_company ON rooms (company_id);
-
--- ──────────────────────────────────
---  5. OBJECTS
--- ──────────────────────────────────
+CREATE INDEX idx_rooms_company_layout
+  ON rooms (company_id, layout_id);
 
 CREATE TABLE objects (
-  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  layout_id    UUID         NOT NULL REFERENCES workspace_layouts (id) ON DELETE CASCADE,
-  company_id   UUID         NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
-  room_id      UUID         REFERENCES rooms (id) ON DELETE SET NULL,
-    -- NULL = placed on the ground plane but not inside any room
-
-  asset_type   VARCHAR(80)  NOT NULL,  -- key from ASSET_TYPES catalog
-  category     VARCHAR(50)  NOT NULL DEFAULT 'Furniture',
-  name         VARCHAR(255) NOT NULL,
-
-  -- Transform (3-axis position, rotation in radians, uniform/non-uniform scale)
-  pos_x        REAL NOT NULL DEFAULT 0,
-  pos_y        REAL NOT NULL DEFAULT 0,
-  pos_z        REAL NOT NULL DEFAULT 0,
-  rot_x        REAL NOT NULL DEFAULT 0,
-  rot_y        REAL NOT NULL DEFAULT 0,
-  rot_z        REAL NOT NULL DEFAULT 0,
-  scale_x      REAL NOT NULL DEFAULT 1,
-  scale_y      REAL NOT NULL DEFAULT 1,
-  scale_z      REAL NOT NULL DEFAULT 1,
-
-  is_locked    BOOLEAN      NOT NULL DEFAULT FALSE,
-  metadata     JSONB        NOT NULL DEFAULT '{}',
-    -- Extensible: model URLs, custom colours, physics flags, etc.
-
-  sort_order   INTEGER      NOT NULL DEFAULT 0,
-  created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+  id          TEXT NOT NULL,
+  layout_id   UUID NOT NULL,
+  company_id  UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  floor_id    TEXT NOT NULL,
+  room_id     TEXT,
+  asset_type  TEXT NOT NULL,
+  label       TEXT NOT NULL DEFAULT '',
+  department  TEXT NOT NULL DEFAULT '',
+  pos_x       REAL NOT NULL DEFAULT 0,
+  pos_y       REAL NOT NULL DEFAULT 0,
+  pos_z       REAL NOT NULL DEFAULT 0,
+  rot_x       REAL NOT NULL DEFAULT 0,
+  rot_y       REAL NOT NULL DEFAULT 0,
+  rot_z       REAL NOT NULL DEFAULT 0,
+  scale_x     REAL NOT NULL DEFAULT 1 CHECK (scale_x > 0),
+  scale_y     REAL NOT NULL DEFAULT 1 CHECK (scale_y > 0),
+  scale_z     REAL NOT NULL DEFAULT 1 CHECK (scale_z > 0),
+  is_locked   BOOLEAN NOT NULL DEFAULT false,
+  metadata    JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (layout_id, id),
+  FOREIGN KEY (company_id, layout_id)
+    REFERENCES workspace_layouts (company_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (layout_id, floor_id)
+    REFERENCES floors (layout_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (layout_id, room_id)
+    REFERENCES rooms (layout_id, id) ON DELETE RESTRICT
 );
 
-CREATE INDEX idx_objects_layout  ON objects (layout_id);
-CREATE INDEX idx_objects_company ON objects (company_id);
-CREATE INDEX idx_objects_room    ON objects (room_id);
+CREATE INDEX idx_objects_company_layout
+  ON objects (company_id, layout_id);
 
--- ──────────────────────────────────
---  6. LAYOUT VERSIONS (audit trail)
--- ──────────────────────────────────
+CREATE TABLE anchors (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  layout_id    UUID NOT NULL,
+  company_id   UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  floor_id     TEXT NOT NULL,
+  room_id      TEXT,
+  object_id    TEXT,
+  kind         TEXT NOT NULL,
+  position     JSONB NOT NULL,
+  rotation_y   REAL NOT NULL DEFAULT 0,
+  position_ref TEXT,
+  label        TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  FOREIGN KEY (company_id, layout_id)
+    REFERENCES workspace_layouts (company_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (layout_id, floor_id)
+    REFERENCES floors (layout_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (layout_id, room_id)
+    REFERENCES rooms (layout_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (layout_id, object_id)
+    REFERENCES objects (layout_id, id) ON DELETE RESTRICT
+);
+
+CREATE INDEX idx_anchors_company_layout
+  ON anchors (company_id, layout_id);
+
+CREATE TABLE routes (
+  id          TEXT NOT NULL,
+  layout_id   UUID NOT NULL,
+  company_id  UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  floor_id    TEXT NOT NULL,
+  kind        TEXT NOT NULL
+              CHECK (kind IN ('evacuation', 'accessible', 'custom')),
+  label       TEXT NOT NULL DEFAULT '',
+  waypoints   JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (layout_id, id),
+  FOREIGN KEY (company_id, layout_id)
+    REFERENCES workspace_layouts (company_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (layout_id, floor_id)
+    REFERENCES floors (layout_id, id) ON DELETE RESTRICT
+);
+
+CREATE INDEX idx_routes_company_layout
+  ON routes (company_id, layout_id);
+
+CREATE TABLE floor_links (
+  id             TEXT NOT NULL,
+  layout_id      UUID NOT NULL,
+  company_id     UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  kind           TEXT NOT NULL CHECK (kind IN ('stairs', 'elevator')),
+  from_object_id TEXT NOT NULL,
+  to_object_id   TEXT NOT NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (layout_id, id),
+  FOREIGN KEY (company_id, layout_id)
+    REFERENCES workspace_layouts (company_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (layout_id, from_object_id)
+    REFERENCES objects (layout_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (layout_id, to_object_id)
+    REFERENCES objects (layout_id, id) ON DELETE RESTRICT
+);
+
+CREATE INDEX idx_floor_links_company_layout
+  ON floor_links (company_id, layout_id);
+
+-- ────────────────────────────────────────────────────────────────────────
+-- Existing version-history foundation
+-- ────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE layout_versions (
-  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  layout_id    UUID         NOT NULL REFERENCES workspace_layouts (id) ON DELETE CASCADE,
-  company_id   UUID         NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
-  version      INTEGER      NOT NULL,
-  snapshot     JSONB        NOT NULL,  -- full serialised rooms + objects
-  created_by   UUID         REFERENCES users (id) ON DELETE SET NULL,
-  created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-
-  UNIQUE (layout_id, version)
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  layout_id   UUID NOT NULL,
+  company_id  UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  version     INTEGER NOT NULL CHECK (version >= 1),
+  revision    INTEGER NOT NULL CHECK (revision >= 1),
+  snapshot    JSONB NOT NULL,
+  created_by  UUID REFERENCES users (id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (layout_id, version),
+  FOREIGN KEY (company_id, layout_id)
+    REFERENCES workspace_layouts (company_id, id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_versions_layout ON layout_versions (layout_id);
+CREATE INDEX idx_versions_company_layout
+  ON layout_versions (company_id, layout_id, version DESC);
 
--- ──────────────────────────────────
---  7. ROW-LEVEL SECURITY
--- ──────────────────────────────────
+-- ────────────────────────────────────────────────────────────────────────
+-- Object/room change log
+-- ────────────────────────────────────────────────────────────────────────
 
--- Enable RLS on tenant-scoped tables
-ALTER TABLE workspace_layouts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE rooms             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE objects           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE layout_versions   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE users             ENABLE ROW LEVEL SECURITY;
+CREATE TABLE layout_change_log (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id   UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  layout_id    UUID NOT NULL,
+  entity_type  TEXT NOT NULL CHECK (
+    entity_type IN ('floor', 'room', 'object', 'anchor', 'route', 'floor_link')
+  ),
+  entity_id    TEXT NOT NULL,
+  action       TEXT NOT NULL CHECK (
+    action IN ('created', 'updated', 'deleted', 'restored')
+  ),
+  before_data  JSONB,
+  after_data   JSONB,
+  changed_by   UUID REFERENCES users (id) ON DELETE SET NULL,
+  changed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  FOREIGN KEY (company_id, layout_id)
+    REFERENCES workspace_layouts (company_id, id) ON DELETE CASCADE
+);
 
--- Policies assume the application sets `app.current_company_id`
--- via SET LOCAL at the start of each transaction.
+CREATE INDEX idx_change_log_company_layout_time
+  ON layout_change_log (company_id, layout_id, changed_at DESC);
 
-CREATE POLICY tenant_isolation_layouts ON workspace_layouts
-  USING (company_id = current_setting('app.current_company_id')::UUID);
+-- ────────────────────────────────────────────────────────────────────────
+-- RLS: membership is the tenant authority
+-- ────────────────────────────────────────────────────────────────────────
 
-CREATE POLICY tenant_isolation_rooms ON rooms
-  USING (company_id = current_setting('app.current_company_id')::UUID);
+CREATE OR REPLACE FUNCTION public.user_has_company_access(target_company UUID)
+RETURNS BOOLEAN
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.company_memberships membership
+    WHERE membership.user_id = auth.uid()
+      AND membership.company_id = target_company
+  );
+$$;
 
-CREATE POLICY tenant_isolation_objects ON objects
-  USING (company_id = current_setting('app.current_company_id')::UUID);
+REVOKE ALL ON FUNCTION public.user_has_company_access(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.user_has_company_access(UUID) TO authenticated;
 
-CREATE POLICY tenant_isolation_versions ON layout_versions
-  USING (company_id = current_setting('app.current_company_id')::UUID);
+ALTER TABLE companies           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE company_memberships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workspace_layouts   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE floors              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rooms               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE objects             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE anchors             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE routes              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE floor_links         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE layout_versions     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE layout_change_log   ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY tenant_isolation_users ON users
-  USING (company_id = current_setting('app.current_company_id')::UUID);
+CREATE POLICY companies_member_select ON companies
+  FOR SELECT TO authenticated
+  USING (public.user_has_company_access(id));
 
--- ──────────────────────────────────
---  8. UPDATED_AT TRIGGER
--- ──────────────────────────────────
+CREATE POLICY users_self_select ON users
+  FOR SELECT TO authenticated
+  USING (id = auth.uid());
 
-CREATE OR REPLACE FUNCTION trigger_set_updated_at()
-RETURNS TRIGGER AS $$
+CREATE POLICY memberships_self_select ON company_memberships
+  FOR SELECT TO authenticated
+  USING (user_id = auth.uid());
+
+CREATE POLICY layouts_member_access ON workspace_layouts
+  FOR ALL TO authenticated
+  USING (public.user_has_company_access(company_id))
+  WITH CHECK (public.user_has_company_access(company_id));
+
+CREATE POLICY floors_member_access ON floors
+  FOR ALL TO authenticated
+  USING (public.user_has_company_access(company_id))
+  WITH CHECK (public.user_has_company_access(company_id));
+
+CREATE POLICY rooms_member_access ON rooms
+  FOR ALL TO authenticated
+  USING (public.user_has_company_access(company_id))
+  WITH CHECK (public.user_has_company_access(company_id));
+
+CREATE POLICY objects_member_access ON objects
+  FOR ALL TO authenticated
+  USING (public.user_has_company_access(company_id))
+  WITH CHECK (public.user_has_company_access(company_id));
+
+CREATE POLICY anchors_member_access ON anchors
+  FOR ALL TO authenticated
+  USING (public.user_has_company_access(company_id))
+  WITH CHECK (public.user_has_company_access(company_id));
+
+CREATE POLICY routes_member_access ON routes
+  FOR ALL TO authenticated
+  USING (public.user_has_company_access(company_id))
+  WITH CHECK (public.user_has_company_access(company_id));
+
+CREATE POLICY floor_links_member_access ON floor_links
+  FOR ALL TO authenticated
+  USING (public.user_has_company_access(company_id))
+  WITH CHECK (public.user_has_company_access(company_id));
+
+CREATE POLICY versions_member_access ON layout_versions
+  FOR ALL TO authenticated
+  USING (public.user_has_company_access(company_id))
+  WITH CHECK (public.user_has_company_access(company_id));
+
+CREATE POLICY change_log_member_access ON layout_change_log
+  FOR SELECT TO authenticated
+  USING (public.user_has_company_access(company_id));
+
+CREATE OR REPLACE FUNCTION public.record_layout_change()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  row_data JSONB;
+  old_data JSONB;
+  row_company UUID;
+  row_layout UUID;
+  row_entity_id TEXT;
+  row_action TEXT;
 BEGIN
-  NEW.updated_at = NOW();
+  IF TG_OP = 'DELETE' THEN
+    row_data := NULL;
+    old_data := to_jsonb(OLD);
+    row_company := OLD.company_id;
+    row_layout := OLD.layout_id;
+    row_entity_id := OLD.id::TEXT;
+    row_action := 'deleted';
+  ELSE
+    row_data := to_jsonb(NEW);
+    old_data := CASE WHEN TG_OP = 'UPDATE' THEN to_jsonb(OLD) ELSE NULL END;
+    row_company := NEW.company_id;
+    row_layout := NEW.layout_id;
+    row_entity_id := NEW.id::TEXT;
+    row_action := CASE WHEN TG_OP = 'INSERT' THEN 'created' ELSE 'updated' END;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND row_data = old_data THEN
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO public.layout_change_log (
+    company_id,
+    layout_id,
+    entity_type,
+    entity_id,
+    action,
+    before_data,
+    after_data,
+    changed_by
+  )
+  VALUES (
+    row_company,
+    row_layout,
+    CASE TG_TABLE_NAME
+      WHEN 'floor_links' THEN 'floor_link'
+      ELSE rtrim(TG_TABLE_NAME, 's')
+    END,
+    row_entity_id,
+    row_action,
+    old_data,
+    row_data,
+    auth.uid()
+  );
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.record_layout_change() FROM PUBLIC;
+
+CREATE TRIGGER floors_record_layout_change
+  AFTER INSERT OR UPDATE OR DELETE ON floors
+  FOR EACH ROW EXECUTE FUNCTION public.record_layout_change();
+
+CREATE TRIGGER rooms_record_layout_change
+  AFTER INSERT OR UPDATE OR DELETE ON rooms
+  FOR EACH ROW EXECUTE FUNCTION public.record_layout_change();
+
+CREATE TRIGGER objects_record_layout_change
+  AFTER INSERT OR UPDATE OR DELETE ON objects
+  FOR EACH ROW EXECUTE FUNCTION public.record_layout_change();
+
+CREATE TRIGGER anchors_record_layout_change
+  AFTER INSERT OR UPDATE OR DELETE ON anchors
+  FOR EACH ROW EXECUTE FUNCTION public.record_layout_change();
+
+CREATE TRIGGER routes_record_layout_change
+  AFTER INSERT OR UPDATE OR DELETE ON routes
+  FOR EACH ROW EXECUTE FUNCTION public.record_layout_change();
+
+CREATE TRIGGER floor_links_record_layout_change
+  AFTER INSERT OR UPDATE OR DELETE ON floor_links
+  FOR EACH ROW EXECUTE FUNCTION public.record_layout_change();
+
+-- ────────────────────────────────────────────────────────────────────────
+-- Common timestamp maintenance
+-- ────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.updated_at = now();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
-CREATE TRIGGER set_updated_at_companies
+CREATE TRIGGER companies_set_updated_at
   BEFORE UPDATE ON companies
-  FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
-CREATE TRIGGER set_updated_at_users
+CREATE TRIGGER users_set_updated_at
   BEFORE UPDATE ON users
-  FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
-CREATE TRIGGER set_updated_at_layouts
+CREATE TRIGGER layouts_set_updated_at
   BEFORE UPDATE ON workspace_layouts
-  FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
-CREATE TRIGGER set_updated_at_rooms
+CREATE TRIGGER floors_set_updated_at
+  BEFORE UPDATE ON floors
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TRIGGER rooms_set_updated_at
   BEFORE UPDATE ON rooms
-  FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
-CREATE TRIGGER set_updated_at_objects
+CREATE TRIGGER objects_set_updated_at
   BEFORE UPDATE ON objects
-  FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TRIGGER anchors_set_updated_at
+  BEFORE UPDATE ON anchors
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TRIGGER routes_set_updated_at
+  BEFORE UPDATE ON routes
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TRIGGER floor_links_set_updated_at
+  BEFORE UPDATE ON floor_links
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
