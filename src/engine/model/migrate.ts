@@ -9,7 +9,10 @@
  *   room.doors[]      → openings[]       object.isLocked  → locked
  *   object.name       → label (if no label)
  *   object.scaleX/Y/Z → scale {x,y,z}
- *   object.rotationX/Z, category → kept in metadata (v2 has no field for them)
+ *   object.rotationX/Z, category → kept in metadata (v2 has no field for them;
+ *                       no category means 'Furniture')
+ *   object.name (if not the label) → metadata.name
+ * model/toV1.ts converts back.
  */
 
 import { v4 as uuid } from 'uuid';
@@ -147,7 +150,11 @@ export function migrateV1toV2(v1: V1State): Layout {
     const extra: Record<string, unknown> = { ...(o.metadata ?? {}) };
     if (o.rotationX) extra.rotationX = o.rotationX;
     if (o.rotationZ) extra.rotationZ = o.rotationZ;
-    if (o.category) extra.category = o.category;
+    // 'Furniture' is the store's default: no category in v2 means it (toV1)
+    if (o.category && o.category !== 'Furniture') extra.category = o.category;
+    // The store's auto name ("DESK_STANDARD 1"): kept when it isn't the label,
+    // so toV1 gives it back and an empty label stays empty
+    if (typeof o.name === 'string' && o.name && o.name !== o.label) extra.name = o.name;
 
     return {
       id: String(o.id ?? uuid()),
@@ -213,12 +220,20 @@ export function migrateV1toV2(v1: V1State): Layout {
   return layout;
 }
 
+/** An exported layout file (services/apiService.exportLayout): the layout is inside. */
+export const LAYOUT_FILE_FORMAT = 'ahdus-layout';
+
 /**
  * Load layout from any version, always returning a VALIDATED v2 layout.
- * Throws a ZodError with a readable path (e.g. "objects.3.x: Expected number")
- * if the data is corrupt, instead of letting bad data reach the renderer.
+ * Takes a save (v1), an exported layout file ({ format: 'ahdus-layout', layout })
+ * or v2 JSON. Throws a ZodError with a readable path (e.g. "objects.3.x:
+ * Expected number") if the data is corrupt, instead of letting bad data reach
+ * the renderer.
  */
 export function loadLayout(data: unknown): Layout {
+  if (data && typeof data === 'object' && (data as any).format === LAYOUT_FILE_FORMAT) {
+    data = (data as any).layout;
+  }
   const v2 = detectVersion(data) === 2 ? data : migrateV1toV2(data as V1State);
   const layout = LayoutSchema.parse(v2);
   // Re-sync so anchors always match object positions, even if the saved

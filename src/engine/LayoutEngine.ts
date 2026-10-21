@@ -12,33 +12,36 @@
  *
  * React wrappers (<LayoutEditor />, <LayoutViewer />) delegate to this class.
  *
- * STATUS (20 Oct 2026): being built (TEAM_TASKS H2). The editor app does NOT
- * use this class yet.
- *   Real and used:  model/ (v2 schema, v1 → v2 migration, anchor ids),
- *                   commands/ (CommandHistory and LayoutCommands: the editor's
- *                   undo/redo, through store/editorHistory.js),
- *                   systems/SceneSetup, RoomSystem, ObjectSystem, FloorSystem
- *                   (Workplace Studio draws with them).
- *   Stubs (TODO):   this class's scene work (loadLayout builds no meshes;
- *                   setFloor, setView, focusOn, highlight, setMode do nothing yet)
- *                   and systems/PlacementSystem, SelectionSystem, WalkthroughSystem.
+ * Each engine keeps its own copy of the layout in its own workspace store
+ * (store/workspaceStore.createWorkspaceStore: the app's store shape, v1 field
+ * names), so a viewer and Workplace Studio can be open on one page. It draws
+ * that copy with the same systems as Studio (systems/SceneSetup, RoomSystem,
+ * ObjectSystem, FloorSystem) and redraws whatever changes in it.
+ *
+ * STATUS (22 Oct 2026): being built (TEAM_TASKS H2).
+ *   Real:  model/ (v2 schema, v1 → v2 migration and back: toV1, anchor ids),
+ *          commands/ (the editor's undo/redo, through store/editorHistory.js),
+ *          systems/SceneSetup, RoomSystem, ObjectSystem, FloorSystem,
+ *          loadLayout (saves, export files, v2) draws the layout; getLayout
+ *          returns it as v2; setFloor.
+ *   Stubs (TODO):  setView, focusOn, highlight, clearHighlights, setMode,
+ *          systems/PlacementSystem, SelectionSystem, WalkthroughSystem.
  */
 
-import { Engine } from '@babylonjs/core/Engines/engine';
-import { Scene } from '@babylonjs/core/scene';
-import { Color4 } from '@babylonjs/core/Maths/math.color';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
-// Side-effect imports (tree-shaking)
-import '@babylonjs/core/Meshes/meshBuilder';
-import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
-import '@babylonjs/core/Meshes/csg';
-import '@babylonjs/core/Collisions/collisionCoordinator';
+import type { Engine } from '@babylonjs/core/Engines/engine';
+import type { Scene } from '@babylonjs/core/scene';
 
 import type { Layout, Anchor, LayoutObject, AnchorKind } from './model/schema';
-import { loadLayout } from './model/migrate';
+import { loadLayout as parseLayout } from './model/migrate';
+import { toV1, storeFloorIds } from './model/toV1';
 import { CommandHistory } from './commands/CommandHistory';
 import type { Command } from './commands/CommandHistory';
+import { createLayoutScene } from './systems/SceneSetup';
+import type { LayoutScene } from './systems/SceneSetup';
+import { RoomSystem } from './systems/RoomSystem';
+import { ObjectSystem } from './systems/ObjectSystem';
+import { FloorSystem } from './systems/FloorSystem';
+import { createWorkspaceStore } from '../store/workspaceStore';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -85,30 +88,39 @@ type EventMap = {
 
 type EventHandler<K extends keyof EventMap> = (event: EventMap[K]) => void;
 
+/** An engine's own workspace store (the app's store shape, v1 field names). */
+export type WorkspaceStore = ReturnType<typeof createWorkspaceStore>;
+
 // ── LayoutEngine ─────────────────────────────────────────────────────────
 
 export class LayoutEngine {
   // Core Babylon
   readonly babylonEngine: Engine;
   readonly scene: Scene;
+  private _layoutScene: LayoutScene;
 
   // Config
   private _mode: EngineMode;
   private _quality: QualityLevel;
   private _view: ViewMode = '3d';
 
-  // Data
-  private _layout: Layout | null = null;
-  private _currentFloorId: string | number = 0;
+  // Data: this engine's copy of the layout (v1 field names), and the v2
+  // layout as loaded (for what only v2 has: routes, floor links, …)
+  private _store: WorkspaceStore;
+  private _loaded: Layout | null = null;
+  private _cachedLayout: Layout | null = null;
+  private _unsubscribe: () => void;
+
+  // Drawing (the same systems as Workplace Studio)
+  readonly rooms: RoomSystem;
+  readonly objects: ObjectSystem;
+  readonly floors: FloorSystem;
 
   // Command history (undo/redo)
   readonly history: CommandHistory;
 
   // Event bus (one Set per event name; typed at the on/off/emit boundary)
   private _listeners = new Map<keyof EventMap, Set<(event: any) => void>>();
-
-  // Window resize handler, kept so dispose() can remove it
-  private _onResize: () => void;
 
   // ── Factory ────────────────────────────────────────────────────────────
 
@@ -120,7 +132,7 @@ export class LayoutEngine {
     canvas: HTMLCanvasElement,
     options: EngineOptions = {},
   ): Promise<LayoutEngine> {
-    const engine = new LayoutEngine(canvas, options);
+    const engine = new LayoutEngine(createLayoutScene(canvas, { quality: options.quality }), options);
     // Allow one frame for the scene to initialise
     await new Promise<void>((resolve) => {
       engine.scene.executeWhenReady(() => resolve());
@@ -128,67 +140,89 @@ export class LayoutEngine {
     return engine;
   }
 
-  private constructor(canvas: HTMLCanvasElement, options: EngineOptions) {
+  /**
+   * An engine on a scene made elsewhere (unit tests use a NullEngine). The
+   * engine owns it from now on: dispose() disposes it.
+   */
+  static fromScene(layoutScene: LayoutScene, options: EngineOptions = {}): LayoutEngine {
+    return new LayoutEngine(layoutScene, options);
+  }
+
+  private constructor(layoutScene: LayoutScene, options: EngineOptions) {
     this._mode = options.mode ?? 'edit';
     this._quality = options.quality ?? 'high';
 
-    // Babylon Engine
-    this.babylonEngine = new Engine(canvas, true, {
-      preserveDrawingBuffer: true,
-      stencil: true,
+    this._layoutScene = layoutScene;
+    this.babylonEngine = layoutScene.engine;
+    this.scene = layoutScene.scene;
+
+    this._store = createWorkspaceStore();
+    const shadowGenerator = layoutScene.lights?.shadowGenerator;
+    this.rooms = new RoomSystem(this.scene, { shadowGenerator });
+    this.objects = new ObjectSystem(this.scene, { shadowGenerator });
+    this.floors = new FloorSystem(this.rooms, this.objects, () => this._store.getState());
+    // Until a floor is chosen, the whole building shows, with roofs
+    this.floors.setView({ mode: 'outside', level: 0 });
+
+    // Redraw whatever changes in this engine's layout
+    this._unsubscribe = this._store.subscribe((s, prev) => {
+      if (s.rooms === prev.rooms && s.objects === prev.objects && s.floors === prev.floors
+        && s.anchorData === prev.anchorData && s.selectedRoomId === prev.selectedRoomId) return;
+      this._cachedLayout = null;
+      this._draw();
     });
-    this.babylonEngine.setHardwareScalingLevel(1 / window.devicePixelRatio);
-
-    // Scene
-    this.scene = new Scene(this.babylonEngine);
-    this.scene.clearColor = new Color4(0.06, 0.08, 0.12, 1);
-
-    // Default editor camera. Babylon throws "No camera defined" on every
-    // frame if the scene renders without one, so the engine always has one.
-    const camera = new ArcRotateCamera(
-      'layoutCamera', -Math.PI / 2, Math.PI / 3, 30, Vector3.Zero(), this.scene,
-    );
-    camera.attachControl(canvas, true);
 
     // Command History
     this.history = new CommandHistory({ maxSize: 200 });
-
-    // Render loop
-    this.babylonEngine.runRenderLoop(() => {
-      this.scene.render();
-    });
-
-    // Resize
-    this._onResize = () => this.babylonEngine.resize();
-    window.addEventListener('resize', this._onResize);
   }
 
   // ── Layout Data ────────────────────────────────────────────────────────
 
   /**
-   * Load a layout from JSON. Handles both v1 (legacy) and v2 formats.
+   * Load a layout and draw it. Takes a save (v1, as apiService keeps it), an
+   * exported layout file ({ format: 'ahdus-layout', layout }) or v2 JSON.
+   * Throws (a ZodError naming the bad field) if the data is not a layout;
+   * then the layout shown before stays.
    */
   loadLayout(data: unknown): void {
-    this._layout = loadLayout(data);
+    const v2 = parseLayout(data);
+    const v1 = toV1(v2);
+    const store = this._store.getState();
+    store.loadWorkspace(v1);
+    store.setTenant(null, null, v1.layoutName, v1.layoutVersion);
+    this._loaded = v2;
+    this._cachedLayout = null;
     this.history.clear();
-    this._currentFloorId = this._layout.floors[0]?.id ?? 0;
-    // TODO: rebuild all Babylon meshes from _layout
+    this._draw();
     this._emitChange('loadLayout', 'root');
   }
 
   /**
-   * Get the current layout state as a v2 JSON-serializable object.
+   * The current layout as v2 JSON (null before loadLayout). Includes any
+   * change made in the engine since it was loaded.
    */
   getLayout(): Layout | null {
-    return this._layout;
+    if (!this._loaded) return null;
+    if (!this._cachedLayout) this._cachedLayout = this._exportLayout(this._loaded);
+    return this._cachedLayout;
+  }
+
+  /**
+   * This engine's workspace store (v1 field names, the app's store shape).
+   * For the systems and the bridge (integration/layoutBridge.js); modules
+   * use the methods of this class instead.
+   */
+  getStore(): WorkspaceStore {
+    return this._store;
   }
 
   // ── Navigation ─────────────────────────────────────────────────────────
 
-  /** Switch the displayed floor */
+  /** Show the building up to this floor, without its roof (as Studio does). */
   setFloor(floorId: string | number): void {
-    this._currentFloorId = floorId;
-    // TODO: show/hide meshes for this floor
+    const id = this._loaded ? storeFloorIds(this._loaded.floors)(floorId) : Number(floorId);
+    this._store.getState().selectFloor(id);
+    this.floors.setFloor(id);
   }
 
   /** Switch between 3D perspective and 2D top-down */
@@ -216,8 +250,7 @@ export class LayoutEngine {
 
   /** Get all anchors, optionally filtered by kind */
   getAnchors(filter?: { kind?: AnchorKind }): Anchor[] {
-    if (!this._layout) return [];
-    const anchors = this._layout.anchors;
+    const anchors = this.getLayout()?.anchors ?? [];
     if (filter?.kind) {
       return anchors.filter((a) => a.kind === filter.kind);
     }
@@ -226,14 +259,12 @@ export class LayoutEngine {
 
   /** Get all anchors in a specific room */
   getAnchorsByRoom(roomId: string): Anchor[] {
-    if (!this._layout) return [];
-    return this._layout.anchors.filter((a) => a.roomId === roomId);
+    return (this.getLayout()?.anchors ?? []).filter((a) => a.roomId === roomId);
   }
 
   /** Look up a placed object by ID */
   getObjectById(objectId: string): LayoutObject | undefined {
-    if (!this._layout) return undefined;
-    return this._layout.objects.find((o) => o.id === objectId);
+    return this.getLayout()?.objects.find((o) => o.id === objectId);
   }
 
   // ── Mode ───────────────────────────────────────────────────────────────
@@ -302,17 +333,48 @@ export class LayoutEngine {
 
   // ── Cleanup ────────────────────────────────────────────────────────────
 
+  /** Stop rendering and dispose the scene and the Babylon engine. */
   dispose(): void {
-    window.removeEventListener('resize', this._onResize);
-
-    this.babylonEngine.stopRenderLoop();
-    this.scene.dispose();
-    this.babylonEngine.dispose();
-
+    this._unsubscribe();
     this._listeners.clear();
+    // The scene takes every room and item mesh with it; forget them
+    this.rooms.meshes.clear();
+    this.objects.meshes.clear();
+    this._layoutScene.dispose();
   }
 
   // ── Internals ──────────────────────────────────────────────────────────
+
+  /** Bring the meshes up to date with this engine's layout. */
+  private _draw(): void {
+    if (this.scene.isDisposed) return;
+    const state = this._store.getState();
+    this.rooms.sync(state, state.selectedRoomId);
+    this.objects.sync(state);
+    this.floors.apply();
+  }
+
+  /**
+   * The store's layout as v2, plus what only v2 has, from the layout as it
+   * was loaded: the building's address and north angle, routes, floor links,
+   * floor underlays and anchors that aren't on an object.
+   */
+  private _exportLayout(loaded: Layout): Layout {
+    const layout = parseLayout(this._store.getState().exportWorkspace());
+    const floorOf = storeFloorIds(loaded.floors);
+    const underlays = new Map(loaded.floors.filter((f) => f.underlay).map((f) => [floorOf(f.id), f.underlay]));
+    return {
+      ...layout,
+      building: { ...loaded.building, name: layout.building.name },
+      floors: layout.floors.map((f) => (underlays.has(Number(f.id)) ? { ...f, underlay: underlays.get(Number(f.id)) } : f)),
+      anchors: [
+        ...loaded.anchors.filter((a) => !a.objectId).map((a) => ({ ...a, floorId: floorOf(a.floorId) })),
+        ...layout.anchors,
+      ],
+      routes: loaded.routes.map((r) => ({ ...r, floorId: floorOf(r.floorId) })),
+      floorLinks: loaded.floorLinks,
+    };
+  }
 
   private _emitChange(type: string, entityId: string): void {
     this.emit('change', {
