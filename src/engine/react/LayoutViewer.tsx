@@ -37,7 +37,7 @@ export interface LayoutViewerProps {
   onInteract?: (event: InteractEvent) => void;
   onEnterRoom?: (event: EnterRoomEvent) => void;
   onExitRoom?: (event: ExitRoomEvent) => void;
-  /** The layout could not be loaded (not found, or not a layout). */
+  /** The layout could not be loaded (not found, or not a layout), or the 3D view could not start. */
   onError?: (error: Error) => void;
   /** A card was shown (the default card of E, layoutBridge.showCard): to show it in your own panel too. */
   onCard?: (card: { title: string; body?: string; text?: string; duration?: number }) => void;
@@ -110,6 +110,12 @@ export function LayoutViewer(props: LayoutViewerProps) {
         e.on('hud', (info) => setHud(info as Hud)),
       );
       setEngine(e);
+    }).catch((err) => {
+      // e.g. no WebGL in this browser
+      if (disposed) return;
+      const e = err instanceof Error ? err : new Error(String(err));
+      setError('This browser could not start the 3D view');
+      propsRef.current.onError?.(e);
     });
 
     return () => {

@@ -158,7 +158,7 @@ log('N takes you up: standing in the copied room on Floor 1', (await level()) ==
 // ── Build a room on Floor 1 in Preview, sticking out past the floor below: warned, but built ──
 await p.keyboard.press('Digit1'); await frames(2);
 const PITCH = -0.9;
-await aimAt(4.5, -3, 3.52, 7.5, PITCH);
+await aimAt(5, -3, 3.52, 7.5, PITCH);           // 0.85 m from back to back with the copy: no snap (ROOM_SNAP 0.35)
 log('flying above Floor 1 keeps you on Floor 1', (await level()) === 1 && (await store()).currentFloor === 1, `level ${await level()}`);
 await click();                                   // first corner
 await aimAt(9, 3, 3.52, 7.5, PITCH);
@@ -168,7 +168,7 @@ await click();                                   // opposite corner
 st = await store();
 const extra = st.rooms.find((r) => r.floor === 1 && r.id !== copy.id);
 log('a room on Floor 1 that sticks out past the floor below gets a warning, and is still built',
-  /nothing under it/.test(overhangHint) && !!extra && near(extra.width, 4.5, 0.01) && near(extra.depth, 6, 0.01),
+  /nothing under it/.test(overhangHint) && !!extra && near(extra.width, 4, 0.01) && near(extra.depth, 6, 0.01),
   `"${overhangHint.slice(0, 80)}" ${extra ? `${extra.width} × ${extra.depth}` : 'not built'}`);
 
 // ── The copied room: 3.5 m up, on a slab, with an opening over the stairs ──

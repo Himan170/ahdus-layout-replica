@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<!--
+  embed-test.html: a plain HTML page (no React, no build step) that shows the
+  3D workplace with only dist-embed/ahdus-workplace.js, as other teams' pages
+  do (docs/EMBED_GUIDE.md).
+
+    npm run build:embed, then open it through any web server, e.g.
+    npm run dev → http://localhost:3000/embed-test.html
+
+    ?mode=view                     orbit instead of walking through
+    ?layoutUrl=missing.json        a layout that can't be loaded: this page's own fallback
+
+  e2e/embed-smoke.mjs tests it.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AHDUS - Workplace embed test</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { height: 100%; }
+      body { display: flex; flex-direction: column; font: 14px/1.4 system-ui, sans-serif; color: #0f172a; background: #f8fafc; }
+      header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px; border-bottom: 1px solid #e2e8f0; background: #fff; }
+      header .muted { opacity: 0.7; }
+      header .grow { flex: 1; }
+      button { border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; padding: 4px 12px; font: inherit; cursor: pointer; }
+      button[aria-pressed="true"] { background: #1e40af; border-color: #1e40af; color: #fff; }
+      .group { display: flex; gap: 4px; }
+      main { flex: 1; display: flex; min-height: 0; }
+      #workplace { flex: 1; min-width: 0; position: relative; }
+      .fallback { position: absolute; inset: 0; display: grid; place-content: center; gap: 4px; padding: 24px; text-align: center; background: #e2e8f0; color: #334155; }
+      aside { width: 320px; max-width: 40%; overflow-y: auto; border-left: 1px solid #e2e8f0; background: #fff; padding: 8px 16px; }
+      h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.4px; opacity: 0.7; margin: 12px 0 6px; }
+      ol { list-style: none; display: grid; gap: 4px; font-size: 13px; }
+      li time { opacity: 0.6; }
+      code { background: #f1f5f9; border-radius: 4px; padding: 0 4px; }
+      .video { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(480px, calc(100% - 32px));
+        background: #0f172a; color: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 10px 40px #0006; display: grid; gap: 8px; }
+      .video[hidden] { display: none; }
+      .video .screen { aspect-ratio: 16 / 9; display: grid; place-content: center; font-size: 40px; background: #1e293b; border-radius: 6px; }
+      .video button { justify-self: end; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>AHDUS Workplace embed</strong>
+      <span class="muted">Sample office · only dist-embed/ahdus-workplace.js</span>
+      <span class="grow"></span>
+      <span class="group" aria-label="Mode">
+        <button type="button" data-mode="view">View</button>
+        <button type="button" data-mode="walkthrough">Walk through</button>
+      </span>
+      <span class="group" id="floors" aria-label="Floors"></span>
+      <button type="button" id="show-machine">Show the CNC machine</button>
+      <button type="button" id="remove">Remove viewer</button>
+    </header>
+    <main>
+      <div id="workplace"></div>
+      <aside aria-label="Events">
+        <h2>onEvent calls</h2>
+        <ol id="events"><li class="muted">Walk into a room, or press E on something.</li></ol>
+      </aside>
+    </main>
+    <div class="video" id="video" role="dialog" aria-label="Training video" hidden>
+      <div class="screen" aria-hidden="true">▶</div>
+      <strong id="video-title"></strong>
+      <p id="video-text"></p>
+      <button type="button" id="video-close">Close</button>
+    </div>
+
+    <script src="dist-embed/ahdus-workplace.js"></script>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const layoutUrl = params.get('layoutUrl') || 'embed-sample.ahdus.json';
+      let mode = params.get('mode') === 'view' ? 'view' : 'walkthrough';
+      const box = document.getElementById('workplace');
+      const list = document.getElementById('events');
+      const $ = (id) => document.getElementById(id);
+      let workplace = null;
+      window.embedEvents = []; // every onEvent call, for e2e/embed-smoke.mjs and the console
+
+      function describe(name, d) {
+        switch (name) {
+          case 'ready': return `${d.name}: ${d.rooms.length} rooms on ${d.floors.length} floors`;
+          case 'enterRoom': case 'exitRoom': return d.room ? d.room.name : d.roomId;
+          case 'interact': return (d.object ? d.object.label : d.kind) + (d.anchorKind ? ` (${d.anchorKind})` : '');
+          case 'floorChange': return d.name;
+          case 'card': return d.title;
+          default: return d && d.message ? d.message : '';
+        }
+      }
+
+      function logEvent(name, data) {
+        window.embedEvents.push({ name, data });
+        if (list.querySelector('.muted')) list.replaceChildren();
+        const li = document.createElement('li');
+        const code = document.createElement('code');
+        code.textContent = name;
+        const time = document.createElement('time');
+        time.textContent = new Date().toLocaleTimeString();
+        li.append(code, ` ${describe(name, data)} `, time);
+        list.prepend(li);
+        while (list.children.length > 40) list.lastChild.remove();
+      }
+
+      function showFloors(floors) {
+        $('floors').replaceChildren(...floors.map((f) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = f.name;
+          b.onclick = () => workplace && workplace.setFloor(f.id);
+          return b;
+        }));
+      }
+
+      function showMode() {
+        for (const b of document.querySelectorAll('[data-mode]')) b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
+      }
+
+      // The Training Platform would open its video here; this page shows a stand-in
+      function playVideo(target) {
+        document.exitPointerLock && document.exitPointerLock();
+        $('video-title').textContent = `CNC training video: ${target.object.label}`;
+        $('video-text').textContent = `The Training Platform would play the training video linked to item ${target.objectId}` +
+          ` (hook point ${target.anchorId}) in ${target.room ? target.room.name : 'this room'}.`;
+        $('video').hidden = false;
+      }
+
+      function start() {
+        box.replaceChildren(); // this page's fallback, from a failed load before
+        workplace = AHDUSWorkplace.mount(box, {
+          layoutUrl,
+          mode,
+          quality: 'high',
+          onEvent(name, data) {
+            logEvent(name, data);
+            if (name === 'ready') showFloors(data.floors);
+          },
+          onError(err) {
+            logEvent('onError', { message: err.message });
+            // The element is empty again: show our own fallback, as 3d-model.html shows its placeholder
+            const p = document.createElement('div');
+            p.className = 'fallback';
+            p.innerHTML = '<strong>The 3D workplace could not be loaded</strong><span></span>';
+            p.querySelector('span').textContent = err.message;
+            box.append(p);
+            workplace = null;
+          },
+        });
+        workplace.registerAction('CNC_MACHINE', { label: 'Watch CNC training video', run: playVideo });
+        window.workplace = workplace; // for the console and e2e/embed-smoke.mjs
+        $('remove').textContent = 'Remove viewer';
+      }
+
+      for (const b of document.querySelectorAll('[data-mode]')) {
+        b.onclick = () => {
+          if (workplace && workplace.setMode(b.dataset.mode)) mode = b.dataset.mode;
+          showMode();
+        };
+      }
+      $('show-machine').onclick = () => {
+        if (!workplace) return;
+        const machine = workplace.anchors({ kind: 'machine' })[0];
+        if (!machine) return;
+        workplace.setMode('view');
+        mode = 'view';
+        showMode();
+        workplace.highlight([machine.id]);
+        workplace.focusOn(machine.id);
+      };
+      $('remove').onclick = () => {
+        if (workplace) {
+          workplace.destroy();
+          workplace = null;
+          window.workplace = null;
+          $('floors').replaceChildren();
+          $('remove').textContent = 'Show viewer';
+        } else {
+          start();
+        }
+      };
+      $('video-close').onclick = () => { $('video').hidden = true; };
+
+      showMode();
+      start();
+    </script>
+  </body>
+</html>

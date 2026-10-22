@@ -12,6 +12,8 @@ You never need to change the layout code. Everything goes through one object:
 import { layoutBridge } from '@/integration/layoutBridge';
 ```
 
+On a plain HTML page (no React, no build step) the 3D view comes from one file, `ahdus-workplace.js`, and the bridge is `AHDUSWorkplace.bridge`; see `docs/EMBED_GUIDE.md`.
+
 ---
 
 ## 1. Try it in 2 minutes

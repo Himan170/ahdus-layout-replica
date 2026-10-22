@@ -3,7 +3,7 @@
 **Project:** AHDUS (Advance Human Digital Unified System), Company Digital Twin
 **Module:** Company layout replica (digital workplace engine)
 **Owner:** Himan
-**Report date:** 15 October 2026 (updated: fixes from the 15 Oct review, `NEXT_FIXES.md` Part A)
+**Report date:** 15 October 2026 (updated 22 Oct: embeddable engine, nested walls, the embed for plain HTML pages)
 **Latest build:** GitHub `ahdus-layout-replica` (private), branch `main`
 
 ---
@@ -18,6 +18,7 @@
 - **Multi-storey buildings:** floors stack at real heights with floor slabs, roofs and indoor ceilings with lights; stairs climb one storey and you walk up and down them; you build on whichever floor you are on.
 - **Real floor heights (14 Oct):** each floor has its own height, walls and floors always fit together (no gaps or overlaps between storeys), stairs climb whatever height their floor is, new floors can copy the rooms below, and Preview has Page Up / Page Down between floors.
 - **Review fixes (15 Oct, 3.13):** the ground floor can't be deleted, two tabs can't overwrite each other's work, undo of a + / − burst no longer depends on the PC's speed, big buildings draw ~5× fewer meshes and ~14× fewer draw calls, new IDs are UUIDs, layouts can be exported / imported as files, and the companies screen has the Studio look.
+- **Embed for plain HTML pages (22 Oct, 3.16):** other teams' pages show the 3D workplace with one file, `ahdus-workplace.js`, and one call, `AHDUSWorkplace.mount()`: events, "Press E" actions, view / walkthrough (never edit), a fallback when loading fails. Guide: `docs/EMBED_GUIDE.md`.
 - **199 unit tests** and **172 browser checks** all pass (see 3.9).
 - **Not done yet:** a real backend (Supabase, decided), real 3D furniture models, elevators, free-form walls, floor-plan tracing, and the engine/UI split (needed for Dhruv's app).
 
@@ -347,6 +348,29 @@ wall stood next to the outer one); walls were only ever shared between opposite 
 - Tests: `nestedWalls.test.js` (26), 4 builder tests, `e2e/nested-rooms-smoke.mjs` 13 → 27 checks (Himan's case on
   both floors). Screenshots `e2e/screens/nested-walls-before.png` (main before) and `nested-walls-after.png`.
 
+### 3.16 The embed: the 3D workplace on plain HTML pages (22 Oct, branch `himan/embed`)
+
+Step 2 of `AHDUS_3D_INTEGRATION_PLAN.md`: the AI Training Platform's pages are plain HTML (no React, no build step),
+so they get **one ready-built file**.
+
+| Part | Result |
+|---|---|
+| Build | `npm run build:embed` (`vite.embed.config.js`, Vite library build, IIFE) → `dist-embed/ahdus-workplace.js` (≈ 2.0 MB, ≈ 500 kB gzipped; React and Babylon inside; global `AHDUSWorkplace`) + `ahdus-workplace.css` (the script also adds it itself, so one file is enough). No Studio code |
+| API | `AHDUSWorkplace.mount(element, { layout | layoutUrl, headers, mode, quality, onEvent, onError })` → `{ ready, setMode, setFloor, focusOn, highlight, anchors(), registerAction(), destroy() }` (`src/embed/index.jsx`). It shows `<LayoutViewer />` and uses layoutBridge underneath; no new engine logic |
+| Rules | Mode `edit` is refused (admins edit in Studio). `layoutUrl` is fetched with `credentials: 'include'` and must give v2 JSON or an exported `.ahdus.json` (anything else, e.g. an API's error JSON, is an error, not an empty building). If loading fails, `onError` is called and the element is left empty for the page's own fallback |
+| Events | `ready`, `enterRoom`, `exitRoom`, `interact`, `floorChange`, `card`, in layoutBridge's payload shapes, from that viewer only |
+| Press E | `registerAction('CNC_MACHINE', { label, run })`: by asset type, hook-point kind, id, door / window, a list or a function; only in its own viewer; removed by `destroy()` |
+| Test page | `embed-test.html` loads only the embed file and `embed-sample.ahdus.json` (reception, 2 offices, a training room with a CNC machine, 2 floors with stairs), lists every `onEvent` call, registers "E · Watch CNC training video" |
+| Tests | `embedLayout.test.js` (13 unit tests: formats, fetch errors, matching, filters); `e2e/embed-smoke.mjs` (20 checks, its own static server, no dev server): no Studio code, walking in, E runs the action, edits refused, the handle's calls, 404 / not a layout / 401 leave the element empty, cookies + headers to an API on another origin, `destroy()` cleans up |
+| Guide | `docs/EMBED_GUIDE.md`: quick start, options, events, actions, the role → mode table (plan 3.3), errors and CORS, styles, limits |
+
+Fixes found on the way:
+- **`exitRoom` was never sent when you left a room by changing floors** (up the stairs, Page Up / Down): the room
+  you left was looked up on the new floor only. Modules got `enterRoom` for the new room but no `exitRoom`.
+- `<LayoutViewer />` stayed blank without calling `onError` when the 3D view couldn't start (no WebGL).
+- `e2e/building-smoke.mjs` failed one check since the 22 Oct snapping rule (its room started 0.35 m from back to
+  back, so it snapped); the room now starts out of snap range.
+
 ---
 
 ## 4. Status against the plan
@@ -359,7 +383,7 @@ wall stood next to the outer one); walls were only ever shared between opposite 
 | **D. Floors, routes, safety** | 🟡 Partly | Stacked floors, slabs, walkable stairs with openings: done. Elevators, evacuation routes, safety checks: not done |
 | **E. 2D floor plan (SVG)** | ❌ Not started | The "2D view" is still the 3D camera from above |
 | **F. Saving, versions, sync** | 🟡 Local only | Reliable auto-save and reopening in browser localStorage; two tabs can't overwrite each other (revisions); export / import files as a backup (15 Oct). No backend, versions or change events yet |
-| **Teammate integration** | ✅ In Studio and viewers | Bridge, saved hook points, real events, E actions, position links, demo modules; works in `<LayoutViewer />` too. Next: Dhruv embeds the components |
+| **Teammate integration** | ✅ In Studio, viewers and plain HTML pages | Bridge, saved hook points, real events, E actions, position links, demo modules; works in `<LayoutViewer />` and in the one-file embed (`AHDUSWorkplace.mount`, 3.16). Next: the embed in the Training Platform's `3d-model.html` (plan step 3) |
 
 ---
 
@@ -408,6 +432,7 @@ wall stood next to the outer one); walls were only ever shared between opposite 
 - "Also open in another tab" can stay shown for a while if the other tab crashed instead of closing.
 - The "storage almost full" warning uses an estimate (about 5 MB for all layouts); browsers differ.
 - Skirting boards can't be clicked on their own: a click goes to the wall behind them.
+- The embed in `walkthrough` mode listens to the keys of the whole host page (outside text fields): Tab, Space and Page Up / Down don't move focus or scroll there. `focusOn` works in `view` mode only.
 
 ---
 
@@ -420,6 +445,7 @@ wall stood next to the outer one); walls were only ever shared between opposite 
 | **Yashashwi** (previous employee handover) | Desks linked to positions | ✅ Ready: positions dropdown in the planner, `setPositionRef`, E actions at linked desks |
 | **Dhruv** (frontend) | An embeddable `<LayoutEditor />` with an API | ❌ The bridge works, but the editor is still a full-screen app |
 | **Sunil & Kavyashree** (logins, sync, monitoring) | Activity events; versioned saves | 🟡 `interact`, `enterRoom`, `exitRoom` events ready; layout-edit events and versioned saves not yet |
+| **AI Training Platform** (RUSBORN; plain HTML pages) | The 3D view in `3d-model.html`, "E · Watch training video" on machines | ✅ Ready to try: `ahdus-workplace.js` + `docs/EMBED_GUIDE.md` (3.16). Their layout API is not built yet: a sample layout file until then |
 
 ---
 
@@ -448,7 +474,7 @@ wall stood next to the outer one); walls were only ever shared between opposite 
 npm install
 npm run dev              # opens in Workplace Studio at http://localhost:3000
 
-npm test                 # 199 unit tests
+npm test                 # 383 unit tests
 npm run typecheck        # TypeScript check
 
 # Browser tests (one-time setup: npx playwright install chromium), with npm run dev running:
@@ -459,6 +485,10 @@ npm run e2e:building     # 27 multi-storey checks (floor heights, Page Up/Down, 
 npm run e2e:tools        # 41 checks: Studio mouse tools, door sizes + Preview Edit item
 npm run e2e:save         # 29 checks: saving, reopening, layout list, export / import, companies, two tabs
 npm run e2e:perf         # 8 checks: a 72-room, 864-item building stays cheap to draw
+npm run e2e:viewer       # 14 checks: viewer.html, <LayoutViewer /> with no Studio code
+npm run e2e:embed        # 20 checks: the one-file embed on a plain HTML page (no dev server needed)
+
+npm run build:embed      # dist-embed/ahdus-workplace.js for plain HTML pages (docs/EMBED_GUIDE.md)
 
 # See the demo modules yourself: http://localhost:3000/?demoModules=1
 ```
@@ -496,6 +526,9 @@ npm run e2e:perf         # 8 checks: a 72-room, 864-item building stays cheap to
 | `src/utils/assetInstances.js` | Item templates and instances; `mergeByMaterial` (rooms too) |
 | `src/ui/TabNotice.jsx` | "Changed in another tab", "Also open in another tab", "storage almost full" |
 | `src/ui/selector.css`, `src/ui/download.js` | Companies / layouts screen styles; downloading an exported layout |
+| `src/embed/index.jsx`, `src/embed/embedLayout.js`, `vite.embed.config.js` | The one-file embed for plain HTML pages (`AHDUSWorkplace.mount`) |
+| `embed-test.html`, `embed-sample.ahdus.json` | Plain HTML test page for the embed, with a sample office |
+| `docs/EMBED_GUIDE.md` | How a plain HTML page uses the embed |
 | `e2e/*.mjs` | Browser tests |
 | Removed: `WalkthroughHUD.jsx`, `walkthroughCamera.js` | Replaced by Build mode |
 | Removed: `PlannerToolbar.jsx`, `RoomPanel.jsx`, `ObjectPanel.jsx`, `PropertiesInspector.jsx`, `FloorSelector.jsx` | Replaced by Workplace Studio (`src/ui/`) |
