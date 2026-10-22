@@ -1218,7 +1218,8 @@ export function createPlayController(scene, canvas, {
     const here = roomHere();
     const hereId = here?.id ?? null;
     if (hereId !== currentRoomId) {
-      const from = currentRoomId ? floorRooms().find((r) => r.id === currentRoomId) ?? null : null;
+      // any floor: up the stairs or Page Up, the room you left is on the floor below
+      const from = currentRoomId ? state().rooms.find((r) => r.id === currentRoomId) ?? null : null;
       currentRoomId = hereId;
       if (from || here) onRoomChange(from, here);
     }
