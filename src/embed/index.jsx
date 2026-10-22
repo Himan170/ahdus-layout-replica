@@ -224,6 +224,7 @@ export function mount(element, options = {}) {
       }
       if (closed) return false;
       mode = next;
+      engine?.setMode(next); // at once, so a focusOn right after it works (LayoutViewer follows on render)
       render();
       return true;
     },
