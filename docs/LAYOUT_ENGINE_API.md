@@ -88,6 +88,8 @@ import { LayoutEngine } from '@ahdus/layout-engine';
 const engine = await LayoutEngine.create(canvas, {
   mode: 'edit',        // "edit" | "view" | "walkthrough"
   quality: 'high',     // "high" | "low"
+  focusTarget: box,    // walkthrough: the keys are the page's until the canvas has the mouse
+                       // or focus is in this element (default the canvas); Esc gives them back
 });
 
 // --- Loading & Reading Data ---

@@ -371,6 +371,17 @@ Fixes found on the way:
 - `e2e/building-smoke.mjs` failed one check since the 22 Oct snapping rule (its room started 0.35 m from back to
   back, so it snapped); the room now starts out of snap range.
 
+### 3.17 The keys belong to the page (22 Oct, branch `fix/embed-keys`)
+
+**Problem:** a walking viewer (the embed, `<LayoutViewer />`) took the keys of the whole host page: Tab, Space and
+Page Up / Down did nothing there, and it asked for the mouse as soon as walking started, without a click.
+**Fix:** the keys are the page's until the view is **engaged**: its canvas has the mouse (pointer lock) or its box has
+focus. The box is one Tab stop (Babylon's canvas no longer jumps to the front of the Tab order) with a focus ring, and
+the view says "Click to walk · Esc to release". A click takes the focus and the mouse; Esc (or losing the mouse) gives
+both back. Not engaged: no preventDefault, no movement, Tab moves focus as on any page. Studio's Preview is unchanged.
+Tests: `e2e/embed-smoke.mjs` 20 → 24 checks (`embed-test.html` has a text field, a button and content below the view:
+typing, Tab and Space work until the view is engaged; Tab to the view walks; a click walks; after Esc Space scrolls).
+
 ---
 
 ## 4. Status against the plan
@@ -432,7 +443,7 @@ Fixes found on the way:
 - "Also open in another tab" can stay shown for a while if the other tab crashed instead of closing.
 - The "storage almost full" warning uses an estimate (about 5 MB for all layouts); browsers differ.
 - Skirting boards can't be clicked on their own: a click goes to the wall behind them.
-- The embed in `walkthrough` mode listens to the keys of the whole host page (outside text fields): Tab, Space and Page Up / Down don't move focus or scroll there. `focusOn` works in `view` mode only.
+- The embed's `focusOn` works in `view` mode only. Keyboard-only users can walk in a viewer (Tab to it) but not turn.
 
 ---
 
@@ -474,7 +485,7 @@ Fixes found on the way:
 npm install
 npm run dev              # opens in Workplace Studio at http://localhost:3000
 
-npm test                 # 383 unit tests
+npm test                 # 384 unit tests
 npm run typecheck        # TypeScript check
 
 # Browser tests (one-time setup: npx playwright install chromium), with npm run dev running:
@@ -486,7 +497,7 @@ npm run e2e:tools        # 41 checks: Studio mouse tools, door sizes + Preview E
 npm run e2e:save         # 29 checks: saving, reopening, layout list, export / import, companies, two tabs
 npm run e2e:perf         # 8 checks: a 72-room, 864-item building stays cheap to draw
 npm run e2e:viewer       # 14 checks: viewer.html, <LayoutViewer /> with no Studio code
-npm run e2e:embed        # 20 checks: the one-file embed on a plain HTML page (no dev server needed)
+npm run e2e:embed        # 24 checks: the one-file embed on a plain HTML page (no dev server needed)
 
 npm run build:embed      # dist-embed/ahdus-workplace.js for plain HTML pages (docs/EMBED_GUIDE.md)
 
