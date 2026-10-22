@@ -22,6 +22,7 @@ As of 22 Oct 2026 (TEAM_TASKS H2 done): `LayoutEngine` draws a layout on its own
 | Systems in `engine/systems/`: `SceneSetup`, `RoomSystem`, `ObjectSystem`, `FloorSystem`, `CameraSystem`, `HighlightSystem`, `WalkthroughSystem` | ✅ Done, tested (Studio draws with the first four). `PlacementSystem`, `SelectionSystem` are still stubs |
 | `<LayoutViewer />` (view / walkthrough) and `<LayoutEditor />` (edit = today's Workplace Studio) | ✅ Done; `e2e/viewer-smoke.mjs` |
 | `layoutBridge` in viewers (teammates' modules, "Press E" actions) | ✅ Done (`connectEngine`; rule in `TEAM_INTEGRATION.md`) |
+| Plain HTML pages (no React, no build step): one file, `AHDUSWorkplace.mount(element, { layoutUrl, mode, onEvent, onError })` | ✅ Done; `npm run build:embed`, **`docs/EMBED_GUIDE.md`**, `e2e/embed-smoke.mjs` |
 | `quality="low"` | ⏳ Accepted, changes nothing yet (TEAM_TASKS H7) |
 | `onSelect` in a viewer, clicking things in `view` mode | ⏳ Not yet (Studio's selection, through `<LayoutEditor />`, works) |
 | **Team integration (`src/integration/layoutBridge.js`)** | ✅ **Use this now.** Anchors live in the editor and are saved with the layout; `interact`, `enterRoom`, `exitRoom`, `anchorsChange` events; "Press E" actions; linking desks to positions (undoable). See **`docs/TEAM_INTEGRATION.md`** |
