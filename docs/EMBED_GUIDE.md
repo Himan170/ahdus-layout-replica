@@ -2,7 +2,7 @@
 
 For teams whose pages are plain HTML, CSS and JavaScript, with no React and no build step (for example the AI Training Platform's "3D Company" page, `3d-model.html`). You add **one file** and make **one call**.
 
-Plan and contract: `AHDUS_3D_INTEGRATION_PLAN.md` (sections 3 and 4). Try it: `embed-test.html` in this repo.
+Plan and contract: `docs/AHDUS_3D_INTEGRATION_PLAN.md` (sections 3 and 4). Try it: `embed-test.html` in this repo.
 
 ---
 
@@ -144,7 +144,7 @@ Room and E events happen only in `walkthrough` mode. They are the same events `l
 
 ## 6. Which mode for whom
 
-From `AHDUS_3D_INTEGRATION_PLAN.md` section 3.3 (decided by Himan, 22 Oct 2026). Editing is a **permission the admin gives**, not a fixed role:
+From `docs/AHDUS_3D_INTEGRATION_PLAN.md` section 3.3 (decided by Himan, 22 Oct 2026). Editing is a **permission the admin gives**, not a fixed role:
 
 | Who | 3D mode | What they can do |
 |---|---|---|

@@ -350,7 +350,7 @@ wall stood next to the outer one); walls were only ever shared between opposite 
 
 ### 3.16 The embed: the 3D workplace on plain HTML pages (22 Oct, branch `himan/embed`)
 
-Step 2 of `AHDUS_3D_INTEGRATION_PLAN.md`: the AI Training Platform's pages are plain HTML (no React, no build step),
+Step 2 of `docs/AHDUS_3D_INTEGRATION_PLAN.md`: the AI Training Platform's pages are plain HTML (no React, no build step),
 so they get **one ready-built file**.
 
 | Part | Result |

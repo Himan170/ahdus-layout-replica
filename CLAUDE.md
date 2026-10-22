@@ -6,7 +6,7 @@ Other interns build modules that plug into it (see "Team" below), but **the curr
 3D workspace complete and polished, not team integration.**
 
 Full history, status and backlog: `docs/PROGRESS_REPORT.md`. Teammate API guide: `docs/TEAM_INTEGRATION.md`.
-Plain HTML pages (the AI Training Platform): `docs/EMBED_GUIDE.md`; integration plan: `AHDUS_3D_INTEGRATION_PLAN.md`.
+Plain HTML pages (the AI Training Platform): `docs/EMBED_GUIDE.md`; integration plan: `docs/AHDUS_3D_INTEGRATION_PLAN.md`.
 
 ## Commands
 
@@ -357,7 +357,7 @@ coinciding faces for nested rooms. See "Shared walls and nested rooms" above.
 
 ## DONE: the embed for plain HTML pages (22 Oct 2026, branch `himan/embed`)
 
-Step 2 of `AHDUS_3D_INTEGRATION_PLAN.md` (docs/EMBED_GUIDE.md, docs/PROGRESS_REPORT.md 3.16): the Training Platform's
+Step 2 of `docs/AHDUS_3D_INTEGRATION_PLAN.md` (docs/EMBED_GUIDE.md, docs/PROGRESS_REPORT.md 3.16): the Training Platform's
 pages are plain HTML, so they get one file, `dist-embed/ahdus-workplace.js` (`npm run build:embed`, IIFE, React +
 Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 - `AHDUSWorkplace.mount(element, { layout | layoutUrl, headers, mode, quality, onEvent, onError })` → `{ ready, setMode,
