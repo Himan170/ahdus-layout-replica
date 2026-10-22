@@ -6,15 +6,17 @@ Other interns build modules that plug into it (see "Team" below), but **the curr
 3D workspace complete and polished, not team integration.**
 
 Full history, status and backlog: `docs/PROGRESS_REPORT.md`. Teammate API guide: `docs/TEAM_INTEGRATION.md`.
+Plain HTML pages (the AI Training Platform): `docs/EMBED_GUIDE.md`; integration plan: `AHDUS_3D_INTEGRATION_PLAN.md`.
 
 ## Commands
 
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (370, all must pass)
+npm test             # vitest unit tests (383, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run build
+npm run build:embed  # dist-embed/ahdus-workplace.js (+ .css): the one-file embed for plain HTML pages
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
 # One-time: npx playwright install chromium
@@ -35,6 +37,9 @@ npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside room
 npm run e2e:viewer   # 14 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
                      #                                       the vite build), walk in, E + a module's action, edits
                      #                                       refused, Page Up, view mode, a saved layout)
+npm run e2e:embed    # 20 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, serves embed-test.html
+                     #                                       itself; walk in, E action, edits refused, load failures,
+                     #                                       cross-origin layoutUrl with cookies, destroy())
 npm run e2e          # all of them
 ```
 
@@ -124,6 +129,9 @@ src/engine/                        Embeddable engine (H2): LayoutEngine (own sto
                                    FloorSystem (Studio uses these four), CameraSystem, HighlightSystem, WalkthroughSystem
                                    (Placement/Selection still stubs); react/: <LayoutViewer />, <LayoutEditor />
 viewer.html + src/viewer/          Blank test page for <LayoutViewer /> (sample company, bridge event list)
+src/embed/                         The one-file embed for plain HTML pages: index.jsx (AHDUSWorkplace.mount → <LayoutViewer />
+                                   + layoutBridge), embedLayout.js (pure: layout / layoutUrl, action matching), embed.css;
+                                   built by vite.embed.config.js. embed-test.html + embed-sample.ahdus.json: its test page
 src/services/apiService.js         Save/load + auto-save (1 s debounce, tab close), revisions + other tabs, export/import,
                                    companies: localStorage mock backend for now
 db/schema.sql                      PostgreSQL schema (base for the Supabase backend)
@@ -239,6 +247,9 @@ Both are **derived from the room rectangles; nothing extra is saved** (no wall r
 - viewer.html's dev hooks: `__ahdusViewer` (the LayoutEngine; `.walkthrough.setPose`), `__ahdusScene`, `ahdus`,
   `__viewerEvents` (bridge events), `__ahdusCards`. A viewer captures the mouse on pointerdown (Babylon prevents
   the default of pointerdown, so the browser sends no mousedown; Studio captures it from its button).
+- embed-test.html's hooks (also in production: it's a plain page): `window.workplace` (the handle; `._engine` = its
+  LayoutEngine, for tests only), `window.embedEvents` (every onEvent call). Headless Chromium grants the walkthrough's
+  pointer lock at load without a click; release it (`document.exitPointerLock()`) before clicking the canvas.
 - Dev-only hooks for tests/console: `window.__ahdusPlay`, `__ahdusScene`, `__ahdusStore`, `window.ahdus` (bridge),
   `__ahdusCards`, `__ahdusEventLog` (demo modules), `__ahdusCrashOnOpen = true` (the editor throws: error card test),
   `__ahdusRoomSync` ({ rebuilt, ms } of the last room sync that built something: perf test).
@@ -304,6 +315,8 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - "Also open in another tab" can stay shown a while if the other tab crashed instead of closing.
 - The storage warning is an estimate (~5 MB per site); browsers differ.
 - Skirting isn't pickable on its own (a click goes to the wall behind it).
+- The embed in walkthrough mode listens to the keys of the whole host page (outside text fields), as Preview does:
+  Tab, Space, Page Up / Down don't move focus or scroll there. Its `focusOn` works in view mode only.
 
 ## DONE: "make both modes work the same way" (requested by Himan, 13 Oct 2026)
 
@@ -341,6 +354,20 @@ coinciding faces for nested rooms. See "Shared walls and nested rooms" above.
 - **React:** `<LayoutViewer />` (no Studio code: checked in the vite build) and `<LayoutEditor />` (edit = today's
   Studio on the app store, lazily loaded; `onChange(layoutV2)`). viewer.html is the test page.
 - Studio now uses CameraSystem's `setCameraView` / `flyTo` and the bridge's `_interact` / `_prompt` / `_roomView`.
+
+## DONE: the embed for plain HTML pages (22 Oct 2026, branch `himan/embed`)
+
+Step 2 of `AHDUS_3D_INTEGRATION_PLAN.md` (docs/EMBED_GUIDE.md, docs/PROGRESS_REPORT.md 3.16): the Training Platform's
+pages are plain HTML, so they get one file, `dist-embed/ahdus-workplace.js` (`npm run build:embed`, IIFE, React +
+Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
+- `AHDUSWorkplace.mount(element, { layout | layoutUrl, headers, mode, quality, onEvent, onError })` → `{ ready, setMode,
+  setFloor, focusOn, highlight, anchors(), registerAction(), destroy() }`; `AHDUSWorkplace.bridge` = layoutBridge.
+  It renders `<LayoutViewer />` and adds no engine logic. Import LayoutViewer directly, never `engine/react/index.ts`
+  (it pulls in LayoutEditor → Studio, and an IIFE build inlines dynamic imports).
+- Mode `edit` is refused. `layoutUrl`: `credentials: 'include'`, only v2 JSON or an exported `.ahdus.json` (a bare
+  save or other JSON is an error). Loading fails → our box is removed, then `onError`, so the page shows its fallback.
+- Events (`ready`, `enterRoom`, `exitRoom`, `interact`, `floorChange`, `card`) come from that viewer's engine in
+  layoutBridge's payload shapes; `registerAction(match, { label, run })` is a bridge interaction limited to its viewer.
 
 Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): lifts; free-form walls,
 L-shaped rooms; measure tool + dimensions; real GLB furniture (e.g. Kenney Furniture Kit, CC0); SVG 2D
