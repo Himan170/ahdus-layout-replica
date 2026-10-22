@@ -60,19 +60,56 @@ export interface WalkthroughState extends LayoutRecords {
 export class WalkthroughSystem {
   private controller: PlayController;
   private canvas: HTMLCanvasElement;
+  private scene: Scene;
+  /** The view's box: focus in it gives the view the keys (the viewer passes its root; default the canvas). */
+  private focusTarget: HTMLElement | null;
+  private hadMouse = false;
+  private savedTabIndex: number | null = null;
 
   /**
-   * A click on the view captures the mouse. Preview's controller asks on
-   * mousedown, but Babylon prevents the default of pointerdown, so the browser
-   * never sends mousedown (Studio captures it from its "Preview Workplace" button).
+   * The view is "engaged" (the keys are its own, not the page's) while its
+   * canvas has the mouse (pointer lock) or its box has focus.
+   */
+  isEngaged = (): boolean => {
+    if (!this.canvas) return false; // no page (unit tests: a NullEngine has no canvas)
+    return document.pointerLockElement === this.canvas || !!this.focusTarget?.contains(document.activeElement);
+  };
+
+  /**
+   * A click on the view takes the keys (focus) and captures the mouse.
+   * Preview's controller asks on mousedown, but Babylon prevents the default
+   * of pointerdown, so the browser never sends mousedown (nor moves focus).
    */
   private onPointerDown = () => {
-    if (this.controller.isActive() && document.pointerLockElement !== this.canvas) this.canvas.requestPointerLock?.();
+    if (!this.controller.isActive()) return;
+    if (!this.focusTarget?.contains(document.activeElement)) this.focusTarget?.focus({ preventScroll: true });
+    if (document.pointerLockElement !== this.canvas) this.canvas.requestPointerLock?.();
   };
+
+  /** Esc gives the keys back to the page: the mouse and the focus. */
+  private onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape' || !this.isEngaged()) return;
+    if (document.pointerLockElement === this.canvas) document.exitPointerLock?.();
+    this.release();
+  };
+
+  /** The mouse was released (Esc, or the browser): the keys go back to the page too. */
+  private onPointerLockChange = () => {
+    const hasMouse = document.pointerLockElement === this.canvas;
+    if (this.hadMouse && !hasMouse) this.release();
+    this.hadMouse = hasMouse;
+  };
+
+  /** Take focus out of the view, so the page has the keys again. */
+  private release(): void {
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && this.focusTarget?.contains(focused)) focused.blur();
+  }
 
   /**
    * @param getState  the layout to walk through (the store's v1 records)
    * @param getObjectMesh  an item's root node (ObjectSystem)
+   * @param focusTarget  the view's box (focus in it engages the view); default the canvas
    */
   constructor(
     scene: Scene,
@@ -80,8 +117,11 @@ export class WalkthroughSystem {
     getState: () => WalkthroughState,
     getObjectMesh: (objectId: string) => TransformNode | null,
     callbacks: WalkthroughCallbacks = {},
+    focusTarget: HTMLElement | null = null,
   ) {
     this.canvas = canvas;
+    this.scene = scene;
+    this.focusTarget = focusTarget ?? canvas;
     this.controller = createController(scene, canvas, {
       getState: () => {
         const s = getState();
@@ -101,19 +141,49 @@ export class WalkthroughSystem {
       onLevelChange: callbacks.onLevelChange,
       onViewChange: callbacks.onViewChange,
       describeInteraction: callbacks.describeInteraction,
+      // The keys are the page's until the view is engaged (Preview's are always its own)
+      isEngaged: this.isEngaged,
     });
   }
 
-  /** Take over the camera and the keys; the character starts at the spawn point. */
+  /**
+   * Take over the camera; the character starts at the spawn point. The keys
+   * stay the page's until the user clicks the view or tabs to it.
+   */
   activate(): void {
     this.controller.activate();
-    this.canvas?.addEventListener('pointerdown', this.onPointerDown);
+    if (!this.canvas) return; // no page
+    this.canvas.addEventListener('pointerdown', this.onPointerDown);
+    window.addEventListener('keydown', this.onKeyDown);
+    document.addEventListener('pointerlockchange', this.onPointerLockChange);
+    this.hadMouse = document.pointerLockElement === this.canvas;
+    // One Tab stop, the view's box: Babylon puts the canvas first in the page's
+    // Tab order (tabIndex 1, set again on every pointer move)
+    const engine = this.scene.getEngine();
+    if (this.focusTarget !== this.canvas && this.savedTabIndex === null) {
+      this.savedTabIndex = engine.canvasTabIndex;
+      engine.canvasTabIndex = -1;
+      this.canvas.tabIndex = -1;
+    }
   }
 
   /** Give the camera back (the orbit camera). */
   deactivate(): void {
-    this.canvas?.removeEventListener('pointerdown', this.onPointerDown);
+    this.stopListening();
     this.controller.deactivate();
+    if (this.canvas) this.release();
+  }
+
+  private stopListening(): void {
+    if (!this.canvas) return;
+    this.canvas.removeEventListener('pointerdown', this.onPointerDown);
+    window.removeEventListener('keydown', this.onKeyDown);
+    document.removeEventListener('pointerlockchange', this.onPointerLockChange);
+    if (this.savedTabIndex !== null) {
+      this.scene.getEngine().canvasTabIndex = this.savedTabIndex;
+      this.canvas.tabIndex = this.savedTabIndex;
+      this.savedTabIndex = null;
+    }
   }
 
   isActive(): boolean {
@@ -155,7 +225,7 @@ export class WalkthroughSystem {
   }
 
   dispose(): void {
-    this.canvas?.removeEventListener('pointerdown', this.onPointerDown);
+    this.stopListening();
     this.controller.dispose();
   }
 }

@@ -12,9 +12,13 @@
  * or v2), else `companyId` + `layoutId` (a layout saved in this browser; for
  * our test page). The viewer is connected to layoutBridge (connectEngine),
  * so teammates' modules and their "Press E" actions work in it.
+ *
+ * Walking through, the keys are the page's until the view is engaged: clicked
+ * (it captures the mouse) or focused (Tab; a focus ring shows). Esc gives
+ * them back.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 import { LayoutEngine } from '../LayoutEngine';
@@ -48,6 +52,8 @@ export interface LayoutViewerProps {
 interface Card { title: string; body?: string; text?: string; duration?: number }
 interface Hud {
   locked?: boolean;
+  /** The keys are the view's (mouse captured, or the view has focus). */
+  engaged?: boolean;
   hint?: { title?: string; detail?: string };
   message?: string | null;
   roomName?: string;
@@ -70,6 +76,9 @@ function layoutFrom({ layout, companyId, layoutId }: LayoutViewerProps): unknown
 export function LayoutViewer(props: LayoutViewerProps) {
   const { mode = 'view', quality = 'high', className, style } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [focused, setFocused] = useState(false);
+  const keysHintId = useId();
   const [engine, setEngine] = useState<LayoutEngine | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hud, setHud] = useState<Hud | null>(null);
@@ -89,7 +98,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
     let cardTimer: ReturnType<typeof setTimeout> | undefined;
     const offs: (() => void)[] = [];
 
-    LayoutEngine.create(canvas, { mode, quality }).then((e) => {
+    LayoutEngine.create(canvas, { mode, quality, focusTarget: boxRef.current }).then((e) => {
       if (disposed) {
         e.dispose();
         return;
@@ -155,8 +164,21 @@ export function LayoutViewer(props: LayoutViewerProps) {
   }, [engine, mode]);
 
   const walking = mode === 'walkthrough';
+  const engaged = !!(hud?.engaged ?? hud?.locked);
   return (
-    <div className={className} style={{ position: 'relative', overflow: 'hidden', ...style }} data-layout-viewer={mode}>
+    <div
+      ref={boxRef}
+      className={className}
+      style={{ position: 'relative', overflow: 'hidden', outline: 'none', ...style }}
+      data-layout-viewer={mode}
+      // Walking through: one Tab stop; focus in it gives the view the keys (WalkthroughSystem)
+      tabIndex={walking ? 0 : undefined}
+      role={walking ? 'application' : undefined}
+      aria-label={walking ? 'Layout walkthrough' : undefined}
+      aria-describedby={walking ? keysHintId : undefined}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false); }}
+    >
       <canvas
         ref={canvasRef}
         aria-label={walking ? 'Layout walkthrough' : 'Layout view'}
@@ -165,17 +187,21 @@ export function LayoutViewer(props: LayoutViewerProps) {
       {error && <div role="alert" style={styles.center}>{error}</div>}
       {walking && !error && hud && (
         <>
-          {hud.locked && <div aria-hidden style={styles.crosshair}>+</div>}
+          {engaged && <div aria-hidden style={styles.crosshair}>+</div>}
+          <div id={keysHintId} data-hud="keys" style={styles.keys}>
+            {engaged ? 'Esc to release' : 'Click to walk · Esc to release'}
+          </div>
           <div style={styles.hud} aria-live="polite">
             <span data-hud="room"><strong>{hud.roomName}</strong></span>
             {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · Floor {hud.floor.index} of {hud.floor.count}</span>}
-            <div data-hud="hint">{hud.locked ? (hud.message ?? hud.hint?.detail) : 'Click to look around (Esc releases the mouse)'}</div>
-            {hud.locked && hud.prompt && (
+            <div data-hud="hint">{hud.message ?? hud.hint?.detail}</div>
+            {engaged && hud.prompt && (
               <div data-hud="prompt"><kbd style={styles.key}>E</kbd> {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</div>
             )}
           </div>
         </>
       )}
+      {walking && focused && <div aria-hidden data-focus-ring style={styles.focusRing} />}
       {card && (
         <div role="status" data-viewer-card style={styles.card}>
           <strong>{card.title}</strong>
@@ -198,6 +224,12 @@ const styles: Record<string, CSSProperties> = {
     color: '#fff', font: '22px/1 system-ui, sans-serif', textShadow: '0 0 3px #000', pointerEvents: 'none',
   },
   hud: { ...panel, left: 12, bottom: 12, maxWidth: 'calc(100% - 24px)' },
+  keys: { ...panel, left: 12, top: 12, padding: '4px 10px', fontSize: 13 },
+  // The view has the keys: drawn over the canvas (an outline would be clipped by the page's box)
+  focusRing: {
+    position: 'absolute', inset: 0, pointerEvents: 'none', borderRadius: 'inherit',
+    boxShadow: 'inset 0 0 0 2px #fff, inset 0 0 0 4px #2563eb',
+  },
   card: { ...panel, top: 12, right: 12, maxWidth: 320 },
   key: { border: '1px solid #fff8', borderRadius: 4, padding: '0 5px', marginRight: 4 },
 };

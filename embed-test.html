@@ -19,15 +19,19 @@
     <title>AHDUS - Workplace embed test</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { height: 100%; }
-      body { display: flex; flex-direction: column; font: 14px/1.4 system-ui, sans-serif; color: #0f172a; background: #f8fafc; }
+      body { font: 14px/1.4 system-ui, sans-serif; color: #0f172a; background: #f8fafc; }
       header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px; border-bottom: 1px solid #e2e8f0; background: #fff; }
       header .muted { opacity: 0.7; }
       header .grow { flex: 1; }
       button { border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; padding: 4px 12px; font: inherit; cursor: pointer; }
       button[aria-pressed="true"] { background: #1e40af; border-color: #1e40af; color: #fff; }
       .group { display: flex; gap: 4px; }
-      main { flex: 1; display: flex; min-height: 0; }
+      /* the page goes on below the view, so it can scroll (Space, Page Down) */
+      main { display: flex; height: calc(100vh - 140px); min-height: 360px; }
+      .page-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+      .page-controls input { flex: 1; min-width: 140px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 8px; font: inherit; }
+      .below { min-height: 70vh; padding: 16px; border-top: 1px solid #e2e8f0; background: #fff; }
+      .below p { max-width: 70ch; margin-top: 4px; }
       #workplace { flex: 1; min-width: 0; position: relative; }
       .fallback { position: absolute; inset: 0; display: grid; place-content: center; gap: 4px; padding: 24px; text-align: center; background: #e2e8f0; color: #334155; }
       aside { width: 320px; max-width: 40%; overflow-y: auto; border-left: 1px solid #e2e8f0; background: #fff; padding: 8px 16px; }
@@ -58,10 +62,21 @@
     <main>
       <div id="workplace"></div>
       <aside aria-label="Events">
+        <h2>The page's own controls</h2>
+        <div class="page-controls">
+          <input id="page-note" type="text" placeholder="Type here, W A S D too" aria-label="A text field of the page" />
+          <button type="button" id="page-button">A page button</button>
+          <span id="page-clicks" class="muted">not clicked</span>
+        </div>
         <h2>onEvent calls</h2>
         <ol id="events"><li class="muted">Walk into a room, or press E on something.</li></ol>
       </aside>
     </main>
+    <section class="below" aria-label="Below the 3D view">
+      <h2>Below the 3D view</h2>
+      <p>The rest of the page. The keys are the page's until you click the view (or Tab to it): then W A S D walk.
+        Esc gives them back, and Space, Page Down and Tab work on the page again.</p>
+    </section>
     <div class="video" id="video" role="dialog" aria-label="Training video" hidden>
       <div class="screen" aria-hidden="true">▶</div>
       <strong id="video-title"></strong>
@@ -181,6 +196,8 @@
         }
       };
       $('video-close').onclick = () => { $('video').hidden = true; };
+      let pageClicks = 0;
+      $('page-button').onclick = () => { $('page-clicks').textContent = `clicked ${++pageClicks}×`; };
 
       showMode();
       start();
