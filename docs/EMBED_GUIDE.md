@@ -204,7 +204,7 @@ If your Content-Security-Policy blocks added `<style>` elements, link the file i
 | Mode | Controls |
 |---|---|
 | `view` | Drag to orbit, right-drag to pan, wheel to zoom |
-| `walkthrough` | Click the view to look around with the mouse (Esc releases it). W A S D walk, Space jumps, F flies (Space up, C down), V first / third person, Page Up / Page Down change floor, **E** uses what you look at |
+| `walkthrough` | **Click the view** (it captures the mouse) **or Tab to it** (a blue focus ring shows) to walk: W A S D walk, the mouse looks around, Space jumps, F flies (Space up, C down), V first / third person, Page Up / Page Down change floor, **E** uses what you look at. **Esc** gives the mouse and the keys back to the page. The view says "Click to walk · Esc to release" |
 
 ---
 
@@ -212,7 +212,7 @@ If your Content-Security-Policy blocks added `<style>` elements, link the file i
 
 - **Several viewers on one page** work; each `onEvent` gets only its own viewer's events, and `registerAction` only acts in its own viewer.
 - **`AHDUSWorkplace.bridge`** is `layoutBridge` (`docs/TEAM_INTEGRATION.md`), for modules that need more than `onEvent`, e.g. `bridge.getPlayer()` (where the character is) or `bridge.getScene()` (to draw your own 3D things, such as a character).
-- **Keyboard:** while a viewer is in `walkthrough` mode, it listens to the keys of the whole page (except in text fields). Tab, Space and Page Up / Page Down then don't move focus or scroll the page. Switch to `view` or `destroy()` the viewer when the user leaves the 3D part.
+- **Keyboard:** the keys belong to your page until the user clicks the view or tabs to it. Until then (and after Esc) typing, Tab, Space and Page Up / Page Down work on your page as always, and the character doesn't move. The viewer never captures the mouse by itself. The view is one Tab stop, and Tab moves focus as on any page, also out of the view.
 - Nothing is saved from the embed. Layouts are built and saved in Workplace Studio.
 - Size: ≈ 500 kB gzipped. Serve `.js` files compressed (gzip or brotli) and let browsers cache it.
 
@@ -220,6 +220,6 @@ If your Content-Security-Policy blocks added `<style>` elements, link the file i
 
 ## 11. Testing (in this repo)
 
-- `npm run build:embed`, then open `embed-test.html` through any web server, e.g. `npm run dev` → <http://localhost:3000/embed-test.html>. It loads only the embed file, shows a sample office (`embed-sample.ahdus.json`: reception, 2 offices, a training room with a CNC machine, 2 floors with stairs), lists every `onEvent` call and registers "E · Watch CNC training video". `?mode=view` orbits; `?layoutUrl=missing.json` shows the page's own fallback.
-- `npm run e2e:embed` (20 checks, `e2e/embed-smoke.mjs`) builds the file and tests all of the above from a plain static server, with no dev server needed.
+- `npm run build:embed`, then open `embed-test.html` through any web server, e.g. `npm run dev` → <http://localhost:3000/embed-test.html>. It loads only the embed file, shows a sample office (`embed-sample.ahdus.json`: reception, 2 offices, a training room with a CNC machine, 2 floors with stairs), lists every `onEvent` call, registers "E · Watch CNC training video", and has a text field, a button and content below the view to try the keys with. `?mode=view` orbits; `?layoutUrl=missing.json` shows the page's own fallback.
+- `npm run e2e:embed` (24 checks, `e2e/embed-smoke.mjs`) builds the file and tests all of the above from a plain static server, with no dev server needed.
 - Code: `src/embed/index.jsx` (`mount`), `src/embed/embedLayout.js` (loading, matching; unit tests in `src/embed/__tests__/`), `vite.embed.config.js`.

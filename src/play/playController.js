@@ -111,7 +111,15 @@ export function createPlayController(scene, canvas, {
   // Walk around only (LayoutEngine's walkthrough mode): no tool in hand, right-click
   // removes nothing, N adds no floor. E, rooms and floors work as always.
   readOnly = false,
+  // On someone else's page (LayoutEngine's walkthrough): () => boolean. The keys are the
+  // view's only while it says so (the canvas has the mouse, or the view has focus); else
+  // they are the page's: no preventDefault, no movement. Activating doesn't capture the
+  // mouse, and Tab is always the page's. Preview passes nothing: the keys are its own.
+  isEngaged = null,
 }) {
+  const onPage = typeof isEngaged === 'function';
+  /** Do the keys move the character now? (Preview: while the mouse is captured.) */
+  const keysLive = () => (onPage ? isEngaged() : locked);
   // ── Camera ──
   const camera = new FreeCamera('playCamera', new Vector3(0, 3, -10), scene);
   camera.minZ = 0.05;
@@ -934,6 +942,7 @@ export function createPlayController(scene, canvas, {
 
   function onKeyDown(e) {
     if (!active || typing(e)) return;
+    if (onPage && !isEngaged()) return; // the page's keys
     if (e.ctrlKey || e.metaKey) return; // Ctrl+Z / Ctrl+Y handled by the editor
     keys.add(e.code);
     if (editKey(e.code, e.shiftKey) || stretchKey(e.code)) {
@@ -943,6 +952,7 @@ export function createPlayController(scene, canvas, {
 
     switch (e.code) {
       case 'Tab':
+        if (onPage) break; // moves focus on the page as always
         e.preventDefault();
         onExit();
         break;
@@ -1110,7 +1120,9 @@ export function createPlayController(scene, canvas, {
     const forward = new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
     const right = new Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
     const move = Vector3.Zero();
-    if (locked) {
+    const live = keysLive();
+    if (onPage && !live) keys.clear(); // the page has the keys: nothing stays held
+    if (live) {
       if (keys.has('KeyW') || keys.has('ArrowUp')) move.addInPlace(forward);
       if (keys.has('KeyS') || keys.has('ArrowDown')) move.subtractInPlace(forward);
       if (keys.has('KeyD') || keys.has('ArrowRight')) move.addInPlace(right);
@@ -1142,8 +1154,8 @@ export function createPlayController(scene, canvas, {
     }
     if (flying) {
       let up = 0;
-      if (locked && keys.has('Space')) up += 1;
-      if (locked && keys.has('KeyC')) up -= 1;
+      if (live && keys.has('Space')) up += 1;
+      if (live && keys.has('KeyC')) up -= 1;
       collider.position.y = Math.max(floorY, collider.position.y + up * FLY * 0.8 * dt);
       grounded = collider.position.y <= floorY + 0.001;
     } else {
@@ -1232,13 +1244,14 @@ export function createPlayController(scene, canvas, {
     }
 
     // ── What would E do? ──
-    promptTarget = locked && !cornerA && !grab && !carry ? interactTarget() : null;
+    promptTarget = live && !cornerA && !grab && !carry ? interactTarget() : null;
     const prompt = promptTarget ? describeInteraction(promptTarget) : null;
 
     // ── HUD ──
     const now = performance.now();
     const info = {
       locked,
+      engaged: live, // the keys are the view's (Preview: = locked)
       flying,
       firstPerson,
       hint,
@@ -1304,7 +1317,7 @@ export function createPlayController(scene, canvas, {
       canvas.addEventListener('mousedown', onMouseDown);
       canvas.addEventListener('wheel', onWheel, { passive: false });
       canvas.addEventListener('contextmenu', onContextMenu);
-      canvas.requestPointerLock?.();
+      if (!onPage) canvas.requestPointerLock?.(); // on a page the user clicks the view first
       lastHud = '';
     },
 

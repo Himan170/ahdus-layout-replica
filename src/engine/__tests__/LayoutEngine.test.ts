@@ -465,6 +465,13 @@ describe('walkthrough mode', () => {
     expect(c.respawn).toHaveBeenCalled();
   });
 
+  it("the keys are the page's until the view is engaged (Preview passes no isEngaged; no page here: never)", () => {
+    makeEngine({ mode: 'walkthrough' });
+    const [c] = controllers;
+    expect(c.options.isEngaged).toEqual(expect.any(Function));
+    expect(c.options.isEngaged()).toBe(false);
+  });
+
   it('walking into and out of rooms fires enterRoom / exitRoom', () => {
     const engine = makeEngine({ mode: 'walkthrough' });
     engine.loadLayout(save());

@@ -13,7 +13,7 @@ Plain HTML pages (the AI Training Platform): `docs/EMBED_GUIDE.md`; integration 
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (383, all must pass)
+npm test             # vitest unit tests (384, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run build
 npm run build:embed  # dist-embed/ahdus-workplace.js (+ .css): the one-file embed for plain HTML pages
@@ -37,9 +37,10 @@ npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside room
 npm run e2e:viewer   # 14 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
                      #                                       the vite build), walk in, E + a module's action, edits
                      #                                       refused, Page Up, view mode, a saved layout)
-npm run e2e:embed    # 20 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, serves embed-test.html
-                     #                                       itself; walk in, E action, edits refused, load failures,
-                     #                                       cross-origin layoutUrl with cookies, destroy())
+npm run e2e:embed    # 24 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, serves embed-test.html
+                     #                                       itself; keys are the page's until the view is engaged, walk in,
+                     #                                       E action, edits refused, load failures, cross-origin layoutUrl
+                     #                                       with cookies, destroy())
 npm run e2e          # all of them
 ```
 
@@ -248,8 +249,8 @@ Both are **derived from the room rectangles; nothing extra is saved** (no wall r
   `__viewerEvents` (bridge events), `__ahdusCards`. A viewer captures the mouse on pointerdown (Babylon prevents
   the default of pointerdown, so the browser sends no mousedown; Studio captures it from its button).
 - embed-test.html's hooks (also in production: it's a plain page): `window.workplace` (the handle; `._engine` = its
-  LayoutEngine, for tests only), `window.embedEvents` (every onEvent call). Headless Chromium grants the walkthrough's
-  pointer lock at load without a click; release it (`document.exitPointerLock()`) before clicking the canvas.
+  LayoutEngine, for tests only), `window.embedEvents` (every onEvent call). A viewer's walkthrough doesn't capture the
+  mouse by itself: click its canvas first (Preview still does, and headless Chromium grants it without a click).
 - Dev-only hooks for tests/console: `window.__ahdusPlay`, `__ahdusScene`, `__ahdusStore`, `window.ahdus` (bridge),
   `__ahdusCards`, `__ahdusEventLog` (demo modules), `__ahdusCrashOnOpen = true` (the editor throws: error card test),
   `__ahdusRoomSync` ({ rebuilt, ms } of the last room sync that built something: perf test).
@@ -315,8 +316,8 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - "Also open in another tab" can stay shown a while if the other tab crashed instead of closing.
 - The storage warning is an estimate (~5 MB per site); browsers differ.
 - Skirting isn't pickable on its own (a click goes to the wall behind it).
-- The embed in walkthrough mode listens to the keys of the whole host page (outside text fields), as Preview does:
-  Tab, Space, Page Up / Down don't move focus or scroll there. Its `focusOn` works in view mode only.
+- The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
+  but not turn (turning needs the mouse).
 
 ## DONE: "make both modes work the same way" (requested by Himan, 13 Oct 2026)
 
@@ -368,6 +369,11 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
   save or other JSON is an error). Loading fails → our box is removed, then `onError`, so the page shows its fallback.
 - Events (`ready`, `enterRoom`, `exitRoom`, `interact`, `floorChange`, `card`) come from that viewer's engine in
   layoutBridge's payload shapes; `registerAction(match, { label, run })` is a bridge interaction limited to its viewer.
+- **Keys (fix/embed-keys):** in a viewer's walkthrough (`<LayoutViewer>`, the embed) the keys are the page's until the
+  view is **engaged**: its canvas has pointer lock or focus is in its box (`tabIndex 0`, one Tab stop, focus ring;
+  `LayoutEngine` option `focusTarget`). Not engaged: no preventDefault, no movement. Click = focus + pointer lock;
+  Esc or losing the lock = blur. Tab never calls onExit there. `WalkthroughSystem` passes `isEngaged` to the
+  controller; Studio's Preview passes nothing and is unchanged.
 
 Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): lifts; free-form walls,
 L-shaped rooms; measure tool + dimensions; real GLB furniture (e.g. Kenney Furniture Kit, CC0); SVG 2D

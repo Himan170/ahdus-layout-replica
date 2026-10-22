@@ -34,7 +34,8 @@
  *   view         orbit camera; nothing can change the layout
  *   walkthrough  Preview's character (W A S D, mouse, E, Page Up / Down:
  *                systems/WalkthroughSystem); nothing can change the layout;
- *                fires enterRoom, exitRoom, interact
+ *                fires enterRoom, exitRoom, interact. The keys are the page's
+ *                until the view is clicked or focused (options.focusTarget)
  */
 
 import type { Engine } from '@babylonjs/core/Engines/engine';
@@ -70,6 +71,12 @@ export type QualityLevel = 'high' | 'low';
 export interface EngineOptions {
   mode?: EngineMode;
   quality?: QualityLevel;
+  /**
+   * Walkthrough mode: the view's box. The keys are the page's until the view
+   * is engaged: its canvas has the mouse, or focus is in this element (make it
+   * focusable). Default: the canvas.
+   */
+  focusTarget?: HTMLElement | null;
 }
 
 export interface SelectEvent {
@@ -146,6 +153,7 @@ export class LayoutEngine {
   private _mode: EngineMode;
   private _quality: QualityLevel;
   private _view: ViewMode = '3d';
+  private _focusTarget: HTMLElement | null;
 
   // Data: this engine's copy of the layout (v1 field names), and the v2
   // layout as loaded (for what only v2 has: routes, floor links, …)
@@ -207,6 +215,7 @@ export class LayoutEngine {
   private constructor(layoutScene: LayoutScene, options: EngineOptions) {
     this._mode = options.mode ?? 'edit';
     this._quality = options.quality ?? 'high';
+    this._focusTarget = options.focusTarget ?? null;
 
     this._layoutScene = layoutScene;
     this.babylonEngine = layoutScene.engine;
@@ -546,6 +555,7 @@ export class LayoutEngine {
         onHud: (info) => this.emit('hud', info),
         describeInteraction: (target) => this.describeInteraction?.(target) ?? null,
       },
+      this._focusTarget,
     );
     return this._walkthrough;
   }
