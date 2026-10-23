@@ -62,6 +62,15 @@ export const createWorkspaceStore = () => create(
     openElsewhere: false,              // this layout is also open in another tab
     storageNearlyFull: false,          // the browser's storage for layouts is almost used up
 
+    // ━━ R7: Sync & Offline Status ━━
+    syncStatus: 'online',              // 'online' | 'offline' | 'syncing' | 'conflict'
+    pendingSyncCount: 0,               // number of queued saves waiting to sync
+
+    // ━━ R8: Proposed Layout Staging (Photo Reconstruction) ━━
+    proposedLayout: null,              // { proposalId, photoUrl, layout, detectionStats, stagedAt }
+    isReconstructing: false,           // true while photo is uploading / analyzing
+    reconstructionError: null,         // message if photo reconstruction failed
+
     // ━━ Floors ━━ (Phase 5)
     // { [floorId]: { id, name, height } }. height = floor-to-floor; the
     // elevation is derived (building.elevationOf), never stored.
@@ -501,6 +510,29 @@ export const createWorkspaceStore = () => create(
     /** Set after each save (apiService.storageUse): Studio asks to export and delete old layouts. */
     setStorageNearlyFull: (flag) => { if (get().storageNearlyFull !== !!flag) set({ storageNearlyFull: !!flag }); },
 
+    /** R7: Sync status and pending offline queue count */
+    setSyncStatus: (syncStatus) => set({ syncStatus }),
+    setPendingSyncCount: (pendingSyncCount) => set({ pendingSyncCount }),
+
+    /** R8: Staging proposed layout from photo reconstruction */
+    setProposedLayout: (proposedLayout) => set({
+      proposedLayout,
+      isReconstructing: false,
+      reconstructionError: null,
+    }),
+
+    /** R8: Discard or clear proposed layout */
+    clearProposedLayout: () => set({
+      proposedLayout: null,
+      reconstructionError: null,
+    }),
+
+    /** R8: Set reconstruction processing / error state */
+    setReconstructing: (isReconstructing, error = null) => set({
+      isReconstructing: !!isReconstructing,
+      reconstructionError: error,
+    }),
+
     /** Reset the entire store to initial state. */
     resetWorkspace: () => {
       set({
@@ -512,6 +544,11 @@ export const createWorkspaceStore = () => create(
         saveError: null,
         saveConflict: false,
         openElsewhere: false,
+        syncStatus: 'online',
+        pendingSyncCount: 0,
+        proposedLayout: null,
+        isReconstructing: false,
+        reconstructionError: null,
         floors: { 0: { id: 0, name: 'Ground Floor', height: STOREY_HEIGHT } },
         currentFloor: 0,
         rooms: {},

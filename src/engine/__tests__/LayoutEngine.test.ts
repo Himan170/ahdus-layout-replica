@@ -384,6 +384,18 @@ const EDITS: Record<string, unknown[]> = {
   addFloor: [{ copyRooms: true }],
   removeFloor: [1],
   renameFloor: [1, 'Top'],
+  applyProposedLayout: [{
+    schemaVersion: 2,
+    units: 'meters',
+    building: { name: 'HQ' },
+    floors: [{ id: '0', name: 'Ground Floor', height: 3.5 }],
+    rooms: [{ id: 'room_prop', floorId: '0', name: 'Proposed Room', type: 'OFFICE', x: 25, z: 25, width: 4, depth: 4, wallHeight: 3 }],
+    openings: [],
+    objects: [],
+    anchors: [],
+    routes: [],
+    floorLinks: [],
+  }],
   undo: [],
   redo: [],
 };
