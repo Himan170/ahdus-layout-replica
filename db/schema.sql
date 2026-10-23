@@ -265,6 +265,29 @@ CREATE INDEX idx_change_log_company_layout_time
   ON layout_change_log (company_id, layout_id, changed_at DESC);
 
 -- ────────────────────────────────────────────────────────────────────────
+-- R8: Photo reconstruction proposed layouts
+-- ────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE proposed_layouts (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id      UUID NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  layout_id       UUID NOT NULL,
+  photo_url       TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'approved', 'rejected')),
+  proposed_data   JSONB NOT NULL,
+  detection_stats JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reviewed_at     TIMESTAMPTZ,
+  reviewed_by     UUID REFERENCES users (id) ON DELETE SET NULL,
+  FOREIGN KEY (company_id, layout_id)
+    REFERENCES workspace_layouts (company_id, id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_proposed_layouts_company_layout
+  ON proposed_layouts (company_id, layout_id, created_at DESC);
+
+-- ────────────────────────────────────────────────────────────────────────
 -- RLS: membership is the tenant authority
 -- ────────────────────────────────────────────────────────────────────────
 
@@ -298,6 +321,7 @@ ALTER TABLE routes              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE floor_links         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE layout_versions     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE layout_change_log   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE proposed_layouts    ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY companies_member_select ON companies
   FOR SELECT TO authenticated
@@ -354,6 +378,11 @@ CREATE POLICY versions_member_access ON layout_versions
 CREATE POLICY change_log_member_access ON layout_change_log
   FOR SELECT TO authenticated
   USING (public.user_has_company_access(company_id));
+
+CREATE POLICY proposed_layouts_member_access ON proposed_layouts
+  FOR ALL TO authenticated
+  USING (public.user_has_company_access(company_id))
+  WITH CHECK (public.user_has_company_access(company_id));
 
 CREATE OR REPLACE FUNCTION public.record_layout_change()
 RETURNS TRIGGER

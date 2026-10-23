@@ -11,10 +11,11 @@
 
 import './studio.css';
 
-export default function StudioShell({ preview, header, buildPanel, canvas, inspector, inspectorOpen, footer }) {
+export default function StudioShell({ preview, header, banner, buildPanel, canvas, inspector, inspectorOpen, footer }) {
   return (
     <div className={`studio${preview ? ' is-preview' : ''}`}>
       {preview ? null : header}
+      {preview ? null : banner}
       <div className="studio-main">
         {preview ? null : <div className="studio-build-col">{buildPanel}</div>}
         {canvas}

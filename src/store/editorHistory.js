@@ -20,6 +20,7 @@ import {
   STOREY_HEIGHT, floorHeight, floorsInOrder, wallSpace, planWallHeight, planFloorHeight, copyRoomsUp, isGroundFloor,
   GROUND_FLOOR_STAYS,
 } from '../play/building';
+import { toV1 } from '../engine/model/toV1';
 import { CommandHistory } from '../engine/commands/CommandHistory';
 import {
   AddObjectCommand,
@@ -480,6 +481,31 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
     },
     renameFloor(floorId, newName) {
       run(new SnapshotCommand('Rename floor', () => store().renameFloor(floorId, newName), store));
+    },
+
+    /**
+     * R8: Apply an AI proposed layout to the workplace.
+     * All additions are bundled into one SnapshotCommand so Ctrl+Z undoes the entire proposal cleanly.
+     * @param {object} proposedLayout Layout v2 object
+     */
+    applyProposedLayout(proposedLayout) {
+      if (!proposedLayout) return;
+      const v1 = proposedLayout.schemaVersion === 2 ? toV1(proposedLayout) : proposedLayout;
+      run(new SnapshotCommand('Apply proposed layout', () => {
+        const st = store();
+        if (Array.isArray(v1.rooms)) {
+          for (const room of v1.rooms) {
+            st.addRoom(room);
+          }
+        }
+        if (Array.isArray(v1.objects)) {
+          for (const obj of v1.objects) {
+            st.addObject(obj);
+          }
+        }
+        st.selectRoom(null);
+        st.selectObject(null);
+      }, store));
     },
 
     // ── History ──

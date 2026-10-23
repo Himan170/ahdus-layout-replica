@@ -34,6 +34,13 @@
 
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { layoutSummary, normaliseLayout } from '../store/layoutData';
+import {
+  enqueueSync,
+  isOnline,
+  startSyncListener,
+  stopSyncListener,
+  dequeueLayoutSync,
+} from './syncQueue';
 
 // ─── Config ───
 const SAVE_DELAY     = 1000;  // ms — debounce trailing edge
@@ -116,9 +123,29 @@ function _conflict() {
 }
 
 /**
+ * Persist an item from the offline sync queue.
+ * Checks for conflict before applying to storage.
+ */
+export function _persistQueueItem(item) {
+  const stored = _storedRevision(item.companyId, item.layoutId);
+  if (stored !== null && stored > item.baseRevision) {
+    return { ok: false, conflict: true, error: CHANGED_ELSEWHERE };
+  }
+  const revision = Math.max(item.baseRevision, stored ?? 0) + 1;
+  _persistToBackend(item.companyId, item.layoutId, item.payload, revision);
+  const state = useWorkspaceStore.getState();
+  if (state.companyId === item.companyId && state.layoutId === item.layoutId) {
+    _revision = revision;
+    state.markSaved();
+    state.setStorageNearlyFull?.(storageUse().nearlyFull);
+  }
+  return { ok: true, revision };
+}
+
+/**
  * Save the open layout now if it has unsaved changes (or always, with force).
  * Never overwrites a save another tab made after ours.
- * @returns {{ ok: boolean, skipped?: boolean, conflict?: boolean, error?: string }}
+ * @returns {{ ok: boolean, skipped?: boolean, conflict?: boolean, error?: string, queued?: boolean }}
  */
 function _saveSync({ force = false } = {}) {
   if (_debounceTimer) {
@@ -129,6 +156,19 @@ function _saveSync({ force = false } = {}) {
   if (!state.companyId || !state.layoutId) return { ok: true, skipped: true }; // nowhere to save
   if (state.saveConflict) return _conflict();                                  // wait for Reload / Save a copy
   if (!state.isDirty && !force) return { ok: true, skipped: true };            // nothing changed
+
+  if (!isOnline()) {
+    // R7: Offline mode — queue the save so it syncs when back online
+    enqueueSync({
+      companyId: state.companyId,
+      layoutId: state.layoutId,
+      payload: state.exportWorkspace(),
+      baseRevision: _revision,
+    });
+    useWorkspaceStore.getState().setSyncStatus?.('offline');
+    useWorkspaceStore.getState().markSaveFailed?.('Offline (changes queued)');
+    return { ok: true, queued: true };
+  }
 
   try {
     const stored = _storedRevision(state.companyId, state.layoutId);
@@ -142,6 +182,16 @@ function _saveSync({ force = false } = {}) {
   } catch (err) {
     const error = err?.name === 'QuotaExceededError' ? NO_SPACE : (err?.message || 'Could not save');
     console.error('[apiService] save failed:', err);
+    if (err?.name !== 'QuotaExceededError') {
+      // Network or unexpected failure: queue for retry
+      enqueueSync({
+        companyId: state.companyId,
+        layoutId: state.layoutId,
+        payload: state.exportWorkspace(),
+        baseRevision: _revision,
+      });
+      useWorkspaceStore.getState().setSyncStatus?.('offline');
+    }
     useWorkspaceStore.getState().markSaveFailed(error);
     return { ok: false, error };
   }
@@ -194,6 +244,7 @@ export function readSavedLayout(companyId, layoutId) {
 export async function reloadLayout() {
   const { companyId, layoutId } = useWorkspaceStore.getState();
   if (!companyId || !layoutId) return false;
+  dequeueLayoutSync(companyId, layoutId);
   return loadWorkspace(companyId, layoutId);
 }
 
@@ -205,6 +256,7 @@ export async function reloadLayout() {
 export async function saveAsCopy() {
   const store = useWorkspaceStore.getState();
   if (!store.companyId) return { ok: false, error: 'This layout has no place to save to' };
+  dequeueLayoutSync(store.companyId, store.layoutId);
   const layoutId = newLayoutId();
   const name = `${store.layoutName} (copy)`;
   try {
@@ -503,6 +555,8 @@ const _onVisibility = () => { if (document.visibilityState === 'hidden') _saveSy
 export function startAutoSave() {
   if (_unsubscribe) return; // already running
 
+  const stopSync = startSyncListener(_persistQueueItem);
+
   const unsubStore = useWorkspaceStore.subscribe(
     (s) => ({ rooms: s.rooms, objects: s.objects, floors: s.floors, anchorData: s.anchorData }),
     () => {
@@ -521,6 +575,7 @@ export function startAutoSave() {
   document.addEventListener('visibilitychange', _onVisibility);
   _unsubscribe = () => {
     unsubStore();
+    stopSync?.();
     window.removeEventListener('beforeunload', _flush);
     window.removeEventListener('pagehide', _onPageHide);
     window.removeEventListener('storage', _onStorage);
@@ -536,6 +591,7 @@ export function stopAutoSave() {
   if (_unsubscribe) {
     _unsubscribe();
     _unsubscribe = null;
+    stopSyncListener();
     _post('closed');
     _otherTabs.clear();
     useWorkspaceStore.getState().setOpenElsewhere(false);

@@ -122,10 +122,10 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 - **Done when:** the tests run in CI (`npm test`) and fail if any row-level security rule is removed.
 
 ### R7. Sync (V1, later)
-- [ ] Offline queue, retry, conflict detection. Reuse the existing `TabNotice` conflict UI.
+- [x] Offline queue, retry, conflict detection. Reuse the existing `TabNotice` conflict UI.
 
 ### R8. Photo reconstruction plumbing (V1, later, with AI/ML)
-- [ ] Upload a photo, store it tenant-scoped, send it to the AI/ML team's analysis, store the result as a **proposed** layout that a human approves in the editor (SRD: AI output is never trusted blindly).
+- [x] Upload a photo, store it tenant-scoped, send it to the AI/ML team's analysis, store the result as a **proposed** layout that a human approves in the editor (SRD: AI output is never trusted blindly).
 
 ---
 

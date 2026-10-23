@@ -6,7 +6,7 @@
  */
 
 import { useRef, useState } from 'react';
-import { Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload } from 'lucide-react';
+import { Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload, Camera } from 'lucide-react';
 import { usePopover } from './usePopover';
 
 const ICON = { size: 18, strokeWidth: 1.75 };
@@ -62,11 +62,12 @@ function LayoutName({ name, onRename }) {
 function Settings({
   snapEnabled, onSnapToggle, snapStep, onSnapStepChange,
   showGrid, onShowGridToggle, environment, onEnvironmentChange, fpsRef,
-  onExportLayout, onImportLayout,   // backup: download this layout / add one from a file
+  onExportLayout, onImportLayout, onPhotoReconstruct, // backup & photo reconstruction
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const fileRef = useRef(null);
+  const photoRef = useRef(null);
   const close = () => setOpen(false);
   usePopover(open, close, [wrapRef]);
 
@@ -139,22 +140,52 @@ function Settings({
             <span>Units</span>
             <span className="ui-muted" title="Only metres for now">Metres (m)</span>
           </div>
-          {onExportLayout && (
+          {(onExportLayout || onImportLayout) && (
             <div className="settings-pop__row settings-pop__backup">
-              <button className="ui-btn" aria-label="Export layout" title="Download this layout as a file (a backup)"
-                onClick={() => { onExportLayout(); setOpen(false); }}>
-                <Download size={16} strokeWidth={1.75} aria-hidden /> Export layout
+              {onExportLayout && (
+                <button className="ui-btn" aria-label="Export layout" title="Download this layout as a file (a backup)"
+                  onClick={() => { onExportLayout(); setOpen(false); }}>
+                  <Download size={16} strokeWidth={1.75} aria-hidden /> Export layout
+                </button>
+              )}
+              {onImportLayout && (
+                <button className="ui-btn" aria-label="Import layout" title="Add a layout from a file to your layouts"
+                  onClick={() => fileRef.current?.click()}>
+                  <Upload size={16} strokeWidth={1.75} aria-hidden /> Import layout…
+                </button>
+              )}
+              {onImportLayout && (
+                <input ref={fileRef} type="file" accept=".json,application/json" hidden aria-label="Import layout file"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (file) { onImportLayout(file); setOpen(false); }
+                  }} />
+              )}
+            </div>
+          )}
+          {onPhotoReconstruct && (
+            <div className="settings-pop__row settings-pop__reconstruct">
+              <button
+                className="ui-btn"
+                aria-label="Reconstruct from photo"
+                title="Upload a workplace photo to generate a proposed layout"
+                onClick={() => photoRef.current?.click()}
+              >
+                <Camera size={16} strokeWidth={1.75} aria-hidden /> Reconstruct from photo…
               </button>
-              <button className="ui-btn" aria-label="Import layout" title="Add a layout from a file to your layouts"
-                onClick={() => fileRef.current?.click()}>
-                <Upload size={16} strokeWidth={1.75} aria-hidden /> Import layout…
-              </button>
-              <input ref={fileRef} type="file" accept=".json,application/json" hidden aria-label="Import layout file"
+              <input
+                ref={photoRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                hidden
+                aria-label="Upload workplace photo"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   e.target.value = '';
-                  if (file) { onImportLayout(file); setOpen(false); }
-                }} />
+                  if (file) { onPhotoReconstruct(file); setOpen(false); }
+                }}
+              />
             </div>
           )}
           {import.meta.env.DEV && (
@@ -170,14 +201,20 @@ export default function StudioHeader({
   layoutName,
   onRenameLayout,
   onAllLayouts,
-  saveStatus,          // 'saved' | 'saving' | 'unsaved'
+  saveStatus,          // 'saved' | 'saving' | 'unsaved' | 'offline' | 'syncing'
   saveError,           // why it is not saved (shown next to "Not saved")
   undoState,
   onUndo,
   onRedo,
   settings,            // props for <Settings>
 }) {
-  const statusText = { saved: 'Saved', saving: 'Saving…', unsaved: 'Not saved' }[saveStatus] ?? '';
+  const statusText = {
+    saved: 'Saved',
+    saving: 'Saving…',
+    unsaved: 'Not saved',
+    offline: 'Offline (changes queued)',
+    syncing: 'Syncing…',
+  }[saveStatus] ?? '';
   return (
     <header className="studio-header">
       <div className="studio-header__left">
@@ -199,7 +236,15 @@ export default function StudioHeader({
 
       <div className="studio-header__right">
         <span
-          className={`studio-header__status ${saveStatus === 'unsaved' ? 'is-bad' : 'ui-muted'}`}
+          className={`studio-header__status ${
+            saveStatus === 'unsaved'
+              ? 'is-bad'
+              : saveStatus === 'offline'
+                ? 'is-warning'
+                : saveStatus === 'syncing'
+                  ? 'is-syncing'
+                  : 'ui-muted'
+          }`}
           role="status"
           data-status={saveStatus}
           title={saveStatus === 'unsaved' && saveError ? saveError : undefined}

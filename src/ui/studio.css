@@ -110,6 +110,8 @@
 .studio-header__name-input { width: 240px; }
 .studio-header__status { font-size: 13px; margin-right: var(--space-2); white-space: nowrap; }
 .studio-header__status.is-bad { color: var(--danger); max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.studio-header__status.is-warning { color: #f59e0b; font-weight: 500; }
+.studio-header__status.is-syncing { color: var(--accent, #6366f1); font-weight: 500; }
 .studio-header__settings { position: relative; }
 
 .settings-pop {
@@ -132,6 +134,14 @@
 .settings-pop__fps { font-size: 12px; padding: 6px 0 4px; border-top: 1px solid var(--border); }
 .settings-pop__backup { padding: var(--space-2) 0; }
 .settings-pop__backup > .ui-btn { flex: 1; padding: 0 var(--space-2); }
+.settings-pop__reconstruct { padding: var(--space-2) 0; }
+.settings-pop__reconstruct > .ui-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
 
 /* Segmented control (2D | 3D, lighting, grid step) */
 .ui-segmented {
@@ -694,3 +704,59 @@
 .floor-menu__height-row > span:first-child { flex: 1; }
 .floor-menu__height-row .ui-input { width: 72px; }
 .floor-menu__problem { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--danger); }
+
+/* ━━ R8: Proposed Layout Banner ━━ */
+.proposed-layout-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  background: linear-gradient(90deg, rgba(74, 125, 255, 0.12), rgba(52, 211, 153, 0.12));
+  border-bottom: 1px solid var(--accent);
+  color: var(--text);
+  font-size: 13px;
+  z-index: 30;
+}
+.proposed-layout-banner.is-loading {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.proposed-layout-banner.is-error {
+  background: var(--danger-soft);
+  border-bottom: 1px solid var(--danger);
+  color: var(--danger);
+}
+.proposed-layout-banner__content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.proposed-layout-banner__icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.proposed-layout-banner.is-error .proposed-layout-banner__icon {
+  color: var(--danger);
+}
+.proposed-layout-banner__spinner {
+  animation: spin 1s linear infinite;
+  color: var(--accent);
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.proposed-layout-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.proposed-layout-banner__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+}

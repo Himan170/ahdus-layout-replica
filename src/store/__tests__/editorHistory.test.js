@@ -431,4 +431,64 @@ describe('floor and wall heights (one undo step each)', () => {
     expect(S().floors[1].height).toBe(3.5);
     expect(rooms()).toHaveLength(1);
   });
+
+  it('R8: applyProposedLayout adds rooms and items and is fully undoable with Ctrl+Z', () => {
+    editor.addRoom({ type: 'OFFICE', name: 'Initial Office', floor: 0 });
+    expect(rooms()).toHaveLength(1);
+
+    const proposed = {
+      schemaVersion: 2,
+      units: 'meters',
+      building: { name: 'HQ' },
+      floors: [{ id: '0', name: 'Ground Floor', height: 3.5 }],
+      rooms: [
+        {
+          id: 'ai_room_1',
+          floorId: '0',
+          name: 'AI Detected Room',
+          type: 'MEETING',
+          color: '#34d399',
+          x: 10,
+          z: 10,
+          width: 5,
+          depth: 5,
+          wallHeight: 3,
+          floorFinish: 'carpet',
+        },
+      ],
+      openings: [],
+      objects: [
+        {
+          id: 'ai_obj_1',
+          assetType: 'DESK_STANDARD',
+          floorId: '0',
+          position: { x: 12, y: 0, z: 12 },
+          rotationY: 0,
+          scale: { x: 1, y: 1, z: 1 },
+          locked: false,
+          label: 'AI Desk',
+        },
+      ],
+      anchors: [],
+      routes: [],
+      floorLinks: [],
+    };
+
+    editor.applyProposedLayout(proposed);
+
+    expect(rooms()).toHaveLength(2);
+    expect(rooms().some((r) => r.name === 'AI Detected Room')).toBe(true);
+    expect(objs().some((o) => o.assetType === 'DESK_STANDARD')).toBe(true);
+
+    // Ctrl+Z / Undo restores prior state
+    editor.undo();
+    expect(rooms()).toHaveLength(1);
+    expect(rooms()[0].name).toBe('Initial Office');
+    expect(objs()).toHaveLength(0);
+
+    // Redo restores the AI additions
+    editor.redo();
+    expect(rooms()).toHaveLength(2);
+    expect(objs()).toHaveLength(1);
+  });
 });

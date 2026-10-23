@@ -55,6 +55,12 @@ import SelectionToolbar from '../ui/SelectionToolbar';
 import Inspector from '../ui/Inspector';
 import StudioFooter from '../ui/StudioFooter';
 import TabNotice from '../ui/TabNotice';
+import ProposedLayoutBanner from '../ui/ProposedLayoutBanner';
+import {
+  uploadReconstructionPhoto,
+  requestPhotoAnalysis,
+  stageProposedLayout,
+} from '../services/reconstructionService';
 import { STUDIO_TOOLS, activeTile, toolHint } from '../ui/tools';
 
 // Play mode — walk around as a character and build (replaces the old walkthrough)
@@ -194,6 +200,8 @@ export default function WorkplaceEditor({ onExit }) {
   const saveConflict = useWorkspaceStore((s) => s.saveConflict);   // another tab saved this layout
   const openElsewhere = useWorkspaceStore((s) => s.openElsewhere); // this layout is open in another tab too
   const storageNearlyFull = useWorkspaceStore((s) => s.storageNearlyFull);
+  const syncStatus = useWorkspaceStore((s) => s.syncStatus);
+  const pendingSyncCount = useWorkspaceStore((s) => s.pendingSyncCount);
   const selectedOpeningSel = useWorkspaceStore((s) => s.selectedOpening);
   const layoutName = useWorkspaceStore((s) => s.layoutName);
   const hasBackend = useWorkspaceStore((s) => !!(s.companyId && s.layoutId));
@@ -1220,8 +1228,18 @@ export default function WorkplaceEditor({ onExit }) {
     return null;
   }, [selectedObjectId, selectedRoomId, boundsOf]);
 
-  // Not saved (with the reason) / Saving… (a change waits for the debounced save) / Saved
-  const saveStatus = !hasBackend || saveError ? 'unsaved' : isDirty ? 'saving' : 'saved';
+  // Not saved (with the reason) / Saving… (a change waits for the debounced save) / Saved / Offline / Syncing
+  const saveStatus = !hasBackend
+    ? 'unsaved'
+    : syncStatus === 'offline' || pendingSyncCount > 0
+      ? 'offline'
+      : syncStatus === 'syncing'
+        ? 'syncing'
+        : saveError
+          ? 'unsaved'
+          : isDirty
+            ? 'saving'
+            : 'saved';
 
   const handleAllLayouts = useCallback(async () => {
     const result = await saveNow();
@@ -1261,11 +1279,53 @@ export default function WorkplaceEditor({ onExit }) {
     if (result.ok) showStudioMessage(`Saved as "${useWorkspaceStore.getState().layoutName}"`);
   }, [showStudioMessage]);
 
+  const handlePhotoReconstruct = useCallback(async (file) => {
+    const { companyId, layoutId, setReconstructing, setProposedLayout } = useWorkspaceStore.getState();
+    if (!companyId || !layoutId) {
+      showStudioMessage('Please open a company workspace first', true);
+      return;
+    }
+    setReconstructing(true);
+    showStudioMessage('Uploading photo to tenant storage…');
+    const uploadRes = await uploadReconstructionPhoto(file, { companyId, layoutId });
+    if (!uploadRes.ok) {
+      setReconstructing(false, uploadRes.error);
+      showStudioMessage(`Upload failed: ${uploadRes.error}`, true);
+      return;
+    }
+
+    showStudioMessage('Analyzing photo with AI reconstruction…');
+    const analysisRes = await requestPhotoAnalysis(uploadRes.photoUrl, { companyId, layoutId });
+    if (!analysisRes.ok) {
+      setReconstructing(false, analysisRes.error);
+      showStudioMessage(`AI reconstruction failed: ${analysisRes.error}`, true);
+      return;
+    }
+
+    const stageRes = await stageProposedLayout({
+      companyId,
+      layoutId,
+      photoUrl: uploadRes.photoUrl,
+      proposedLayout: analysisRes.proposedLayout,
+      detectionStats: analysisRes.detectionStats,
+    });
+
+    setProposedLayout({
+      proposalId: stageRes.proposalId || null,
+      photoUrl: uploadRes.photoUrl,
+      layout: analysisRes.proposedLayout,
+      detectionStats: analysisRes.detectionStats,
+      stagedAt: new Date().toISOString(),
+    });
+    showStudioMessage('AI Proposed layout ready for your review');
+  }, [showStudioMessage]);
+
   // ─── Render ───
   return (
     <StudioShell
       preview={isPlaying}
       inspectorOpen={!!inspectorMode}
+      banner={<ProposedLayoutBanner editor={editor} onMessage={showStudioMessage} />}
       header={(
         <StudioHeader
           layoutName={layoutName}
@@ -1288,6 +1348,7 @@ export default function WorkplaceEditor({ onExit }) {
             fpsRef: fpsDisplayRef,
             onExportLayout: hasBackend ? handleExportLayout : null,
             onImportLayout: handleImportLayout,
+            onPhotoReconstruct: handlePhotoReconstruct,
           }}
         />
       )}
