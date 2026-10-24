@@ -13,7 +13,7 @@ Plain HTML pages (the AI Training Platform): `docs/EMBED_GUIDE.md`; integration 
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (395, all must pass)
+npm test             # vitest unit tests (436, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run build
 npm run build:embed  # dist-embed/ahdus-workplace.js (+ .css, + assets/): the one-file embed for plain HTML pages
@@ -22,8 +22,8 @@ npm run assets:env      # public/assets/env/sky.env from the HDRI (needs npm run
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
 # One-time: npx playwright install chromium
-npm run e2e:planner  # 35 checks   e2e/editor-smoke.mjs    (Workplace Studio + UI_SPEC screenshots, the Realistic look
-                     #                                       switch, no missing asset files)
+npm run e2e:planner  # 36 checks   e2e/editor-smoke.mjs    (Workplace Studio + UI_SPEC screenshots, the Realistic look
+                     #                                       switch, no missing asset files, floor plan PNG / PDF export)
 npm run e2e:play     # 19 checks   e2e/play-smoke.mjs
 npm run e2e:modules  # 17 checks   e2e/modules-smoke.mjs   (uses ?demoModules=1)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
@@ -78,14 +78,17 @@ Spec of the look: `UI_SPEC.md` (repo root).
 - **Workplace Studio** (`src/ui/`): header (AHDUS = all layouts, breadcrumb with the layout name (click to rename),
   save status, Undo, Redo, Settings popover: snap, step, show grid, lighting, FPS in dev); **Build panel** of tiles
   (Select, Rooms, Walls, Doors & Windows, Stairs, Furniture; keys 1–6) whose **options trays** arm a planner tool or
-  start placing an asset; Layers at its bottom; **canvas card** (2D | 3D, Fit view, empty state, room labels,
-  floating **selection toolbar**); **Inspector** card only while something is selected (or Layers is on);
+  start placing an asset; Layers at its bottom; **canvas card** (Export floor plan, 2D | 3D, Fit view, empty state,
+  room labels, floating **selection toolbar**); **Inspector** card only while something is selected (or Layers is on);
   **footer**: floor switcher menu, the active tool's hint, "Preview Workplace". The tool list is defined once in
   `src/ui/tools.js` (also gives Preview's hotbar/catalog icons). Studio uses the same sky/grass/paving as Preview;
   the build grid shows only while a build tool is active (or "Show grid" is on).
   **Build tools** (`src/planner/plannerTools.js`): Select (drag a wall of the selected room to resize it, drag its
   floor to move it), room (drag corner to corner; also inside another room), wall (drag), door / window (click a
   wall; click one to remove).
+  **Export floor plan** (Anish, S2; button left of 2D | 3D, `ui/ExportMenu.jsx`): the current floor as a PNG
+  (`floor-plan-<floor>.png`) or an A4 PDF (jsPDF, loaded on first use), drawn on an offscreen 2D canvas from the store
+  by `utils/floorPlanExporter.js` (rooms, walls, doors, windows, items, dimensions; no Babylon). Disabled with no rooms.
   Select a door/window (click it; in 2D the wall over it): Inspector width/height + blue drag handles on its sides
   and top (`store.selectedOpening` = { roomId, kind, index }; one undo step per drag).
   Furniture stacks on table tops. Clicking the floor under a desk selects the desk.
@@ -107,7 +110,10 @@ Spec of the look: `UI_SPEC.md` (repo root).
 src/components/WorkplaceEditor.jsx  Studio wiring, mode switching; calls engine/systems for the scene, store→mesh syncing and
                                    level visibility (~1500 lines)
 src/ui/                            Workplace Studio: theme.css, tools.js, StudioShell, StudioHeader, BuildPanel (+ trays,
-                                   CatalogPicker), CanvasCard, RoomLabels, SelectionToolbar, Inspector, StudioFooter, EditorErrorBoundary, preview.css
+                                   CatalogPicker), CanvasCard, ExportMenu, RoomLabels, SelectionToolbar, Inspector, StudioFooter,
+                                   EditorErrorBoundary, preview.css
+src/utils/floorPlanExporter.js     2D floor plan of one floor on an offscreen canvas → PNG / PDF download (Anish, S2; tested
+                                   in src/utils/__tests__/floorPlanExporter.test.js with jsdom)
 src/play/playController.js         Preview: movement, camera, aiming, every hotbar tool, Stretch, Edit item, stairs, levels
 src/planner/plannerTools.js        Studio mouse tools: draw room / wall, door / window, drag a wall to resize
 src/utils/buildPreview.js          Blue/red build previews shared by both modes

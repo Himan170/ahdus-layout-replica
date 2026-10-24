@@ -142,6 +142,11 @@ log('every Studio control is there with its label', missing.length === 0, missin
 // ── Empty state → Add your first room → Office → drag ──
 log('a new layout shows the empty state', await visible('text=Build your workplace'));
 await shot('studio-empty.png');
+// Export floor plan (Anish, S2): nothing to export yet, so the button is disabled and opens no menu
+const exportOffEmpty = await page.getAttribute('[aria-label="Export floor plan"]', 'aria-disabled');
+await page.click('[aria-label="Export floor plan"]', { force: true }); // (Playwright won't click aria-disabled by itself)
+await frames(2);
+const exportMenuWhenEmpty = await visible('[role="menu"][aria-label="Export options"]');
 await click('[aria-label="Add your first room"]');
 log('"Add your first room" opens the Rooms tray', await visible('[role="dialog"][aria-label="Rooms options"]'));
 await shot('studio-tray-rooms.png');
@@ -152,6 +157,20 @@ await dragWorld([-4, 0.02, -3], [2, 0.02, 1]);
 let c = await counts();
 log('dragging on the ground draws the first room', c.rooms === 1, JSON.stringify(c));
 log('the empty state is gone', !(await visible('text=Build your workplace')));
+// …with a room: Export floor plan → PNG downloads a .png, → PDF downloads a .pdf
+const exportAs = async (item) => {
+  await click('[aria-label="Export floor plan"]');
+  const [file] = await Promise.all([
+    page.waitForEvent('download', { timeout: 60000 }).catch(() => null),
+    page.click(`[role="menu"][aria-label="Export options"] button:has-text("${item}")`),
+  ]);
+  return file?.suggestedFilename() ?? 'no download';
+};
+const planPng = await exportAs('Export PNG');
+const planPdf = await exportAs('Export PDF');
+log('Export floor plan: disabled with no rooms; with a room PNG downloads a .png and PDF a .pdf',
+  exportOffEmpty === 'true' && !exportMenuWhenEmpty && /\.png$/.test(planPng) && /\.pdf$/.test(planPdf),
+  JSON.stringify({ exportOffEmpty, exportMenuWhenEmpty, planPng, planPdf }));
 await key('Control+z');
 c = await counts();
 log('Ctrl+Z removes the room', c.rooms === 0, JSON.stringify(c));

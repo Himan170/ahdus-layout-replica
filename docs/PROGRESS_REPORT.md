@@ -424,6 +424,15 @@ typing, Tab and Space work until the view is engaged; Tab to the view walks; a c
   script; `quality: 'low'` downloads nothing). `node e2e/real-assets-shots.mjs before|after`: screenshots of the
   same layout in `e2e/screens/real-assets-*.png`.
 
+
+### 3.19 Floor plan export: PNG and PDF (Anish, S2, 24 Oct, PR #3)
+
+Anish added **Export floor plan** to Studio's canvas card (the button left of 2D | 3D, `ui/ExportMenu.jsx`): the
+current floor as a high-resolution PNG or a print-ready A4 PDF (jsPDF, loaded only when used). `utils/floorPlanExporter.js`
+draws the plan on an offscreen 2D canvas straight from the store (rooms in their colours, walls, door swings,
+windows, items, dimensions, title), with no Babylon; 359 lines of unit tests (`floorPlanExporter.test.js`, jsdom).
+The button is disabled while the floor has no rooms. Merged with the realistic look on 25 Oct; `e2e:planner` +1 check
+(disabled with no rooms; PNG downloads a .png, PDF a .pdf).
 ---
 
 ## 4. Status against the plan
@@ -434,7 +443,7 @@ typing, Tab and Space work until the view is engaged; Tab to the view walks; a c
 | **B. Replica-grade building** | 🟡 Partly | Rooms, Stretch, doors and windows in-world: done. Free-form walls with shared walls, floor-plan tracing, dimensions/measure tool, templates: not started |
 | **C. Visual realism** | 🟡 Mostly | Textured floors/walls/furniture, site, lighting, roofs, ceilings with lights: done. Real 3D models (Kenney GLBs), photo textures and HDRI sky with a "Realistic look" switch (3.18): done. Industrial machine models, post-processing: not done |
 | **D. Floors, routes, safety** | 🟡 Partly | Stacked floors, slabs, walkable stairs with openings: done. Elevators, evacuation routes, safety checks: not done |
-| **E. 2D floor plan (SVG)** | ❌ Not started | The "2D view" is still the 3D camera from above |
+| **E. 2D floor plan (SVG)** | 🟡 Started | Export floor plan as PNG / PDF (Anish, 3.19). The "2D view" on screen is still the 3D camera from above; no SVG yet |
 | **F. Saving, versions, sync** | 🟡 Local only | Reliable auto-save and reopening in browser localStorage; two tabs can't overwrite each other (revisions); export / import files as a backup (15 Oct). No backend, versions or change events yet |
 | **Teammate integration** | ✅ In Studio, viewers and plain HTML pages | Bridge, saved hook points, real events, E actions, position links, demo modules; works in `<LayoutViewer />` and in the one-file embed (`AHDUSWorkplace.mount`, 3.16). Next: the embed in the Training Platform's `3d-model.html` (plan step 3) |
 
@@ -462,7 +471,7 @@ typing, Tab and Space work until the view is engaged; Tab to the view walks; a c
 ### P2: later
 
 11. Free-form wall drawing with **shared walls** (rooms are rectangles today; neighbouring rooms have two walls 15 cm apart).
-12. Real **SVG 2D floor plan** with PNG/PDF export (also the mobile and accessibility view).
+12. Real **SVG 2D floor plan** (also the mobile and accessibility view). PNG / PDF export of a floor: ✅ done (3.19).
 13. **Emergency exits and evacuation routes**, with warnings like "room has no door" or "exit blocked".
 14. Dimension labels and a measure tool.
 15. ~~Clean up the planner~~ ✅ done (14 Oct): the old Top/Left/Right/Bottom room buttons are gone; the Rooms panel has a **Draw room** button (the same tool as the left toolbar) and a one-click "+ Add" only on an empty floor.
