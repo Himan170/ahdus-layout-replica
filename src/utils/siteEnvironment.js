@@ -3,6 +3,8 @@
  *
  * Switches the scene between the PLANNER look (dark background, grid) and the
  * PLAY look (sky, fog, grass land around a paved building plot).
+ * With the realistic look (realLook.js), a photographed sky (HDRI, env/sky.env)
+ * is drawn on a clear day and lights the photo-textured rooms.
  *
  * In Play mode the grid comes back only while a building tool (Room / Wall /
  * Door / Window) is held, so you can line things up — like a build overlay.
@@ -11,7 +13,13 @@
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Scene } from '@babylonjs/core/scene';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
-import { getMaterials, scaleUVs, TILE_SIZE } from './materialLibrary';
+import { CubeTexture } from '@babylonjs/core/Materials/Textures/cubeTexture';
+import { Texture } from '@babylonjs/core/Materials/Textures/texture';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
+import '@babylonjs/core/Materials/Textures/Loaders/envTextureLoader';
+import { getMaterials, scaleUVs, TILE_SIZE, markShared } from './materialLibrary';
+import { ENV_FILE } from './modelRegistry';
+import { isRealistic, onLookChange, assetUrl, trackLoad } from './realLook';
 
 const SKY = {
   day: '#b9d3ea',
@@ -19,6 +27,8 @@ const SKY = {
   night: '#141a2a',
 };
 const PLANNER_BG = new Color4(0.06, 0.08, 0.12, 1);
+/** How strongly the HDRI sky lights the photo-textured rooms, per preset. */
+const ENV_INTENSITY = { day: 0.7, office: 0.45, night: 0.08 };
 
 /**
  * @param {Scene} scene
@@ -44,6 +54,47 @@ export function createSiteEnvironment(scene, ground, lights = null) {
   let preset = 'day';
   let gridVisible = false;
 
+  // ── Realistic look: the HDRI sky (env/sky.env) lights the PBR room surfaces
+  // (reflections, soft light) and is drawn as the sky on a clear day. Until it
+  // has loaded, or if it fails, the plain sky colour stays.
+  let skyTexture = null; // prefiltered cube map, once loaded
+  let skybox = null;
+  let skyFailed = false;
+  function loadSky() {
+    if (skyTexture || skyFailed) return;
+    let settle;
+    trackLoad(scene, new Promise((res) => { settle = res; }));
+    const loaded = () => {
+      if (scene.isDisposed || skyFailed) return settle();
+      skyTexture = tex;
+      skybox = MeshBuilder.CreateBox('skyBox', { size: 1000 }, scene);
+      const m = new PBRMaterial('mat_skyBox', scene);
+      m.backFaceCulling = false;
+      m.reflectionTexture = tex.clone();
+      m.reflectionTexture.coordinatesMode = Texture.SKYBOX_MODE;
+      m.microSurface = 1; // sharp
+      m.disableLighting = true;
+      m.twoSidedLighting = true;
+      skybox.material = markShared(m);
+      skybox.isPickable = false;
+      skybox.infiniteDistance = true;
+      skybox.ignoreCameraMaxZ = true;
+      skybox.applyFog = false;
+      applySky();
+      settle();
+    };
+    const failed = (message) => {
+      if (skyTexture || skyFailed) return;
+      skyFailed = true;
+      console.warn(`[realistic look] the sky (${ENV_FILE}) could not be loaded: ${message ?? ''}`);
+      settle();
+    };
+    // a prefiltered .env cube map (CubeTexture.CreateFromPrefilteredData, with an onError)
+    const tex = new CubeTexture(assetUrl(scene, ENV_FILE), scene, null, false, null, () => queueMicrotask(loaded), failed,
+      undefined, true, '.env', true);
+  }
+  onLookChange(scene, () => applySky());
+
   function applyGroundMaterial() {
     if (!playLook || gridVisible) {
       ground.material = gridMaterial;
@@ -57,6 +108,12 @@ export function createSiteEnvironment(scene, ground, lights = null) {
   }
 
   function applySky() {
+    const realistic = isRealistic(scene);
+    if (realistic) loadSky();
+    // the HDRI lights the photo-textured rooms in every preset (dimmer at night / indoors)
+    scene.environmentTexture = realistic && skyTexture ? skyTexture : null;
+    scene.environmentIntensity = ENV_INTENSITY[preset] ?? ENV_INTENSITY.day;
+    skybox?.setEnabled(realistic && playLook && preset === 'day');
     if (!playLook) {
       scene.clearColor = PLANNER_BG;
       scene.fogMode = Scene.FOGMODE_NONE;
@@ -103,6 +160,7 @@ export function createSiteEnvironment(scene, ground, lights = null) {
     },
     dispose() {
       land.dispose();
+      skybox?.dispose(false, true);
     },
   };
 }

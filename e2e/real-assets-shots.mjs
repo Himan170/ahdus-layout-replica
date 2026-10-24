@@ -105,6 +105,10 @@ if (!(await p.evaluate(() => !!document.pointerLockElement))) {
 await p.evaluate(() => window.__ahdusPlay.setPose({ x: -1.4, z: -1.8, yaw: -0.75, pitch: -0.12 }));
 await frames(6);
 await shot('preview');
-console.log(`Saved e2e/screens/real-assets-${tag}-studio.png and -preview.png`);
+// Outside, looking at the building and the sky
+await p.evaluate(() => window.__ahdusPlay.setPose({ x: 9, z: -18, yaw: -0.45, pitch: 0.05 }));
+await frames(6);
+await shot('outside');
+console.log(`Saved e2e/screens/real-assets-${tag}-studio.png, -preview.png and -outside.png`);
 for (const e of errs.slice(0, 6)) console.log('ERR ' + e.slice(0, 300));
 await b.close();

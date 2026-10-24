@@ -17,6 +17,10 @@ import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTextur
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
+import { MultiMaterial } from '@babylonjs/core/Materials/multiMaterial';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
+import { TEXTURE_SETS, REALISTIC_SURFACES, TEXTURE_DIR } from './modelRegistry';
+import { isRealistic, onLookChange, assetUrl, trackLoad } from './realLook';
 
 // ── Seeded random so textures look the same every time ──
 function rng(seed) {
@@ -238,18 +242,21 @@ const painters = {
   },
 };
 
-/** Real-world size (metres) covered by one repeat of each texture. */
+/** Real-world size (metres) covered by one repeat of each texture (room UVs use these). */
 export const TILE_SIZE = {
-  wood: 2, carpet: 1, tile: 1.2, smallTile: 0.8, concrete: 4,
-  raised: 1.2, plaster: 2, paving: 2, grass: 4,
+  wood: 2, carpet: 1, tile: 1.2, corridor: 1.2, smallTile: 0.8, concrete: 4,
+  raised: 1.2, plaster: 2, paving: 2, grass: 4, ceiling: 1.2,
 };
+
+/** Painter of each procedural floor (a corridor looks like reception, but has its own photo texture). */
+const PAINTER = { corridor: 'tile' };
 
 /** Which floor each room type gets. */
 export const FLOOR_BY_ROOM_TYPE = {
   OFFICE: 'wood',
   MEETING: 'carpet',
   RECEPTION: 'tile',
-  CORRIDOR: 'tile',
+  CORRIDOR: 'corridor',
   PRODUCTION: 'concrete',
   STAIRCASE: 'concrete',
   SERVER_ROOM: 'raised',
@@ -261,7 +268,8 @@ const libraries = new WeakMap();
 function makeTextureMaterial(scene, key, { specular = 0.05, size = 512 } = {}) {
   const tex = new DynamicTexture(`tex_${key}`, { width: size, height: size }, scene, true);
   const ctx = tex.getContext();
-  painters[key](ctx, size, rng(key.length * 7919 + 17));
+  const painter = PAINTER[key] ?? key;
+  painters[painter](ctx, size, rng(painter.length * 7919 + 17));
   tex.update();
   tex.wrapU = Texture.WRAP_ADDRESSMODE;
   tex.wrapV = Texture.WRAP_ADDRESSMODE;
@@ -282,6 +290,22 @@ function makeTextureMaterial(scene, key, { specular = 0.05, size = 512 } = {}) {
 export function markShared(material) {
   material.metadata = { ...(material.metadata ?? {}), shared: true };
   return material;
+}
+
+const multiMaterials = new WeakMap(); // scene → Map(sub-material ids → MultiMaterial)
+
+/** One shared MultiMaterial per list of sub-materials (merged rooms and templates reuse them). */
+export function sharedMultiMaterial(scene, subMaterials) {
+  let cache = multiMaterials.get(scene);
+  if (!cache) multiMaterials.set(scene, (cache = new Map()));
+  const key = subMaterials.map((m) => m?.uniqueId ?? 'none').join('|');
+  let mm = cache.get(key);
+  if (!mm || !scene.materials.includes(mm)) { // new, or disposed with its scene
+    mm = markShared(new MultiMaterial(`multi_${key}`, scene));
+    mm.subMaterials = [...subMaterials];
+    cache.set(key, mm);
+  }
+  return mm;
 }
 
 export function isSharedMaterial(material) {
@@ -375,6 +399,90 @@ function makeColorMaterial(scene, name, hex, { specular = 0.05, alpha = 1 } = {}
   return markShared(mat);
 }
 
+// ── Realistic room surfaces ("Realistic look", realLook.js) ──────────────
+// Each procedural room material (a floor kind, walls, structure, ceiling) has
+// a PBR twin made from photo textures (modelRegistry.REALISTIC_SURFACES). The
+// twin is used once its three textures have loaded: rooms already built swap
+// their material in place (merged meshes keep one sub-mesh per material), new
+// rooms get it straight away. Turning the look off swaps them back.
+
+const twins = new WeakMap(); // scene → Map(key → { proc, tile, material, ready, failed })
+const twinWatch = new WeakSet();
+
+function twinFor(scene, key, proc, tile) {
+  let all = twins.get(scene);
+  if (!all) twins.set(scene, (all = new Map()));
+  let twin = all.get(key);
+  if (twin) return twin;
+  twin = { proc, tile, material: null, ready: false, failed: false };
+  all.set(key, twin);
+  const setName = REALISTIC_SURFACES[key];
+  const set = TEXTURE_SETS[setName];
+  if (!set) { twin.failed = true; return twin; }
+
+  const m = new PBRMaterial(`real_${key}`, scene);
+  let waiting = 3;
+  let settle;
+  trackLoad(scene, new Promise((res) => { settle = res; }));
+  const texture = (file) => {
+    const t = new Texture(assetUrl(scene, `${TEXTURE_DIR}${setName}/${file}.jpg`), scene, false, true,
+      Texture.TRILINEAR_SAMPLINGMODE,
+      () => {
+        if (--waiting > 0 || twin.failed) return;
+        twin.ready = true;
+        settle();
+        applySurfaceLook(scene);
+      },
+      (message) => {
+        if (twin.failed) return;
+        twin.failed = true; // keeps the procedural material
+        settle();
+        console.warn(`[realistic look] ${setName}/${file}.jpg could not be loaded: ${message ?? ''}`);
+      });
+    // the room's UVs repeat every `tile` metres of the procedural texture
+    t.uScale = tile / set.tile;
+    t.vScale = tile / set.tile;
+    t.anisotropicFilteringLevel = 8;
+    return t;
+  };
+  m.albedoTexture = texture('color');
+  m.bumpTexture = texture('normal');     // OpenGL-style normal map in a left-handed scene
+  m.invertNormalMapX = true;
+  m.metallicTexture = texture('rough');  // greyscale: roughness from green, metallic = set.metallic (0)
+  m.useRoughnessFromMetallicTextureAlpha = false;
+  m.useRoughnessFromMetallicTextureGreen = true;
+  m.metallic = set.metallic ?? 0;
+  m.roughness = set.roughness ?? 1;
+  if (key === 'ceiling') m.emissiveColor = new Color3(0.18, 0.18, 0.17); // never black from below
+  twin.material = markShared(m);
+  return twin;
+}
+
+/** Swap materials on every mesh of the scene (also inside shared MultiMaterials). */
+function swapMaterials(scene, map) {
+  if (!map.size) return;
+  for (const mesh of scene.meshes) {
+    const m = mesh.material;
+    if (!m || mesh.sourceMesh) continue; // instances draw with their source's
+    if (map.has(m)) { mesh.material = map.get(m); continue; }
+    if (m.subMaterials) {
+      const subs = m.subMaterials.map((s) => map.get(s) ?? s);
+      if (subs.some((s, i) => s !== m.subMaterials[i])) mesh.material = sharedMultiMaterial(scene, subs);
+    }
+  }
+}
+
+/** Rooms show the twins that are ready (realistic look on) or the procedural materials (off). */
+function applySurfaceLook(scene) {
+  const on = isRealistic(scene);
+  const map = new Map();
+  for (const twin of twins.get(scene)?.values() ?? []) {
+    if (!twin.ready || !twin.material) continue;
+    if (on) map.set(twin.proc, twin.material); else map.set(twin.material, twin.proc);
+  }
+  swapMaterials(scene, map);
+}
+
 /**
  * Shared materials for this scene (created on first use).
  */
@@ -385,15 +493,41 @@ export function getMaterials(scene) {
   const cache = {};
   const lazy = (key, create) => () => (cache[key] ??= create());
   const floorGetters = Object.fromEntries(
-    ['wood', 'carpet', 'tile', 'smallTile', 'concrete', 'raised'].map((k) => [
+    ['wood', 'carpet', 'tile', 'corridor', 'smallTile', 'concrete', 'raised'].map((k) => [
       k,
-      lazy(k, () => makeTextureMaterial(scene, k, { specular: k === 'tile' ? 0.25 : k === 'wood' ? 0.12 : 0.04 })),
+      lazy(k, () => makeTextureMaterial(scene, k, { specular: k === 'tile' || k === 'corridor' ? 0.25 : k === 'wood' ? 0.12 : 0.04 })),
     ]),
   );
 
+  // A room surface: its photo-texture twin once loaded (realistic look), else the procedural one
+  const made = new Map(); // key → [procedural getter, tile]: the surfaces in use (twins for these)
+  const surface = (key, getProc, tile) => () => {
+    const proc = getProc();
+    made.set(key, [getProc, tile]);
+    if (!isRealistic(scene)) return proc;
+    const twin = twinFor(scene, key, proc, tile);
+    return twin.ready ? twin.material : proc;
+  };
+  if (!twinWatch.has(scene)) {
+    twinWatch.add(scene);
+    onLookChange(scene, (on) => {
+      if (on) for (const [key, [getProc, tile]] of made) twinFor(scene, key, getProc(), tile); // start loading
+      applySurfaceLook(scene);
+    });
+  }
+  const floorSurfaces = Object.fromEntries(Object.entries(floorGetters).map(([k, get]) => [
+    k, surface(`floor:${k}`, get, TILE_SIZE[k]),
+  ]));
+
   lib = {
-    floor: (kind) => (floorGetters[kind] ?? floorGetters.wood)(),
-    plaster: lazy('plaster', () => makeTextureMaterial(scene, 'plaster', { specular: 0.02 })),
+    floor: (kind) => (floorSurfaces[kind] ?? floorSurfaces.wood)(),
+    plaster: surface('plaster', lazy('plaster', () => makeTextureMaterial(scene, 'plaster', { specular: 0.02 })), TILE_SIZE.plaster),
+    // Slab, roof, parapet, wall band: plaster too, but grey concrete-plaster when realistic
+    structure: surface('structure', lazy('structure', () => {
+      const m = makeTextureMaterial(scene, 'plaster', { specular: 0.02 });
+      m.name = 'mat_structure';
+      return m;
+    }), TILE_SIZE.plaster),
     paving: lazy('paving', () => makeTextureMaterial(scene, 'paving', { specular: 0.03 })),
     grass: lazy('grass', () => makeTextureMaterial(scene, 'grass', { specular: 0 })),
     skirting: lazy('skirting', () => makeColorMaterial(scene, 'mat_skirting', '#5a5149', { specular: 0.1 })),
@@ -402,12 +536,12 @@ export function getMaterials(scene) {
     // Flat roof membrane (dark, slightly rough)
     roofTop: lazy('roofTop', () => makeColorMaterial(scene, 'mat_roofTop', '#6a6e72', { specular: 0.04 })),
     // Indoor ceiling: bright paint, a little self-lit so it never looks black from below
-    ceiling: lazy('ceiling', () => {
+    ceiling: surface('ceiling', lazy('ceiling', () => {
       const m = makeColorMaterial(scene, 'mat_ceiling', '#f3f1ec', { specular: 0.02 });
       m.emissiveColor = new Color3(0.42, 0.41, 0.4);
       m.backFaceCulling = true;
       return m;
-    }),
+    }), TILE_SIZE.ceiling),
     // Recessed LED panel
     lightPanel: lazy('lightPanel', () => {
       const m = makeColorMaterial(scene, 'mat_lightPanel', '#ffffff', { specular: 0 });

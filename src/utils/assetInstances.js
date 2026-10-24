@@ -23,9 +23,8 @@
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import '@babylonjs/core/Meshes/instancedMesh';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
-import { MultiMaterial } from '@babylonjs/core/Materials/multiMaterial';
 import { buildAssetMesh, ASSET_TYPES, OBJECT_CATEGORIES } from './assetCatalog';
-import { markShared } from './materialLibrary';
+import { markShared, sharedMultiMaterial } from './materialLibrary';
 import { modelPartsFor } from './modelRegistry';
 import { buildModelParts } from './modelLoader';
 import { isRealistic, onLookChange } from './realLook';
@@ -43,22 +42,6 @@ export function castsShadow(assetType) {
 }
 
 // ── Merging ───────────────────────────────────────────────────────────────
-
-const multiMaterials = new WeakMap(); // scene → Map(sub-material ids → MultiMaterial)
-
-/** One shared MultiMaterial per list of sub-materials (rooms and templates reuse them). */
-function sharedMultiMaterial(scene, subMaterials) {
-  let cache = multiMaterials.get(scene);
-  if (!cache) multiMaterials.set(scene, (cache = new Map()));
-  const key = subMaterials.map((m) => m?.uniqueId ?? 'none').join('|');
-  let mm = cache.get(key);
-  if (!mm || !scene.materials.includes(mm)) { // new, or disposed with its scene
-    mm = markShared(new MultiMaterial(`multi_${key}`, scene));
-    mm.subMaterials = [...subMaterials];
-    cache.set(key, mm);
-  }
-  return mm;
-}
 
 /**
  * Merge meshes into ONE mesh with one sub-mesh per material (one draw call per
