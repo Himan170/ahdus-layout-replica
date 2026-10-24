@@ -410,6 +410,7 @@ export function countLayouts(companyId) {
 
 /** "HQ North.ahdus.json" (characters files can't have are replaced). */
 export function layoutFileName(name) {
+  // eslint-disable-next-line no-control-regex -- control characters are not allowed in file names
   const safe = String(name ?? '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').trim();
   return `${safe || 'Layout'}.ahdus.json`;
 }
@@ -459,7 +460,7 @@ export async function importLayout(companyId, text) {
     }, 1);
   } catch (err) {
     localStorage.removeItem(storageKey(companyId, layoutId));
-    throw new Error(err?.name === 'QuotaExceededError' ? NO_SPACE : (err?.message || 'Could not import'));
+    throw new Error(err?.name === 'QuotaExceededError' ? NO_SPACE : (err?.message || 'Could not import'), { cause: err });
   }
   return { id: layoutId, name: n.layoutName };
 }
