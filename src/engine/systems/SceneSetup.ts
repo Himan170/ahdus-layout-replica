@@ -22,6 +22,7 @@ import { createCamera } from '../../utils/cameraManager';
 import { createLighting } from '../../utils/lightingSetup';
 import { createGrid } from '../../utils/gridBuilder';
 import { createSiteEnvironment } from '../../utils/siteEnvironment';
+import { configureLook } from '../../utils/realLook';
 
 export interface LayoutScene {
   engine: Engine;
@@ -36,15 +37,17 @@ export interface LayoutScene {
 }
 
 export interface LayoutSceneOptions {
-  /** 'low' is accepted but changes nothing yet (TEAM_TASKS H7). */
+  /** 'high' (default): realistic look (real models, photo textures, HDRI sky); 'low': simple models and materials. */
   quality?: 'high' | 'low';
+  /** Where the real assets are (models/, textures/, env/). Default: the app's public/assets/. */
+  assetBaseUrl?: string;
 }
 
 /**
  * Create the engine and scene on a canvas and start rendering. The scene has
  * the real-world look (sky, grass, paving); the build grid starts hidden.
  */
-export function createLayoutScene(canvas: HTMLCanvasElement, _options: LayoutSceneOptions = {}): LayoutScene {
+export function createLayoutScene(canvas: HTMLCanvasElement, options: LayoutSceneOptions = {}): LayoutScene {
   const engine = new Engine(canvas, true, {
     preserveDrawingBuffer: true,
     stencil: true,
@@ -53,6 +56,7 @@ export function createLayoutScene(canvas: HTMLCanvasElement, _options: LayoutSce
 
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.06, 0.08, 0.12, 1);
+  configureLook(scene, { realistic: options.quality !== 'low', baseUrl: options.assetBaseUrl });
 
   const camera = createCamera(scene, canvas);
   const lights = createLighting(scene);

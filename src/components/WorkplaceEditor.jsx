@@ -11,6 +11,7 @@ import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 
 // Engine, scene, camera, lights and site: shared with the embeddable engine
 import { createLayoutScene } from '../engine/systems/SceneSetup';
+import { storedRealisticLook, whenLoaded, setRealistic } from '../utils/realLook';
 import { RoomSystem } from '../engine/systems/RoomSystem';
 import { ObjectSystem } from '../engine/systems/ObjectSystem';
 import { FloorSystem } from '../engine/systems/FloorSystem';
@@ -286,7 +287,7 @@ export default function WorkplaceEditor({ onExit }) {
     // Engine, scene, camera, lights, sky / grass / paving, render loop, resizing.
     // Studio and Preview share the real-world look; the build grid shows only
     // while a build tool is active (see below)
-    const layoutScene = createLayoutScene(canvas);
+    const layoutScene = createLayoutScene(canvas, { quality: storedRealisticLook() ? 'high' : 'low' });
     const { engine, scene, camera, lights, siteEnv } = layoutScene;
     sceneRef.current = scene;
     cameraRef.current = camera;
@@ -409,6 +410,8 @@ export default function WorkplaceEditor({ onExit }) {
       window.__ahdusPlay = play;
       window.__ahdusScene = scene;
       window.__ahdusStore = useWorkspaceStore;
+      // the realistic look: whenLoaded() waits for the models / textures being loaded
+      window.__ahdusAssets = { whenLoaded: () => whenLoaded(scene), setRealistic: (on) => setRealistic(scene, on) };
     }
 
     // ── Phase 3: Create managers ──
