@@ -24,6 +24,15 @@ const p = await b.newPage({ viewport: { width: 1280, height: 720 } });
 // REALISTIC=off npm run e2e:perf: the same building with Settings → Realistic look off (to compare)
 const realistic = process.env.REALISTIC !== 'off';
 if (!realistic) await p.addInitScript(() => localStorage.setItem('ahdus.realisticLook', 'off'));
+// Every main-thread task over 50 ms (opening the saved building measures them)
+await p.addInitScript(() => {
+  window.__longTasks = [];
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) window.__longTasks.push({ start: e.startTime, ms: e.duration });
+    }).observe({ type: 'longtask', buffered: true });
+  } catch { /* no longtask support */ }
+});
 const errs = [];
 p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 p.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('BJS')) errs.push(m.text()); });
@@ -206,6 +215,111 @@ const items = await p.evaluate(async () => {
 log('an item is still picked by its objectId', items.picked === 'obj_1', JSON.stringify(items));
 log('locking one item tints only that item', items.locked > 0 && items.otherTinted === 0);
 log('removing one item removes only its meshes', items.removed === 0 && items.kept && items.chairsLeft > 0);
+
+// ── Opening the saved building from the layout list (the real click path) ──
+// Times from the click: the floor you start on drawn (its rooms and items
+// built, one frame rendered), and everything built. Main-thread long tasks
+// (> 50 ms) in that time, and a CPU profile split by where the time went.
+// No GPU here: every rendered frame is a long task too, so compare runs on
+// the same machine only.
+await p.click('[aria-label="All layouts"]');
+await p.waitForSelector('text=Workspace Layouts', { timeout: 60000 });
+await p.waitForTimeout(1500);
+const cdp = await p.context().newCDPSession(p);
+await cdp.send('Profiler.enable');
+await cdp.send('Profiler.setSamplingInterval', { interval: 1000 });
+await cdp.send('Profiler.start');
+const timing = p.evaluate(() => new Promise((resolve) => {
+  const t0 = performance.now();
+  window.__openT0 = t0;
+  const out = { current: null, all: null };
+  const built = (sc, floorId) => {
+    const st = window.__ahdusStore?.getState();
+    if (!st || !sc || sc.isDisposed) return false;
+    const rooms = Object.values(st.rooms).filter((r) => floorId === undefined || r.floor === floorId);
+    const objects = Object.values(st.objects).filter((o) => floorId === undefined || (o.floor ?? 0) === floorId);
+    if (!rooms.length && floorId !== undefined) return false;
+    const roomIds = new Set(sc.transformNodes.filter((t) => t.metadata?.roomId && !t.isDisposed()).map((t) => t.metadata.roomId));
+    const objIds = new Set(sc.transformNodes.filter((t) => t.metadata?.objectId && !t.isDisposed()).map((t) => t.metadata.objectId));
+    return rooms.every((r) => roomIds.has(r.id)) && objects.every((o) => objIds.has(o.id));
+  };
+  const old = window.__ahdusScene;
+  const tick = () => {
+    const sc = window.__ahdusScene;
+    if (sc && sc !== old && !sc.isDisposed) {
+      const floor = window.__ahdusStore.getState().currentFloor;
+      if (out.current === null && built(sc, floor)) {
+        out.current = -1;
+        sc.onAfterRenderObservable.addOnce(() => { out.current = performance.now() - t0; });
+      }
+      if (out.all === null && built(sc)) {
+        out.all = -1;
+        sc.onAfterRenderObservable.addOnce(() => { out.all = performance.now() - t0; });
+      }
+    }
+    if (out.current > 0 && out.all > 0) resolve(out);
+    else if (performance.now() - t0 > 600000) resolve(out);
+    else requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  document.querySelector('button[aria-label="Open Big Building"]').click();
+}));
+const opened = await timing;
+await frames(3);
+const { profile } = await cdp.send('Profiler.stop');
+const tasks = await p.evaluate(() => {
+  const t0 = window.__openT0;
+  const list = window.__longTasks.filter((t) => t.start >= t0 - 5);
+  return {
+    count: list.length,
+    longest: Math.round(Math.max(0, ...list.map((t) => t.ms))),
+    blocking: Math.round(list.reduce((s, t) => s + Math.max(0, t.ms - 50), 0)),
+  };
+});
+// CPU time per group, from each sample's call stack (Vite bundles Babylon into
+// chunk files in dev, so files alone don't say what Babylon was doing)
+const groups = {};
+const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+const parent = new Map();
+for (const n of profile.nodes) for (const c of n.children ?? []) parent.set(c, n.id);
+const stackNames = (id) => { const s = []; for (let n = id; n !== undefined; n = parent.get(n)) s.push(byId.get(n).callFrame.functionName); return s; };
+const dt = profile.timeDeltas;
+const inRooms = {}; // self time of functions called while building room meshes
+const others = {}; // self time of the rest, by function@file
+profile.samples.forEach((id, i) => {
+  const self = byId.get(id).callFrame.functionName || '(anonymous)';
+  if (stackNames(id).includes('buildRoomMesh')) inRooms[self] = (inRooms[self] ?? 0) + (dt[i] ?? 0) / 1000;
+});
+profile.samples.forEach((id, i) => {
+  const f = byId.get(id).callFrame;
+  if (f.functionName === '(idle)' || f.functionName === '(program)') return;
+  const names = stackNames(id);
+  const has = (...fn) => names.some((n) => fn.includes(n));
+  const g = f.functionName === '(garbage collector)' ? 'garbage collector'
+    : /src\/play\/(geometry|building)/.test(f.url) ? 'our maths (geometry, building)'
+    : has('roomGeometryKey', 'roomBuildInput') ? 'our maths (geometry, building)'
+    : has('buildRoomMesh') ? 'room meshes (roomBuilder + Babylon)'
+    : has('createItemMesh', 'loadModelTemplate', 'refreshItems', 'buildModelParts') ? 'item meshes (assetInstances + Babylon)'
+    : has('_renderLoop', '_renderFrame') ? 'rendering (incl. shader compile)'
+    : /react-dom|scheduler/.test(f.url) ? 'React'
+    : 'other';
+  groups[g] = (groups[g] ?? 0) + (dt[i] ?? 0) / 1000;
+  if (g === 'other') {
+    const key = `${f.functionName || '(anonymous)'}@${(f.url.match(/[^/]+$/) ?? [''])[0].replace(/\?.*$/, '')}`;
+    others[key] = (others[key] ?? 0) + (dt[i] ?? 0) / 1000;
+  }
+});
+const cpuTop = Object.entries(groups).sort((a, b) => b[1] - a[1]).slice(0, 9)
+  .map(([g, ms]) => `${g} ${Math.round(ms)} ms`).join('; ');
+log('opening the saved building: everything gets built', opened.current > 0 && opened.all > 0,
+  `start floor drawn ${Math.round(opened.current)} ms, everything ${Math.round(opened.all)} ms after the click`);
+log('opening: main-thread long tasks (reported)', true,
+  `${tasks.count} long tasks, longest ${tasks.longest} ms, blocking ${tasks.blocking} ms`);
+log('opening: CPU time by group (reported)', true, cpuTop);
+log('opening: inside room building, by function (reported)', true, Object.entries(inRooms)
+  .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([f, ms]) => `${f} ${Math.round(ms)} ms`).join('; '));
+log('opening: the rest ("other"), by function (reported)', true, Object.entries(others)
+  .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([f, ms]) => `${f} ${Math.round(ms)} ms`).join('; '));
 
 log('no page errors', errs.length === 0, errs.slice(0, 3).join(' | '));
 await b.close();
