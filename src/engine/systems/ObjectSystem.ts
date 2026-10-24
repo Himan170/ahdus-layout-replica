@@ -60,12 +60,13 @@ export class ObjectSystem {
 
       if (!mesh) {
         // An instance of its type's template, tagged for picking. Furniture
-        // blocks the character in Preview; markers (spawn points) don't, and
-        // stairs are walked ON (Preview computes the slope).
+        // blocks the character in Preview; markers (spawn points) and rugs
+        // don't, and stairs are walked ON (Preview computes the slope).
+        const def = (ASSET_TYPES as Record<string, { category?: string; solid?: boolean }>)[obj.assetType];
         mesh = createItemMesh(obj.assetType, this.scene, obj.id, {
           rise,
           floorId: obj.floor ?? 0,
-          solid: (ASSET_TYPES as Record<string, { category?: string }>)[obj.assetType]?.category !== OBJECT_CATEGORIES.MARKER && obj.assetType !== 'STAIRCASE',
+          solid: def?.category !== OBJECT_CATEGORIES.MARKER && def?.solid !== false && obj.assetType !== 'STAIRCASE',
           shadowGenerator: this.shadowGenerator,
         }) as TransformNode;
         this.meshes.set(obj.id, mesh);

@@ -27,6 +27,7 @@ import { markShared } from './materialLibrary';
 const NO_SHADOW = new Set([
   'CHAIR_OFFICE', 'PLANT_LARGE', 'PLANT_SMALL', 'MONITOR_DUAL', 'PRINTER', 'COFFEE_MACHINE',
   'FIRE_EXTINGUISHER', 'EMERGENCY_EXIT', 'FIRST_AID',
+  'LAPTOP', 'KEYBOARD', 'COMPUTER_MOUSE', 'TRASH_CAN', 'MICROWAVE', 'FLOOR_LAMP', 'RUG',
 ]);
 
 export function castsShadow(assetType) {

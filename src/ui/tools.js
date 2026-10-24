@@ -12,7 +12,8 @@ import {
   Table2, LampDesk, Sofa, Coffee, ConciergeBell, Presentation, BookOpen, Archive,
   Lock, Warehouse, Monitor, Server, Projector, Printer, Tv, Leaf, Sprout, CupSoda,
   Droplets, FireExtinguisher, Siren, Cross, MapPin, Square, Cog, Wrench, Columns3,
-  RectangleHorizontal, Users,
+  RectangleHorizontal, Users, Laptop, Keyboard, Mouse, Library, Trash2, Refrigerator, Microwave,
+  Circle, Rows3, LampFloor, Shirt, Toilet, Bath,
 } from 'lucide-react';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { OBJECT_ITEMS } from '../play/hotbarItems';
@@ -53,6 +54,21 @@ export const ASSET_ICONS = {
   ZONE_MARKER: Square,
   CNC_MACHINE: Cog,
   LATHE: Wrench,
+  LAPTOP: Laptop,
+  KEYBOARD: Keyboard,
+  COMPUTER_MOUSE: Mouse,
+  BOOKCASE_CLOSED: Library,
+  TRASH_CAN: Trash2,
+  FRIDGE: Refrigerator,
+  MICROWAVE: Microwave,
+  LOUNGE_CHAIR: Armchair,
+  TABLE_ROUND: Circle,
+  SIDE_TABLE: Rows3,
+  FLOOR_LAMP: LampFloor,
+  COAT_RACK: Shirt,
+  TOILET: Toilet,
+  WASHBASIN: Bath,
+  RUG: RectangleHorizontal,
 };
 
 export function assetIcon(assetType) {

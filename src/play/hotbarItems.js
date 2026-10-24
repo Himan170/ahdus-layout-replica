@@ -41,6 +41,10 @@ const ICON_OVERRIDES = {
   RECEPTION_DESK: '💁',
   SERVER_RACK: '🔌',
   GLASS_PARTITION: '🔲',
+  BOOKCASE_CLOSED: '🚪',
+  SIDE_TABLE: '🪵',
+  LOUNGE_CHAIR: '💺',
+  WASHBASIN: '🧼',
 };
 
 export const OBJECT_ITEMS = Object.entries(ASSET_TYPES)

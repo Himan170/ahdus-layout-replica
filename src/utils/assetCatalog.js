@@ -847,6 +847,322 @@ export const ASSET_TYPES = {
     },
   },
 
+  // ── Items added with the real models (utils/modelRegistry.js). Their
+  //    primitive models are simple: shown with "Realistic look" off, or while
+  //    the real model loads. ──
+
+  LAPTOP: {
+    label: 'Laptop',
+    icon: '💻',
+    category: OBJECT_CATEGORIES.TECH,
+    defaultWidth: 0.34, defaultHeight: 0.22, defaultDepth: 0.3,
+    color: '#3a3f47',
+    buildMesh(scene, id) {
+      const root = new TransformNode('tech_laptop_' + id, scene);
+      const base = box(scene, 'lpb', 0.34, 0.02, 0.24, 0, 0, 0.02);
+      base.material = metalMat(scene, '#8a8e96');
+      const lid = box(scene, 'lpl', 0.34, 0.22, 0.015, 0, 0, -0.11);
+      lid.material = metalMat(scene, '#3a3f47');
+      const screen = box(scene, 'lps', 0.3, 0.18, 0.005, 0, 0.025, -0.1);
+      screen.material = glossMat(scene, '#1a2a40');
+      [base, lid, screen].forEach((p) => { p.parent = root; p.isPickable = true; });
+      root.metadata = { assetType: 'LAPTOP', objectId: id };
+      return root;
+    },
+  },
+
+  KEYBOARD: {
+    label: 'Keyboard',
+    icon: '⌨️',
+    category: OBJECT_CATEGORIES.TECH,
+    defaultWidth: 0.44, defaultHeight: 0.03, defaultDepth: 0.15,
+    color: '#2a2e38',
+    buildMesh(scene, id) {
+      const root = new TransformNode('tech_kbd_' + id, scene);
+      const body = box(scene, 'kbb', 0.44, 0.02, 0.15, 0, 0, 0);
+      body.material = mat(scene, '#2a2e38');
+      const keys = box(scene, 'kbk', 0.4, 0.01, 0.11, 0, 0.02, 0);
+      keys.material = mat(scene, '#4a505c');
+      [body, keys].forEach((p) => { p.parent = root; p.isPickable = true; });
+      root.metadata = { assetType: 'KEYBOARD', objectId: id };
+      return root;
+    },
+  },
+
+  COMPUTER_MOUSE: {
+    label: 'Mouse',
+    icon: '🖱️',
+    category: OBJECT_CATEGORIES.TECH,
+    defaultWidth: 0.06, defaultHeight: 0.035, defaultDepth: 0.1,
+    color: '#2a2e38',
+    buildMesh(scene, id) {
+      const root = new TransformNode('tech_mouse_' + id, scene);
+      const body = box(scene, 'msb', 0.06, 0.035, 0.1, 0, 0, 0);
+      body.material = mat(scene, '#2a2e38');
+      body.parent = root; body.isPickable = true;
+      root.metadata = { assetType: 'COMPUTER_MOUSE', objectId: id };
+      return root;
+    },
+  },
+
+  BOOKCASE_CLOSED: {
+    label: 'Cupboard',
+    icon: '🗄️',
+    category: OBJECT_CATEGORIES.STORAGE,
+    defaultWidth: 0.8, defaultHeight: 1.75, defaultDepth: 0.45,
+    color: '#8b6f47',
+    buildMesh(scene, id) {
+      const root = new TransformNode('stor_cupb_' + id, scene);
+      const body = box(scene, 'cpb', 0.8, 1.75, 0.43, 0, 0, -0.01);
+      body.material = mat(scene, '#8b6f47');
+      const doorMat = mat(scene, '#c8a87a');
+      const handleMat = metalMat(scene, '#c0c8d0');
+      [-0.2, 0.2].forEach((x, i) => {
+        const door = box(scene, 'cpd' + i, 0.38, 1.69, 0.02, x, 0.03, 0.21);
+        door.material = doorMat;
+        const handle = box(scene, 'cph' + i, 0.02, 0.14, 0.02, x + (i === 0 ? 0.15 : -0.15), 0.85, 0.225);
+        handle.material = handleMat;
+        [door, handle].forEach((p) => { p.parent = root; p.isPickable = true; });
+      });
+      body.parent = root; body.isPickable = true;
+      root.metadata = { assetType: 'BOOKCASE_CLOSED', objectId: id };
+      return root;
+    },
+  },
+
+  TRASH_CAN: {
+    label: 'Bin',
+    icon: '🗑️',
+    category: OBJECT_CATEGORIES.AMENITY,
+    defaultWidth: 0.3, defaultHeight: 0.6, defaultDepth: 0.33,
+    color: '#8a8e96',
+    buildMesh(scene, id) {
+      const root = new TransformNode('amen_bin_' + id, scene);
+      const body = cyl(scene, 'bnb', 0.15, 0.56, 0, 0, 0, 16);
+      body.material = metalMat(scene, '#8a8e96');
+      const lid = cyl(scene, 'bnl', 0.155, 0.04, 0, 0.56, 0, 16);
+      lid.material = metalMat(scene, '#3a3f47');
+      [body, lid].forEach((p) => { p.parent = root; p.isPickable = true; });
+      root.metadata = { assetType: 'TRASH_CAN', objectId: id };
+      return root;
+    },
+  },
+
+  FRIDGE: {
+    label: 'Fridge',
+    icon: '🧊',
+    category: OBJECT_CATEGORIES.AMENITY,
+    defaultWidth: 0.85, defaultHeight: 1.8, defaultDepth: 0.6,
+    color: '#e8eaec',
+    buildMesh(scene, id) {
+      const root = new TransformNode('amen_fridge_' + id, scene);
+      const body = box(scene, 'frb', 0.85, 1.8, 0.58, 0, 0, -0.01);
+      body.material = glossMat(scene, '#e8eaec');
+      const line = box(scene, 'frl', 0.85, 0.01, 0.02, 0, 1.15, 0.28);
+      line.material = mat(scene, '#9aa0a8');
+      const handleMat = metalMat(scene, '#b0b6bc');
+      const h1 = box(scene, 'frh1', 0.03, 0.4, 0.03, 0.36, 1.3, 0.29);
+      const h2 = box(scene, 'frh2', 0.03, 0.5, 0.03, 0.36, 0.55, 0.29);
+      [h1, h2].forEach((h) => { h.material = handleMat; });
+      [body, line, h1, h2].forEach((p) => { p.parent = root; p.isPickable = true; });
+      root.metadata = { assetType: 'FRIDGE', objectId: id };
+      return root;
+    },
+  },
+
+  MICROWAVE: {
+    label: 'Microwave',
+    icon: '📦',
+    category: OBJECT_CATEGORIES.AMENITY,
+    defaultWidth: 0.5, defaultHeight: 0.3, defaultDepth: 0.38,
+    color: '#d8dbe0',
+    buildMesh(scene, id) {
+      const root = new TransformNode('amen_micro_' + id, scene);
+      const body = box(scene, 'mwb', 0.5, 0.3, 0.38, 0, 0, 0);
+      body.material = mat(scene, '#d8dbe0');
+      const door = box(scene, 'mwd', 0.34, 0.22, 0.01, -0.06, 0.04, 0.19);
+      door.material = glossMat(scene, '#1a1e28');
+      const panel = box(scene, 'mwp', 0.1, 0.22, 0.01, 0.18, 0.04, 0.19);
+      panel.material = mat(scene, '#5b626b');
+      [body, door, panel].forEach((p) => { p.parent = root; p.isPickable = true; });
+      root.metadata = { assetType: 'MICROWAVE', objectId: id };
+      return root;
+    },
+  },
+
+  LOUNGE_CHAIR: {
+    label: 'Armchair',
+    icon: '🛋️',
+    category: OBJECT_CATEGORIES.FURNITURE,
+    defaultWidth: 0.88, defaultHeight: 0.83, defaultDepth: 0.75,
+    color: '#4a5568',
+    buildMesh(scene, id) {
+      const root = new TransformNode('furn_lchair_' + id, scene);
+      const fabric = mat(scene, '#4a5568');
+      const base = box(scene, 'lcb', 0.88, 0.3, 0.75, 0, 0.08, 0);
+      const seat = box(scene, 'lcs', 0.64, 0.12, 0.6, 0, 0.38, 0.05);
+      const back = box(scene, 'lck', 0.88, 0.45, 0.14, 0, 0.38, -0.305);
+      const armL = box(scene, 'lca', 0.12, 0.22, 0.6, -0.38, 0.38, 0.05);
+      const armR = box(scene, 'lcr', 0.12, 0.22, 0.6, 0.38, 0.38, 0.05);
+      [base, seat, back, armL, armR].forEach((p) => { p.material = fabric; p.parent = root; p.isPickable = true; });
+      const legMat = mat(scene, '#2a1f10');
+      [[-0.38, -0.3], [0.38, -0.3], [-0.38, 0.3], [0.38, 0.3]].forEach(([x, z], i) => {
+        const leg = box(scene, 'lcl' + i, 0.05, 0.08, 0.05, x, 0, z);
+        leg.material = legMat; leg.parent = root;
+      });
+      root.metadata = { assetType: 'LOUNGE_CHAIR', objectId: id };
+      return root;
+    },
+  },
+
+  TABLE_ROUND: {
+    label: 'Round Table',
+    icon: '⚪',
+    category: OBJECT_CATEGORIES.FURNITURE,
+    defaultWidth: 1.0, defaultHeight: 0.75, defaultDepth: 1.0,
+    color: '#c8a87a',
+    buildMesh(scene, id) {
+      const root = new TransformNode('furn_rtbl_' + id, scene);
+      const top = cyl(scene, 'rtt', 0.5, 0.04, 0, 0.71, 0, 32);
+      top.material = mat(scene, '#c8a87a');
+      const leg = cyl(scene, 'rtl', 0.04, 0.71, 0, 0, 0, 12);
+      leg.material = metalMat(scene, '#606870');
+      const foot = cyl(scene, 'rtf', 0.25, 0.03, 0, 0, 0, 24);
+      foot.material = metalMat(scene, '#606870');
+      [top, leg, foot].forEach((p) => { p.parent = root; p.isPickable = true; });
+      root.metadata = { assetType: 'TABLE_ROUND', objectId: id };
+      return root;
+    },
+  },
+
+  SIDE_TABLE: {
+    label: 'Sideboard',
+    icon: '🗄️',
+    category: OBJECT_CATEGORIES.STORAGE,
+    defaultWidth: 1.0, defaultHeight: 0.7, defaultDepth: 0.42,
+    color: '#8b6f47',
+    buildMesh(scene, id) {
+      const root = new TransformNode('stor_sideb_' + id, scene);
+      const body = box(scene, 'sbb', 1.0, 0.66, 0.42, 0, 0.04, 0);
+      body.material = mat(scene, '#8b6f47');
+      const handleMat = metalMat(scene, '#c0c8d0');
+      [0.2, 0.42].forEach((y, i) => {
+        const handle = box(scene, 'sbh' + i, 0.2, 0.02, 0.02, 0, y, 0.215);
+        handle.material = handleMat; handle.parent = root; handle.isPickable = true;
+      });
+      const legMat = metalMat(scene, '#606870');
+      [[-0.46, -0.17], [0.46, -0.17], [-0.46, 0.17], [0.46, 0.17]].forEach(([x, z], i) => {
+        const leg = box(scene, 'sbl' + i, 0.04, 0.04, 0.04, x, 0, z);
+        leg.material = legMat; leg.parent = root;
+      });
+      body.parent = root; body.isPickable = true;
+      root.metadata = { assetType: 'SIDE_TABLE', objectId: id };
+      return root;
+    },
+  },
+
+  FLOOR_LAMP: {
+    label: 'Floor Lamp',
+    icon: '💡',
+    category: OBJECT_CATEGORIES.FURNITURE,
+    defaultWidth: 0.25, defaultHeight: 1.6, defaultDepth: 0.25,
+    color: '#f2ead8',
+    buildMesh(scene, id) {
+      const root = new TransformNode('furn_flamp_' + id, scene);
+      const foot = box(scene, 'flf', 0.25, 0.03, 0.25, 0, 0, 0);
+      const pole = cyl(scene, 'flp', 0.015, 1.3, 0, 0.03, 0, 8);
+      [foot, pole].forEach((p) => { p.material = metalMat(scene, '#3a3f47'); });
+      const shade = box(scene, 'fls', 0.25, 0.3, 0.25, 0, 1.3, 0);
+      shade.material = mat(scene, '#f2ead8');
+      [foot, pole, shade].forEach((p) => { p.parent = root; p.isPickable = true; });
+      root.metadata = { assetType: 'FLOOR_LAMP', objectId: id };
+      return root;
+    },
+  },
+
+  COAT_RACK: {
+    label: 'Coat Rack',
+    icon: '🧥',
+    category: OBJECT_CATEGORIES.FURNITURE,
+    defaultWidth: 0.6, defaultHeight: 1.75, defaultDepth: 0.6,
+    color: '#8b6f47',
+    buildMesh(scene, id) {
+      const root = new TransformNode('furn_coat_' + id, scene);
+      const wood = mat(scene, '#8b6f47');
+      const pole = cyl(scene, 'crp', 0.025, 1.75, 0, 0, 0, 8);
+      pole.material = wood; pole.parent = root; pole.isPickable = true;
+      for (let i = 0; i < 4; i++) {
+        const foot = box(scene, 'crf' + i, 0.3, 0.03, 0.04, 0, 0, 0);
+        foot.position.x = Math.cos((i * Math.PI) / 2) * 0.15;
+        foot.position.z = Math.sin((i * Math.PI) / 2) * 0.15;
+        foot.rotation.y = (-i * Math.PI) / 2;
+        const hook = box(scene, 'crh' + i, 0.14, 0.02, 0.02, 0, 1.6, 0);
+        hook.position.x = Math.cos((i * Math.PI) / 2) * 0.07;
+        hook.position.z = Math.sin((i * Math.PI) / 2) * 0.07;
+        hook.rotation.y = (-i * Math.PI) / 2;
+        [foot, hook].forEach((p) => { p.material = wood; p.parent = root; p.isPickable = true; });
+      }
+      root.metadata = { assetType: 'COAT_RACK', objectId: id };
+      return root;
+    },
+  },
+
+  TOILET: {
+    label: 'Toilet',
+    icon: '🚽',
+    category: OBJECT_CATEGORIES.AMENITY,
+    defaultWidth: 0.45, defaultHeight: 0.78, defaultDepth: 0.7,
+    color: '#f2f2f0',
+    buildMesh(scene, id) {
+      const root = new TransformNode('amen_toilet_' + id, scene);
+      const white = glossMat(scene, '#f2f2f0');
+      const bowl = box(scene, 'tlb', 0.4, 0.4, 0.5, 0, 0, 0.1);
+      const seat = box(scene, 'tls', 0.42, 0.04, 0.48, 0, 0.4, 0.11);
+      const tank = box(scene, 'tlt', 0.45, 0.38, 0.2, 0, 0.4, -0.25);
+      [bowl, seat, tank].forEach((p) => { p.material = white; p.parent = root; p.isPickable = true; });
+      root.metadata = { assetType: 'TOILET', objectId: id };
+      return root;
+    },
+  },
+
+  WASHBASIN: {
+    label: 'Washbasin',
+    icon: '🚰',
+    category: OBJECT_CATEGORIES.AMENITY,
+    defaultWidth: 0.6, defaultHeight: 0.9, defaultDepth: 0.48,
+    color: '#f2f2f0',
+    buildMesh(scene, id) {
+      const root = new TransformNode('amen_basin_' + id, scene);
+      const white = glossMat(scene, '#f2f2f0');
+      const stand = box(scene, 'wbs', 0.2, 0.75, 0.2, 0, 0, -0.08);
+      const basin = box(scene, 'wbb', 0.6, 0.15, 0.48, 0, 0.75, 0);
+      [stand, basin].forEach((p) => { p.material = white; p.parent = root; p.isPickable = true; });
+      const tap = cyl(scene, 'wbt', 0.02, 0.12, 0, 0.9, -0.18, 8);
+      tap.material = metalMat(scene, '#c0c8d0'); tap.parent = root;
+      root.metadata = { assetType: 'WASHBASIN', objectId: id };
+      return root;
+    },
+  },
+
+  RUG: {
+    label: 'Rug',
+    icon: '🟫',
+    category: OBJECT_CATEGORIES.FURNITURE,
+    defaultWidth: 2.4, defaultHeight: 0.02, defaultDepth: 1.4,
+    color: '#7a6a5a',
+    solid: false, // walked over, not around
+    buildMesh(scene, id) {
+      const root = new TransformNode('furn_rug_' + id, scene);
+      const rug = box(scene, 'rgr', 2.4, 0.015, 1.4, 0, 0, 0);
+      rug.material = getAssetMaterial(scene, 'fabric', '#7a6a5a');
+      const inner = box(scene, 'rgi', 2.0, 0.005, 1.0, 0, 0.015, 0);
+      inner.material = getAssetMaterial(scene, 'fabric', '#a08a70');
+      [rug, inner].forEach((p) => { p.parent = root; p.isPickable = true; });
+      root.metadata = { assetType: 'RUG', objectId: id };
+      return root;
+    },
+  },
+
   // ══════════════════════════════════════════
   //  MARKER / SYSTEM
   // ══════════════════════════════════════════
