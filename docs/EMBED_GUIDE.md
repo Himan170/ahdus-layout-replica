@@ -51,10 +51,11 @@ This makes:
 
 | File | What |
 |---|---|
-| `dist-embed/ahdus-workplace.js` | Everything: our viewer, React and Babylon.js (≈ 2.0 MB, ≈ 500 kB gzipped). Sets the global `AHDUSWorkplace`. |
+| `dist-embed/ahdus-workplace.js` | Everything: our viewer, React and Babylon.js (≈ 2.6 MB, ≈ 650 kB gzipped). Sets the global `AHDUSWorkplace`. |
+| `dist-embed/assets/` | The realistic look: furniture models, photo textures, the sky (≈ 2.8 MB, loaded only with `quality: 'high'`). Keep it next to the script, or say where it is with `assetBaseUrl`. All CC0 (`docs/ASSET_LICENSES.md`). |
 | `dist-embed/ahdus-workplace.css` | The same styles the script adds itself. Only needed in the case described in section 8. |
 
-Copy `ahdus-workplace.js` into your repo (for example `frontend/workplace/3d-environment/`). To update, copy the new file over the old one. Its first line says which commit and day it was built from. It contains no Workplace Studio (editor) code; `e2e/embed-smoke.mjs` checks this.
+Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side (for example `frontend/workplace/3d-environment/`). To update, copy the new ones over the old ones. Its first line says which commit and day it was built from. It contains no Workplace Studio (editor) code; `e2e/embed-smoke.mjs` checks this.
 
 ---
 
@@ -66,7 +67,8 @@ Copy `ahdus-workplace.js` into your repo (for example `frontend/workplace/3d-env
 | `layoutUrl` | string | Or where to fetch it. Fetched with `credentials: 'include'` (your login cookie goes along). Must return one of the two formats above. Used only when `layout` is not given. |
 | `headers` | object | Extra request headers for `layoutUrl`, e.g. `{ Authorization: 'Bearer ' + token }`. |
 | `mode` | `'view'` \| `'walkthrough'` | `view` (default): orbit and zoom around the building. `walkthrough`: walk through it as a character. **`'edit'` is refused**: admins edit in Workplace Studio (section 6). |
-| `quality` | `'high'` \| `'low'` | `low` is accepted but changes nothing yet. |
+| `quality` | `'high'` \| `'low'` | `high` (default): the realistic look: real furniture models, photo textures on floors and walls, a photographed sky. They load after the workplace is drawn (the simple look shows until then). `low`: the simple models and materials, nothing extra downloaded: for slow computers. |
+| `assetBaseUrl` | string | Where the realistic look's files are (the `assets/` folder: `models/`, `textures/`, `env/`). Default: `assets/` next to `ahdus-workplace.js`. Set it when you host them elsewhere, e.g. `'https://cdn.example.com/ahdus/assets/'`. A file that can't be loaded keeps the simple look for that item or surface (a warning in the console, never an error). |
 | `onEvent(name, data)` | function | Everything that happens (section 5). |
 | `onError(error)` | function | The layout could not be shown (section 7). Without it, the message goes to the console. |
 

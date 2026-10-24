@@ -13,14 +13,17 @@ Plain HTML pages (the AI Training Platform): `docs/EMBED_GUIDE.md`; integration 
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (384, all must pass)
+npm test             # vitest unit tests (395, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run build
-npm run build:embed  # dist-embed/ahdus-workplace.js (+ .css): the one-file embed for plain HTML pages
+npm run build:embed  # dist-embed/ahdus-workplace.js (+ .css, + assets/): the one-file embed for plain HTML pages
+npm run assets:prepare  # public/assets/ from the downloaded packs (D:\assets-raw, outside the repo; sharp)
+npm run assets:env      # public/assets/env/sky.env from the HDRI (needs npm run dev)
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
 # One-time: npx playwright install chromium
-npm run e2e:planner  # 31 checks   e2e/editor-smoke.mjs    (Workplace Studio + UI_SPEC screenshots)
+npm run e2e:planner  # 35 checks   e2e/editor-smoke.mjs    (Workplace Studio + UI_SPEC screenshots, the Realistic look
+                     #                                       switch, no missing asset files)
 npm run e2e:play     # 19 checks   e2e/play-smoke.mjs
 npm run e2e:modules  # 17 checks   e2e/modules-smoke.mjs   (uses ?demoModules=1)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
@@ -28,8 +31,9 @@ npm run e2e:tools    # 45 checks   e2e/tools-smoke.mjs     (Studio mouse tools, 
                      #                                       room's floor + Preview's Edit item)
 npm run e2e:save     # 29 checks   e2e/save-smoke.mjs      (auto-save, reopen, old saves, list, delete, export/import,
                      #                                       companies, two tabs on one layout)
-npm run e2e:perf     #  9 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls;
-                     #                                       one room change rebuilds only it + its neighbours)
+npm run e2e:perf     # 10 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls;
+                     #                                       one room change rebuilds only it + its neighbours; all items
+                     #                                       real models; REALISTIC=off measures the simple look)
 npm run e2e:shared-walls  # 15     e2e/shared-walls-smoke.mjs (one wall + one doorway; picks with either owner)
 npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
                           #                                    rooms drawn inside sharing walls with each other and
@@ -37,11 +41,12 @@ npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside room
 npm run e2e:viewer   # 14 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
                      #                                       the vite build), walk in, E + a module's action, edits
                      #                                       refused, Page Up, view mode, a saved layout)
-npm run e2e:embed    # 24 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, serves embed-test.html
+npm run e2e:embed    # 26 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, serves embed-test.html
                      #                                       itself; keys are the page's until the view is engaged, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
-                     #                                       with cookies, destroy())
-npm run e2e          # all of them
+                     #                                       with cookies, destroy(), assets next to the script, quality low)
+npm run e2e          # all of them (Himan's laptop once hung on this: run the scripts ONE AT A TIME)
+node e2e/real-assets-shots.mjs before|after   # screenshots of one sample layout: e2e/screens/real-assets-<tag>-*.png
 ```
 
 After any change: run `npm test`, and the e2e script for the area you touched. Screenshots go to `e2e/screens/`.
@@ -120,8 +125,15 @@ src/store/editorHistory.js         THE place layout changes happen; every change
 src/utils/roomBuilder.js           Room meshes: floors, walls around openings, slab, roof, ceiling + lights (parts merged, frozen)
 src/utils/assetInstances.js        Items = instances of one template per asset type; mergeByMaterial; own look (lock/outline)
 src/components/CompanySelector.jsx Companies + layouts screen (ui/selector.css): open, create, rename, delete, export, import
-src/utils/materialLibrary.js       Procedural textures; SHARED materials
-src/utils/assetCatalog.js          30+ furniture/equipment built from primitives (incl. STAIRCASE, CNC_MACHINE, LATHE)
+src/utils/materialLibrary.js       Procedural textures; SHARED materials; their PBR photo-texture twins (realistic look)
+src/utils/assetCatalog.js          50 furniture/equipment items built from primitives (incl. STAIRCASE, CNC_MACHINE, LATHE);
+                                   the primitive model is also the fallback of a real model
+src/utils/modelRegistry.js         PURE data: catalogue item → Kenney GLB (+ fit), room surface → texture set, asset paths
+src/utils/modelLoader.js           Loads each GLB once per scene (AssetContainer), fits it, our shared materials
+src/utils/realLook.js              "Realistic look" per scene (on / off, assetBaseUrl, whenLoaded, Studio setting)
+src/play/modelFit.js               PURE maths: fit a model's box into the primitive model's box (stretch / contain)
+public/assets/                     models/kenney/*.glb, textures/<set>/{color,normal,rough}.jpg, env/sky.env (all CC0,
+                                   docs/ASSET_LICENSES.md); made by scripts/prepare-assets.mjs + scripts/make-env.mjs
 src/utils/siteEnvironment.js       Sky, fog, grass, paving, build grid
 src/integration/layoutBridge.js    Public API for teammates' modules (events, anchors, Press-E actions)
 src/engine/                        Embeddable engine (H2): LayoutEngine (own store, loadLayout / getLayout, camera,
@@ -241,6 +253,27 @@ Both are **derived from the room rectangles; nothing extra is saved** (no wall r
     never where an item stands (a click selects what is under the cursor). The Inspector size snaps the edges it
     moves (so it sets x / z too) and keeps inner rooms inside (`planRoomResize`).
 
+## Realistic look (how it works)
+
+On by default; Settings → "Realistic look" (Studio, per browser: localStorage `ahdus.realisticLook`), `quality: 'low'`
+(LayoutEngine / `<LayoutViewer />` / the embed) turns it off. Per scene (`utils/realLook.js`: `configureLook` in
+`SceneSetup`, `setRealistic`, `onLookChange`). Files: `public/assets/` (or `assetBaseUrl`; the embed: `assets/` next to
+its script, copied there by `build:embed`). Saves, sizes and behaviour never change: only the look.
+- **Furniture:** `modelRegistry.MODEL_REGISTRY` maps a catalogue type to Kenney GLB part(s) (`turn`, `region`,
+  `fit: 'stretch' | 'contain'`). `modelLoader.buildModelParts` loads each GLB once per scene, fits it into the box of
+  the type's PRIMITIVE template (`modelFit.fitTransform`) so footprints / stacking / picks stay as they were, and
+  maps Kenney's material names to our shared `getAssetMaterial`s. `assetInstances` merges that into a second template
+  per type and switches the type's items to it (and back when the look is off); lock / outline looks carry over.
+  Failure or loading = the primitive template. A type not in the registry keeps its primitive model.
+  Adding a model: put it in the registry, run `npm run assets:prepare` (copies only registry models), add its row to
+  `docs/ASSET_LICENSES.md`. New catalogue items need a primitive model too (the fallback).
+- **Rooms:** every procedural room material (`floor:<kind>`, `plaster` = walls, `structure` = slab / roof / parapet /
+  band, `ceiling`) has a PBR twin (`REALISTIC_SURFACES` → `TEXTURE_SETS`, tile size in metres). When its 3 textures
+  have loaded, built rooms swap materials in place (also inside shared MultiMaterials); new rooms get it directly.
+  Room UVs are in metres (`worldUVs`, `boxWorldUVs` in roomBuilder): keep them on new room parts.
+- **Sky:** `env/sky.env` (prefiltered HDRI) is `scene.environmentTexture` (lights the PBR rooms) and a skybox on the
+  Day preset (`siteEnvironment`); grass, paving and fog are unchanged.
+
 ## Testing gotchas
 
 - Studio controls have fixed `aria-label`s (UI_SPEC section 7: `Rooms`, `Floor switcher`, `Preview Workplace`, …);
@@ -253,7 +286,12 @@ Both are **derived from the room rectangles; nothing extra is saved** (no wall r
   mouse by itself: click its canvas first (Preview still does, and headless Chromium grants it without a click).
 - Dev-only hooks for tests/console: `window.__ahdusPlay`, `__ahdusScene`, `__ahdusStore`, `window.ahdus` (bridge),
   `__ahdusCards`, `__ahdusEventLog` (demo modules), `__ahdusCrashOnOpen = true` (the editor throws: error card test),
-  `__ahdusRoomSync` ({ rebuilt, ms } of the last room sync that built something: perf test).
+  `__ahdusRoomSync` ({ rebuilt, ms } of the last room sync that built something: perf test),
+  `__ahdusAssets` ({ whenLoaded(), setRealistic(on) }: wait for the realistic look's files; switch it).
+- Real assets load AFTER the scene is drawn: wait for `__ahdusAssets.whenLoaded()` before checking models or
+  textures. An item drawn by its real model has `metadata.model` on its child mesh; a room surface's realistic
+  material is named `real_<key>` (procedural: `mat_<key>`).
+- If the dev server serves an old copy of a file after edits (its watcher missed a change), restart it.
 - Opening a layout builds its scene inside the click (twice in dev, StrictMode): without a GPU that blocks the tab
   ~10 s, ~25 s with a second tab rendering. Clicks that open a layout need a long timeout (save-smoke uses 90 s).
 - The dev build runs in React StrictMode: effects mount → unmount → mount. Scene teardown must leave no stale
@@ -304,7 +342,10 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Two levels deep (a room inside a room inside a room, all on one wall line): from outside, the wall picks the
   middle room, not the outermost.
 - An Inspector size whose edge snaps moves the room's centre a little; doors on the other two walls move with it.
-- Furniture is built from primitives (no GLB models yet); item icons are generic lucide icons, not thumbnails.
+- Realistic look: 27 item types have a Kenney model (low-poly, stretched into the primitive model's box, so some
+  proportions differ a little; the open bookcase has no back). Stairs, machines, lockers, racks, signs and markers
+  keep their primitive models. The placement ghost shows the primitive model. A faint vertical line can show on
+  textured walls where wall pieces meet beside a door or window. Item icons are generic lucide icons, not thumbnails.
 - Stretching a wall with a door shared with a neighbour moves only this room's half.
 - The "2D" view is the 3D camera from above, not a real floor plan.
 - Room labels and the selection toolbar are HTML over the canvas (always on top, even behind a wall).
@@ -375,6 +416,10 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
   Esc or losing the lock = blur. Tab never calls onExit there. `WalkthroughSystem` passes `isEngaged` to the
   controller; Studio's Preview passes nothing and is unchanged.
 
+## DONE: realistic look, real assets (25 Oct 2026, branch `feat/real-assets`)
+
+Real furniture models, photo textures and an HDRI sky (docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
+
 Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): lifts; free-form walls,
-L-shaped rooms; measure tool + dimensions; real GLB furniture (e.g. Kenney Furniture Kit, CC0); SVG 2D
+L-shaped rooms; measure tool + dimensions; industrial machine models (Industrial Pack: FBX → GLB first); SVG 2D
 floor plan; templates; floor-plan image tracing; evacuation routes; the Supabase backend.

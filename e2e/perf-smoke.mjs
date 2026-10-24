@@ -21,6 +21,9 @@ const MAX_MESHES = 2000;
 
 const b = await chromium.launch({ ...(exe ? { executablePath: exe } : {}), args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const p = await b.newPage({ viewport: { width: 1280, height: 720 } });
+// REALISTIC=off npm run e2e:perf: the same building with Settings → Realistic look off (to compare)
+const realistic = process.env.REALISTIC !== 'off';
+if (!realistic) await p.addInitScript(() => localStorage.setItem('ahdus.realisticLook', 'off'));
 const errs = [];
 p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 p.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('BJS')) errs.push(m.text()); });
@@ -94,6 +97,12 @@ const build = await p.evaluate(() => {
   return { rooms: rooms.length, objects: objects.length, ms: Math.round(performance.now() - t0) };
 });
 await frames(3);
+// The realistic look (on by default): measure with the real models and textures loaded
+const real = await p.evaluate(async () => {
+  await window.__ahdusAssets.whenLoaded();
+  const items = window.__ahdusScene.meshes.filter((m) => m.metadata?.objectId && m.parent?.metadata?.objectId);
+  return { items: items.length, models: items.filter((m) => m.metadata.model).length };
+});
 await p.click('[aria-label="Fit view"]'); await p.waitForTimeout(800); await frames(3);
 
 const measure = () => p.evaluate(() => new Promise((res) => {
@@ -103,6 +112,8 @@ const measure = () => p.evaluate(() => new Promise((res) => {
   sc.onAfterRenderObservable.addOnce(() => {
     sc.onBeforeRenderObservable.remove(o);
     res({
+      // frames per second (no GPU here: only for comparing runs on the same machine)
+      fps: Math.round(sc.getEngine().getFps() * 10) / 10,
       meshes: sc.meshes.length,
       enabled: sc.meshes.filter((m) => m.isEnabled()).length,
       materials: sc.materials.length,
@@ -116,6 +127,8 @@ await frames(2);
 const ground = await measure();
 log(`probe building loaded: ${build.rooms} rooms, ${build.objects} items`, build.rooms === 72 && build.objects === 864,
   `store load ${build.ms} ms`);
+if (realistic) log('realistic look: all 864 items are drawn by real models', real.items === 864 && real.models === 864, JSON.stringify(real));
+else log('realistic look off: all 864 items are the simple models', real.items === 864 && real.models === 0, JSON.stringify(real));
 log(`Studio 3D, ground floor: ≤ ${MAX_DRAW_CALLS} draw calls and ≤ ${MAX_MESHES} meshes`,
   ground.drawCalls <= MAX_DRAW_CALLS && ground.meshes <= MAX_MESHES, JSON.stringify(ground));
 

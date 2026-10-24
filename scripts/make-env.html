@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Make sky.env</title>
+</head>
+<body>
+  <!-- Dev-only page for scripts/make-env.mjs: prefilters the HDRI sky into a Babylon .env file -->
+  <canvas id="c" width="256" height="256"></canvas>
+  <script type="module">
+    import { Engine } from '@babylonjs/core/Engines/engine';
+    import { Scene } from '@babylonjs/core/scene';
+    import { HDRCubeTexture } from '@babylonjs/core/Materials/Textures/hdrCubeTexture';
+    import { CreateEnvTextureAsync } from '@babylonjs/core/Misc/environmentTextureTools';
+    import '@babylonjs/core/Materials/Textures/Filtering/hdrFiltering';
+
+    const params = new URLSearchParams(location.search);
+    const engine = new Engine(document.getElementById('c'), false);
+    const scene = new Scene(engine);
+    const size = Number(params.get('size') ?? 256);
+    const tex = new HDRCubeTexture('/assets/env/sky_1k.hdr', scene, size, false, true, false, true,
+      async () => {
+        try {
+          const data = await CreateEnvTextureAsync(tex, { imageType: params.get('type') ?? 'image/png', imageQuality: 0.85 });
+          const bytes = new Uint8Array(data);
+          let s = '';
+          for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+          window.__env = { ok: true, base64: btoa(s) };
+        } catch (e) {
+          window.__env = { ok: false, error: String(e?.message ?? e) };
+        }
+      },
+      (message) => { window.__env = { ok: false, error: String(message) }; });
+  </script>
+</body>
+</html>

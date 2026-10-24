@@ -70,7 +70,10 @@ export type QualityLevel = 'high' | 'low';
 
 export interface EngineOptions {
   mode?: EngineMode;
+  /** 'high' (default): realistic look (real furniture models, photo textures, HDRI sky); 'low': simple models and materials. */
   quality?: QualityLevel;
+  /** Where the real assets are (models/, textures/, env/). Default: the app's public/assets/. */
+  assetBaseUrl?: string;
   /**
    * Walkthrough mode: the view's box. The keys are the page's until the view
    * is engaged: its canvas has the mouse, or focus is in this element (make it
@@ -196,7 +199,7 @@ export class LayoutEngine {
     canvas: HTMLCanvasElement,
     options: EngineOptions = {},
   ): Promise<LayoutEngine> {
-    const engine = new LayoutEngine(createLayoutScene(canvas, { quality: options.quality }), options);
+    const engine = new LayoutEngine(createLayoutScene(canvas, { quality: options.quality, assetBaseUrl: options.assetBaseUrl }), options);
     // Allow one frame for the scene to initialise
     await new Promise<void>((resolve) => {
       engine.scene.executeWhenReady(() => resolve());

@@ -23,7 +23,7 @@ As of 22 Oct 2026 (TEAM_TASKS H2 done): `LayoutEngine` draws a layout on its own
 | `<LayoutViewer />` (view / walkthrough) and `<LayoutEditor />` (edit = today's Workplace Studio) | ✅ Done; `e2e/viewer-smoke.mjs` |
 | `layoutBridge` in viewers (teammates' modules, "Press E" actions) | ✅ Done (`connectEngine`; rule in `TEAM_INTEGRATION.md`) |
 | Plain HTML pages (no React, no build step): one file, `AHDUSWorkplace.mount(element, { layoutUrl, mode, onEvent, onError })` | ✅ Done; `npm run build:embed`, **`docs/EMBED_GUIDE.md`**, `e2e/embed-smoke.mjs` |
-| `quality="low"` | ⏳ Accepted, changes nothing yet (TEAM_TASKS H7) |
+| `quality="low"` (simple models and materials) / `"high"` (default: real models, photo textures, HDRI sky) + `assetBaseUrl` | ✅ Done (25 Oct; PROGRESS_REPORT 3.18) |
 | `onSelect` in a viewer, clicking things in `view` mode | ⏳ Not yet (Studio's selection, through `<LayoutEditor />`, works) |
 | **Team integration (`src/integration/layoutBridge.js`)** | ✅ **Use this now.** Anchors live in the editor and are saved with the layout; `interact`, `enterRoom`, `exitRoom`, `anchorsChange` events; "Press E" actions; linking desks to positions (undoable). See **`docs/TEAM_INTEGRATION.md`** |
 
@@ -65,7 +65,8 @@ import { LayoutEditor, LayoutViewer } from '@engine/react';   // later: '@ahdus/
 <LayoutViewer
   layout={layoutJson}
   mode="walkthrough"              // "view" (orbit) | "walkthrough" (W A S D, mouse, E, Page Up / Down)
-  quality="low"                   // accepted; changes nothing yet (H7)
+  quality="high"                  // "high" (default): real models, photo textures, sky; "low": simple look
+  assetBaseUrl="/assets/"         // where models/, textures/, env/ are (default: the app's public/assets/)
   onReady={(engine) => { ... }}   // the LayoutEngine (focusOn, highlight, getAnchors, …)
   onInteract={({ anchorId, objectId, roomId, part }) => { ... }}
   onEnterRoom={({ roomId, roomName, fromRoomId }) => { ... }}
@@ -87,7 +88,8 @@ import { LayoutEngine } from '@ahdus/layout-engine';
 // Create engine attached to a canvas element
 const engine = await LayoutEngine.create(canvas, {
   mode: 'edit',        // "edit" | "view" | "walkthrough"
-  quality: 'high',     // "high" | "low"
+  quality: 'high',     // "high" (real models, photo textures, sky) | "low" (simple look, no downloads)
+  assetBaseUrl: '/assets/', // where models/, textures/, env/ are (default: the app's public/assets/)
   focusTarget: box,    // walkthrough: the keys are the page's until the canvas has the mouse
                        // or focus is in this element (default the canvas); Esc gives them back
 });

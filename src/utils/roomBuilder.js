@@ -71,6 +71,30 @@ function worldUVs(mesh, worldX0, worldZ0, tile) {
   mesh.setVerticesData(VertexBuffer.UVKind, uvs);
 }
 
+/**
+ * Texture repeats by WORLD position on every face of a box (walls, slabs,
+ * roofs): a face across X uses x and y, across Z uses z and y, a top / bottom
+ * uses x and z. So plaster keeps its real size on any wall, and the pieces of a
+ * wall around a door line up.
+ */
+function boxWorldUVs(mesh, worldX0, worldZ0, tile) {
+  const pos = mesh.getVerticesData(VertexBuffer.PositionKind);
+  const nor = mesh.getVerticesData(VertexBuffer.NormalKind);
+  const uvs = mesh.getVerticesData(VertexBuffer.UVKind);
+  if (!pos || !nor || !uvs) return;
+  const { x: px, y: py, z: pz } = mesh.position;
+  for (let i = 0, j = 0; i < pos.length; i += 3, j += 2) {
+    const x = worldX0 + px + pos[i];
+    const y = py + pos[i + 1];
+    const z = worldZ0 + pz + pos[i + 2];
+    const [ax, ay, az] = [Math.abs(nor[i]), Math.abs(nor[i + 1]), Math.abs(nor[i + 2])];
+    if (ay >= ax && ay >= az) { uvs[j] = x / tile; uvs[j + 1] = z / tile; }
+    else if (ax >= az) { uvs[j] = z / tile; uvs[j + 1] = y / tile; }
+    else { uvs[j] = x / tile; uvs[j + 1] = y / tile; }
+  }
+  mesh.setVerticesData(VertexBuffer.UVKind, uvs);
+}
+
 /** World-space opening rects → rects relative to the room centre. */
 function toLocal(rects, room) {
   return (rects ?? []).map((r) => ({ x0: r.x0 - room.x, x1: r.x1 - room.x, z0: r.z0 - room.z, z1: r.z1 - room.z }));
@@ -141,7 +165,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         width: p.x1 - p.x0, depth: p.z1 - p.z0, height: slabT,
       }, scene);
       slab.position.set((p.x0 + p.x1) / 2, -slabT / 2, (p.z0 + p.z1) / 2);
-      addPart(slab, { part: 'slab' }, mats.plaster(), { pickable: false });
+      addPart(slab, { part: 'slab' }, mats.structure(), { pickable: false });
     });
   }
 
@@ -169,7 +193,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         segmentBase + h / 2,
         wall.alongX ? wall.cz + segment.crossOffset : wall.cz + midpoint,
       );
-      addPart(band, { part: 'band' }, mats.plaster(), { pickable: false });
+      addPart(band, { part: 'band' }, mats.structure(), { pickable: false });
     }
   }
 
@@ -183,7 +207,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         width: p.x1 - p.x0, depth: p.z1 - p.z0, height: ROOF_T,
       }, scene);
       roof.position.set((p.x0 + p.x1) / 2, wallHeight + ROOF_T / 2, (p.z0 + p.z1) / 2);
-      addPart(roof, { part: 'roof' }, mats.plaster(), { pickable: false });
+      addPart(roof, { part: 'roof' }, mats.structure(), { pickable: false });
     });
 
     // (casts with the roof under it: one roof mesh)
@@ -209,7 +233,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
           py,
           wall.alongX ? wall.cz + segment.crossOffset : wall.cz + midpoint,
         );
-        addPart(parapet, { part: 'roof' }, mats.plaster(), { pickable: false });
+        addPart(parapet, { part: 'roof' }, mats.structure(), { pickable: false });
       }
     }
   }
@@ -219,6 +243,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
     const ceiling = MeshBuilder.CreateGround(`ceiling_${id}_${i}`, { width: p.x1 - p.x0, height: p.z1 - p.z0 }, scene);
     ceiling.rotation.x = Math.PI; // face down
     ceiling.position.set((p.x0 + p.x1) / 2, wallHeight - 0.005, (p.z0 + p.z1) / 2);
+    worldUVs(ceiling, x + ceiling.position.x, z + ceiling.position.z, TILE_SIZE.ceiling);
     addPart(ceiling, { part: 'ceiling' }, mats.ceiling(), { castShadow: false, pickable: false });
   });
   const nx = Math.max(1, Math.round(width / LIGHT_SPACING));
@@ -339,6 +364,10 @@ export function buildRoomMesh(roomData, scene, options = {}) {
   // a few thousand meshes instead of tens of thousands.
   const groups = new Map();
   for (const p of parts) {
+    // plaster (walls, slab, roof, band) repeats in metres, like the floors
+    if (['wall', 'slab', 'roof', 'band'].includes(p.meta.part) && p.mesh.material?.name !== 'mat_roofTop') {
+      boxWorldUVs(p.mesh, x, z, TILE_SIZE.plaster);
+    }
     p.hidden = p.mesh.visibility === 0; // the pick panes
     const key = JSON.stringify([p.meta, p.castShadow, p.pickable, p.hidden]);
     if (!groups.has(key)) groups.set(key, []);

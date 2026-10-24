@@ -81,6 +81,9 @@ p.on('console', (m) => {
 });
 const requests = [];
 p.on('request', (r) => requests.push(r.url()));
+const assetProblems = []; // a missing model / texture / sky file
+p.on('response', (r) => { if (r.url().includes('/assets/') && r.status() >= 400) assetProblems.push(`${r.status()} ${r.url()}`); });
+p.on('console', (m) => { if (m.text().includes('[realistic look]')) assetProblems.push(m.text()); });
 
 const wait = (ms) => p.waitForTimeout(ms);
 const frames = (n = 3) => p.evaluate((n) => new Promise((res) => {
@@ -152,10 +155,25 @@ log('embed-test.html draws the sample office (4 rooms, 14 items, 2 floors) walki
   drawn.rooms === 4 && drawn.items === 14 && drawn.mode === 'walkthrough' &&
   drawn.ready === 'Sample office: Reception, Office 1, Training room, Office 2 | Ground Floor, Floor 1' && drawn.style,
   JSON.stringify(drawn));
-const loaded = [...new Set(requests.map((u) => new URL(u)).map((u) => (u.origin === siteOrigin ? u.pathname : u.href)))].filter((u) => u !== '/favicon.ico');
-log('the page loads only the embed\'s file (and the layout it is given)',
-  loaded.sort().join() === ['/dist-embed/ahdus-workplace.js', '/embed-sample.ahdus.json', '/embed-test.html'].sort().join(),
-  loaded.join(', '));
+// The realistic look: real models (and textures, sky) from the assets/ folder next to the script
+const realModels = await p.waitForFunction(() => {
+  const sc = window.workplace?._engine?.scene;
+  const n = sc?.meshes.filter((m) => m.metadata?.objectId && m.metadata?.model).length ?? 0;
+  return n > 0 ? n : false;
+}, null, { timeout: 120000 }).then((h) => h.jsonValue()).catch(() => 0);
+const loaded = [...new Set(requests.filter((u) => !u.startsWith('blob:')) // (images the sky decodes in memory)
+  .map((u) => new URL(u)).map((u) => (u.origin === siteOrigin ? u.pathname : u.href)))]
+  .filter((u) => u !== '/favicon.ico');
+const assetFiles = loaded.filter((u) => u.startsWith('/dist-embed/assets/'));
+const pageFiles = loaded.filter((u) => !assetFiles.includes(u));
+log('the page loads only the embed\'s file, the layout it is given and the assets next to the script',
+  pageFiles.sort().join() === ['/dist-embed/ahdus-workplace.js', '/embed-sample.ahdus.json', '/embed-test.html'].sort().join(),
+  pageFiles.join(', '));
+log('realistic look: items are real models, loaded from assets/ next to the script (models, textures, sky)',
+  realModels > 0 && assetFiles.some((u) => u.startsWith('/dist-embed/assets/models/kenney/')) &&
+  assetFiles.some((u) => u.startsWith('/dist-embed/assets/textures/')) && assetFiles.includes('/dist-embed/assets/env/sky.env') &&
+  assetProblems.length === 0,
+  `${realModels} items with a model; ${assetFiles.length} asset files${assetProblems.length ? ` | ${assetProblems[0]}` : ''}`);
 await shot('embed-page.png');
 
 // ── 1b. The keys are the page's until the view is engaged (clicked, or focused with Tab); Esc gives them back ──
@@ -360,6 +378,22 @@ const v2 = JSON.parse(before);
 const fromV2 = await mountExtra({ layout: v2, mode: 'view' });
 const v2Rooms = await p.evaluate(() => window.extra?._engine?.rooms.meshes.size ?? 0);
 log('layout: v2 JSON (getLayout()) shows the same office', !fromV2.error && fromV2.seen.includes('ready') && v2Rooms === 4, JSON.stringify({ ...fromV2, v2Rooms }));
+await removeExtra();
+const requestsBeforeLow = requests.length;
+const low = await mountExtra({ layout: v2, mode: 'view', quality: 'low' });
+await p.waitForTimeout(3000);
+const lowLook = await p.evaluate(() => {
+  const sc = window.extra?._engine?.scene;
+  return {
+    items: sc?.meshes.filter((m) => m.metadata?.objectId && m.parent?.metadata?.objectId).length ?? 0,
+    models: sc?.meshes.filter((m) => m.metadata?.objectId && m.metadata?.model).length ?? -1,
+    sky: !!sc?.environmentTexture,
+  };
+});
+const lowFiles = requests.slice(requestsBeforeLow).filter((u) => u.includes('/assets/'));
+log('quality: \'low\' shows the simple models and materials and downloads no asset files',
+  !low.error && lowLook.items > 0 && lowLook.models === 0 && !lowLook.sky && lowFiles.length === 0,
+  JSON.stringify({ ...lowLook, files: lowFiles.length }));
 await removeExtra();
 const fromApi = await mountExtra({ layoutUrl: `http://localhost:${apiPort}/api/v1/workplace/layouts/current`, headers: { Authorization: 'Bearer test-token' }, mode: 'view' });
 log('layoutUrl on another origin is fetched with the page\'s cookies (credentials: "include") and the headers given',

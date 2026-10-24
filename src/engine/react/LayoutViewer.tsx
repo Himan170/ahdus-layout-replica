@@ -34,8 +34,10 @@ export interface LayoutViewerProps {
   layoutId?: string;
   /** 'view' (orbit, default) or 'walkthrough'. */
   mode?: Exclude<EngineMode, 'edit'>;
-  /** 'low' is accepted but changes nothing yet (TEAM_TASKS H7). */
+  /** 'high' (default): realistic look (real models, photo textures, sky); 'low': simple look for slow computers. */
   quality?: QualityLevel;
+  /** Where the real assets are (models/, textures/, env/). Default: the app's public/assets/. */
+  assetBaseUrl?: string;
   /** The engine is ready and the layout is drawn (focusOn, highlight, getAnchors, …). */
   onReady?: (engine: LayoutEngine) => void;
   onInteract?: (event: InteractEvent) => void;
@@ -74,7 +76,7 @@ function layoutFrom({ layout, companyId, layoutId }: LayoutViewerProps): unknown
 }
 
 export function LayoutViewer(props: LayoutViewerProps) {
-  const { mode = 'view', quality = 'high', className, style } = props;
+  const { mode = 'view', quality = 'high', assetBaseUrl, className, style } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
@@ -98,7 +100,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
     let cardTimer: ReturnType<typeof setTimeout> | undefined;
     const offs: (() => void)[] = [];
 
-    LayoutEngine.create(canvas, { mode, quality, focusTarget: boxRef.current }).then((e) => {
+    LayoutEngine.create(canvas, { mode, quality, assetBaseUrl, focusTarget: boxRef.current }).then((e) => {
       if (disposed) {
         e.dispose();
         return;
