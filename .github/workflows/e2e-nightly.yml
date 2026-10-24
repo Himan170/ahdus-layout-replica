@@ -1,0 +1,51 @@
+# Browser tests (Playwright), every night and on demand (Actions tab → e2e nightly → Run workflow).
+# GitHub's runners have no GPU: Chromium draws with SwiftShader at ~1 fps, so these are slow.
+# Run ONE script at a time (they use ~2 GB). To add more, copy a step and change the script.
+name: e2e nightly
+
+on:
+  schedule:
+    - cron: '30 1 * * *'   # 01:30 UTC = 07:00 in India
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      # The embed test builds the embed and serves its own page: no dev server needed
+      - name: e2e:embed
+        run: npm run e2e:embed
+        timeout-minutes: 40
+
+      # The Studio test needs the dev server on port 3000 (--open false: no browser window to open)
+      - name: Start the dev server
+        run: |
+          nohup npx vite --open false > vite.log 2>&1 &
+          npx --yes wait-on@8.0.1 --timeout 120000 http://localhost:3000/
+
+      - name: e2e:planner
+        run: npm run e2e:planner
+        timeout-minutes: 40
+
+      - name: Keep screenshots and the dev server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screens
+          path: |
+            e2e/screens/
+            vite.log
+          retention-days: 7
+          if-no-files-found: ignore
