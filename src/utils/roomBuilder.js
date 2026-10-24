@@ -398,6 +398,27 @@ export function buildRoomMesh(roomData, scene, options = {}) {
 }
 
 /**
+ * The shared materials these rooms use, as steps that each make one painted
+ * material (the plain colours together in the last step). Progressive loading
+ * runs them in their own slices: painting a texture is the slow part of the
+ * first room; later rooms reuse it.
+ */
+export function roomMaterialSteps(scene, rooms) {
+  if (!rooms.length) return [];
+  const mats = getMaterials(scene);
+  const floorKinds = [...new Set(rooms.map((r) => FLOOR_BY_ROOM_TYPE[r.type] ?? 'wood'))];
+  return [
+    ...floorKinds.map((kind) => () => mats.floor(kind)),
+    () => mats.plaster(),
+    () => mats.structure(),
+    () => {
+      mats.ceiling(); mats.lightPanel(); mats.skirting(); mats.doorFrame();
+      mats.windowFrame(); mats.glass(); mats.roofTop();
+    },
+  ];
+}
+
+/**
  * Dispose all meshes of a room. Materials are shared and are NOT disposed.
  */
 export function disposeRoomMesh(rootNode) {

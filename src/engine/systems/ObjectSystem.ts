@@ -15,7 +15,7 @@ import { ASSET_TYPES, OBJECT_CATEGORIES } from '../../utils/assetCatalog';
 import { createItemMesh, disposeItemMesh } from '../../utils/assetInstances';
 import { applyLockVisual, removeLockVisual } from '../../utils/lockIndicator';
 import { elevationOf, floorHeight } from '../../play/building';
-import type { LayoutRecords } from './RoomSystem';
+import type { LayoutRecords, SyncOptions } from './RoomSystem';
 
 export interface ObjectSystemOptions {
   /** Bigger items cast soft shadows from this generator. */
@@ -33,9 +33,18 @@ export class ObjectSystem {
     this.shadowGenerator = options.shadowGenerator ?? null;
   }
 
-  /** Bring the item meshes up to date with the layout. */
-  sync(layout: Pick<LayoutRecords, 'objects' | 'floors'>): void {
+  /**
+   * Bring the item meshes up to date with the layout. With `floors` / `budget`
+   * (progressive loading): only items on those floors, new ones until the
+   * budget runs out (moving or locking a built item never waits).
+   * @returns how many items were made, and how many on those floors still wait
+   */
+  sync(layout: Pick<LayoutRecords, 'objects' | 'floors'>, options: SyncOptions = {}): { built: number; pending: number } {
     const { floors } = layout;
+    const onlyFloors = options.floors ? new Set(options.floors) : null;
+    const budget = options.budget ?? null;
+    let built = 0;
+    let pending = 0;
     const allObjects = Object.values(layout.objects);
     const currentIds = new Set(allObjects.map((o) => o.id));
 
@@ -48,17 +57,23 @@ export class ObjectSystem {
     }
 
     for (const obj of allObjects) {
+      if (onlyFloors && !onlyFloors.has(obj.floor ?? 0)) continue;
       let mesh = this.meshes.get(obj.id) ?? null;
       if (mesh?.isDisposed()) mesh = null;
       // Stairs climb exactly their floor's height: a taller or lower floor rebuilds them
       const rise = obj.assetType === 'STAIRCASE' ? floorHeight(floors, obj.floor ?? 0) : undefined;
-      if (mesh && (mesh.metadata?.rise !== rise || mesh.metadata?.floorId !== (obj.floor ?? 0))) {
-        disposeItemMesh(mesh);
+      const stale = !!mesh && (mesh.metadata?.rise !== rise || mesh.metadata?.floorId !== (obj.floor ?? 0));
+      if ((!mesh || stale) && budget && !budget.take()) {
+        pending++; // made in a later slice (a stale one keeps its old mesh until then)
+        if (!mesh) continue;
+      } else if (stale) {
+        disposeItemMesh(mesh!);
         this.meshes.delete(obj.id);
         mesh = null;
       }
 
       if (!mesh) {
+        built++;
         // An instance of its type's template, tagged for picking. Furniture
         // blocks the character in Preview; markers (spawn points) and rugs
         // don't, and stairs are walked ON (Preview computes the slope).
@@ -86,6 +101,7 @@ export class ObjectSystem {
       if (obj.isLocked) applyLockVisual(mesh);
       else removeLockVisual(mesh);
     }
+    return { built, pending };
   }
 
   getObjectMesh(objectId: string): TransformNode | null {
