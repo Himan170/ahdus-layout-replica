@@ -6,7 +6,7 @@ e2e/screens/
 .env
 .env.*
 !.env.example
-.claude/settings.local.json
+.claude/
 .DS_Store
 Thumbs.db
 
