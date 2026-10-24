@@ -21,6 +21,9 @@ const MAX_MESHES = 2000;
 
 const b = await chromium.launch({ ...(exe ? { executablePath: exe } : {}), args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const p = await b.newPage({ viewport: { width: 1280, height: 720 } });
+// REALISTIC=off npm run e2e:perf: the same building with Settings → Realistic look off (to compare)
+const realistic = process.env.REALISTIC !== 'off';
+if (!realistic) await p.addInitScript(() => localStorage.setItem('ahdus.realisticLook', 'off'));
 const errs = [];
 p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 p.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('BJS')) errs.push(m.text()); });
@@ -124,7 +127,8 @@ await frames(2);
 const ground = await measure();
 log(`probe building loaded: ${build.rooms} rooms, ${build.objects} items`, build.rooms === 72 && build.objects === 864,
   `store load ${build.ms} ms`);
-log('realistic look: all 864 items are drawn by real models', real.items === 864 && real.models === 864, JSON.stringify(real));
+if (realistic) log('realistic look: all 864 items are drawn by real models', real.items === 864 && real.models === 864, JSON.stringify(real));
+else log('realistic look off: all 864 items are the simple models', real.items === 864 && real.models === 0, JSON.stringify(real));
 log(`Studio 3D, ground floor: ≤ ${MAX_DRAW_CALLS} draw calls and ≤ ${MAX_MESHES} meshes`,
   ground.drawCalls <= MAX_DRAW_CALLS && ground.meshes <= MAX_MESHES, JSON.stringify(ground));
 
