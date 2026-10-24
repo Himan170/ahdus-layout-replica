@@ -103,6 +103,8 @@ const measure = () => p.evaluate(() => new Promise((res) => {
   sc.onAfterRenderObservable.addOnce(() => {
     sc.onBeforeRenderObservable.remove(o);
     res({
+      // frames per second (no GPU here: only for comparing runs on the same machine)
+      fps: Math.round(sc.getEngine().getFps() * 10) / 10,
       meshes: sc.meshes.length,
       enabled: sc.meshes.filter((m) => m.isEnabled()).length,
       materials: sc.materials.length,
