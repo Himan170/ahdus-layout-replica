@@ -56,13 +56,17 @@ push to main; `e2e-nightly.yml` runs e2e:embed and e2e:planner nightly (and by h
 
 ## Git
 
-Private GitHub repo `ahdus-layout-replica`, branch `main`. Himan is new to git: explain each step he must do in one sentence.
+**Public** GitHub repo `Himan170/ahdus-layout-replica` (anyone can read it), branch `main`. Himan is new to git:
+explain each step he must do in one sentence.
+- **`main` is protected: every change reaches it through a pull request whose "CI checks" are green.** Nobody pushes
+  to `main` directly (not Himan, not Claude) and no local merge into `main` is pushed: work on a branch
+  (`fix/…`, `feat/…`, `docs/…`, teammates `name/topic`), push the branch, open a PR, merge on GitHub (merge commit),
+  then `git switch main` + `git pull`. Tags go on `main`'s merge commit after the pull.
 - Never commit when tests fail: run `npm test` (and the e2e script for the area touched) before every commit.
 - Commit after every working step, with a clear message ("Fix: deleting ground floor", "Add: export layout").
-- Bigger tasks (e.g. Part A of `NEXT_FIXES.md`) get their own branch (`fix/next-fixes`), one commit per fixed item;
-  merge into `main` only when everything passes, then push.
+- Bigger tasks (e.g. Part A of `NEXT_FIXES.md`) get their own branch (`fix/next-fixes`), one commit per fixed item.
 - Never force-push, never rewrite history on `main`, never delete branches without asking.
-- **Always ask Himan before pushing to GitHub.**
+- **Always ask Himan before pushing to GitHub, opening a PR, merging one, or pushing a tag.**
 - Secrets (Supabase keys later) go in `.env`, never in git; keep a `.env.example` with no real values.
 - Tag a version when something big is finished (`v0.2.0`, `v0.3.0` …). `v0.1.0` = initial commit.
 
