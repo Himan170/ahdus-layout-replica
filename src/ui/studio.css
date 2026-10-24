@@ -760,3 +760,76 @@
   font-size: 12px;
   padding: 4px 10px;
 }
+
+/* ── Export menu ─────────────────────────────────────────────────────── */
+
+.export-menu {
+  position: relative;
+}
+
+.export-menu__trigger {
+  width: 30px;
+  height: 30px;
+}
+
+.export-menu__trigger[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.export-menu__pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 210px;
+  padding: 4px;
+  z-index: 50;
+}
+
+.export-menu__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.export-menu__item:hover {
+  background: var(--bg-hover);
+}
+
+.export-menu__item-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.export-menu__item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.export-menu__item-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.export-menu__item-detail {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+@keyframes export-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.export-menu__spinner {
+  animation: export-spin 0.8s linear infinite;
+}

@@ -38,6 +38,7 @@ import {
   startAutoSave, stopAutoSave, saveNow, renameLayout, reloadLayout, saveAsCopy, exportLayout, importLayout,
 } from '../services/apiService';
 import { downloadText } from '../ui/download';
+import { exportFloorPlanAsPng, exportFloorPlanAsPdf } from '../utils/floorPlanExporter';
 
 // Phase 4 — Performance optimisation
 import { createPerformanceMonitor } from '../utils/performanceOptimiser';
@@ -171,6 +172,7 @@ export default function WorkplaceEditor({ onExit }) {
   const [showGrid, setShowGrid] = useState(false);      // off: grid only while a build tool is active
   const [nameFocusToken, setNameFocusToken] = useState(0); // "Rename" focuses the Inspector's name box
   const [sceneReady, setSceneReady] = useState(null);   // the scene, once created (for overlays)
+  const [exportLoading, setExportLoading] = useState(false); // true while PNG/PDF is being generated
 
   // ─── Zustand state selectors ───
   const roomsMap = useWorkspaceStore((s) => s.rooms);
@@ -1279,6 +1281,27 @@ export default function WorkplaceEditor({ onExit }) {
     if (result.ok) showStudioMessage(`Saved as "${useWorkspaceStore.getState().layoutName}"`);
   }, [showStudioMessage]);
 
+  // ─── Floor plan export (PNG / PDF) ───
+  const handleExportPng = useCallback(async () => {
+    const { rooms, objects, floors, currentFloor } = useWorkspaceStore.getState();
+    const floorName = floors[currentFloor]?.name ?? `Floor ${currentFloor}`;
+    setExportLoading(true);
+    const result = await exportFloorPlanAsPng({ rooms, objects, floors, floorId: currentFloor, floorName });
+    setExportLoading(false);
+    if (!result.ok) showStudioMessage(result.error, true);
+    else showStudioMessage(`Exported ${floorName} as PNG`);
+  }, [showStudioMessage]);
+
+  const handleExportPdf = useCallback(async () => {
+    const { rooms, objects, floors, currentFloor } = useWorkspaceStore.getState();
+    const floorName = floors[currentFloor]?.name ?? `Floor ${currentFloor}`;
+    setExportLoading(true);
+    const result = await exportFloorPlanAsPdf({ rooms, objects, floors, floorId: currentFloor, floorName });
+    setExportLoading(false);
+    if (!result.ok) showStudioMessage(result.error, true);
+    else showStudioMessage(`Exported ${floorName} as PDF`);
+  }, [showStudioMessage]);
+
   const handlePhotoReconstruct = useCallback(async (file) => {
     const { companyId, layoutId, setReconstructing, setProposedLayout } = useWorkspaceStore.getState();
     if (!companyId || !layoutId) {
@@ -1382,6 +1405,10 @@ export default function WorkplaceEditor({ onExit }) {
           onFitView={handleFitView}
           showEmpty={showEmpty}
           onAddFirstRoom={() => setOpenTray('rooms')}
+          onExportPng={!isPlaying ? handleExportPng : undefined}
+          onExportPdf={!isPlaying ? handleExportPdf : undefined}
+          exportDisabled={!hasAnyRoom || isPlaying}
+          exportLoading={exportLoading}
         >
           <canvas
             ref={canvasRef}
