@@ -22,6 +22,10 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('BJS - ')) errors.push('console: ' + m.text()); });
+// The realistic look's files (models, textures, sky): none may be missing
+const assetProblems = [];
+page.on('response', (r) => { if (r.url().includes('/assets/') && r.status() >= 400) assetProblems.push(`${r.status()} ${r.url()}`); });
+page.on('console', (m) => { if (m.text().includes('[realistic look]')) assetProblems.push(m.text()); });
 
 const results = [];
 const log = (step, ok, detail = '') => {
@@ -49,6 +53,17 @@ const state = () => page.evaluate(() => {
   };
 });
 const counts = async () => { const s = await state(); return { rooms: s.rooms, objects: s.objects }; };
+// The desk's look (its child mesh names the real model, if it is one) and the floor's material
+const realLook = () => page.evaluate(async () => {
+  await window.__ahdusAssets.whenLoaded();
+  await new Promise((r) => setTimeout(r, 200));
+  const sc = window.__ahdusScene;
+  const desk = Object.values(window.__ahdusStore.getState().objects).find((o) => o.assetType === 'DESK_STANDARD');
+  const mesh = sc.meshes.find((m) => m.parent?.metadata?.objectId === desk?.id && m.metadata?.objectId === desk?.id);
+  const floor = sc.meshes.find((m) => m.metadata?.part === 'floor' && m.isEnabled());
+  const mats = floor?.material?.subMaterials ?? [floor?.material];
+  return { objectId: mesh?.metadata?.objectId ?? null, model: mesh?.metadata?.model ?? null, floor: mats.map((m) => m?.name).join(',') };
+});
 const visible = (sel) => page.locator(sel).first().isVisible().catch(() => false);
 const click = async (sel) => { await page.click(sel); await frames(2); };
 
@@ -157,6 +172,9 @@ await clickAt(-2.5, 0.02, -1);
 c = await counts();
 log('Furniture tray: pick a desk, click the floor: 1 item', c.objects === 1, JSON.stringify(c));
 await key('Escape');
+let look = await realLook();
+log('Realistic look: the desk is the real model, the floor a photo texture',
+  look.model === 'desk' && look.floor.startsWith('real_'), JSON.stringify(look));
 
 // ── Drag a card onto the canvas, then click ──
 await click('[aria-label="Furniture"]');
@@ -281,6 +299,22 @@ const [studioDownload] = await Promise.all([
 ]);
 log('Settings → Export layout downloads "HQ Layout.ahdus.json"', studioDownload?.suggestedFilename() === 'HQ Layout.ahdus.json',
   studioDownload?.suggestedFilename() ?? 'no download');
+
+// ── Settings: Realistic look off = the simple models and materials, on again = the real ones ──
+await click('[aria-label="Settings"]');
+await click('[aria-label="Realistic look"]');
+const off = await realLook();
+const offChecked = await page.getAttribute('[aria-label="Realistic look"]', 'aria-checked');
+const stored = await page.evaluate(() => localStorage.getItem('ahdus.realisticLook'));
+log('Realistic look off: the desk is the simple model again, the floor procedural (kept in this browser)',
+  off.model === null && off.objectId && off.floor.startsWith('mat_') && offChecked === 'false' && stored === 'off',
+  JSON.stringify({ ...off, offChecked, stored }));
+await click('[aria-label="Realistic look"]');
+look = await realLook();
+log('Realistic look on again: the real model and textures are back', look.model === 'desk' && look.floor.startsWith('real_'),
+  JSON.stringify(look));
+await click('[aria-label="Settings"]');
+log('no missing asset files (models, textures, sky)', assetProblems.length === 0, assetProblems.slice(0, 3).join(' | '));
 
 // ── Preview ↔ Studio, with the buttons and with Tab ──
 await page.mouse.move(640, 360);

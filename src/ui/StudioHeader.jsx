@@ -62,6 +62,7 @@ function LayoutName({ name, onRename }) {
 function Settings({
   snapEnabled, onSnapToggle, snapStep, onSnapStepChange,
   showGrid, onShowGridToggle, environment, onEnvironmentChange, fpsRef,
+  realisticLook, onRealisticLookToggle, // real models, photo textures, sky (off: simple look for slow PCs)
   onExportLayout, onImportLayout,   // backup: download this layout / add one from a file
 }) {
   const [open, setOpen] = useState(false);
@@ -135,6 +136,19 @@ function Settings({
               ))}
             </div>
           </div>
+          {onRealisticLookToggle && (
+            <div className="settings-pop__row">
+              <span>Realistic look</span>
+              <button
+                className="ui-switch"
+                role="switch"
+                aria-checked={realisticLook}
+                aria-label="Realistic look"
+                title="Real furniture models, photo textures and sky. Off: a simpler look for slow computers"
+                onClick={onRealisticLookToggle}
+              />
+            </div>
+          )}
           <div className="settings-pop__row">
             <span>Units</span>
             <span className="ui-muted" title="Only metres for now">Metres (m)</span>

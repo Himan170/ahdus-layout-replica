@@ -94,6 +94,12 @@ const build = await p.evaluate(() => {
   return { rooms: rooms.length, objects: objects.length, ms: Math.round(performance.now() - t0) };
 });
 await frames(3);
+// The realistic look (on by default): measure with the real models and textures loaded
+const real = await p.evaluate(async () => {
+  await window.__ahdusAssets.whenLoaded();
+  const items = window.__ahdusScene.meshes.filter((m) => m.metadata?.objectId && m.parent?.metadata?.objectId);
+  return { items: items.length, models: items.filter((m) => m.metadata.model).length };
+});
 await p.click('[aria-label="Fit view"]'); await p.waitForTimeout(800); await frames(3);
 
 const measure = () => p.evaluate(() => new Promise((res) => {
@@ -118,6 +124,7 @@ await frames(2);
 const ground = await measure();
 log(`probe building loaded: ${build.rooms} rooms, ${build.objects} items`, build.rooms === 72 && build.objects === 864,
   `store load ${build.ms} ms`);
+log('realistic look: all 864 items are drawn by real models', real.items === 864 && real.models === 864, JSON.stringify(real));
 log(`Studio 3D, ground floor: ≤ ${MAX_DRAW_CALLS} draw calls and ≤ ${MAX_MESHES} meshes`,
   ground.drawCalls <= MAX_DRAW_CALLS && ground.meshes <= MAX_MESHES, JSON.stringify(ground));
 

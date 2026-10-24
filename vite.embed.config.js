@@ -1,11 +1,12 @@
 // The embed: one file for plain HTML pages (no React, no build step on their side).
 //   npm run build:embed  →  dist-embed/ahdus-workplace.js   (global AHDUSWorkplace, React + Babylon inside)
+//                           dist-embed/assets/              (models, textures, sky: the realistic look)
 //                           dist-embed/ahdus-workplace.css  (the same rules the script adds itself)
 // docs/EMBED_GUIDE.md; e2e/embed-smoke.mjs checks it has no Workplace Studio code.
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
-import { readFileSync } from 'fs';
+import { readFileSync, cpSync } from 'fs';
 import { execSync } from 'child_process';
 
 const commit = (() => {
@@ -28,6 +29,17 @@ export default defineConfig({
           type: 'asset',
           fileName: 'ahdus-workplace.css',
           source: readFileSync(resolve(__dirname, 'src/embed/embed.css'), 'utf8'),
+        });
+      },
+    },
+    {
+      // The realistic look's files (models, textures, sky): next to the script,
+      // where mount() looks by default (option assetBaseUrl)
+      name: 'ahdus-embed-assets',
+      writeBundle() {
+        cpSync(resolve(__dirname, 'public/assets'), resolve(__dirname, 'dist-embed/assets'), {
+          recursive: true,
+          filter: (src) => !src.endsWith('.hdr'), // only the source of sky.env
         });
       },
     },

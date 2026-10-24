@@ -28,6 +28,20 @@ import css from './embed.css?inline';
 export const bridge = layoutBridge;
 
 const STYLE_ID = 'ahdus-workplace-style';
+
+/**
+ * Where the real assets are (models/, textures/, env/) unless mount() is told:
+ * the assets/ folder next to this script (the build puts it there). Read while
+ * the script runs: document.currentScript is gone later.
+ */
+const SCRIPT_ASSETS = (() => {
+  try {
+    const src = document.currentScript?.src;
+    return src ? new URL('assets/', src).href : undefined;
+  } catch {
+    return undefined;
+  }
+})();
 let mounted = 0;
 let mountCount = 0;
 
@@ -67,7 +81,8 @@ function call(fn, ...args) {
  *   layoutUrl?: string,               // or where to fetch it (with the page's cookies)
  *   headers?: Record<string, string>, // extra request headers for layoutUrl (e.g. Authorization)
  *   mode?: 'view' | 'walkthrough',    // default 'view'; 'edit' is refused
- *   quality?: 'high' | 'low',
+ *   quality?: 'high' | 'low',         // 'low': simple models and materials, no downloads (slow PCs)
+ *   assetBaseUrl?: string,            // where models/, textures/, env/ are; default: assets/ next to this script
  *   onEvent?: (name: string, data: object) => void,
  *   onError?: (error: Error) => void,
  * }} [options]
@@ -78,6 +93,7 @@ export function mount(element, options = {}) {
   }
   const { onEvent, onError } = options;
   const quality = options.quality === 'low' ? 'low' : 'high';
+  const assetBaseUrl = options.assetBaseUrl ?? SCRIPT_ASSETS;
   const id = ++mountCount;
   let mode = options.mode ?? 'view';
   let layout = null; // the validated v2 layout, once read
@@ -143,7 +159,7 @@ export function mount(element, options = {}) {
   function render() {
     root?.render(
       <LayoutViewer
-        layout={layout} mode={mode} quality={quality}
+        layout={layout} mode={mode} quality={quality} assetBaseUrl={assetBaseUrl}
         onReady={onReady} onError={fail}
         onCard={(card) => emit('card', { title: card.title, body: card.body ?? card.text ?? '' })}
         style={{ width: '100%', height: '100%' }}

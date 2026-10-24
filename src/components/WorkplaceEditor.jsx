@@ -11,7 +11,7 @@ import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 
 // Engine, scene, camera, lights and site: shared with the embeddable engine
 import { createLayoutScene } from '../engine/systems/SceneSetup';
-import { storedRealisticLook, whenLoaded, setRealistic } from '../utils/realLook';
+import { storedRealisticLook, storeRealisticLook, whenLoaded, setRealistic } from '../utils/realLook';
 import { RoomSystem } from '../engine/systems/RoomSystem';
 import { ObjectSystem } from '../engine/systems/ObjectSystem';
 import { FloorSystem } from '../engine/systems/FloorSystem';
@@ -164,6 +164,7 @@ export default function WorkplaceEditor({ onExit }) {
   const [openTray, setOpenTray] = useState(null);       // Build tile whose options tray is open
   const [layersOpen, setLayersOpen] = useState(false);  // Inspector shows the floor's outline
   const [showGrid, setShowGrid] = useState(false);      // off: grid only while a build tool is active
+  const [realisticLook, setRealisticLook] = useState(storedRealisticLook); // Settings → Realistic look
   const [nameFocusToken, setNameFocusToken] = useState(0); // "Rename" focuses the Inspector's name box
   const [sceneReady, setSceneReady] = useState(null);   // the scene, once created (for overlays)
 
@@ -1007,6 +1008,16 @@ export default function WorkplaceEditor({ onExit }) {
     if (mgr) mgr.setSnapStep(v);
   }, []);
 
+  // Settings → Realistic look (per browser): real models, photo textures, sky
+  const handleRealisticLookToggle = useCallback(() => {
+    setRealisticLook((on) => {
+      const next = !on;
+      storeRealisticLook(next);
+      if (sceneRef.current) setRealistic(sceneRef.current, next);
+      return next;
+    });
+  }, []);
+
   // Phase 6: environment lighting picker
   const handleEnvironmentChange = useCallback((env) => {
     setEnvironment(env);
@@ -1289,6 +1300,8 @@ export default function WorkplaceEditor({ onExit }) {
             environment,
             onEnvironmentChange: handleEnvironmentChange,
             fpsRef: fpsDisplayRef,
+            realisticLook,
+            onRealisticLookToggle: handleRealisticLookToggle,
             onExportLayout: hasBackend ? handleExportLayout : null,
             onImportLayout: handleImportLayout,
           }}
