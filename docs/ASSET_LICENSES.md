@@ -35,8 +35,8 @@ the lift models (lifts come later).
 | models/kenney/kitchenMicrowave.glb | Kenney Furniture Kit 2.0 (kitchenMicrowave) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
 | models/kenney/lampSquareFloor.glb | Kenney Furniture Kit 2.0 (lampSquareFloor) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
 | models/kenney/laptop.glb | Kenney Furniture Kit 2.0 (laptop) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
-| models/kenney/loungeDesignChair.glb | Kenney Furniture Kit 2.0 (loungeDesignChair) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
-| models/kenney/loungeDesignSofa.glb | Kenney Furniture Kit 2.0 (loungeDesignSofa) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
+| models/kenney/loungeChair.glb | Kenney Furniture Kit 2.0 (loungeChair) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
+| models/kenney/loungeSofa.glb | Kenney Furniture Kit 2.0 (loungeSofa) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
 | models/kenney/plantSmall1.glb | Kenney Furniture Kit 2.0 (plantSmall1) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
 | models/kenney/pottedPlant.glb | Kenney Furniture Kit 2.0 (pottedPlant) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
 | models/kenney/rugRectangle.glb | Kenney Furniture Kit 2.0 (rugRectangle) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |

@@ -3,7 +3,8 @@
 **Project:** AHDUS (Advance Human Digital Unified System), Company Digital Twin
 **Module:** Company layout replica (digital workplace engine)
 **Owner:** Himan
-**Report date:** 15 October 2026 (updated 22 Oct: embeddable engine, nested walls, the embed for plain HTML pages)
+**Report date:** 15 October 2026 (updated 22 Oct: embeddable engine, nested walls, the embed for plain HTML pages;
+25 Oct: real furniture models, photo textures and sky)
 **Latest build:** GitHub `ahdus-layout-replica` (private), branch `main`
 
 ---
@@ -19,8 +20,12 @@
 - **Real floor heights (14 Oct):** each floor has its own height, walls and floors always fit together (no gaps or overlaps between storeys), stairs climb whatever height their floor is, new floors can copy the rooms below, and Preview has Page Up / Page Down between floors.
 - **Review fixes (15 Oct, 3.13):** the ground floor can't be deleted, two tabs can't overwrite each other's work, undo of a + / − burst no longer depends on the PC's speed, big buildings draw ~5× fewer meshes and ~14× fewer draw calls, new IDs are UUIDs, layouts can be exported / imported as files, and the companies screen has the Studio look.
 - **Embed for plain HTML pages (22 Oct, 3.16):** other teams' pages show the 3D workplace with one file, `ahdus-workplace.js`, and one call, `AHDUSWorkplace.mount()`: events, "Press E" actions, view / walkthrough (never edit), a fallback when loading fails. Guide: `docs/EMBED_GUIDE.md`.
+- **Realistic look (25 Oct, 3.18):** 27 kinds of furniture are real 3D models (Kenney Furniture Kit), rooms have
+  photo textures (carpet, parquet, tiles, concrete, plaster, office ceiling) and a photographed sky lights the scene.
+  Settings → "Realistic look" switches it off for slow PCs; the embed takes `quality: 'low'`. All assets are CC0
+  (`docs/ASSET_LICENSES.md`).
 - **199 unit tests** and **172 browser checks** all pass (see 3.9).
-- **Not done yet:** a real backend (Supabase, decided), real 3D furniture models, elevators, free-form walls, floor-plan tracing, and the engine/UI split (needed for Dhruv's app).
+- **Not done yet:** a real backend (Supabase, decided), elevators, free-form walls, floor-plan tracing, and the engine/UI split (needed for Dhruv's app).
 
 ---
 
@@ -382,6 +387,43 @@ both back. Not engaged: no preventDefault, no movement, Tab moves focus as on an
 Tests: `e2e/embed-smoke.mjs` 20 → 24 checks (`embed-test.html` has a text field, a button and content below the view:
 typing, Tab and Space work until the view is engaged; Tab to the view walks; a click walks; after Esc Space scrolls).
 
+### 3.18 Realistic look: real models, photo textures, HDRI sky (25 Oct, branch `feat/real-assets`)
+
+**Goal:** make the workplace look real with free downloaded assets, without changing how anything behaves.
+- **Assets** (`public/assets/`, ~2.8 MB in git; all CC0, every file in `docs/ASSET_LICENSES.md`):
+  27 Kenney Furniture Kit GLBs (0.35 MB), 9 texture sets from Poly Haven / ambientCG (colour + normal 1024 px,
+  roughness 512 px, 2.3 MB), the sky `env/sky.env` (Poly Haven `citrus_orchard_road_puresky`, prefiltered, 168 KB).
+  `npm run assets:prepare` (`scripts/prepare-assets.mjs`, sharp) copies and resizes them from the downloaded packs;
+  `npm run assets:env` (`scripts/make-env.mjs`, in headless Chromium) makes `sky.env` from the `.hdr`.
+- **Furniture:** `utils/modelRegistry.js` says which model draws which catalogue item (12 existing items + 15 new
+  ones: Laptop, Keyboard, Mouse, Cupboard, Bin, Fridge, Microwave, Armchair, Round Table, Sideboard, Floor Lamp,
+  Coat Rack, Toilet, Washbasin, Rug; each also has a simple primitive model). `utils/modelLoader.js` loads each GLB
+  once per scene (an AssetContainer), fits it into the box of the item's primitive model (`play/modelFit.js`, pure,
+  tested) and gives it our shared furniture materials (Kenney's are flat unlit colours). The merged model becomes
+  the type's template in `assetInstances`, so items stay instances: sizes, footprints, stacking, picking, gizmos,
+  Edit item, lock tint / outline, metadata and anchors are unchanged, and saves don't change. Items show the
+  primitive model until their model has loaded, and keep it if it fails. Stairs, machines, lockers, racks, signs and
+  markers keep their primitive models (no good Kenney match).
+- **Rooms:** each procedural room material has a PBR twin from photo textures (`materialLibrary`): Office carpet,
+  Meeting parquet, Reception / Restroom tiles, Corridor laminate, Production / Staircase concrete, Server room
+  metal plate, beige plaster walls, grey plaster slab / roof / parapet, office ceiling tiles. Built rooms swap to it
+  in place once its textures have loaded (merged rooms keep one sub-mesh per material). Walls, slabs, roofs and
+  ceilings now have UVs in metres, like the floors.
+- **Sky:** `sky.env` lights the photo-textured rooms (reflections, soft light) in Studio and Preview and is drawn as
+  the sky on a clear day; grass, paving and fog stay. Evening / Night dim it and show the plain sky colour.
+- **Quality switch:** Settings → "Realistic look" (on by default, kept per browser in localStorage
+  `ahdus.realisticLook`) switches everything in place. `LayoutEngine` / `<LayoutViewer />` / `AHDUSWorkplace.mount`
+  take `quality: 'low'` (no asset downloads, not even the glTF loader in the app) and `assetBaseUrl` (the embed's
+  default: `assets/` next to its script; `npm run build:embed` copies them to `dist-embed/assets/`).
+- **Cost:** draw calls and meshes unchanged in `e2e:perf` (72 rooms, 864 items: 282 / 918 draw calls, 1,790 meshes,
+  before 284 / 920 and 1,786). FPS without a GPU (SwiftShader) is the same within noise: realistic look on 6.4 / 11.4,
+  off 7 / 10. The embed file grew from 1.99 MB to 2.63 MB (gzip 498 → 651 KB): the glTF loader and PBR shaders.
+- **Tests:** 11 unit tests (`modelFit.test.js`); `e2e:planner` +4 (the desk is the real model; Realistic look off brings
+  back the simple model and procedural floor and is stored; on again; no missing asset files), `e2e:perf` +1 (all
+  864 items are real models; `REALISTIC=off` measures the simple look), `e2e:embed` +2 (models loaded from next to the
+  script; `quality: 'low'` downloads nothing). `node e2e/real-assets-shots.mjs before|after`: screenshots of the
+  same layout in `e2e/screens/real-assets-*.png`.
+
 ---
 
 ## 4. Status against the plan
@@ -390,7 +432,7 @@ typing, Tab and Space work until the view is engaged; Tab to the view walks; a c
 |---|---|---|
 | **A. Engine / embeddable** | ✅ Done (H2, 22 Oct) | `LayoutEngine` draws, navigates, highlights and walks a layout on its own; `<LayoutViewer />` / `<LayoutEditor />`. Still to come: Studio rebuilt on the engine, `quality="low"` (H7), a package |
 | **B. Replica-grade building** | 🟡 Partly | Rooms, Stretch, doors and windows in-world: done. Free-form walls with shared walls, floor-plan tracing, dimensions/measure tool, templates: not started |
-| **C. Visual realism** | 🟡 Partly | Textured floors/walls/furniture, site, lighting, roofs, ceilings with lights: done. Real 3D models (GLB), post-processing: not done |
+| **C. Visual realism** | 🟡 Mostly | Textured floors/walls/furniture, site, lighting, roofs, ceilings with lights: done. Real 3D models (Kenney GLBs), photo textures and HDRI sky with a "Realistic look" switch (3.18): done. Industrial machine models, post-processing: not done |
 | **D. Floors, routes, safety** | 🟡 Partly | Stacked floors, slabs, walkable stairs with openings: done. Elevators, evacuation routes, safety checks: not done |
 | **E. 2D floor plan (SVG)** | ❌ Not started | The "2D view" is still the 3D camera from above |
 | **F. Saving, versions, sync** | 🟡 Local only | Reliable auto-save and reopening in browser localStorage; two tabs can't overwrite each other (revisions); export / import files as a backup (15 Oct). No backend, versions or change events yet |
@@ -403,7 +445,8 @@ typing, Tab and Space work until the view is engaged; Tab to the view walks; a c
 ### P0: next (most visible or blocking)
 
 1. ~~Roofs~~ ✅ done (with ceilings and lights)
-2. **Real 3D furniture models (GLB).** Replace the simple shapes with free CC0 models (Kenney, Quaternius, Poly Haven; check each licence). The loaders are already installed.
+2. ~~Real 3D furniture models (GLB)~~ ✅ done (3.18, Kenney Furniture Kit). Still simple: stairs, CNC machine,
+   lathe and other industrial items (the Industrial Pack needs FBX → GLB conversion first).
 3. ~~E-to-interact events for the team~~ ✅ done (step 1)
 4. ~~Anchors in the live editor~~ ✅ done (step 1)
 5. ~~Stairs linking floors~~ ✅ done. **Elevators** still to do.
@@ -444,6 +487,10 @@ typing, Tab and Space work until the view is engaged; Tab to the view walks; a c
 - The "storage almost full" warning uses an estimate (about 5 MB for all layouts); browsers differ.
 - Skirting boards can't be clicked on their own: a click goes to the wall behind them.
 - The embed's `focusOn` works in `view` mode only. Keyboard-only users can walk in a viewer (Tab to it) but not turn.
+- Realistic look: the Kenney models are low-poly (a clean, simple style, not photo-real); each is stretched into its
+  catalogue item's box, so some proportions differ a little from the original model. The open bookcase has no back.
+- Realistic look: where wall pieces meet beside a door or window a faint vertical line can show on textured walls.
+- The placement ghost (while placing an item) still shows the simple model.
 
 ---
 
@@ -485,21 +532,23 @@ typing, Tab and Space work until the view is engaged; Tab to the view walks; a c
 npm install
 npm run dev              # opens in Workplace Studio at http://localhost:3000
 
-npm test                 # 384 unit tests
+npm test                 # 395 unit tests
 npm run typecheck        # TypeScript check
 
 # Browser tests (one-time setup: npx playwright install chromium), with npm run dev running:
-npm run e2e:planner      # 31 Workplace Studio checks (+ UI_SPEC screenshots)
+npm run e2e:planner      # 35 Workplace Studio checks (+ UI_SPEC screenshots, the Realistic look switch)
 npm run e2e:play         # 19 Preview checks (slow without a graphics card)
 npm run e2e:modules      # 17 team-integration checks (demo modules)
 npm run e2e:building     # 27 multi-storey checks (floor heights, Page Up/Down, copy rooms)
-npm run e2e:tools        # 41 checks: Studio mouse tools, door sizes + Preview Edit item
+npm run e2e:tools        # 45 checks: Studio mouse tools, door sizes + Preview Edit item
 npm run e2e:save         # 29 checks: saving, reopening, layout list, export / import, companies, two tabs
-npm run e2e:perf         # 8 checks: a 72-room, 864-item building stays cheap to draw
+npm run e2e:perf         # 10 checks: a 72-room, 864-item building stays cheap to draw (REALISTIC=off: simple look)
 npm run e2e:viewer       # 14 checks: viewer.html, <LayoutViewer /> with no Studio code
-npm run e2e:embed        # 24 checks: the one-file embed on a plain HTML page (no dev server needed)
+npm run e2e:embed        # 26 checks: the one-file embed on a plain HTML page (no dev server needed)
 
-npm run build:embed      # dist-embed/ahdus-workplace.js for plain HTML pages (docs/EMBED_GUIDE.md)
+npm run build:embed      # dist-embed/ahdus-workplace.js (+ assets/) for plain HTML pages (docs/EMBED_GUIDE.md)
+npm run assets:prepare   # public/assets/ from the downloaded packs (default D:\assets-raw; docs/ASSET_LICENSES.md)
+node e2e/real-assets-shots.mjs after   # screenshots of a sample layout (e2e/screens/real-assets-*.png)
 
 # See the demo modules yourself: http://localhost:3000/?demoModules=1
 ```
@@ -540,6 +589,9 @@ npm run build:embed      # dist-embed/ahdus-workplace.js for plain HTML pages (d
 | `src/embed/index.jsx`, `src/embed/embedLayout.js`, `vite.embed.config.js` | The one-file embed for plain HTML pages (`AHDUSWorkplace.mount`) |
 | `embed-test.html`, `embed-sample.ahdus.json` | Plain HTML test page for the embed, with a sample office |
 | `docs/EMBED_GUIDE.md` | How a plain HTML page uses the embed |
+| `public/assets/`, `docs/ASSET_LICENSES.md` | Real models, photo textures, sky (all CC0) and their licences |
+| `src/utils/modelRegistry.js`, `modelLoader.js`, `realLook.js`, `src/play/modelFit.js` | Realistic look: which model / texture where, loading GLBs as templates, the per-scene switch, fitting maths |
+| `scripts/prepare-assets.mjs`, `scripts/make-env.mjs` | Copy / resize the assets from the packs; make `sky.env` |
 | `e2e/*.mjs` | Browser tests |
 | Removed: `WalkthroughHUD.jsx`, `walkthroughCamera.js` | Replaced by Build mode |
 | Removed: `PlannerToolbar.jsx`, `RoomPanel.jsx`, `ObjectPanel.jsx`, `PropertiesInspector.jsx`, `FloorSelector.jsx` | Replaced by Workplace Studio (`src/ui/`) |

@@ -149,6 +149,24 @@ Each viewer keeps its own copy of the layout, and Studio uses the app's. When mo
 
 `anchorsChange` fires when the bridge switches to a layout with other anchors. Events (`enterRoom`, `interact`, …) come from whichever one the user is walking in. A viewer made with `<LayoutViewer />` or `<LayoutEditor />` is connected for you. If you use `LayoutEngine` directly, call `connectEngine(engine)` from `@/integration/layoutBridge` (it returns `disconnect`).
 
+### The realistic look and its files (`quality`, `assetBaseUrl`)
+
+By default the workplace has the **realistic look**: real furniture models, photo textures on floors and walls and
+a photographed sky. They are files in an `assets/` folder (`models/`, `textures/`, `env/`, ≈ 2.8 MB, all CC0:
+`docs/ASSET_LICENSES.md`), loaded after the workplace is drawn; until then, or if a file can't be loaded, the simple
+look shows (a warning in the console, never an error). Nothing in the bridge changes: anchors, events, positions,
+`getScene()` and the item meshes' `metadata.objectId` are the same in both looks. An item drawn by a real model also
+has `metadata.model` on its mesh (e.g. `'desk'`); don't depend on it.
+
+| Where | Option | Default |
+|---|---|---|
+| `<LayoutViewer />`, `LayoutEngine.create(canvas, …)` (and `<LayoutEditor />` in view / walkthrough mode) | `quality: 'low'` = the simple look, nothing downloaded; `assetBaseUrl` = where `assets/` is | `'high'`; the app's `public/assets/` (`/assets/`) |
+| `AHDUSWorkplace.mount(element, …)` (plain HTML pages, `docs/EMBED_GUIDE.md`) | the same two options | `'high'`; `assets/` next to `ahdus-workplace.js` |
+| Workplace Studio (and `<LayoutEditor />` in edit mode) | Settings → **Realistic look** (kept per browser); files from `/assets/` | on |
+
+If your app serves the files from somewhere else (a CDN, another path), pass the folder's URL, ending in `/`:
+`<LayoutViewer assetBaseUrl="https://cdn.example.com/ahdus/assets/" … />`.
+
 ## 4. Recipes per teammate
 
 ### Harsh: characters and voice

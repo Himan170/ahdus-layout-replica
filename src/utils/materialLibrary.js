@@ -2,14 +2,15 @@
  * materialLibrary.js
  *
  * Realistic-looking materials drawn in code (canvas → DynamicTexture), so the
- * project needs no image downloads. Each material is created ONCE per scene and
- * shared by every room/wall that uses it.
+ * simple look needs no image downloads. Each material is created ONCE per scene
+ * and shared by every room/wall that uses it.
  *
  * Textures repeat in real-world units: call scaleUVs(mesh, width, depth, tile)
  * on a floor so planks/tiles keep their real size whatever the room size.
  *
- * Later (Workstream C) these can be swapped for photo-scanned PBR textures
- * without touching roomBuilder: only this file changes.
+ * With the realistic look (realLook.js) each room material has a PBR twin made
+ * from photo textures (public/assets/textures/, modelRegistry.REALISTIC_SURFACES),
+ * swapped in once loaded: roomBuilder asks for the same names either way.
  */
 
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
