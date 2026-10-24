@@ -266,11 +266,33 @@ export const FLOOR_BY_ROOM_TYPE = {
 
 const libraries = new WeakMap();
 
+// Painted tiles, kept for the next scene (React StrictMode, reopening a layout,
+// a viewer): painting one takes up to a few hundred ms, copying it ~1 ms. The
+// painters are seeded, so a copy is the same picture. painter:size → canvas
+const paintedTiles = new Map();
+
+/** Paint `painter`'s tile into a texture's 2D context, or copy it from an earlier scene. */
+function paintTile(ctx, painter, size) {
+  const key = `${painter}:${size}`;
+  const kept = paintedTiles.get(key);
+  if (kept) {
+    ctx.drawImage(kept, 0, 0);
+    return;
+  }
+  painters[painter](ctx, size, rng(painter.length * 7919 + 17));
+  try {
+    const copy = document.createElement('canvas');
+    copy.width = size;
+    copy.height = size;
+    copy.getContext('2d').drawImage(ctx.canvas, 0, 0);
+    paintedTiles.set(key, copy);
+  } catch { /* no DOM canvas (tests): paint again next time */ }
+}
+
 function makeTextureMaterial(scene, key, { specular = 0.05, size = 512 } = {}) {
   const tex = new DynamicTexture(`tex_${key}`, { width: size, height: size }, scene, true);
   const ctx = tex.getContext();
-  const painter = PAINTER[key] ?? key;
-  painters[painter](ctx, size, rng(painter.length * 7919 + 17));
+  paintTile(ctx, PAINTER[key] ?? key, size);
   tex.update();
   tex.wrapU = Texture.WRAP_ADDRESSMODE;
   tex.wrapV = Texture.WRAP_ADDRESSMODE;
@@ -327,7 +349,7 @@ function sharedTexture(scene, key) {
   if (!cache[key]) {
     const size = 256;
     const tex = new DynamicTexture(`tex_${key}`, { width: size, height: size }, scene, true);
-    painters[key](tex.getContext(), size, rng(key.length * 7919 + 17));
+    paintTile(tex.getContext(), key, size);
     tex.update();
     tex.wrapU = Texture.WRAP_ADDRESSMODE;
     tex.wrapV = Texture.WRAP_ADDRESSMODE;
