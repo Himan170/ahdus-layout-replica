@@ -15,6 +15,7 @@ npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
 npm test             # vitest unit tests (436, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
+npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
 npm run build:embed  # dist-embed/ahdus-workplace.js (+ .css, + assets/): the one-file embed for plain HTML pages
 npm run assets:prepare  # public/assets/ from the downloaded packs (D:\assets-raw, outside the repo; sharp)
@@ -50,6 +51,8 @@ node e2e/real-assets-shots.mjs before|after   # screenshots of one sample layout
 ```
 
 After any change: run `npm test`, and the e2e script for the area you touched. Screenshots go to `e2e/screens/`.
+CI (`.github/workflows/ci.yml`, job "CI checks") runs lint, typecheck, test, build and build:embed on every PR and
+push to main; `e2e-nightly.yml` runs e2e:embed and e2e:planner nightly (and by hand from the Actions tab).
 
 ## Git
 

@@ -29,21 +29,51 @@ Press **Tab** (or **Preview Workplace** / **Back to Studio**) to switch. The edi
 
 ## Getting started (for teammates)
 
+You need **Node.js 20.19 or newer** (`node -v`) and git.
+
 ```bash
 git clone https://github.com/Himan170/ahdus-layout-replica.git
 cd ahdus-layout-replica
-npm ci                 # install dependencies (faster than npm install, uses lockfile)
+npm ci                 # install dependencies exactly as in package-lock.json
 npm run dev            # http://localhost:3000
-npm test               # 199 unit tests
+npm test               # 436 unit tests
+npm run lint           # ESLint: real mistakes only, no style rules
 npm run typecheck      # TypeScript check
-npm run e2e            # browser tests (one-time: npx playwright install chromium)
+npm run build          # production build (and npm run build:embed for the embed)
 ```
+
+Browser tests (one-time: `npx playwright install chromium`) need `npm run dev` running in another terminal;
+run them one script at a time, e.g. `npm run e2e:planner` (the list is in `CLAUDE.md`).
 
 > **⚠️ Do NOT zip or copy `node_modules` between machines.** The Windows-installed copy
 > contains native binaries that do not run on other machines. Always run `npm ci` after cloning.
 
 Read `CLAUDE.md` before making changes — it documents the architecture rules (e.g. every edit
-goes through `editorHistory.js`, old saves must always load).
+goes through `editorHistory.js`, old saves must always load). Who does what: `TEAM_TASKS.md`.
+
+### Making a change (pull request)
+
+Nobody pushes to `main` directly: every change goes in through a pull request that CI has checked.
+
+```bash
+git switch main
+git pull                          # start from the latest main
+git switch -c yourname/short-topic  # a branch for this task, e.g. anish/lifts
+# ...edit, then check:
+npm run lint
+npm test
+npm run typecheck
+npm run build
+git add -A
+git commit -m "Add: lifts between floors"   # style: "Add: ...", "Fix: ...", "Docs: ..."
+git push -u origin yourname/short-topic
+```
+
+Then open the link git prints (or GitHub → **Pull requests** → **New pull request**), choose your branch, describe
+what changed and how you tested it (which `npm run e2e:...` script), and ask Himan to review. GitHub runs the
+**CI checks** (lint, typecheck, unit tests, both builds) on it; the pull request can be merged only when they are
+green and it is approved. If `main` moved on meanwhile: `git pull origin main` on your branch, fix any conflicts,
+push again.
 
 ## Run it
 
