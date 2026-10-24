@@ -14,7 +14,8 @@ concurrency:
 
 jobs:
   check:
-    name: Typecheck, test, build
+    # Branch protection requires this check by its name: don't rename it
+    name: CI checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -26,6 +27,7 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
