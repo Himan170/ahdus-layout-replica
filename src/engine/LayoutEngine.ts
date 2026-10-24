@@ -55,6 +55,8 @@ import { FloorSystem } from './systems/FloorSystem';
 import { setCameraView, flyTo, boundsOf } from './systems/CameraSystem';
 import type { GroundBox } from './systems/CameraSystem';
 import { HighlightSystem } from './systems/HighlightSystem';
+import { SceneBuilder } from './systems/SceneBuilder';
+import type { BuildProgress } from './systems/SceneBuilder';
 import { elevationOf } from '../play/building';
 import { WalkthroughSystem } from './systems/WalkthroughSystem';
 import type { WalkthroughTarget } from './systems/WalkthroughSystem';
@@ -80,6 +82,12 @@ export interface EngineOptions {
    * focusable). Default: the canvas.
    */
   focusTarget?: HTMLElement | null;
+  /**
+   * Time per build slice in ms (default 10): a layout is built a slice at a
+   * time, the start floor first, so the page never freezes. Infinity builds
+   * it at once.
+   */
+  buildBudgetMs?: number;
 }
 
 export interface SelectEvent {
@@ -128,7 +136,11 @@ type EventMap = {
   exitRoom: ExitRoomEvent;
   /** What Preview's HUD would show while walking through (aim, hint, floor). */
   hud: unknown;
+  /** How far building the layout is (after loadLayout, and big changes); allBuilt: everything is drawn. */
+  progress: BuildProgress;
 };
+
+export type { BuildProgress };
 
 /** What every edit answers outside edit mode. */
 export const READ_ONLY = 'This layout is view-only here';
@@ -170,6 +182,8 @@ export class LayoutEngine {
   readonly objects: ObjectSystem;
   readonly floors: FloorSystem;
   readonly highlights: HighlightSystem;
+  /** Builds the layout in slices (progressive loading). */
+  private _builder: SceneBuilder;
 
   // Edits: the editor's commands on this engine's store, refused outside edit mode
   readonly editor: LayoutEditorApi;
@@ -232,6 +246,15 @@ export class LayoutEngine {
     // Until a floor is chosen, the whole building shows, with roofs
     this.floors.setView({ mode: 'outside', level: 0 });
     this.highlights = new HighlightSystem(this.rooms, this.objects);
+    this._builder = new SceneBuilder({
+      rooms: this.rooms,
+      objects: this.objects,
+      floors: this.floors,
+      getLayout: () => this._store.getState(),
+      budgetMs: options.buildBudgetMs,
+      onProgress: (progress) => this.emit('progress', progress),
+      onChange: () => this.highlights.apply(),
+    });
 
     // Redraw whatever changes in this engine's layout; an edit is a 'change'
     this._unsubscribe = this._store.subscribe((s, prev) => {
@@ -239,8 +262,9 @@ export class LayoutEngine {
         || s.anchorData !== prev.anchorData;
       if (!edited && s.selectedRoomId === prev.selectedRoomId) return;
       this._cachedLayout = null;
+      if (this._loading) return; // loadLayout builds it (in slices)
       this._draw();
-      if (edited && !this._loading) this._emitChange('edit', 'layout');
+      if (edited) this._emitChange('edit', 'layout');
     });
 
     const editor = createEditorHistory(undefined, { workspace: this._store });
@@ -272,7 +296,9 @@ export class LayoutEngine {
     this._loaded = v2;
     this._cachedLayout = null;
     this.history.clear();
-    this._draw();
+    // Built a slice at a time, the start floor first ('progress' events; whenBuilt())
+    this._builder.start();
+    this.highlights.apply();
     // Walking through: start at this layout's spawn point
     if (this._walkthrough?.isActive()) this._walkthrough.respawn();
     this._emitChange('loadLayout', 'root');
@@ -495,8 +521,24 @@ export class LayoutEngine {
 
   // ── Cleanup ────────────────────────────────────────────────────────────
 
+  /** How far building the layout is: { done, total, floor, currentFloorReady, allBuilt }. */
+  get buildProgress(): BuildProgress {
+    return this._builder.progress;
+  }
+
+  /** Resolves when the layout is fully built (at once if it is). */
+  whenBuilt(): Promise<void> {
+    return this._builder.whenBuilt();
+  }
+
+  /** Build whatever is left now, in one go (tests; a screenshot that must show everything). */
+  finishBuild(): void {
+    this._builder.finish();
+  }
+
   /** Stop rendering and dispose the scene and the Babylon engine. */
   dispose(): void {
+    this._builder.dispose();
     this._walkthrough?.dispose();
     this._walkthrough = null;
     this._unsubscribe();
@@ -580,10 +622,7 @@ export class LayoutEngine {
   /** Bring the meshes up to date with this engine's layout. */
   private _draw(): void {
     if (this.scene.isDisposed) return;
-    const state = this._store.getState();
-    this.rooms.sync(state, state.selectedRoomId);
-    this.objects.sync(state);
-    this.floors.apply();
+    this._builder.request();
     this.highlights.apply();
   }
 

@@ -13,6 +13,10 @@
  * our test page). The viewer is connected to layoutBridge (connectEngine),
  * so teammates' modules and their "Press E" actions work in it.
  *
+ * A big layout is built a slice at a time, the floor you start on first
+ * ("Building your workplace… 40 %" until it shows); onProgress follows it and
+ * onReady comes when everything is built.
+ *
  * Walking through, the keys are the page's until the view is engaged: clicked
  * (it captures the mouse) or focused (Tab; a focus ring shows). Esc gives
  * them back.
@@ -22,7 +26,10 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 import { LayoutEngine } from '../LayoutEngine';
-import type { EngineMode, QualityLevel, InteractEvent, EnterRoomEvent, ExitRoomEvent } from '../LayoutEngine';
+import type {
+  EngineMode, QualityLevel, InteractEvent, EnterRoomEvent, ExitRoomEvent, BuildProgress,
+} from '../LayoutEngine';
+import { progressPercent } from '../../play/buildSchedule';
 import { connectEngine } from '../../integration/layoutBridge';
 import { readSavedLayout } from '../../services/apiService';
 
@@ -38,8 +45,10 @@ export interface LayoutViewerProps {
   quality?: QualityLevel;
   /** Where the real assets are (models/, textures/, env/). Default: the app's public/assets/. */
   assetBaseUrl?: string;
-  /** The engine is ready and the layout is drawn (focusOn, highlight, getAnchors, …). */
+  /** The engine is ready and the layout is fully built (focusOn, highlight, getAnchors, …). */
   onReady?: (engine: LayoutEngine) => void;
+  /** Building the layout: { done, total, floor, currentFloorReady, allBuilt } (the last one has allBuilt). */
+  onProgress?: (progress: BuildProgress) => void;
   onInteract?: (event: InteractEvent) => void;
   onEnterRoom?: (event: EnterRoomEvent) => void;
   onExitRoom?: (event: ExitRoomEvent) => void;
@@ -85,6 +94,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const [hud, setHud] = useState<Hud | null>(null);
   const [card, setCard] = useState<Card | null>(null);
+  const [progress, setProgress] = useState<BuildProgress | null>(null);
   // the latest callbacks, so the engine's handlers never call stale ones
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -119,6 +129,10 @@ export function LayoutViewer(props: LayoutViewerProps) {
         e.on('enterRoom', (ev) => propsRef.current.onEnterRoom?.(ev)),
         e.on('exitRoom', (ev) => propsRef.current.onExitRoom?.(ev)),
         e.on('hud', (info) => setHud(info as Hud)),
+        e.on('progress', (p) => {
+          setProgress(p);
+          propsRef.current.onProgress?.(p);
+        }),
       );
       setEngine(e);
     }).catch((err) => {
@@ -144,21 +158,25 @@ export function LayoutViewer(props: LayoutViewerProps) {
   // Load (or reload) the layout when it changes
   const { layout, companyId, layoutId } = props;
   useEffect(() => {
-    if (!engine) return;
+    if (!engine) return undefined;
+    let live = true;
     try {
       engine.loadLayout(layoutFrom({ layout, companyId, layoutId }));
       engine.fitView({ animate: false });
       setError(null);
-      if (readyFor.current !== engine) {
+      // ready = everything built (whenBuilt never resolves once the engine is disposed)
+      engine.whenBuilt().then(() => {
+        if (!live || readyFor.current === engine) return;
         readyFor.current = engine;
         propsRef.current.onReady?.(engine);
-      }
+      });
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
       // a ZodError's message is the list of bad fields: too much for this card
       setError(e.name === 'ZodError' ? 'This is not an AHDUS layout' : e.message);
       propsRef.current.onError?.(e);
     }
+    return () => { live = false; };
   }, [engine, layout, companyId, layoutId]);
 
   useEffect(() => {
@@ -187,6 +205,16 @@ export function LayoutViewer(props: LayoutViewerProps) {
         style={{ width: '100%', height: '100%', display: 'block', outline: 'none', touchAction: 'none' }}
       />
       {error && <div role="alert" style={styles.center}>{error}</div>}
+      {!error && progress && !progress.currentFloorReady && (
+        <div role="status" data-build-progress="start" style={styles.center}>
+          Building your workplace… {progressPercent(progress)} %
+        </div>
+      )}
+      {!error && progress?.currentFloorReady && !progress.allBuilt && (
+        <div role="status" data-build-progress="rest" style={styles.quiet}>
+          Building the rest… {progressPercent(progress)} %
+        </div>
+      )}
       {walking && !error && hud && (
         <>
           {engaged && <div aria-hidden style={styles.crosshair}>+</div>}
@@ -233,6 +261,7 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: 'inset 0 0 0 2px #fff, inset 0 0 0 4px #2563eb',
   },
   card: { ...panel, top: 12, right: 12, maxWidth: 320 },
+  quiet: { ...panel, right: 12, bottom: 12, padding: '4px 10px', fontSize: 12, opacity: 0.8 },
   key: { border: '1px solid #fff8', borderRadius: 4, padding: '0 5px', marginRight: 4 },
 };
 
