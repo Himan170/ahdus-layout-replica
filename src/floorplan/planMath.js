@@ -5,9 +5,80 @@
  * The plan is drawn in world metres: SVG x = world x, SVG y = world z.
  */
 
-import { snap } from '../play/geometry';
+import { snap, roomOpenings, WALL_ASSET_LENGTH } from '../play/geometry';
 import { placementHeight } from '../play/building';
 import { ASSET_TYPES } from '../utils/assetCatalog';
+
+// ── Walls, doors, windows ─────────────────────────────────────────────────
+
+/** A room's four walls: the line along its edge and the way into the room. */
+function roomEdges(room) {
+  const x0 = room.x - room.width / 2;
+  const x1 = room.x + room.width / 2;
+  const z0 = room.z - room.depth / 2;
+  const z1 = room.z + room.depth / 2;
+  // offsets along a wall are measured from the room's centre (geometry.openingOffsetFromHit)
+  return {
+    north: { at: (u) => ({ x: room.x + u, z: z1 }), half: room.width / 2, inward: { x: 0, z: -1 }, from: { x: x0, z: z1 }, to: { x: x1, z: z1 } },
+    south: { at: (u) => ({ x: room.x + u, z: z0 }), half: room.width / 2, inward: { x: 0, z: 1 }, from: { x: x0, z: z0 }, to: { x: x1, z: z0 } },
+    east: { at: (u) => ({ x: x1, z: room.z + u }), half: room.depth / 2, inward: { x: -1, z: 0 }, from: { x: x1, z: z0 }, to: { x: x1, z: z1 } },
+    west: { at: (u) => ({ x: x0, z: room.z + u }), half: room.depth / 2, inward: { x: 1, z: 0 }, from: { x: x0, z: z0 }, to: { x: x0, z: z1 } },
+  };
+}
+
+/**
+ * A room's walls as plan lines, cut where its doors and windows are
+ * (geometry.roomOpenings: the same data the 3D walls are built from).
+ * Doors come with their swing: the leaf opens into the room from `hinge`.
+ * @returns {{ walls: Array<{a,b}>, doors: Array<{a,b,hinge,open,sweep,width}>, windows: Array<{a,b}> }}
+ *          points in world metres; sweep = SVG arc sweep flag from b to open
+ */
+export function roomWallPieces(room) {
+  const edges = roomEdges(room);
+  const walls = [];
+  const doors = [];
+  const windows = [];
+  for (const [name, edge] of Object.entries(edges)) {
+    const spans = roomOpenings(room)
+      .filter((o) => o.wall === name)
+      .map((o) => ({ o, u0: Math.max(-edge.half, o.offset - o.width / 2), u1: Math.min(edge.half, o.offset + o.width / 2) }))
+      .filter((s) => s.u1 > s.u0)
+      .sort((p, q) => p.u0 - q.u0);
+    let u = -edge.half;
+    for (const s of spans) {
+      if (s.u0 > u) walls.push({ a: edge.at(u), b: edge.at(s.u0) });
+      u = Math.max(u, s.u1);
+      const a = edge.at(s.u0);
+      const b = edge.at(s.u1);
+      if (s.o.kind === 'window') {
+        windows.push({ a, b });
+      } else {
+        const width = s.u1 - s.u0;
+        const open = { x: a.x + edge.inward.x * width, z: a.z + edge.inward.z * width };
+        const v1 = { x: b.x - a.x, z: b.z - a.z };
+        const v2 = { x: open.x - a.x, z: open.z - a.z };
+        doors.push({ a, b, hinge: a, open, width, sweep: v1.x * v2.z - v1.z * v2.x > 0 ? 1 : 0 });
+      }
+    }
+    if (u < edge.half) walls.push({ a: edge.at(u), b: edge.at(edge.half) });
+  }
+  return { walls, doors, windows };
+}
+
+/**
+ * The two ends of a free-standing wall (a WALL_SEGMENT item): the inverse of
+ * geometry.wallSegmentData. @returns {{a,b}|null}
+ */
+export function wallSegmentEnds(object) {
+  if (object?.assetType !== 'WALL_SEGMENT') return null;
+  const half = (WALL_ASSET_LENGTH * (Number(object.scaleX) || 1)) / 2;
+  const r = Number(object.rotationY) || 0;
+  const dx = Math.cos(r) * half;
+  const dz = -Math.sin(r) * half;
+  const x = Number(object.x) || 0;
+  const z = Number(object.z) || 0;
+  return { a: { x: x - dx, z: z - dz }, b: { x: x + dx, z: z + dz } };
+}
 
 // ── Items ─────────────────────────────────────────────────────────────────
 

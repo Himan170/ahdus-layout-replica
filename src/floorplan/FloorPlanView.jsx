@@ -2,13 +2,17 @@
  * floorplan/FloorPlanView.jsx (Anshu, S1)
  *
  * The floor plan of the current floor (the canvas card's "Plan" view): rooms and
- * items from the store, drawn in world metres (SVG x = x, SVG y = z). Click or
- * Enter selects; dragging an item moves it by Studio's rules (planMath.planDrop).
+ * items from the store, drawn in world metres (SVG x = x, SVG y = z): walls with
+ * their doors and windows from the room data (planMath.roomWallPieces), room names,
+ * items. Click, or Tab to it and Enter, selects (it is also the accessible view);
+ * dragging an item moves it by Studio's rules (planMath.planDrop).
  */
 
 import { useMemo, useState } from 'react';
 import { ASSET_TYPES } from '../utils/assetCatalog';
-import { planDrop } from './planMath';
+import { WALL_THICKNESS } from '../play/geometry';
+import { sizeLabel } from '../ui/tools';
+import { planDrop, itemSize, roomWallPieces, wallSegmentEnds } from './planMath';
 
 export default function FloorPlanView({
   rooms = [],
@@ -80,7 +84,7 @@ export default function FloorPlanView({
   if (!plan || (!plan.rooms.length && !plan.objects.length)) {
     return (
       <div className="floor-plan-empty">
-        Add a room or furniture to see your 2D floor plan.
+        Add a room or furniture to see the floor plan.
       </div>
     );
   }
@@ -150,15 +154,25 @@ export default function FloorPlanView({
     if (!drag) return;
 
     const to = drag.moved ? dropOf(drag) : null;
-    if (to) onMoveObject(drag.id, to);
+    const object = objects.find((o) => o.id === drag.id);
+    const same = to && object && to.x === object.x && to.z === object.z && to.y === (object.y ?? 0);
+    if (to && !same) onMoveObject(drag.id, to);
 
     setDrag(null);
   }
 
+  const selectOnKey = (select) => (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      select();
+    }
+  };
+
   return (
-    <div className="floor-plan-view" aria-label="2D floor plan">
+    <div className="floor-plan-view" aria-label="Floor plan">
       <div className="floor-plan-toolbar">
-        <span>2D Floor Plan</span>
+        <span>Floor plan</span>
         {selectedObjectId && (
           <button
             type="button"
@@ -167,7 +181,7 @@ export default function FloorPlanView({
             Rotate 90°
           </button>
         )}
-        <span>Drag furniture to move it</span>
+        <span>Tab to a room or item, Enter selects · drag furniture to move it</span>
       </div>
 
       <svg
@@ -186,30 +200,30 @@ export default function FloorPlanView({
           const w = Number(room.width);
           const d = Number(room.depth);
           const selected = room.id === selectedRoomId;
+          const name = room.name || room.type || 'Room';
 
           return (
             <g
               key={room.id}
+              className="floor-plan-room"
+              data-room-id={room.id}
               role="button"
               tabIndex={0}
-              aria-label={room.name || room.type || 'Room'}
+              aria-label={`Room: ${name}, ${sizeLabel(w, d)}`}
+              aria-pressed={selected}
               onClick={() => onSelectRoom(room.id)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onSelectRoom(room.id);
-                }
-              }}
+              onKeyDown={selectOnKey(() => onSelectRoom(room.id))}
               style={{ cursor: 'pointer' }}
             >
               <rect
+                className="floor-plan-shape"
                 x={x - w / 2}
                 y={z - d / 2}
                 width={w}
                 height={d}
                 fill={selected ? '#dbeafe' : room.color || '#e2e8f0'}
-                stroke={selected ? '#2563eb' : '#334155'}
-                strokeWidth={selected ? 0.12 : 0.07}
+                stroke={selected ? '#2563eb' : 'none'}
+                strokeWidth={2.5}
                 vectorEffect="non-scaling-stroke"
               />
               <text
@@ -221,7 +235,7 @@ export default function FloorPlanView({
                 fill="#111827"
                 pointerEvents="none"
               >
-                {room.name || room.type || 'Room'}
+                {name}
               </text>
               <text
                 x={x}
@@ -232,77 +246,114 @@ export default function FloorPlanView({
                 fill="#475569"
                 pointerEvents="none"
               >
-                {w} × {d} m
+                {sizeLabel(w, d)}
               </text>
             </g>
           );
         })}
 
+        {/* Walls from the room data, with gaps where the doors and windows are */}
+        <g className="floor-plan-walls" pointerEvents="none" aria-hidden="true">
+          {plan.rooms.map((room) => {
+            const pieces = roomWallPieces(room);
+            const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => ({
+              x: room.x + (sx * room.width) / 2, z: room.z + (sz * room.depth) / 2,
+            }));
+            return (
+              <g key={room.id}>
+                {pieces.walls.map((w, i) => (
+                  <line key={`w${i}`} x1={w.a.x} y1={w.a.z} x2={w.b.x} y2={w.b.z}
+                    stroke="#1f2937" strokeWidth={WALL_THICKNESS} />
+                ))}
+                {corners.map((c, i) => (
+                  <rect key={`c${i}`} x={c.x - WALL_THICKNESS / 2} y={c.z - WALL_THICKNESS / 2}
+                    width={WALL_THICKNESS} height={WALL_THICKNESS} fill="#1f2937" />
+                ))}
+                {pieces.windows.map((w, i) => (
+                  <g key={`n${i}`} data-plan-window="">
+                    <line x1={w.a.x} y1={w.a.z} x2={w.b.x} y2={w.b.z} stroke="#ffffff" strokeWidth={WALL_THICKNESS} />
+                    <line x1={w.a.x} y1={w.a.z} x2={w.b.x} y2={w.b.z} stroke="#0ea5e9" strokeWidth={WALL_THICKNESS / 3} />
+                  </g>
+                ))}
+                {pieces.doors.map((door, i) => (
+                  <g key={`d${i}`} data-plan-door="">
+                    <line x1={door.hinge.x} y1={door.hinge.z} x2={door.open.x} y2={door.open.z}
+                      stroke="#1f2937" strokeWidth={0.04} />
+                    <path
+                      d={`M ${door.b.x} ${door.b.z} A ${door.width} ${door.width} 0 0 ${door.sweep} ${door.open.x} ${door.open.z}`}
+                      fill="none" stroke="#64748b" strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke"
+                    />
+                  </g>
+                ))}
+              </g>
+            );
+          })}
+        </g>
+
         {plan.objects.map((object) => {
           const type = ASSET_TYPES[object.assetType] || {};
-          const w =
-            (Number(object.width) || Number(type.defaultWidth) || 0.8) *
-            (Number(object.scaleX) || 1);
-          const d =
-            (Number(object.depth) || Number(type.defaultDepth) || 0.8) *
-            (Number(object.scaleZ) || 1);
+          const { width: w, depth: d } = itemSize(object);
           const activeDrag = drag?.id === object.id;
           const dropAt = activeDrag && drag.moved ? dropOf(drag) : null;
           const x = dropAt ? dropAt.x : Number(object.x) || 0;
           const z = dropAt ? dropAt.z : Number(object.z) || 0;
           const selected = object.id === selectedObjectId;
           const angle = Number(object.rotationY) || 0;
-          const boxWidth = Math.abs(Math.cos(angle)) * w +
-            Math.abs(Math.sin(angle)) * d;
-          const boxDepth = Math.abs(Math.sin(angle)) * w +
-            Math.abs(Math.cos(angle)) * d;
+          const label = object.label || type.label || object.assetType || 'Item';
+          const wall = wallSegmentEnds({ ...object, x, z });
 
           return (
             <g
               key={object.id}
+              className="floor-plan-item"
+              data-object-id={object.id}
               role="button"
               tabIndex={0}
-              aria-label={object.name || object.assetType || 'Furniture'}
+              aria-label={`Item: ${label}${object.isLocked ? ' (locked)' : ''}`}
               aria-pressed={selected}
               onClick={() => onSelectObject(object.id)}
               onPointerDown={(event) => pointerDown(event, object)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onSelectObject(object.id);
-                }
-              }}
+              onKeyDown={selectOnKey(() => onSelectObject(object.id))}
               style={{
                 cursor: object.isLocked ? 'not-allowed' : 'move',
                 touchAction: 'none',
               }}
             >
-              <rect
-                x={x - boxWidth / 2}
-                y={z - boxDepth / 2}
-                width={boxWidth}
-                height={boxDepth}
-                rx={0.04}
-                fill={type.color || '#94a3b8'}
-                fillOpacity={0.9}
-                stroke={selected ? '#2563eb' : '#475569'}
-                strokeWidth={selected ? 0.12 : 0.06}
-                vectorEffect="non-scaling-stroke"
-                transform={`rotate(${(-angle * 180) / Math.PI} ${x} ${z})`}
-              />
-              <text
-                x={x}
-                y={z}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fontSize={Math.max(0.1, Math.min(boxWidth, boxDepth) * 0.16)}
-                fill="#111827"
-                pointerEvents="none"
-              >
-                {(object.name || object.assetType || 'Object').slice(0, 16)}
-              </text>
-              {activeDrag && (
-                <circle cx={x} cy={z} r={0.1} fill="#2563eb" />
+              {wall ? (
+                <line
+                  className="floor-plan-shape"
+                  x1={wall.a.x} y1={wall.a.z} x2={wall.b.x} y2={wall.b.z}
+                  stroke={selected ? '#2563eb' : '#374151'}
+                  strokeWidth={Math.max(d, WALL_THICKNESS)}
+                />
+              ) : (
+                <>
+                  <rect
+                    className="floor-plan-shape"
+                    x={x - w / 2}
+                    y={z - d / 2}
+                    width={w}
+                    height={d}
+                    rx={0.04}
+                    fill={type.color || '#94a3b8'}
+                    fillOpacity={0.9}
+                    stroke={selected ? '#2563eb' : '#475569'}
+                    strokeWidth={selected ? 2.5 : 1}
+                    vectorEffect="non-scaling-stroke"
+                    transform={`rotate(${(-angle * 180) / Math.PI} ${x} ${z})`}
+                  />
+                  <text
+                    x={x}
+                    y={z}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize={Math.max(0.1, Math.min(w, d) * 0.16)}
+                    fill="#111827"
+                    pointerEvents="none"
+                  >
+                    {label.slice(0, 16)}
+                  </text>
+                </>
               )}
             </g>
           );
