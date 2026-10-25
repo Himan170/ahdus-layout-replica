@@ -480,19 +480,20 @@ export const createWorkspaceStore = () => create(
 
     /**
      * Replace floors/rooms/objects wholesale. Used by undo/redo of actions
-     * that touch many records at once (e.g. deleting a floor).
+     * that touch many records at once (e.g. deleting a floor, restoring a version).
      */
-    replaceLayoutState: ({ floors, rooms, objects, currentFloor }) => {
-      set({
+    replaceLayoutState: ({ floors, rooms, objects, currentFloor, anchorData }) => {
+      set((st) => ({
         floors,
         rooms,
         objects,
-        currentFloor,
+        currentFloor: currentFloor ?? st.currentFloor,
+        anchorData: anchorData ?? st.anchorData,
         selectedRoomId: null,
         selectedObjectId: null,
         selectedOpening: null,
         isDirty: true,
-      });
+      }));
     },
 
     /** Mark workspace as saved (isDirty → false). */

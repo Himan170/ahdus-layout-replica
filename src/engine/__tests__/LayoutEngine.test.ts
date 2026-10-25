@@ -396,6 +396,11 @@ const EDITS: Record<string, unknown[]> = {
     routes: [],
     floorLinks: [],
   }],
+  restoreVersion: [{
+    floors: { '0': { id: 0, name: 'Ground Floor', height: 3.5 } },
+    rooms: [{ id: 'room_restored', name: 'Restored Room', x: 50, z: 50, width: 5, depth: 5, floor: 0, doors: [], windows: [] }],
+    objects: [],
+  }],
   undo: [],
   redo: [],
 };

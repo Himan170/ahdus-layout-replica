@@ -1373,6 +1373,8 @@ export default function WorkplaceEditor({ onExit }) {
           undoState={undoState}
           onUndo={() => editor.undo()}
           onRedo={() => editor.redo()}
+          editor={editor}
+          onMessage={showStudioMessage}
           settings={{
             snapEnabled,
             onSnapToggle: handleSnapToggle,

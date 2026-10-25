@@ -143,6 +143,114 @@
   gap: var(--space-2);
 }
 
+/* ── Version History Popover (Task R4) ────────────────────────────── */
+
+.studio-header__version-history {
+  position: relative;
+}
+
+.version-history-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 340px;
+  max-height: 460px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3) var(--space-4);
+  z-index: 40;
+}
+
+.version-history-pop__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.version-history-pop__save {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.version-history-pop__save input {
+  flex: 1;
+  font-size: 12px;
+}
+
+.version-history-pop__list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0 0;
+}
+
+.version-history-pop__empty {
+  font-size: 12px;
+  text-align: center;
+  padding: var(--space-4) var(--space-2);
+  line-height: 1.5;
+}
+
+.version-history-pop__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm, 4px);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  transition: background 0.15s ease;
+}
+
+.version-history-pop__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.version-history-pop__item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.version-history-pop__item-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.version-history-pop__badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.1));
+  color: var(--accent, #6366f1);
+  text-transform: uppercase;
+}
+
+.version-history-pop__item-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+
 /* Segmented control (2D | 3D, lighting, grid step) */
 .ui-segmented {
   display: inline-flex;

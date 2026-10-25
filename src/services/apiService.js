@@ -41,6 +41,7 @@ import {
   stopSyncListener,
   dequeueLayoutSync,
 } from './syncQueue';
+import { supabase, isSupabaseConfigured } from './supabaseClient';
 
 // ─── Config ───
 const SAVE_DELAY     = 1000;  // ms — debounce trailing edge
@@ -64,13 +65,17 @@ function listKey(companyId) {
   return `${STORAGE_PREFIX}${companyId}_layouts`;
 }
 
+function versionsKey(companyId, layoutId) {
+  return `${STORAGE_PREFIX}${companyId}_${layoutId}_versions`;
+}
+
 function readJson(key, fallback) {
   const raw = localStorage.getItem(key);
   if (raw === null) return fallback;
   return JSON.parse(raw);
 }
 
-// ─── Mock backend (localStorage) ───
+// ─── Mock backend (localStorage) & Local Cache ───
 
 function newLayoutId() {
   return `layout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -89,9 +94,8 @@ function _storedRevision(companyId, layoutId) {
 }
 
 /**
- * Write a layout and its entry in the company's index. Synchronous, so it
- * also completes inside beforeunload. Replace with a real request later.
- * Throws if the browser refuses (e.g. storage full).
+ * Write a layout and its entry in the company's index in localStorage.
+ * Acts as an offline cache and synchronous fallback.
  */
 function _persistToBackend(companyId, layoutId, payload, revision) {
   const savedAt = new Date().toISOString();
@@ -111,11 +115,212 @@ function _loadFromBackend(companyId, layoutId) {
   return readJson(storageKey(companyId, layoutId), null);
 }
 
+function isUuid(str) {
+  if (typeof str !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
+// ─── Real Supabase Backend Integration (Task R2) ───
+
+/**
+ * Persists a layout to Supabase with server-side Compare-And-Set (CAS) revision check.
+ * Updates the row only if revision matches baseRevision, preventing concurrent overwrite.
+ */
+async function _persistToSupabase(companyId, layoutId, payload, baseRevision) {
+  if (!isSupabaseConfigured || !supabase || !isUuid(companyId) || !isUuid(layoutId)) {
+    return { ok: false, error: 'Supabase client is not configured or IDs are not UUIDs' };
+  }
+  const savedAt = new Date().toISOString();
+  const nextRevision = (Number.isFinite(baseRevision) ? baseRevision : 0) + 1;
+
+  // 1. Attempt atomic Compare-And-Set UPDATE where revision matches baseRevision
+  const { data: updated, error: updateError } = await supabase
+    .from('workspace_layouts')
+    .update({
+      name: payload.layoutName || 'Untitled Layout',
+      metadata: payload,
+      revision: nextRevision,
+      updated_at: savedAt,
+    })
+    .eq('id', layoutId)
+    .eq('company_id', companyId)
+    .eq('revision', baseRevision)
+    .select('id, revision, updated_at');
+
+  if (updateError) {
+    return { ok: false, error: updateError.message };
+  }
+
+  if (updated && updated.length > 0) {
+    return { ok: true, revision: updated[0].revision, savedAt };
+  }
+
+  // 2. If 0 rows updated, verify if layout already exists with a different revision
+  const { data: existing, error: checkError } = await supabase
+    .from('workspace_layouts')
+    .select('id, revision')
+    .eq('id', layoutId)
+    .eq('company_id', companyId)
+    .maybeSingle();
+
+  if (checkError) {
+    return { ok: false, error: checkError.message };
+  }
+
+  if (existing) {
+    // Conflict! Server has a different (typically higher) revision
+    return { ok: false, conflict: true, error: CHANGED_ELSEWHERE, serverRevision: existing.revision };
+  }
+
+  // 3. Row does not exist yet: insert initial layout row with revision = 1
+  const { data: inserted, error: insertError } = await supabase
+    .from('workspace_layouts')
+    .insert({
+      id: layoutId,
+      company_id: companyId,
+      name: payload.layoutName || 'Untitled Layout',
+      revision: 1,
+      version: payload.layoutVersion || 1,
+      metadata: payload,
+      created_at: savedAt,
+      updated_at: savedAt,
+    })
+    .select('id, revision, updated_at');
+
+  if (insertError) {
+    if (insertError.code === '23505') { // unique violation
+      return { ok: false, conflict: true, error: CHANGED_ELSEWHERE };
+    }
+    return { ok: false, error: insertError.message };
+  }
+
+  return { ok: true, revision: 1, savedAt };
+}
+
+/**
+ * Load a layout from Supabase workspace_layouts table.
+ */
+async function _loadFromSupabase(companyId, layoutId) {
+  if (!isSupabaseConfigured || !supabase || !isUuid(companyId) || !isUuid(layoutId)) return null;
+  const { data, error } = await supabase
+    .from('workspace_layouts')
+    .select('id, name, revision, version, metadata, updated_at')
+    .eq('id', layoutId)
+    .eq('company_id', companyId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  const payload = data.metadata && typeof data.metadata === 'object' ? data.metadata : {};
+  return {
+    ...payload,
+    layoutName: data.name || payload.layoutName || 'Untitled Layout',
+    layoutVersion: data.version || payload.layoutVersion || 1,
+    revision: data.revision,
+    savedAt: data.updated_at,
+  };
+}
+
+/**
+ * List layouts for a company from Supabase.
+ */
+async function _listFromSupabase(companyId) {
+  if (!isSupabaseConfigured || !supabase || !isUuid(companyId)) return null;
+  const { data, error } = await supabase
+    .from('workspace_layouts')
+    .select('id, name, revision, version, metadata, updated_at')
+    .eq('company_id', companyId)
+    .order('updated_at', { ascending: false });
+
+  if (error || !data) return null;
+  return data.map((row) => {
+    const payload = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+    return layoutSummary(row.id, {
+      ...payload,
+      layoutName: row.name || payload.layoutName,
+      layoutVersion: row.version || payload.layoutVersion,
+      revision: row.revision,
+      updatedAt: row.updated_at,
+    });
+  });
+}
+
+/**
+ * Delete a layout from Supabase.
+ */
+async function _deleteFromSupabase(companyId, layoutId) {
+  if (!isSupabaseConfigured || !supabase || !isUuid(companyId) || !isUuid(layoutId)) return;
+  await supabase
+    .from('workspace_layouts')
+    .delete()
+    .eq('id', layoutId)
+    .eq('company_id', companyId);
+}
+
+// ─── Realtime Subscription (Multi-tab & Multi-client) ───
+
+let _realtimeChannel = null;
+
+export function _subscribeRealtime(companyId, layoutId) {
+  if (!isSupabaseConfigured || !supabase || !layoutId || typeof supabase.channel !== 'function') return;
+  if (_realtimeChannel) {
+    try { supabase.removeChannel(_realtimeChannel); } catch { /* ignore */ }
+    _realtimeChannel = null;
+  }
+  try {
+    _realtimeChannel = supabase
+      .channel(`layout-${layoutId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'workspace_layouts',
+          filter: `id=eq.${layoutId}`,
+        },
+        (payload) => {
+          const nextRev = payload.new?.revision;
+          if (Number.isFinite(nextRev) && nextRev > _revision) {
+            _conflict();
+          }
+        }
+      )
+      .subscribe();
+  } catch (err) {
+    console.warn('[apiService] failed to subscribe to Supabase realtime:', err);
+  }
+}
+
+export function _unsubscribeRealtime() {
+  if (_realtimeChannel && supabase && typeof supabase.removeChannel === 'function') {
+    try { supabase.removeChannel(_realtimeChannel); } catch { /* ignore */ }
+    _realtimeChannel = null;
+  }
+}
+
 // ─── Saving ───
 
 let _debounceTimer = null;
 /** Revision of the open layout as this tab loaded or last saved it. */
 let _revision = 0;
+/** R4: Number of saves since last auto-version checkpoint */
+const VERSION_INTERVAL = 5;
+let _saveCountSinceVersion = 0;
+
+export function _setRevisionForTesting(r = 0) {
+  _revision = r;
+}
+
+export function _resetSaveCountForTesting() {
+  _saveCountSinceVersion = 0;
+}
+
+export function _getSaveCountSinceVersion() {
+  return _saveCountSinceVersion;
+}
+
+export function _getRevision() {
+  return _revision;
+}
 
 function _conflict() {
   useWorkspaceStore.getState().markSaveConflict(CHANGED_ELSEWHERE);
@@ -126,11 +331,34 @@ function _conflict() {
  * Persist an item from the offline sync queue.
  * Checks for conflict before applying to storage.
  */
-export function _persistQueueItem(item) {
+export async function _persistQueueItem(item) {
+  // Check local stored revision first
   const stored = _storedRevision(item.companyId, item.layoutId);
   if (stored !== null && stored > item.baseRevision) {
     return { ok: false, conflict: true, error: CHANGED_ELSEWHERE };
   }
+
+  // If Supabase is configured with UUIDs, perform server-side CAS check
+  if (isSupabaseConfigured && isOnline() && supabase && isUuid(item.companyId) && isUuid(item.layoutId)) {
+    const res = await _persistToSupabase(item.companyId, item.layoutId, item.payload, item.baseRevision);
+    if (res.conflict) {
+      return { ok: false, conflict: true, error: CHANGED_ELSEWHERE };
+    }
+    if (res.ok) {
+      const revision = res.revision;
+      _persistToBackend(item.companyId, item.layoutId, item.payload, revision);
+      const state = useWorkspaceStore.getState();
+      if (state.companyId === item.companyId && state.layoutId === item.layoutId) {
+        _revision = revision;
+        state.markSaved();
+        state.setStorageNearlyFull?.(storageUse().nearlyFull);
+      }
+      return { ok: true, revision };
+    }
+    throw new Error(res.error || 'Failed to sync to Supabase');
+  }
+
+  // Fallback to local storage
   const revision = Math.max(item.baseRevision, stored ?? 0) + 1;
   _persistToBackend(item.companyId, item.layoutId, item.payload, revision);
   const state = useWorkspaceStore.getState();
@@ -144,7 +372,8 @@ export function _persistQueueItem(item) {
 
 /**
  * Save the open layout now if it has unsaved changes (or always, with force).
- * Never overwrites a save another tab made after ours.
+ * Uses server-side Compare-And-Set revision check when Supabase is connected,
+ * falling back to localStorage offline cache.
  * @returns {{ ok: boolean, skipped?: boolean, conflict?: boolean, error?: string, queued?: boolean }}
  */
 function _saveSync({ force = false } = {}) {
@@ -157,14 +386,17 @@ function _saveSync({ force = false } = {}) {
   if (state.saveConflict) return _conflict();                                  // wait for Reload / Save a copy
   if (!state.isDirty && !force) return { ok: true, skipped: true };            // nothing changed
 
+  const payload = state.exportWorkspace();
+
   if (!isOnline()) {
-    // R7: Offline mode — queue the save so it syncs when back online
+    // R7: Offline mode — queue the save and update local cache so it syncs when back online
     enqueueSync({
       companyId: state.companyId,
       layoutId: state.layoutId,
-      payload: state.exportWorkspace(),
+      payload,
       baseRevision: _revision,
     });
+    _persistToBackend(state.companyId, state.layoutId, payload, _revision);
     useWorkspaceStore.getState().setSyncStatus?.('offline');
     useWorkspaceStore.getState().markSaveFailed?.('Offline (changes queued)');
     return { ok: true, queued: true };
@@ -174,10 +406,39 @@ function _saveSync({ force = false } = {}) {
     const stored = _storedRevision(state.companyId, state.layoutId);
     if (stored !== null && stored > _revision) return _conflict();
     const revision = Math.max(_revision, stored ?? 0) + 1;
-    _persistToBackend(state.companyId, state.layoutId, state.exportWorkspace(), revision);
+    _persistToBackend(state.companyId, state.layoutId, payload, revision);
     _revision = revision;
     useWorkspaceStore.getState().markSaved();
     useWorkspaceStore.getState().setStorageNearlyFull(storageUse().nearlyFull);
+    _post('open');
+
+    // Asynchronously push to Supabase with CAS revision check if configured with UUIDs
+    if (isSupabaseConfigured && supabase && isUuid(state.companyId) && isUuid(state.layoutId)) {
+      _persistToSupabase(state.companyId, state.layoutId, payload, _revision - 1).then((res) => {
+        if (res.conflict) {
+          _conflict();
+        } else if (res.ok && res.revision) {
+          _revision = res.revision;
+          _persistToBackend(state.companyId, state.layoutId, payload, _revision);
+        }
+      }).catch((err) => {
+        console.warn('[apiService] background Supabase CAS sync failed:', err);
+      });
+    }
+
+    // R4: Automatic version checkpoint every VERSION_INTERVAL saves
+    _saveCountSinceVersion++;
+    if (_saveCountSinceVersion >= VERSION_INTERVAL) {
+      _saveCountSinceVersion = 0;
+      createVersion('Auto-save checkpoint', {
+        companyId: state.companyId,
+        layoutId: state.layoutId,
+        payload,
+      }).catch((err) => {
+        console.warn('[apiService] auto-save version checkpoint failed:', err);
+      });
+    }
+
     return { ok: true };
   } catch (err) {
     const error = err?.name === 'QuotaExceededError' ? NO_SPACE : (err?.message || 'Could not save');
@@ -187,7 +448,7 @@ function _saveSync({ force = false } = {}) {
       enqueueSync({
         companyId: state.companyId,
         layoutId: state.layoutId,
-        payload: state.exportWorkspace(),
+        payload,
         baseRevision: _revision,
       });
       useWorkspaceStore.getState().setSyncStatus?.('offline');
@@ -215,7 +476,23 @@ function _scheduleSave() {
  * @returns {Promise<boolean>} true if layout was found and loaded
  */
 export async function loadWorkspace(companyId, layoutId) {
-  const data = _loadFromBackend(companyId, layoutId);
+  let data = null;
+
+  if (isSupabaseConfigured && isOnline() && supabase) {
+    try {
+      data = await _loadFromSupabase(companyId, layoutId);
+      if (data) {
+        // Cache loaded data into localStorage for offline use
+        _persistToBackend(companyId, layoutId, data, data.revision || 0);
+      }
+    } catch (err) {
+      console.warn('[apiService] Supabase load error, falling back to cache:', err);
+    }
+  }
+
+  if (!data) {
+    data = _loadFromBackend(companyId, layoutId);
+  }
   if (!data) return false;
 
   const store = useWorkspaceStore.getState();
@@ -224,12 +501,14 @@ export async function loadWorkspace(companyId, layoutId) {
   store.setTenant(companyId, layoutId, summary.name, data.layoutVersion ?? 1);
   _revision = Number.isFinite(data.revision) ? data.revision : 0;
   store.setStorageNearlyFull(storageUse().nearlyFull);
+  _subscribeRealtime(companyId, layoutId);
   return true;
 }
 
 /**
  * A saved layout as it is stored (a save: v1), without opening it in the app's
  * store. For <LayoutViewer companyId layoutId />, which keeps its own copy.
+ * Synchronous read from local cache.
  * @returns {object|null} null if there is no such layout
  */
 export function readSavedLayout(companyId, layoutId) {
@@ -261,7 +540,11 @@ export async function saveAsCopy() {
   const name = `${store.layoutName} (copy)`;
   try {
     store.setTenant(store.companyId, layoutId, name, store.layoutVersion);
-    _persistToBackend(store.companyId, layoutId, useWorkspaceStore.getState().exportWorkspace(), 1);
+    const payload = useWorkspaceStore.getState().exportWorkspace();
+    if (isSupabaseConfigured && isOnline() && supabase) {
+      await _persistToSupabase(store.companyId, layoutId, payload, 0);
+    }
+    _persistToBackend(store.companyId, layoutId, payload, 1);
   } catch (err) {
     useWorkspaceStore.getState().markSaveFailed(err?.name === 'QuotaExceededError' ? NO_SPACE : (err?.message || 'Could not save'));
     return { ok: false, error: useWorkspaceStore.getState().saveError };
@@ -284,8 +567,17 @@ export async function createWorkspace(companyId, name = 'Untitled Layout') {
   const store = useWorkspaceStore.getState();
   store.resetWorkspace();
   store.setTenant(companyId, layoutId, name, 1);
+  const payload = store.exportWorkspace();
+
+  if (isSupabaseConfigured && isOnline() && supabase) {
+    try {
+      await _persistToSupabase(companyId, layoutId, payload, 0);
+    } catch (err) {
+      console.warn('[apiService] Supabase initial create error:', err);
+    }
+  }
   // Write the empty layout now, so it is in the list even before the first change
-  _persistToBackend(companyId, layoutId, useWorkspaceStore.getState().exportWorkspace(), 1);
+  _persistToBackend(companyId, layoutId, payload, 1);
   _revision = 1;
   return layoutId;
 }
@@ -308,7 +600,18 @@ export async function renameLayout(name) {
   const store = useWorkspaceStore.getState();
   if (!name || name === store.layoutName) return;
   store.setTenant(store.companyId, store.layoutId, name, store.layoutVersion);
-  _saveSync({ force: true });
+  if (isSupabaseConfigured && isOnline() && supabase) {
+    try {
+      await supabase
+        .from('workspace_layouts')
+        .update({ name, updated_at: new Date().toISOString() })
+        .eq('id', store.layoutId)
+        .eq('company_id', store.companyId);
+    } catch (err) {
+      console.warn('[apiService] Supabase rename error:', err);
+    }
+  }
+  return _saveSync({ force: true });
 }
 
 /**
@@ -319,6 +622,22 @@ export async function renameLayout(name) {
  * @returns {Promise<Array<{ id, name, rooms, floors, updatedAt, broken? }>>}
  */
 export async function listLayouts(companyId) {
+  if (isSupabaseConfigured && isOnline() && supabase) {
+    try {
+      const remote = await _listFromSupabase(companyId);
+      if (remote && Array.isArray(remote)) {
+        try {
+          localStorage.setItem(listKey(companyId), JSON.stringify(
+            remote.map((l) => ({ id: l.id, name: l.name, updatedAt: l.updatedAt }))
+          ));
+        } catch { /* ignore */ }
+        return remote;
+      }
+    } catch (err) {
+      console.warn('[apiService] Supabase list error, falling back to cache:', err);
+    }
+  }
+
   let index;
   try { index = readJson(listKey(companyId), []); } catch { index = []; }
   if (!Array.isArray(index)) index = [];
@@ -348,6 +667,7 @@ export async function listLayouts(companyId) {
     localStorage.setItem(listKey(companyId), JSON.stringify(
       list.map((l) => ({ id: l.id, name: l.name, updatedAt: l.updatedAt }))));
   } catch { /* the list still works without the repaired index */ }
+
   return list;
 }
 
@@ -424,10 +744,17 @@ export async function exportLayout(companyId, layoutId) {
   const st = useWorkspaceStore.getState();
   let data;
   if (st.companyId === companyId && st.layoutId === layoutId) {
-    _saveSync();
+    await _saveSync();
     data = useWorkspaceStore.getState().exportWorkspace();
   } else {
-    data = _loadFromBackend(companyId, layoutId);
+    if (isSupabaseConfigured && isOnline() && supabase) {
+      try {
+        data = await _loadFromSupabase(companyId, layoutId);
+      } catch { /* fallback to local */ }
+    }
+    if (!data) {
+      data = _loadFromBackend(companyId, layoutId);
+    }
   }
   if (!data) throw new Error('This layout no longer exists');
   const { companyId: _c, layoutId: _l, revision: _r, savedAt: _s, exportedAt: _e, ...layout } = data;
@@ -452,12 +779,17 @@ export async function importLayout(companyId, text) {
 
   const n = normaliseLayout(layout);
   const layoutId = newLayoutId();
+  const payload = {
+    companyId, layoutId,
+    layoutName: n.layoutName, layoutVersion: n.layoutVersion,
+    floors: n.floors, rooms: n.rooms, objects: n.objects, anchorData: n.anchorData,
+  };
+
   try {
-    _persistToBackend(companyId, layoutId, {
-      companyId, layoutId,
-      layoutName: n.layoutName, layoutVersion: n.layoutVersion,
-      floors: n.floors, rooms: n.rooms, objects: n.objects, anchorData: n.anchorData,
-    }, 1);
+    if (isSupabaseConfigured && isOnline() && supabase) {
+      await _persistToSupabase(companyId, layoutId, payload, 0);
+    }
+    _persistToBackend(companyId, layoutId, payload, 1);
   } catch (err) {
     localStorage.removeItem(storageKey(companyId, layoutId));
     throw new Error(err?.name === 'QuotaExceededError' ? NO_SPACE : (err?.message || 'Could not import'), { cause: err });
@@ -486,7 +818,15 @@ export function storageUse() {
  * @param {string} layoutId
  */
 export async function deleteLayout(companyId, layoutId) {
+  if (isSupabaseConfigured && isOnline() && supabase) {
+    try {
+      await _deleteFromSupabase(companyId, layoutId);
+    } catch (err) {
+      console.warn('[apiService] Supabase delete error:', err);
+    }
+  }
   localStorage.removeItem(storageKey(companyId, layoutId));
+  localStorage.removeItem(versionsKey(companyId, layoutId));
   let index;
   try { index = readJson(listKey(companyId), []); } catch { index = []; }
   const filtered = (Array.isArray(index) ? index : []).filter((l) => l.id !== layoutId);
@@ -598,4 +938,160 @@ export function stopAutoSave() {
     useWorkspaceStore.getState().setOpenElsewhere(false);
   }
   _saveSync();
+}
+
+// ─── Version History (Task R4) ───
+
+/**
+ * Create a new snapshot version of the layout.
+ * Persists to Supabase layout_versions table and local storage cache.
+ * @param {string} [name] Human readable version name/note
+ * @param {{ companyId?: string, layoutId?: string, payload?: object }} [options]
+ * @returns {Promise<{ ok: boolean, version?: object, error?: string }>}
+ */
+export async function createVersion(name = '', options = {}) {
+  const state = useWorkspaceStore.getState();
+  const companyId = options.companyId || state.companyId;
+  const layoutId = options.layoutId || state.layoutId;
+  const payload = options.payload || state.exportWorkspace();
+
+  if (!companyId || !layoutId) {
+    return { ok: false, error: 'No workspace open' };
+  }
+
+  // Read existing versions from cache to determine next version number
+  const existing = readJson(versionsKey(companyId, layoutId), []);
+  const highestVersion = Array.isArray(existing) && existing.length > 0
+    ? Math.max(...existing.map((v) => Number(v.version) || 0))
+    : 0;
+  const nextVersion = highestVersion + 1;
+  const versionName = name?.trim() || `Version ${nextVersion}`;
+  const versionId = (isUuid(layoutId) && typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : newLayoutId();
+
+  const versionRecord = {
+    id: versionId,
+    layout_id: layoutId,
+    company_id: companyId,
+    name: versionName,
+    version: nextVersion,
+    revision: _revision,
+    snapshot: payload,
+    created_by: null,
+    created_at: new Date().toISOString(),
+  };
+
+  // Try Supabase first if configured with UUIDs
+  if (isSupabaseConfigured && isOnline() && supabase && isUuid(companyId) && isUuid(layoutId)) {
+    try {
+      const insertPayload = {
+        layout_id: layoutId,
+        company_id: companyId,
+        name: versionName,
+        version: nextVersion,
+        revision: Math.max(1, _revision),
+        snapshot: payload,
+        created_at: versionRecord.created_at,
+      };
+      const { data, error } = await supabase
+        .from('layout_versions')
+        .insert(insertPayload)
+        .select();
+
+      const created = Array.isArray(data) ? data[0] : data;
+      if (!error && created?.id) {
+        versionRecord.id = created.id;
+      } else if (error) {
+        console.warn('[apiService] Supabase layout_versions insert warning:', error);
+      }
+    } catch (err) {
+      console.warn('[apiService] Supabase createVersion error:', err);
+    }
+  }
+
+  // Cache into localStorage
+  try {
+    const updatedList = [versionRecord, ...(Array.isArray(existing) ? existing : [])];
+    localStorage.setItem(versionsKey(companyId, layoutId), JSON.stringify(updatedList));
+  } catch (err) {
+    console.warn('[apiService] caching version failed:', err);
+  }
+
+  return { ok: true, version: versionRecord };
+}
+
+/**
+ * List all snapshot versions for a layout, newest first.
+ * Fetches from Supabase and syncs to local storage cache.
+ * @param {string} companyId
+ * @param {string} layoutId
+ * @returns {Promise<Array<object>>}
+ */
+export async function listVersions(companyId, layoutId) {
+  if (!companyId || !layoutId) return [];
+
+  if (isSupabaseConfigured && isOnline() && supabase && isUuid(companyId) && isUuid(layoutId)) {
+    try {
+      const { data, error } = await supabase
+        .from('layout_versions')
+        .select('id, layout_id, company_id, name, version, revision, snapshot, created_by, created_at')
+        .eq('company_id', companyId)
+        .eq('layout_id', layoutId)
+        .order('version', { ascending: false });
+
+      if (!error && Array.isArray(data)) {
+        try {
+          localStorage.setItem(versionsKey(companyId, layoutId), JSON.stringify(data));
+        } catch { /* ignore storage error */ }
+        return data;
+      }
+    } catch (err) {
+      console.warn('[apiService] Supabase listVersions error, falling back to cache:', err);
+    }
+  }
+
+  // Fallback to local storage
+  const cached = readJson(versionsKey(companyId, layoutId), []);
+  return Array.isArray(cached) ? cached : [];
+}
+
+/**
+ * Restore a previous layout version.
+ * Applies the snapshot through editorHistory so the restore is undoable.
+ * @param {string} companyId
+ * @param {string} layoutId
+ * @param {string|number} versionId Version UUID or version integer
+ * @param {object} [editor] Editor history instance (from createEditorHistory)
+ * @returns {Promise<{ ok: boolean, version?: object, error?: string }>}
+ */
+export async function restoreVersion(companyId, layoutId, versionId, editor) {
+  if (!companyId || !layoutId) return { ok: false, error: 'No layout specified' };
+
+  const versions = await listVersions(companyId, layoutId);
+  const target = versions.find((v) => v.id === versionId || v.version === Number(versionId));
+  if (!target || !target.snapshot) {
+    return { ok: false, error: 'Version not found' };
+  }
+
+  if (editor && typeof editor.restoreVersion === 'function') {
+    editor.restoreVersion(target.snapshot);
+  } else {
+    const normalised = normaliseLayout(target.snapshot);
+    useWorkspaceStore.getState().replaceLayoutState({
+      floors: normalised.floors,
+      rooms: normalised.rooms,
+      objects: normalised.objects,
+      currentFloor: Object.keys(normalised.floors || {})[0] ? Number(Object.keys(normalised.floors)[0]) : 0,
+      anchorData: normalised.anchorData,
+    });
+    if (normalised.layoutName) {
+      useWorkspaceStore.getState().layoutName = normalised.layoutName;
+    }
+  }
+
+  // Mark dirty so the restored version persists as a new save revision
+  useWorkspaceStore.setState({ isDirty: true });
+
+  return { ok: true, version: target };
 }
