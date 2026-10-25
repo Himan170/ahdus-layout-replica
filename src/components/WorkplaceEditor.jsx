@@ -1583,7 +1583,13 @@ export default function WorkplaceEditor({ onExit }) {
                 storeActions.selectObject(id);
                 storeActions.selectRoom(null);
               }}
-              onMoveObject={(id, patch) => editor.updateObject(id, patch, { label: 'Move object' })}
+              snap={{ enabled: snapEnabled, step: snapStep }}
+              ground={currentFloor === 0}
+              onMoveObject={(id, to) => {
+                // one undo step per drag, like the 3D gizmo
+                editor.updateObject(id, to, { label: 'Move item' });
+                editor.endBurst();
+              }}
               onRotateObject={(id) => {
                 const object = objectsMap[id];
                 if (object && !object.isLocked) {

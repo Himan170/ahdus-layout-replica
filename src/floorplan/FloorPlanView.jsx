@@ -1,6 +1,14 @@
+/**
+ * floorplan/FloorPlanView.jsx (Anshu, S1)
+ *
+ * The floor plan of the current floor (the canvas card's "Plan" view): rooms and
+ * items from the store, drawn in world metres (SVG x = x, SVG y = z). Click or
+ * Enter selects; dragging an item moves it by Studio's rules (planMath.planDrop).
+ */
 
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ASSET_TYPES } from '../utils/assetCatalog';
+import { planDrop } from './planMath';
 
 export default function FloorPlanView({
   rooms = [],
@@ -11,6 +19,8 @@ export default function FloorPlanView({
   onSelectObject = () => {},
   onMoveObject = () => {},
   onRotateObject = () => {},
+  snap = null,        // { enabled, step }: Studio's snap setting
+  ground = false,     // the ground floor (outside rooms is the ground)
 }) {
   const [drag, setDrag] = useState(null);
 
@@ -105,6 +115,16 @@ export default function FloorPlanView({
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
 
+  /** Where the dragged item would land (snapped, on a table top or the floor). */
+  function dropOf(d) {
+    const object = objects.find((o) => o.id === d.id);
+    if (!object) return null;
+    return planDrop(object, {
+      x: d.originalX + (d.currentX ?? d.startX) - d.startX,
+      z: d.originalZ + (d.currentZ ?? d.startZ) - d.startZ,
+    }, { objects, rooms, snap, ground });
+  }
+
   function pointerMove(event) {
     if (!drag) return;
 
@@ -129,12 +149,8 @@ export default function FloorPlanView({
   function pointerUp() {
     if (!drag) return;
 
-    if (drag.moved) {
-      onMoveObject(drag.id, {
-        x: drag.originalX + (drag.currentX ?? drag.startX) - drag.startX,
-        z: drag.originalZ + (drag.currentZ ?? drag.startZ) - drag.startZ,
-      });
-    }
+    const to = drag.moved ? dropOf(drag) : null;
+    if (to) onMoveObject(drag.id, to);
 
     setDrag(null);
   }
@@ -230,11 +246,12 @@ export default function FloorPlanView({
           const d =
             (Number(object.depth) || Number(type.defaultDepth) || 0.8) *
             (Number(object.scaleZ) || 1);
-          const x = Number(object.x) || 0;
-          const z = Number(object.z) || 0;
+          const activeDrag = drag?.id === object.id;
+          const dropAt = activeDrag && drag.moved ? dropOf(drag) : null;
+          const x = dropAt ? dropAt.x : Number(object.x) || 0;
+          const z = dropAt ? dropAt.z : Number(object.z) || 0;
           const selected = object.id === selectedObjectId;
           const angle = Number(object.rotationY) || 0;
-          const activeDrag = drag?.id === object.id;
           const boxWidth = Math.abs(Math.cos(angle)) * w +
             Math.abs(Math.sin(angle)) * d;
           const boxDepth = Math.abs(Math.sin(angle)) * w +
