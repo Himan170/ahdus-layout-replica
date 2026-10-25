@@ -151,10 +151,10 @@ export default function CompanySelector({ onEnterEditor, initialCompany = null }
 
   // ─── Create a new layout ───
   const handleCreateLayout = useCallback(async () => {
-    const name = newLayoutName.trim() || 'Untitled Layout';
+    const finalName = newLayoutName.trim() || 'Untitled Layout';
     setLoading(true);
     try {
-      await createWorkspace(companyId, name);
+      await createWorkspace(companyId, finalName);
       onEnterEditor({ id: companyId, name: companyName });
     } catch (err) {
       setError('Failed to create layout: ' + err.message);
@@ -378,6 +378,7 @@ export default function CompanySelector({ onEnterEditor, initialCompany = null }
               onChange={setNewLayoutName}
               onCreate={handleCreateLayout}
               disabled={loading}
+              canCreate={!!newLayoutName.trim()}
             />
           </>
         )}

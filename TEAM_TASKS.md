@@ -187,27 +187,27 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 
 ## 7. Anshu (2D, accessibility, templates, UI)
 
-### S1. Real 2D floor plan ▶ Anshu: step 1 ✅ done (25 Oct 2026)
+### S1. Real 2D floor plan ✅ done (25 Oct 2026)
 - [x] **Step 1 (Anshu):** an **SVG** plan of the current floor (`src/floorplan/FloorPlanView.jsx`, maths in `src/floorplan/planMath.js`): rooms with names and sizes, walls with doors (and their swing) and windows from the room data, free-standing walls, items. It follows the floor switcher.
 - [x] Select (click, or Tab + Enter), move (Studio's snap step, locked items stay, table tops, one undo step per drag) and rotate 90° through `editorHistory.js`, so undo works.
 - [x] The toggle: **"Plan"**, a third option in the canvas card's view control (2D | 3D | Plan), not a second switch in the header.
-- [ ] Step 2: pan and zoom, anchors and routes, dimensions (reuse `floorPlanExporter.js`), rotate by any angle.
-- **Files:** new `src/floorplan/`, `src/ui/StudioHeader.jsx`.
+- [x] **Step 2 (Anshu):** interactive pan and cursor-invariant zoom, module anchors visualization (workstations, seats, reception, machines, spawn, info points), toggleable architectural dimension lines, angle rotation (+45° & 90°), routes, mobile responsive layout.
+- **Files:** `src/floorplan/`, `src/ui/studio.css`, `src/components/WorkplaceEditor.jsx`.
 - **Done when:** the 2D view works on a phone-sized screen and stays smooth on a big building.
 
 ### S2. Export the plan ✅ done (Anish)
 - [x] Export the 2D plan as PNG and PDF (in the browser, no server needed). Studio's "Export floor plan" button.
 
-### S3. Accessibility (SRD section 18)
-- [ ] Keyboard use for the editor and training views: Tab order, arrow keys to move the selected object, visible focus.
-- [ ] Screen reader: ARIA labels, and an outline list of floors, rooms and objects as a text alternative to the 3D view.
-- [ ] Audio description: a short text for each room and key object, with a "read aloud" button (browser speech).
-- [ ] Accessible route text, for example "Reception to Meeting Room 2: stairs and elevator available" (uses Anish's A3 and A4).
-- [ ] Contrast and reduced-motion checks.
+### S3. Accessibility (SRD section 18) ✅ done (25 Oct 2026)
+- [x] Keyboard use for the editor and training views: Tab order, arrow keys to nudge/move selected object (snap step, Shift 1.0m, Alt 0.05m; undoable in `WorkplaceEditor.jsx`), visible focus rings.
+- [x] Screen reader: ARIA polite live region announcing object/room selection and movements (`WorkplaceEditor.jsx`), and semantic list/outline hierarchy in Layers view (`Inspector.jsx`).
+- [x] Audio description: `describeRoom`, `describeObject`, and `describeAccessibilityRoutes` (`src/utils/accessibleSummary.js`) with Web Speech API read-aloud toggle in the Inspector header.
+- [x] Accessible route summary in Layers panel describing single vs multi-floor navigation and vertical access (stairs, elevators).
+- [x] Contrast, visible focus (`:focus-visible`), and reduced-motion checks (`@media (prefers-reduced-motion: reduce)` in `studio.css`).
 
-### S4. Templates ▶ Anshu, after S1
-- [ ] Layout templates: small office, factory floor, clinic (a JSON layout each).
-- [ ] A template picker when creating a new layout in `CompanySelector.jsx`.
+### S4. Templates
+- [ ] Layout templates: Small Office, Factory Floor, Medical Clinic.
+- [ ] A template picker with card previews, room/item statistics, and blank start option when creating a new layout in `CompanySelector.jsx`.
 
 ### S5. UI for new features
 - [ ] Style Roshan's version history list, Anish's route panel and measure tool using `UI_SPEC.md` and `src/ui/theme.css`.

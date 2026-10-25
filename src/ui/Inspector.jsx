@@ -11,14 +11,15 @@
  *   layers: outline of rooms and items on this floor
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
-  X, Copy, Lock, LockOpen, Trash2, Link2, Unlink2, LayoutGrid, DoorOpen, AppWindow, RotateCcw,
+  X, Copy, Lock, LockOpen, Trash2, Link2, Unlink2, LayoutGrid, DoorOpen, AppWindow, RotateCcw, Volume2, VolumeX,
 } from 'lucide-react';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { assetIcon, sizeLabel } from './tools';
 import { DOOR_DEFAULTS, WINDOW_DEFAULTS } from '../play/geometry';
+import { describeRoom, describeObject, describeAccessibilityRoutes } from '../utils/accessibleSummary';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 
@@ -308,16 +309,27 @@ function OpeningBody({ opening, floorName, onResize }) {
 
 // ── Layers ──────────────────────────────────────────────────────────────
 
-function LayersBody({ rooms, objects, onPick }) {
+function LayersBody({ rooms = [], objects = [], floors = [], routes = [], onPick }) {
   const roomName = (id) => rooms.find((r) => r.id === id)?.name;
+  const routeSummary = describeAccessibilityRoutes(floors, rooms, objects, routes);
+
   return (
     <>
+      <Section title="Accessibility & Routes">
+        <p className="insp-note" role="status">
+          {routeSummary}
+        </p>
+      </Section>
       <Section title={`Rooms (${rooms.length})`}>
         {rooms.length === 0 && <p className="insp-note">No rooms on this floor yet.</p>}
-        <ul className="layers-list">
+        <ul className="layers-list" role="list" aria-label="Rooms and spaces">
           {rooms.map((r) => (
             <li key={r.id}>
-              <button className="layers-list__item" onClick={() => onPick({ type: 'room', id: r.id })}>
+              <button
+                className="layers-list__item"
+                onClick={() => onPick({ type: 'room', id: r.id })}
+                aria-label={`Room: ${r.name}, ${sizeLabel(r.width, r.depth)}`}
+              >
                 <span className="ui-dot" style={{ background: r.color }} aria-hidden />
                 <span className="layers-list__name">{r.name}</span>
                 <span className="ui-muted">{sizeLabel(r.width, r.depth)}</span>
@@ -328,14 +340,19 @@ function LayersBody({ rooms, objects, onPick }) {
       </Section>
       <Section title={`Items (${objects.length})`}>
         {objects.length === 0 && <p className="insp-note">No items on this floor yet.</p>}
-        <ul className="layers-list">
+        <ul className="layers-list" role="list" aria-label="Furniture and equipment items">
           {objects.map((o) => {
             const Icon = assetIcon(o.assetType);
+            const label = o.label || ASSET_TYPES[o.assetType]?.label || o.assetType;
             return (
               <li key={o.id}>
-                <button className="layers-list__item" onClick={() => onPick({ type: 'object', id: o.id })}>
+                <button
+                  className="layers-list__item"
+                  onClick={() => onPick({ type: 'object', id: o.id })}
+                  aria-label={`Item: ${label}${o.isLocked ? ' (locked)' : ''}`}
+                >
                   <Icon {...ICON} />
-                  <span className="layers-list__name">{o.label || ASSET_TYPES[o.assetType]?.label || o.assetType}</span>
+                  <span className="layers-list__name">{label}</span>
                   <span className="ui-muted">{roomName(o.roomId) ?? ''}</span>
                   {o.isLocked && <Lock {...ICON} />}
                 </button>
@@ -357,6 +374,8 @@ export default function Inspector({
   onResizeOpening,      // (change) => problem text or null
   onDeleteOpening,
   rooms, objects,       // layers: this floor
+  floors = [],
+  routes = [],
   onClose,
   onUpdateObject, onDuplicate, onToggleLock, onDeleteObject,
   onUpdateRoom, onRenameRoom, onDeleteRoom,
@@ -367,6 +386,54 @@ export default function Inspector({
   if (!mode) return null;
   const def = object ? ASSET_TYPES[object.assetType] : null;
   const ObjIcon = object ? assetIcon(object.assetType) : null;
+
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
+
+  const speechText = useMemo(() => {
+    if (mode === 'object' && object) {
+      const parentRoom = rooms?.find((r) => r.id === object.roomId);
+      return describeObject(object, parentRoom?.name, floorName);
+    }
+    if (mode === 'room' && room) {
+      return describeRoom(room, objects, floorName);
+    }
+    if (mode === 'opening' && opening) {
+      const kind = opening.kind === 'door' ? 'Door' : 'Window';
+      const w = (Number(opening.data?.width) || 0).toFixed(1);
+      return `${kind}, ${w} metres wide on ${opening.room?.name || 'wall'}.`;
+    }
+    if (mode === 'layers') {
+      const summary = describeAccessibilityRoutes(floors, rooms, objects, routes);
+      return `${floorName} outline. ${rooms?.length || 0} rooms and ${objects?.length || 0} items on this floor. ${summary}`;
+    }
+    return '';
+  }, [mode, object, room, opening, floorName, objects, rooms, floors, routes]);
+
+  const handleToggleSpeech = useCallback(() => {
+    if (!canSpeak || !speechText) return;
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(speechText);
+    utterance.rate = 1.0;
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  }, [canSpeak, speechText]);
+
+  // Cancel speech if inspector closes or selection changes
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [mode, object?.id, room?.id]);
 
   return (
     <aside className="inspector" aria-label="Inspector">
@@ -411,9 +478,23 @@ export default function Inspector({
             </>
           )}
         </div>
-        <button className="ui-icon-btn" aria-label="Close inspector" title="Close (Esc)" onClick={onClose}>
-          <X size={18} strokeWidth={1.75} />
-        </button>
+        <div className="inspector__actions">
+          {canSpeak && (
+            <button
+              type="button"
+              className={`ui-icon-btn ${isSpeaking ? 'is-active' : ''}`}
+              aria-pressed={isSpeaking}
+              aria-label={isSpeaking ? 'Stop reading description aloud' : 'Read description aloud'}
+              title={isSpeaking ? 'Stop speech' : 'Read aloud (Browser Speech)'}
+              onClick={handleToggleSpeech}
+            >
+              {isSpeaking ? <VolumeX size={18} strokeWidth={1.75} /> : <Volume2 size={18} strokeWidth={1.75} />}
+            </button>
+          )}
+          <button className="ui-icon-btn" aria-label="Close inspector" title="Close (Esc)" onClick={onClose}>
+            <X size={18} strokeWidth={1.75} />
+          </button>
+        </div>
       </header>
 
       <div className="inspector__body">
@@ -423,7 +504,9 @@ export default function Inspector({
         )}
         {mode === 'room' && <RoomBody room={room} floorName={floorName} onUpdate={onUpdateRoom} />}
         {mode === 'opening' && <OpeningBody opening={opening} floorName={floorName} onResize={onResizeOpening} />}
-        {mode === 'layers' && <LayersBody rooms={rooms} objects={objects} onPick={onPickLayer} />}
+        {mode === 'layers' && (
+          <LayersBody rooms={rooms} objects={objects} floors={floors} routes={routes} onPick={onPickLayer} />
+        )}
       </div>
 
       {mode === 'opening' && (

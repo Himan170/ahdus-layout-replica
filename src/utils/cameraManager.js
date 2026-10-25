@@ -48,6 +48,15 @@ export function createCamera(scene, canvas) {
   // Attach controls
   camera.attachControl(canvas, true);
 
+  // Disable default keyboard camera rotation so arrow keys are reserved for object nudging
+  if (camera.inputs?.attached?.keyboard) {
+    camera.inputs.remove(camera.inputs.attached.keyboard);
+  }
+  camera.keysUp = [];
+  camera.keysDown = [];
+  camera.keysLeft = [];
+  camera.keysRight = [];
+
   // Mouse wheel zoom speed
   camera.wheelPrecision = 15;
 
