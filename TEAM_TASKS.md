@@ -187,11 +187,11 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 
 ## 7. Anshu (2D, accessibility, templates, UI)
 
-### S1. Real 2D floor plan ▶ Anshu, next
-- [ ] Start from the drawing code in `src/utils/floorPlanExporter.js` (S2): it already draws rooms, walls, doors, windows, items and dimensions from the store.
-- [ ] Draw the layout as **SVG** (rooms, doors, objects, labels, anchors, routes), with pan, zoom and floor switching.
-- [ ] Step 1: read-only view. Step 2: select, move and rotate objects using the same commands as 3D (`editorHistory.js`), so undo still works.
-- [ ] A 2D/3D toggle in the Studio header.
+### S1. Real 2D floor plan ▶ Anshu: step 1 ✅ done (25 Oct 2026)
+- [x] **Step 1 (Anshu):** an **SVG** plan of the current floor (`src/floorplan/FloorPlanView.jsx`, maths in `src/floorplan/planMath.js`): rooms with names and sizes, walls with doors (and their swing) and windows from the room data, free-standing walls, items. It follows the floor switcher.
+- [x] Select (click, or Tab + Enter), move (Studio's snap step, locked items stay, table tops, one undo step per drag) and rotate 90° through `editorHistory.js`, so undo works.
+- [x] The toggle: **"Plan"**, a third option in the canvas card's view control (2D | 3D | Plan), not a second switch in the header.
+- [ ] Step 2: pan and zoom, anchors and routes, dimensions (reuse `floorPlanExporter.js`), rotate by any angle.
 - **Files:** new `src/floorplan/`, `src/ui/StudioHeader.jsx`.
 - **Done when:** the 2D view works on a phone-sized screen and stays smooth on a big building.
 

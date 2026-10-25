@@ -13,7 +13,7 @@ Plain HTML pages (the AI Training Platform): `docs/EMBED_GUIDE.md`; integration 
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (467, all must pass)
+npm test             # vitest unit tests (484, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -23,8 +23,9 @@ npm run assets:env      # public/assets/env/sky.env from the HDRI (needs npm run
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
 # One-time: npx playwright install chromium
-npm run e2e:planner  # 36 checks   e2e/editor-smoke.mjs    (Workplace Studio + UI_SPEC screenshots, the Realistic look
-                     #                                       switch, no missing asset files, floor plan PNG / PDF export)
+npm run e2e:planner  # 37 checks   e2e/editor-smoke.mjs    (Workplace Studio + UI_SPEC screenshots, the Realistic look
+                     #                                       switch, no missing asset files, floor plan PNG / PDF export,
+                     #                                       Plan view: select, drag, Ctrl+Z)
 npm run e2e:play     # 19 checks   e2e/play-smoke.mjs
 npm run e2e:modules  # 17 checks   e2e/modules-smoke.mjs   (uses ?demoModules=1)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
@@ -87,7 +88,7 @@ Spec of the look: `UI_SPEC.md` (repo root).
 - **Workplace Studio** (`src/ui/`): header (AHDUS = all layouts, breadcrumb with the layout name (click to rename),
   save status, Undo, Redo, Settings popover: snap, step, show grid, lighting, FPS in dev); **Build panel** of tiles
   (Select, Rooms, Walls, Doors & Windows, Stairs, Furniture; keys 1–6) whose **options trays** arm a planner tool or
-  start placing an asset; Layers at its bottom; **canvas card** (Export floor plan, 2D | 3D, Fit view, empty state,
+  start placing an asset; Layers at its bottom; **canvas card** (Export floor plan, 2D | 3D | Plan, Fit view, empty state,
   room labels, floating **selection toolbar**); **Inspector** card only while something is selected (or Layers is on);
   **footer**: floor switcher menu, the active tool's hint, "Preview Workplace". The tool list is defined once in
   `src/ui/tools.js` (also gives Preview's hotbar/catalog icons). Studio uses the same sky/grass/paving as Preview;
@@ -103,6 +104,13 @@ Spec of the look: `UI_SPEC.md` (repo root).
   "Exit Measurement Mode" cancels); "Show Wall Lengths" (room walls + WALL_SEGMENT items, overlapping runs merged) and
   "Show Room Areas" (on the room labels) toggle on their own; "Clear Measurements". Measurements are temporary
   annotations per floor (React state, not saved, not in undo) and never change the layout.
+  **Plan** (Anshu, S1 step 1; third option of the canvas card's view control, aria-label `Plan view`;
+  `floorplan/FloorPlanView.jsx`, pure maths in `floorplan/planMath.js`): an SVG plan of the current floor, north up as
+  in 2D, in place of the 3D canvas (`planView` in WorkplaceEditor; Preview always shows 3D). Rooms with names, walls
+  cut by their doors (with swing) and windows (`roomWallPieces` from `roomOpenings`), free-standing walls
+  (`wallSegmentEnds`, the inverse of `wallSegmentData`), items. Click, or Tab + Enter (the accessible view, S3),
+  selects; dragging an item = `planDrop`: Studio's snap step, locked items stay, table tops via `placementHeight`,
+  one `editor.updateObject` per drag (+ `endBurst`); Rotate 90°. Plan stops the 3D tools and hides the measure buttons.
   Select a door/window (click it; in 2D the wall over it): Inspector width/height + blue drag handles on its sides
   and top (`store.selectedOpening` = { roomId, kind, index }; one undo step per drag).
   Furniture stacks on table tops. Clicking the floor under a desk selects the desk.
@@ -128,6 +136,8 @@ src/ui/                            Workplace Studio: theme.css, tools.js, Studio
                                    EditorErrorBoundary, preview.css
 src/utils/floorPlanExporter.js     2D floor plan of one floor on an offscreen canvas → PNG / PDF download (Anish, S2; tested
                                    in src/utils/__tests__/floorPlanExporter.test.js with jsdom)
+src/floorplan/                     Plan view (Anshu, S1): FloorPlanView.jsx (SVG) + planMath.js (PURE: bounds, world / plan /
+                                   screen, walls + openings, planDrop; tests in src/floorplan/__tests__/)
 src/utils/measurements.js          PURE: distance, room area, wall runs to label (Anish, A5; tests in src/utils/__tests__/)
 src/ui/MeasurementOverlay.jsx      Distance / wall-length labels over the canvas (HTML, like RoomLabels)
 src/play/playController.js         Preview: movement, camera, aiming, every hotbar tool, Stretch, Edit item, stairs, levels
@@ -380,7 +390,8 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
   keep their primitive models. The placement ghost shows the primitive model. A faint vertical line can show on
   textured walls where wall pieces meet beside a door or window. Item icons are generic lucide icons, not thumbnails.
 - Stretching a wall with a door shared with a neighbour moves only this room's half.
-- The "2D" view is the 3D camera from above, not a real floor plan.
+- The "2D" view is the 3D camera from above; the "Plan" view is the real floor plan (no pan / zoom yet, it fits the floor;
+  room names can sit under items; rotation in 90° steps only).
 - Room labels and the selection toolbar are HTML over the canvas (always on top, even behind a wall).
 - The layout name is saved at once but is not part of undo.
 - Doors and windows can be resized but not moved along the wall (remove and add again); window sills are fixed (0.9 m).
