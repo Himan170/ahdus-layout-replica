@@ -13,7 +13,7 @@ Plain HTML pages (the AI Training Platform): `docs/EMBED_GUIDE.md`; integration 
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (461, all must pass)
+npm test             # vitest unit tests (467, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -30,6 +30,8 @@ npm run e2e:modules  # 17 checks   e2e/modules-smoke.mjs   (uses ?demoModules=1)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
 npm run e2e:tools    # 45 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
                      #                                       room's floor + Preview's Edit item)
+npm run e2e:measurements # 17   e2e/measurements-smoke.mjs (measure distance in 2D, wall lengths, room areas, toggles,
+                     #                                       Esc, per floor, Clear Measurements keeps the room)
 npm run e2e:save     # 30 checks   e2e/save-smoke.mjs      (auto-save, reopen, version history, old saves, list, delete, export/import,
                      #                                       companies, two tabs on one layout)
 npm run e2e:perf     # 10 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls;
@@ -96,6 +98,11 @@ Spec of the look: `UI_SPEC.md` (repo root).
   **Export floor plan** (Anish, S2; button left of 2D | 3D, `ui/ExportMenu.jsx`): the current floor as a PNG
   (`floor-plan-<floor>.png`) or an A4 PDF (jsPDF, loaded on first use), drawn on an offscreen 2D canvas from the store
   by `utils/floorPlanExporter.js` (rooms, walls, doors, windows, items, dimensions; no Babylon). Disabled with no rooms.
+  **Measurements** (Anish, A5; buttons on the canvas card, `ui/MeasurementOverlay.jsx`, pure maths in
+  `utils/measurements.js`): "Measure Distance" switches to 2D and takes two clicks on the current floor (Esc or
+  "Exit Measurement Mode" cancels); "Show Wall Lengths" (room walls + WALL_SEGMENT items, overlapping runs merged) and
+  "Show Room Areas" (on the room labels) toggle on their own; "Clear Measurements". Measurements are temporary
+  annotations per floor (React state, not saved, not in undo) and never change the layout.
   Select a door/window (click it; in 2D the wall over it): Inspector width/height + blue drag handles on its sides
   and top (`store.selectedOpening` = { roomId, kind, index }; one undo step per drag).
   Furniture stacks on table tops. Clicking the floor under a desk selects the desk.
@@ -121,6 +128,8 @@ src/ui/                            Workplace Studio: theme.css, tools.js, Studio
                                    EditorErrorBoundary, preview.css
 src/utils/floorPlanExporter.js     2D floor plan of one floor on an offscreen canvas → PNG / PDF download (Anish, S2; tested
                                    in src/utils/__tests__/floorPlanExporter.test.js with jsdom)
+src/utils/measurements.js          PURE: distance, room area, wall runs to label (Anish, A5; tests in src/utils/__tests__/)
+src/ui/MeasurementOverlay.jsx      Distance / wall-length labels over the canvas (HTML, like RoomLabels)
 src/play/playController.js         Preview: movement, camera, aiming, every hotbar tool, Stretch, Edit item, stairs, levels
 src/planner/plannerTools.js        Studio mouse tools: draw room / wall, door / window, drag a wall to resize
 src/utils/buildPreview.js          Blue/red build previews shared by both modes
