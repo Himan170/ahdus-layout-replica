@@ -271,6 +271,37 @@ log('typing a name does not move the item back', xAfterLabel === x0, `afterLabel
 await page.evaluate(() => document.activeElement.blur());
 await click('[aria-label="Close inspector"]');
 
+// ── Plan view: Enter selects a room, click selects the desk, drag moves it, Ctrl+Z puts it back ──
+const was3D = await page.evaluate(() => window.__ahdusStore.getState().is3D);
+await click('[aria-label="Plan view"]');
+const planShown = await page.waitForSelector('.floor-plan-svg', { timeout: 10000 }).then(() => true).catch(() => false);
+await page.focus('.floor-plan-room');
+await page.keyboard.press('Enter');
+const roomByKey = await page.evaluate(() => window.__ahdusStore.getState().selectedRoomId);
+const planDesk = await page.evaluate(() =>
+  Object.values(window.__ahdusStore.getState().objects).find((o) => o.assetType === 'DESK_STANDARD'));
+const deskShape = page.locator(`[data-object-id="${planDesk.id}"] .floor-plan-shape`);
+await deskShape.click();
+const deskPicked = await page.evaluate(() => window.__ahdusStore.getState().selectedObjectId);
+const box = await deskShape.boundingBox();
+await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+await page.mouse.down();
+await page.mouse.move(box.x + box.width / 2 + 120, box.y + box.height / 2, { steps: 8 });
+await page.mouse.up();
+await page.waitForTimeout(300);
+const deskAt = () => page.evaluate((id) => { const o = window.__ahdusStore.getState().objects[id]; return { x: o.x, z: o.z }; }, planDesk.id);
+const moved = await deskAt();
+await shot('plan-view.png');
+await page.keyboard.press('Control+z');
+await page.waitForTimeout(300);
+const undone = await deskAt();
+log('Plan view: Enter selects a room, click selects the desk, dragging moves it (snapped), Ctrl+Z puts it back',
+  planShown && !!roomByKey && deskPicked === planDesk.id && moved.x > planDesk.x && moved.x % 0.5 === 0 &&
+  undone.x === planDesk.x && undone.z === planDesk.z,
+  `room=${!!roomByKey} x ${planDesk.x} → ${moved.x} → ${undone.x}`);
+await click(was3D ? '[aria-label="3D view"]' : '[aria-label="2D view"]');
+await page.keyboard.press('Escape'); await frames(2);
+
 // ── Floor switcher: add, switch, rename, delete, undo ──
 await click('[aria-label="Floor switcher"]');
 await click('[aria-label="Add floor above"]');

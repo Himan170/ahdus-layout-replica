@@ -55,6 +55,7 @@ import BuildPanel from '../ui/BuildPanel';
 import CanvasCard from '../ui/CanvasCard';
 import RoomLabels from '../ui/RoomLabels';
 import MeasurementOverlay from '../ui/MeasurementOverlay';
+import FloorPlanView from '../floorplan/FloorPlanView';
 import SelectionToolbar from '../ui/SelectionToolbar';
 import Inspector from '../ui/Inspector';
 import StudioFooter from '../ui/StudioFooter';
@@ -176,6 +177,7 @@ export default function WorkplaceEditor({ onExit }) {
   const [showGrid, setShowGrid] = useState(false);      // off: grid only while a build tool is active
   const [realisticLook, setRealisticLook] = useState(storedRealisticLook); // Settings → Realistic look
   const [nameFocusToken, setNameFocusToken] = useState(0); // "Rename" focuses the Inspector's name box
+  const [planView, setPlanView] = useState(false); // the canvas card's view: Plan (floor plan) instead of the 3D canvas
   const [sceneReady, setSceneReady] = useState(null);   // the scene, once created (for overlays)
   const [exportLoading, setExportLoading] = useState(false); // true while PNG/PDF is being generated
   const [measureMode, setMeasureMode] = useState(false);
@@ -1052,8 +1054,18 @@ export default function WorkplaceEditor({ onExit }) {
   }, [flyTo]);
 
   const handleSetView = useCallback((want3D) => {
+    setPlanView(false);
     if (want3D !== useWorkspaceStore.getState().is3D) handleToggleView();
   }, [handleToggleView]);
+
+  // Plan: the floor plan of this floor instead of the 3D canvas (the 3D tools stop)
+  const handleSetPlan = useCallback(() => {
+    handleExitMeasureMode();
+    handleCancelPlacement();
+    handleSetPlannerTool({ kind: 'select' });
+    setOpenTray(null);
+    setPlanView(true);
+  }, [handleExitMeasureMode, handleCancelPlacement, handleSetPlannerTool]);
 
   // ─── Selection ───
   const handleSelectObject = useCallback((id) => {
@@ -1528,6 +1540,8 @@ export default function WorkplaceEditor({ onExit }) {
           preview={isPlaying}
           is3D={is3D}
           onSetView={handleSetView}
+          planView={planView}
+          onSetPlan={handleSetPlan}
           onFitView={handleFitView}
           showEmpty={showEmpty}
           onAddFirstRoom={() => setOpenTray('rooms')}
@@ -1550,7 +1564,44 @@ export default function WorkplaceEditor({ onExit }) {
             className={measureMode ? 'is-measuring' : ''}
             onDragOver={handleCanvasDragOver}
             onDrop={handleCanvasDrop}
+            style={{
+              visibility: planView && !isPlaying ? 'hidden' : 'visible',
+              pointerEvents: planView && !isPlaying ? 'none' : 'auto',
+            }}
           />
+          {planView && !isPlaying && (
+            <FloorPlanView
+              rooms={rooms}
+              objects={objects}
+              selectedRoomId={selectedRoomId}
+              selectedObjectId={selectedObjectId}
+              onSelectRoom={(id) => {
+                storeActions.selectRoom(id);
+                storeActions.selectObject(null);
+              }}
+              onSelectObject={(id) => {
+                storeActions.selectObject(id);
+                storeActions.selectRoom(null);
+              }}
+              snap={{ enabled: snapEnabled, step: snapStep }}
+              ground={currentFloor === 0}
+              onMoveObject={(id, to) => {
+                // one undo step per drag, like the 3D gizmo
+                editor.updateObject(id, to, { label: 'Move item' });
+                editor.endBurst();
+              }}
+              onRotateObject={(id) => {
+                const object = objectsMap[id];
+                if (object && !object.isLocked) {
+                  editor.updateObject(
+                    id,
+                    { rotationY: (Number(object.rotationY) || 0) + Math.PI / 2 },
+                    { label: 'Rotate object' }
+                  );
+                }
+              }}
+            />
+          )}
           <TabNotice
             conflict={saveConflict}
             openElsewhere={openElsewhere}
@@ -1563,7 +1614,7 @@ export default function WorkplaceEditor({ onExit }) {
             scene={sceneReady}
             rooms={rooms}
             elevation={elevationOf(floorsMap, currentFloor)}
-            hidden={isPlaying}
+            hidden={isPlaying || planView}
             showArea={showRoomAreas}
           />
           <MeasurementOverlay
@@ -1576,9 +1627,9 @@ export default function WorkplaceEditor({ onExit }) {
             measureStart={measureStart}
             preview={measurePreview}
             currentFloor={currentFloor}
-            hidden={isPlaying}
+            hidden={isPlaying || planView}
           />
-          {!isPlaying && (selectedObject || selectedRoom) && (
+          {!isPlaying && !planView && (selectedObject || selectedRoom) && (
             <SelectionToolbar
               scene={sceneReady}
               getBounds={getSelectionBounds}

@@ -1,7 +1,8 @@
 /**
  * ui/CanvasCard.jsx
  *
- * The rounded card that holds the 3D view. Top-right: Export, 2D | 3D and Fit view.
+ * The rounded card that holds the 3D view. Top-right: Export, 2D | 3D | Plan and Fit view.
+ * Plan = the floor plan (floorplan/FloorPlanView) in place of the 3D canvas.
  * Shows the empty state ("Build your workplace") while the layout has no rooms.
  * The <canvas> and the overlays are passed in as children so the canvas
  * element is never re-created (Babylon is bound to it).
@@ -15,6 +16,8 @@ export default function CanvasCard({
   preview,          // true in Preview: the card fills the window, no Studio controls
   is3D,
   onSetView,        // (want3D: boolean) => void
+  planView,         // true while the floor plan is shown
+  onSetPlan,        // () => void: show the floor plan
   onFitView,
   showEmpty,
   onAddFirstRoom,
@@ -46,16 +49,17 @@ export default function CanvasCard({
             loading={exportLoading}
           />
           <div className="ui-segmented" role="group" aria-label="View">
-            <button aria-label="2D view" title="2D view from above" aria-pressed={!is3D} onClick={() => onSetView(false)}>2D</button>
-            <button aria-label="3D view" title="3D view" aria-pressed={is3D} onClick={() => onSetView(true)}>3D</button>
+            <button aria-label="2D view" title="2D view from above" aria-pressed={!planView && !is3D} onClick={() => onSetView(false)}>2D</button>
+            <button aria-label="3D view" title="3D view" aria-pressed={!planView && is3D} onClick={() => onSetView(true)}>3D</button>
+            <button aria-label="Plan view" title="Floor plan: rooms, walls, doors and items of this floor" aria-pressed={!!planView} onClick={onSetPlan}>Plan</button>
           </div>
-          <button className="ui-icon-btn canvas-card__fit" aria-label="Fit view" title="Fit view: show the whole floor" onClick={onFitView}>
+          <button className="ui-icon-btn canvas-card__fit" aria-label="Fit view" title="Fit view: show the whole floor" disabled={planView} onClick={onFitView}>
             <Maximize2 size={18} strokeWidth={1.75} />
           </button>
         </div>
       )}
 
-      {!preview && (
+      {!preview && !planView && (
         <div className="measurement-controls" aria-label="Measurement tools">
           <button
             className="ui-btn"
