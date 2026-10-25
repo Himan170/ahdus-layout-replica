@@ -177,7 +177,7 @@ export default function WorkplaceEditor({ onExit }) {
   const [showGrid, setShowGrid] = useState(false);      // off: grid only while a build tool is active
   const [realisticLook, setRealisticLook] = useState(storedRealisticLook); // Settings → Realistic look
   const [nameFocusToken, setNameFocusToken] = useState(0); // "Rename" focuses the Inspector's name box
-  const [viewMode, setViewMode] = useState('3d');
+  const [planView, setPlanView] = useState(false); // the canvas card's view: Plan (floor plan) instead of the 3D canvas
   const [sceneReady, setSceneReady] = useState(null);   // the scene, once created (for overlays)
   const [exportLoading, setExportLoading] = useState(false); // true while PNG/PDF is being generated
   const [measureMode, setMeasureMode] = useState(false);
@@ -1054,8 +1054,18 @@ export default function WorkplaceEditor({ onExit }) {
   }, [flyTo]);
 
   const handleSetView = useCallback((want3D) => {
+    setPlanView(false);
     if (want3D !== useWorkspaceStore.getState().is3D) handleToggleView();
   }, [handleToggleView]);
+
+  // Plan: the floor plan of this floor instead of the 3D canvas (the 3D tools stop)
+  const handleSetPlan = useCallback(() => {
+    handleExitMeasureMode();
+    handleCancelPlacement();
+    handleSetPlannerTool({ kind: 'select' });
+    setOpenTray(null);
+    setPlanView(true);
+  }, [handleExitMeasureMode, handleCancelPlacement, handleSetPlannerTool]);
 
   // ─── Selection ───
   const handleSelectObject = useCallback((id) => {
@@ -1476,8 +1486,6 @@ export default function WorkplaceEditor({ onExit }) {
       header={(
         <StudioHeader
           layoutName={layoutName}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
           onRenameLayout={(name) => renameLayout(name)}
           onAllLayouts={onExit ? handleAllLayouts : null}
           saveStatus={saveStatus}
@@ -1532,6 +1540,8 @@ export default function WorkplaceEditor({ onExit }) {
           preview={isPlaying}
           is3D={is3D}
           onSetView={handleSetView}
+          planView={planView}
+          onSetPlan={handleSetPlan}
           onFitView={handleFitView}
           showEmpty={showEmpty}
           onAddFirstRoom={() => setOpenTray('rooms')}
@@ -1548,7 +1558,6 @@ export default function WorkplaceEditor({ onExit }) {
           onToggleWallLengths={() => setShowWallLengths((visible) => !visible)}
           showRoomAreas={showRoomAreas}
           onToggleRoomAreas={() => setShowRoomAreas((visible) => !visible)}
-          hideCameraControls={true}
         >
           <canvas
             ref={canvasRef}
@@ -1556,11 +1565,11 @@ export default function WorkplaceEditor({ onExit }) {
             onDragOver={handleCanvasDragOver}
             onDrop={handleCanvasDrop}
             style={{
-              visibility: viewMode === '2d' ? 'hidden' : 'visible',
-              pointerEvents: viewMode === '2d' ? 'none' : 'auto',
+              visibility: planView && !isPlaying ? 'hidden' : 'visible',
+              pointerEvents: planView && !isPlaying ? 'none' : 'auto',
             }}
           />
-          {viewMode === '2d' && !isPlaying && (
+          {planView && !isPlaying && (
             <FloorPlanView
               rooms={rooms}
               objects={objects}
@@ -1599,7 +1608,7 @@ export default function WorkplaceEditor({ onExit }) {
             scene={sceneReady}
             rooms={rooms}
             elevation={elevationOf(floorsMap, currentFloor)}
-            hidden={isPlaying || viewMode === '2d'}
+            hidden={isPlaying || planView}
             showArea={showRoomAreas}
           />
           <MeasurementOverlay
@@ -1612,9 +1621,9 @@ export default function WorkplaceEditor({ onExit }) {
             measureStart={measureStart}
             preview={measurePreview}
             currentFloor={currentFloor}
-            hidden={isPlaying}
+            hidden={isPlaying || planView}
           />
-          {!isPlaying && viewMode !== '2d' && (selectedObject || selectedRoom) && (
+          {!isPlaying && !planView && (selectedObject || selectedRoom) && (
             <SelectionToolbar
               scene={sceneReady}
               getBounds={getSelectionBounds}

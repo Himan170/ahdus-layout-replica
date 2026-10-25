@@ -217,8 +217,6 @@ export default function StudioHeader({
   onRenameLayout,
   onAllLayouts,
   saveStatus,          // 'saved' | 'saving' | 'unsaved' | 'offline' | 'syncing'
-  viewMode = '3d',
-  onViewModeChange = () => {},
   saveError,           // why it is not saved (shown next to "Not saved")
   undoState,
   onUndo,
@@ -254,24 +252,6 @@ export default function StudioHeader({
       </div>
 
       <div className="studio-header__right">
-
-        <div className="ui-segmented" role="group" aria-label="Studio view mode">
-          <button
-            type="button"
-            aria-pressed={viewMode === '2d'}
-            onClick={() => onViewModeChange('2d')}
-          >
-            2D Plan
-          </button>
-          <button
-            type="button"
-            aria-pressed={viewMode === '3d'}
-            onClick={() => onViewModeChange('3d')}
-          >
-            3D View
-          </button>
-        </div>
-
         <span
           className={`studio-header__status ${
             saveStatus === 'unsaved'
