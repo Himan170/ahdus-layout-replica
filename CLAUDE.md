@@ -13,7 +13,7 @@ Plain HTML pages (the AI Training Platform): `docs/EMBED_GUIDE.md`; integration 
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (436, all must pass)
+npm test             # vitest unit tests (461, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -30,7 +30,7 @@ npm run e2e:modules  # 17 checks   e2e/modules-smoke.mjs   (uses ?demoModules=1)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
 npm run e2e:tools    # 45 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
                      #                                       room's floor + Preview's Edit item)
-npm run e2e:save     # 29 checks   e2e/save-smoke.mjs      (auto-save, reopen, old saves, list, delete, export/import,
+npm run e2e:save     # 30 checks   e2e/save-smoke.mjs      (auto-save, reopen, version history, old saves, list, delete, export/import,
                      #                                       companies, two tabs on one layout)
 npm run e2e:perf     # 10 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls;
                      #                                       one room change rebuilds only it + its neighbours; all items
@@ -159,7 +159,7 @@ src/embed/                         The one-file embed for plain HTML pages: inde
                                    + layoutBridge), embedLayout.js (pure: layout / layoutUrl, action matching), embed.css;
                                    built by vite.embed.config.js. embed-test.html + embed-sample.ahdus.json: its test page
 src/services/apiService.js         Save/load + auto-save (1 s debounce, tab close), revisions + other tabs, export/import,
-                                   companies: localStorage mock backend for now
+                                   companies, version history: localStorage for now (Supabase path: prototype, flag off)
 db/schema.sql                      PostgreSQL schema (base for the Supabase backend)
 ```
 
@@ -168,7 +168,7 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 1. **Every layout change goes through `editorHistory`** (`createEditorHistory()`: addObject, updateObject,
    deleteObject, duplicateObject, toggleLock, addRoom, updateRoom, deleteRoom, toggleDoor, addOpenings,
    removeOpenings, resizeOpening, setWallHeight, setFloorHeight, setAnchorData, addFloor({ copyRooms }), removeFloor,
-   renameFloor). Never call store mutators directly from
+   renameFloor, restoreVersion). Never call store mutators directly from
    UI or tools, or undo breaks. Continuous edits (slider drag, typing, + / − bursts) pass `{ mergeKey }` so they are
    one undo step: same mergeKey + same target merge until 2 s without input (timed from the input events,
    `inputTime`), the mouse is released or the tool changes (`editor.endBurst()`), or another command comes between.
@@ -324,12 +324,23 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
   shows it at once). Tabs with the same layout open say hello on a BroadcastChannel ("Also open in another tab").
 - **Backup:** Export layout (`<name>.ahdus.json`, `{ format: 'ahdus-layout', formatVersion: 1, layout }`) and Import
   layout (through `normaliseLayout`, keeps ids) on the layouts screen and in Studio's Settings. `storageUse()` warns at
-  80 % of ~5 MB (`store.storageNearlyFull`).
+  80 % of ~5 MB (`store.storageNearlyFull`); it counts everything the app keeps, version history included.
+- **Version history** (Roshan, R4; header button "Version history", `ui/VersionHistory.jsx`; `createVersion`,
+  `listVersions`, `restoreVersion` in `apiService.js`): kept next to the layout in localStorage
+  (`dwtwin_<company>_<layout>_versions`, newest first). Named versions ("Save" in the popover) and auto checkpoints
+  (at most one per 10 minutes of editing, `AUTO_VERSION_EVERY`). At most 20 auto + 30 named per layout
+  (`MAX_AUTO_VERSIONS`, `MAX_NAMED_VERSIONS`), oldest dropped first. Storage full: old auto checkpoints (any
+  layout's) are dropped so the layout still saves; a version that fails never fails the save. Restore =
+  `editor.restoreVersion(snapshot)`, one undo step; the layout name is left alone.
 - Loading goes through `normaliseLayout` (`src/store/layoutData.js`): old saves get floors, elevations,
   anchorData, opening sizes. The layout list is built from the saved data (name, rooms, floors, last edit).
 - The editor is wrapped in `EditorErrorBoundary`: a failure shows "This layout could not be opened" + Back to layouts.
-- Decided: **Supabase** (PostgreSQL; must be self-hostable on the client company's server). Not started.
-  Start from `db/schema.sql`. Versioned saves + conflict detection come with it.
+- Decided: **Supabase** (PostgreSQL; must be self-hostable on the client company's server). Start from `db/schema.sql`.
+- **The browser-side Supabase path in `apiService.js` (Roshan, R2: CAS on `revision`, realtime) is a PROTOTYPE.**
+  It is OFF unless `VITE_LAYOUT_BACKEND=supabase` is set as well as `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
+  (`.env.example`); without the flag apiService makes zero network calls (`apiService.noBackend.test.js`).
+  Production saving goes through the platform API, which takes the tenant from the server session, never a
+  `company_id` sent by the browser (docs/AHDUS_3D_INTEGRATION_PLAN.md).
 
 ## Team (other interns' modules plug in through layoutBridge)
 

@@ -111,12 +111,13 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 - [x] Decide with the **Login team** which backend the whole project uses (Supabase or your own Postgres). One backend for all teams.
 - [x] Write the decision in `docs/decisions/001-backend.md` (what, why, alternatives). Decided: Supabase.
 
-### R2. Replace `localStorage` with the real backend ✅ done
+### R2. Replace `localStorage` with the real backend ✅ prototype (off by default)
 - [x] Keep the same function names in `src/services/apiService.js` (save, load, list, delete, export, import) so the rest of the app does not change.
 - [x] Keep `localStorage` as an offline cache and fallback.
 - [x] Move the two-tab `revision` check to the server (compare-and-set on a `revision` column).
 - **Files:** `src/services/apiService.js`, `src/store/workspaceStore.js`.
 - **Done when:** `e2e/save-smoke.mjs` passes against the real backend, and a conflict between two sessions still shows the "changed in another tab" message.
+- **Status:** the browser-side Supabase path is a PROTOTYPE, OFF unless `VITE_LAYOUT_BACKEND=supabase` (`.env.example`). Production saving goes through the platform API with the tenant from the server session, never a `company_id` sent by the browser.
 
 ### R3. Schema aligned with layout v2 ✅ done
 - [x] Update `db/schema.sql` for floors, anchors, routes and floor links (stairs and lifts).
@@ -126,7 +127,7 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 
 ### R4. Version history ✅ done
 - [x] Groundwork now: versions kept in the browser (list, restore, who and when), behind the same functions the server will answer later.
-- [x] Write a row to `layout_versions` on save (every N saves, plus a manual "Save version").
+- [x] Write a row to `layout_versions` on save (an auto checkpoint at most every 10 minutes of editing, plus a manual "Save version"; at most 20 auto + 30 named per layout).
 - [x] API: list versions, restore a version, show who and when.
 - [x] A small "Version history" list in the Studio header menu (Anshu styles it).
 - **Done when:** you can restore an old version, and undo history still works after restoring.
