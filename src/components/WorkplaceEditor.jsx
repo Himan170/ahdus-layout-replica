@@ -178,6 +178,7 @@ export default function WorkplaceEditor({ onExit }) {
   const [realisticLook, setRealisticLook] = useState(storedRealisticLook); // Settings → Realistic look
   const [nameFocusToken, setNameFocusToken] = useState(0); // "Rename" focuses the Inspector's name box
   const [planView, setPlanView] = useState(false); // the canvas card's view: Plan (floor plan) instead of the 3D canvas
+  const [announceText, setAnnounceText] = useState(''); // Screen reader live feedback (Task S3)
   const [sceneReady, setSceneReady] = useState(null);   // the scene, once created (for overlays)
   const [exportLoading, setExportLoading] = useState(false); // true while PNG/PDF is being generated
   const [measureMode, setMeasureMode] = useState(false);
@@ -1251,6 +1252,45 @@ export default function WorkplaceEditor({ onExit }) {
           }
           break;
 
+        case 'ArrowUp':
+        case 'ArrowDown':
+        case 'ArrowLeft':
+        case 'ArrowRight': {
+          // Accessibility (Task S3): Arrow keys move the selected object on the grid
+          if (!store.selectedObjectId) break;
+          const obj = store.objects[store.selectedObjectId];
+          if (!obj) break;
+          e.preventDefault();
+          e.stopPropagation();
+
+          if (obj.isLocked) {
+            showStudioMessage('Item is locked and cannot be moved', true);
+            setAnnounceText('Item is locked and cannot be moved');
+            break;
+          }
+
+          const baseStep = snapRef.current?.enabled && snapRef.current?.step > 0 ? snapRef.current.step : 0.25;
+          const step = e.shiftKey ? 1.0 : e.altKey ? 0.05 : baseStep;
+
+          let dx = 0;
+          let dz = 0;
+          if (e.key === 'ArrowLeft') dx = -step;
+          if (e.key === 'ArrowRight') dx = step;
+          if (e.key === 'ArrowUp') dz = -step;
+          if (e.key === 'ArrowDown') dz = step;
+
+          const newX = Math.round(((Number(obj.x) || 0) + dx) * 1000) / 1000;
+          const newZ = Math.round(((Number(obj.z) || 0) + dz) * 1000) / 1000;
+
+          editor.updateObject(
+            store.selectedObjectId,
+            { x: newX, z: newZ },
+            { label: 'Move item (keyboard)' }
+          );
+          setAnnounceText(`Moved ${obj.label || obj.assetType} to X ${newX}, Z ${newZ}`);
+          break;
+        }
+
         case 'w':
         case 'W':
           handleSetGizmoMode('position');
@@ -1328,11 +1368,22 @@ export default function WorkplaceEditor({ onExit }) {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('wheel', handleWheel);
     };
-  }, [editor, handleCancelPlacement, handleSetGizmoMode, handleEnterPlay, handleSetPlannerTool, handleDeleteOpening]);
+  }, [editor, handleCancelPlacement, handleSetGizmoMode, handleEnterPlay, handleSetPlannerTool, handleDeleteOpening, showStudioMessage]);
 
   // ─── What the Studio shows ───
   const selectedObject = selectedObjectId ? objectsMap[selectedObjectId] ?? null : null;
   const selectedRoom = !selectedObject && selectedRoomId ? roomsMap[selectedRoomId] ?? null : null;
+
+  // Accessibility (Task S3): Announce selection changes to screen readers
+  useEffect(() => {
+    if (selectedObject) {
+      const def = ASSET_TYPES[selectedObject.assetType];
+      const name = selectedObject.label || def?.label || selectedObject.assetType;
+      setAnnounceText(`Selected ${name} at X ${(Number(selectedObject.x) || 0).toFixed(1)}, Z ${(Number(selectedObject.z) || 0).toFixed(1)} metres`);
+    } else if (selectedRoom) {
+      setAnnounceText(`Selected room ${selectedRoom.name}`);
+    }
+  }, [selectedObject, selectedRoom]);
   const inspectorMode = selectedObject ? 'object' : selectedRoom ? 'room'
     : selectedOpening ? 'opening' : layersOpen ? 'layers' : null;
   const floorName = floorsMap[currentFloor]?.name ?? '';
@@ -1479,10 +1530,14 @@ export default function WorkplaceEditor({ onExit }) {
 
   // ─── Render ───
   return (
-    <StudioShell
-      preview={isPlaying}
-      inspectorOpen={!!inspectorMode}
-      banner={<ProposedLayoutBanner editor={editor} onMessage={showStudioMessage} />}
+    <>
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {announceText}
+      </div>
+      <StudioShell
+        preview={isPlaying}
+        inspectorOpen={!!inspectorMode}
+        banner={<ProposedLayoutBanner editor={editor} onMessage={showStudioMessage} />}
       header={(
         <StudioHeader
           layoutName={layoutName}
@@ -1575,6 +1630,7 @@ export default function WorkplaceEditor({ onExit }) {
               objects={objects}
               selectedRoomId={selectedRoomId}
               selectedObjectId={selectedObjectId}
+              anchorData={anchorData}
               onSelectRoom={(id) => {
                 storeActions.selectRoom(id);
                 storeActions.selectObject(null);
@@ -1596,6 +1652,16 @@ export default function WorkplaceEditor({ onExit }) {
                   editor.updateObject(
                     id,
                     { rotationY: (Number(object.rotationY) || 0) + Math.PI / 2 },
+                    { label: 'Rotate object' }
+                  );
+                }
+              }}
+              onRotateByAngle={(id, deltaRad) => {
+                const object = objectsMap[id];
+                if (object && !object.isLocked) {
+                  editor.updateObject(
+                    id,
+                    { rotationY: (Number(object.rotationY) || 0) + deltaRad },
                     { label: 'Rotate object' }
                   );
                 }
@@ -1684,6 +1750,7 @@ export default function WorkplaceEditor({ onExit }) {
           floorName={floorName}
           rooms={rooms}
           objects={objects}
+          floors={floors}
           onClose={handleCloseInspector}
           onUpdateObject={handleUpdateObject}
           onDuplicate={handleDuplicateObject}
@@ -1718,5 +1785,6 @@ export default function WorkplaceEditor({ onExit }) {
         />
       )}
     />
+    </>
   );
 }

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   itemSize, itemContains, planDrop, roomWallPieces, wallSegmentEnds,
   toPlan, toWorld, screenToWorld, planAngle, planViewBox,
+  clampZoom, zoomViewBox, zoomTowards, roomDimensionLines,
 } from '../planMath';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 import { wallSegmentData } from '../../play/geometry';
@@ -153,3 +154,49 @@ describe('item footprints', () => {
     expect(itemContains(turned, { x: half, z: 0 })).toBe(false);
   });
 });
+
+describe('zoom, pan, and dimensions', () => {
+  it('clampZoom keeps zoom within bounds', () => {
+    expect(clampZoom(0.05)).toBe(0.2);
+    expect(clampZoom(15)).toBe(8);
+    expect(clampZoom(2)).toBe(2);
+    expect(clampZoom(NaN)).toBe(1);
+  });
+
+  it('zoomViewBox shrinks viewBox width and height proportionally and applies pan', () => {
+    const base = { x: 0, y: 0, width: 20, height: 10 };
+    const zoomed = zoomViewBox(base, 2, { x: 5, y: -2 });
+    expect(zoomed.width).toBe(10);
+    expect(zoomed.height).toBe(5);
+    // base center is (10, 5) -> with pan (5, -2) center is (15, 3)
+    // top-left should be (15 - 5, 3 - 2.5) = (10, 0.5)
+    expect(zoomed.x).toBe(10);
+    expect(zoomed.y).toBe(0.5);
+    expect(zoomed.viewBoxStr).toBe('10 0.5 10 5');
+  });
+
+  it('zoomTowards keeps point under cursor invariant', () => {
+    const base = { x: 0, y: 0, width: 20, height: 20 };
+    const cursor = { x: 5, y: 5 };
+    const pan = zoomTowards(cursor, base, 1, 2, { x: 0, y: 0 });
+    const vb1 = zoomViewBox(base, 1, { x: 0, y: 0 });
+    const vb2 = zoomViewBox(base, 2, pan);
+    // Relative position of cursor in viewBox 1 vs viewBox 2 should match
+    const rel1 = { x: (cursor.x - vb1.x) / vb1.width, y: (cursor.y - vb1.y) / vb1.height };
+    const rel2 = { x: (cursor.x - vb2.x) / vb2.width, y: (cursor.y - vb2.y) / vb2.height };
+    expect(rel1.x).toBeCloseTo(rel2.x);
+    expect(rel1.y).toBeCloseTo(rel2.y);
+  });
+
+  it('roomDimensionLines generates top and right dimension ticks and labels', () => {
+    const room = { x: 0, z: 0, width: 6, depth: 4 };
+    const { top, right } = roomDimensionLines(room, 0.5);
+    expect(top.label).toBe('6.0 m');
+    expect(top.x1).toBe(-3);
+    expect(top.x2).toBe(3);
+    expect(right.label).toBe('4.0 m');
+    expect(right.y1).toBe(-2);
+    expect(right.y2).toBe(2);
+  });
+});
+

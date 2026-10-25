@@ -198,3 +198,116 @@ export function planDrop(object, point, { objects = [], rooms = [], snap: snappi
   const h = placementHeight({ surface, normalY: 1, pointY: top ?? 0, elevation: 0 });
   return { x, y: h.y, z };
 }
+
+// ── Zoom, pan and dimensions ──────────────────────────────────────────────
+
+export const MIN_ZOOM = 0.2;
+export const MAX_ZOOM = 8;
+
+/** Clamps a zoom level between MIN_ZOOM and MAX_ZOOM. */
+export function clampZoom(z) {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(z) || 1));
+}
+
+/**
+ * Calculates the dynamic viewBox in plan coordinates given the base view box,
+ * zoom scale, and pan offsets.
+ * @returns {{ x: number, y: number, width: number, height: number, viewBoxStr: string }}
+ */
+export function zoomViewBox(baseView, zoom = 1, pan = { x: 0, y: 0 }) {
+  if (!baseView) return null;
+  const z = clampZoom(zoom);
+  const w = baseView.width / z;
+  const h = baseView.height / z;
+  const cx = baseView.x + baseView.width / 2 + (pan?.x || 0);
+  const cy = baseView.y + baseView.height / 2 + (pan?.y || 0);
+  const x = cx - w / 2;
+  const y = cy - h / 2;
+  return {
+    x,
+    y,
+    width: w,
+    height: h,
+    viewBoxStr: `${x} ${y} ${w} ${h}`,
+  };
+}
+
+/**
+ * Zoom towards a cursor point in plan coordinates.
+ * Returns the new pan { x, y } such that cursorPlan remains under the cursor.
+ */
+export function zoomTowards(cursorPlan, baseView, currentZoom, targetZoom, currentPan) {
+  const z0 = clampZoom(currentZoom);
+  const z1 = clampZoom(targetZoom);
+  if (z0 === z1 || !baseView) return currentPan;
+
+  const cx0 = baseView.x + baseView.width / 2 + (currentPan?.x || 0);
+  const cy0 = baseView.y + baseView.height / 2 + (currentPan?.y || 0);
+
+  const ratio = z0 / z1;
+  const cx1 = cursorPlan.x - (cursorPlan.x - cx0) * ratio;
+  const cy1 = cursorPlan.y - (cursorPlan.y - cy0) * ratio;
+
+  return {
+    x: cx1 - (baseView.x + baseView.width / 2),
+    y: cy1 - (baseView.y + baseView.height / 2),
+  };
+}
+
+/** Dimension annotation lines for a room (plan coordinates). */
+export function roomDimensionLines(room, offset = 0.4) {
+  const c = toPlan(room);
+  const w = Number(room.width);
+  const d = Number(room.depth);
+  const halfW = w / 2;
+  const halfD = d / 2;
+
+  // Top (North) dimension: width
+  const topY = c.y - halfD - offset;
+  const top = {
+    x1: c.x - halfW,
+    y1: topY,
+    x2: c.x + halfW,
+    y2: topY,
+    textX: c.x,
+    textY: topY - 0.15,
+    label: `${w.toFixed(1)} m`,
+    tick1: { x1: c.x - halfW, y1: topY - 0.15, x2: c.x - halfW, y2: topY + 0.15 },
+    tick2: { x1: c.x + halfW, y1: topY - 0.15, x2: c.x + halfW, y2: topY + 0.15 },
+  };
+
+  // Right (East) dimension: depth
+  const rightX = c.x + halfW + offset;
+  const right = {
+    x1: rightX,
+    y1: c.y - halfD,
+    x2: rightX,
+    y2: c.y + halfD,
+    textX: rightX + 0.18,
+    textY: c.y,
+    label: `${d.toFixed(1)} m`,
+    tick1: { x1: rightX - 0.15, y1: c.y - halfD, x2: rightX + 0.15, y2: c.y - halfD },
+    tick2: { x1: rightX - 0.15, y1: c.y + halfD, x2: rightX + 0.15, y2: c.y + halfD },
+  };
+
+  return { top, right };
+}
+
+export const ANCHOR_COLORS = {
+  workstation: '#2563eb',
+  seat: '#6366f1',
+  reception: '#10b981',
+  machine: '#f59e0b',
+  spawn: '#8b5cf6',
+  'info-point': '#0ea5e9',
+};
+
+export const ANCHOR_BADGE_SYMBOLS = {
+  workstation: 'W',
+  seat: 'S',
+  reception: 'R',
+  machine: 'M',
+  spawn: 'P',
+  'info-point': 'i',
+};
+

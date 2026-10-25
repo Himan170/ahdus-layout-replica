@@ -608,7 +608,7 @@ export async function createWorkspace(companyId, name = 'Untitled Layout') {
       console.warn('[apiService] Supabase initial create error:', err);
     }
   }
-  // Write the empty layout now, so it is in the list even before the first change
+  // Write the layout now, so it is in the list even before the first change
   _persistToBackend(companyId, layoutId, payload, 1);
   _revision = 1;
   return layoutId;
