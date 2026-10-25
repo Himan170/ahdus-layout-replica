@@ -55,6 +55,7 @@ import BuildPanel from '../ui/BuildPanel';
 import CanvasCard from '../ui/CanvasCard';
 import RoomLabels from '../ui/RoomLabels';
 import MeasurementOverlay from '../ui/MeasurementOverlay';
+import FloorPlanView from '../floorplan/FloorPlanView';
 import SelectionToolbar from '../ui/SelectionToolbar';
 import Inspector from '../ui/Inspector';
 import StudioFooter from '../ui/StudioFooter';
@@ -176,6 +177,7 @@ export default function WorkplaceEditor({ onExit }) {
   const [showGrid, setShowGrid] = useState(false);      // off: grid only while a build tool is active
   const [realisticLook, setRealisticLook] = useState(storedRealisticLook); // Settings → Realistic look
   const [nameFocusToken, setNameFocusToken] = useState(0); // "Rename" focuses the Inspector's name box
+  const [viewMode, setViewMode] = useState('3d');
   const [sceneReady, setSceneReady] = useState(null);   // the scene, once created (for overlays)
   const [exportLoading, setExportLoading] = useState(false); // true while PNG/PDF is being generated
   const [measureMode, setMeasureMode] = useState(false);
@@ -1474,6 +1476,8 @@ export default function WorkplaceEditor({ onExit }) {
       header={(
         <StudioHeader
           layoutName={layoutName}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
           onRenameLayout={(name) => renameLayout(name)}
           onAllLayouts={onExit ? handleAllLayouts : null}
           saveStatus={saveStatus}
@@ -1544,13 +1548,45 @@ export default function WorkplaceEditor({ onExit }) {
           onToggleWallLengths={() => setShowWallLengths((visible) => !visible)}
           showRoomAreas={showRoomAreas}
           onToggleRoomAreas={() => setShowRoomAreas((visible) => !visible)}
+          hideCameraControls={true}
         >
           <canvas
             ref={canvasRef}
             className={measureMode ? 'is-measuring' : ''}
             onDragOver={handleCanvasDragOver}
             onDrop={handleCanvasDrop}
+            style={{
+              visibility: viewMode === '2d' ? 'hidden' : 'visible',
+              pointerEvents: viewMode === '2d' ? 'none' : 'auto',
+            }}
           />
+          {viewMode === '2d' && !isPlaying && (
+            <FloorPlanView
+              rooms={rooms}
+              objects={objects}
+              selectedRoomId={selectedRoomId}
+              selectedObjectId={selectedObjectId}
+              onSelectRoom={(id) => {
+                storeActions.selectRoom(id);
+                storeActions.selectObject(null);
+              }}
+              onSelectObject={(id) => {
+                storeActions.selectObject(id);
+                storeActions.selectRoom(null);
+              }}
+              onMoveObject={(id, patch) => editor.updateObject(id, patch, { label: 'Move object' })}
+              onRotateObject={(id) => {
+                const object = objectsMap[id];
+                if (object && !object.isLocked) {
+                  editor.updateObject(
+                    id,
+                    { rotationY: (Number(object.rotationY) || 0) + Math.PI / 2 },
+                    { label: 'Rotate object' }
+                  );
+                }
+              }}
+            />
+          )}
           <TabNotice
             conflict={saveConflict}
             openElsewhere={openElsewhere}
@@ -1563,7 +1599,7 @@ export default function WorkplaceEditor({ onExit }) {
             scene={sceneReady}
             rooms={rooms}
             elevation={elevationOf(floorsMap, currentFloor)}
-            hidden={isPlaying}
+            hidden={isPlaying || viewMode === '2d'}
             showArea={showRoomAreas}
           />
           <MeasurementOverlay
@@ -1578,7 +1614,7 @@ export default function WorkplaceEditor({ onExit }) {
             currentFloor={currentFloor}
             hidden={isPlaying}
           />
-          {!isPlaying && (selectedObject || selectedRoom) && (
+          {!isPlaying && viewMode !== '2d' && (selectedObject || selectedRoom) && (
             <SelectionToolbar
               scene={sceneReady}
               getBounds={getSelectionBounds}

@@ -32,12 +32,13 @@ export default function CanvasCard({
   onToggleWallLengths,
   showRoomAreas,
   onToggleRoomAreas,
+  hideCameraControls = false,
 }) {
   return (
     <section className={`canvas-card${preview ? ' is-preview' : ''}`} aria-label="Workplace view">
       {children}
 
-      {!preview && (
+      {!preview && !hideCameraControls && (
         <div className="canvas-card__controls">
           <ExportMenu
             onExportPng={onExportPng}
