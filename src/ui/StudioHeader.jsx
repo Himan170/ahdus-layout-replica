@@ -147,7 +147,7 @@ function Settings({
               </button>
               <button className="ui-btn" aria-label="Import layout" title="Add a layout from a file to your layouts"
                 onClick={() => fileRef.current?.click()}>
-                <Upload size={16} strokeWidth={1.75} aria-hidden /> Import layout…
+                <Upload size={16} strokeWidth={1.75} aria-hidden /> Import layoutâ€¦
               </button>
               <input ref={fileRef} type="file" accept=".json,application/json" hidden aria-label="Import layout file"
                 onChange={(e) => {
@@ -170,6 +170,8 @@ export default function StudioHeader({
   layoutName,
   onRenameLayout,
   onAllLayouts,
+  viewMode = '3d',
+  onViewModeChange = () => {},
   saveStatus,          // 'saved' | 'saving' | 'unsaved'
   saveError,           // why it is not saved (shown next to "Not saved")
   undoState,
@@ -177,7 +179,7 @@ export default function StudioHeader({
   onRedo,
   settings,            // props for <Settings>
 }) {
-  const statusText = { saved: 'Saved', saving: 'Saving…', unsaved: 'Not saved' }[saveStatus] ?? '';
+  const statusText = { saved: 'Saved', saving: 'Savingâ€¦', unsaved: 'Not saved' }[saveStatus] ?? '';
   return (
     <header className="studio-header">
       <div className="studio-header__left">
@@ -198,6 +200,24 @@ export default function StudioHeader({
       </div>
 
       <div className="studio-header__right">
+
+        <div className="ui-segmented" role="group" aria-label="Studio view mode">
+          <button
+            type="button"
+            aria-pressed={viewMode === '2d'}
+            onClick={() => onViewModeChange('2d')}
+          >
+            2D Plan
+          </button>
+          <button
+            type="button"
+            aria-pressed={viewMode === '3d'}
+            onClick={() => onViewModeChange('3d')}
+          >
+            3D View
+          </button>
+        </div>
+
         <span
           className={`studio-header__status ${saveStatus === 'unsaved' ? 'is-bad' : 'ui-muted'}`}
           role="status"

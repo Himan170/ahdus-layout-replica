@@ -1,14 +1,14 @@
 /**
  * WorkplaceEditor.jsx
  *
- * The workplace editor: Babylon scene setup, store → mesh syncing, level
+ * The workplace editor: Babylon scene setup, store â†’ mesh syncing, level
  * visibility, and switching between Workplace Studio (src/ui/, the planner
  * tools) and Preview (play/playController.js + PlayHUD). The Studio's look
  * lives in src/ui/; this file wires it to the scene and to editorHistory.
  */
 
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
-
+import FloorPlanView from '../floorplan/FloorPlanView';
 // Engine, scene, camera, lights and site: shared with the embeddable engine
 import { createLayoutScene } from '../engine/systems/SceneSetup';
 import { RoomSystem } from '../engine/systems/RoomSystem';
@@ -30,7 +30,7 @@ import { ASSET_TYPES } from '../utils/assetCatalog';
 import { createPlacementManager } from '../utils/placementManager';
 import { createGizmoController } from '../utils/gizmoController';
 
-// Phase 4 — Zustand store + API
+// Phase 4 â€” Zustand store + API
 import {
   useWorkspaceStore,
 } from '../store/workspaceStore';
@@ -40,7 +40,7 @@ import {
 } from '../services/apiService';
 import { downloadText } from '../ui/download';
 
-// Phase 4 — Performance optimisation
+// Phase 4 â€” Performance optimisation
 import {
   createPerformanceMonitor,
   apply2DOptimisations,
@@ -63,7 +63,7 @@ import StudioFooter from '../ui/StudioFooter';
 import TabNotice from '../ui/TabNotice';
 import { STUDIO_TOOLS, activeTile, toolHint } from '../ui/tools';
 
-// Play mode — walk around as a character and build (replaces the old walkthrough)
+// Play mode â€” walk around as a character and build (replaces the old walkthrough)
 import { createPlayController } from '../play/playController';
 // Planner mouse tools: draw rooms/walls, doors/windows, drag walls (same maths as Build mode)
 import { createPlannerTools } from '../planner/plannerTools';
@@ -98,7 +98,7 @@ function defaultInteractionCard(t, positions) {
   }
   return {
     title: name,
-    body: `${facts.join(' · ')}${facts.length ? '\n' : ''}No module has an action for this yet.`,
+    body: `${facts.join(' Â· ')}${facts.length ? '\n' : ''}No module has an action for this yet.`,
   };
 }
 
@@ -134,7 +134,7 @@ export default function WorkplaceEditor({ onExit }) {
   const placementManagerRef = useRef(null);
   const gizmoControllerRef = useRef(null);
 
-  // Phase 4 — performance monitor
+  // Phase 4 â€” performance monitor
   const perfMonitorRef = useRef(null);
 
   // Play mode (character + hotbar building)
@@ -158,7 +158,7 @@ export default function WorkplaceEditor({ onExit }) {
   const playBuildToolRef = useRef(false);   // Preview: holding a room / wall / stretch tool
   const updateFloorOutlineRef = useRef(() => {});
 
-  // Undo / Redo — every layout change goes through this (see store/editorHistory.js)
+  // Undo / Redo â€” every layout change goes through this (see store/editorHistory.js)
   const [undoState, setUndoState] = useState({
     canUndo: false, canRedo: false, undoLabel: null, redoLabel: null,
   });
@@ -166,13 +166,13 @@ export default function WorkplaceEditor({ onExit }) {
   if (!editorRef.current) editorRef.current = createEditorHistory(setUndoState);
   const editor = editorRef.current;
 
-  // Phase 6 — Snap and environment local UI state
+  // Phase 6 â€” Snap and environment local UI state
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [snapStep, setSnapStep] = useState(0.5);
   const [environment, setEnvironment] = useState('day'); // 'day' | 'night' | 'office'
   const snapRef = useRef({ enabled: true, step: 0.5 }); // read by the planner tools while dragging
 
-  // Planner mouse tools (left toolbar → Build)
+  // Planner mouse tools (left toolbar â†’ Build)
   const plannerToolsRef = useRef(null);
   const [plannerTool, setPlannerTool] = useState({ kind: 'select' });
   const [roomType, setRoomType] = useState('OFFICE');
@@ -188,12 +188,13 @@ export default function WorkplaceEditor({ onExit }) {
 
   // Workplace Studio UI state
   const [openTray, setOpenTray] = useState(null);       // Build tile whose options tray is open
+  const [viewMode, setViewMode] = useState('3d');
   const [layersOpen, setLayersOpen] = useState(false);  // Inspector shows the floor's outline
   const [showGrid, setShowGrid] = useState(false);      // off: grid only while a build tool is active
   const [nameFocusToken, setNameFocusToken] = useState(0); // "Rename" focuses the Inspector's name box
   const [sceneReady, setSceneReady] = useState(null);   // the scene, once created (for overlays)
 
-  // ─── Zustand state selectors ───
+  // â”€â”€â”€ Zustand state selectors â”€â”€â”€
   const roomsMap = useWorkspaceStore((s) => s.rooms);
   const objectsMap = useWorkspaceStore((s) => s.objects);
   const currentFloor = useWorkspaceStore((s) => s.currentFloor);  // Phase 5
@@ -225,11 +226,11 @@ export default function WorkplaceEditor({ onExit }) {
   const layoutName = useWorkspaceStore((s) => s.layoutName);
   const hasBackend = useWorkspaceStore((s) => !!(s.companyId && s.layoutId));
 
-  // FPS is local — no need to put it in global store
+  // FPS is local â€” no need to put it in global store
   const fpsRef = useRef(0);
   const fpsDisplayRef = useRef(null);
 
-  // ─── Zustand actions (stable references) ───
+  // â”€â”€â”€ Zustand actions (stable references) â”€â”€â”€
   const storeActions = useWorkspaceStore(
     (s) => ({
       // UI-only actions. Layout changes (add/update/delete rooms, objects,
@@ -282,19 +283,19 @@ export default function WorkplaceEditor({ onExit }) {
     }
   };
 
-  // ─── Which storeys are visible (multi-storey buildings) ───
+  // â”€â”€â”€ Which storeys are visible (multi-storey buildings) â”€â”€â”€
   // engine/systems/FloorSystem: planner (floors up to the one you edit, without
   // its roof), outside (all, with roofs) or inside (all, with ceilings: Preview)
   const floorSystemRef = useRef(null);
   const applyLevelVisibility = useCallback(() => floorSystemRef.current?.apply(), []);
 
-  // ─── Start/stop auto-save on mount/unmount ───
+  // â”€â”€â”€ Start/stop auto-save on mount/unmount â”€â”€â”€
   useEffect(() => {
     startAutoSave();
     return () => stopAutoSave();
   }, []);
 
-  // ─── Undo bursts (a run of + / −, a slider drag) end when the mouse is
+  // â”€â”€â”€ Undo bursts (a run of + / âˆ’, a slider drag) end when the mouse is
   // released or the tool changes. After the release's own handlers, so the
   // last change of a drag still joins its undo step.
   useEffect(() => {
@@ -305,7 +306,7 @@ export default function WorkplaceEditor({ onExit }) {
   }, [editor]);
   useEffect(() => { editor.endBurst(); }, [editor, plannerTool, placementMode, selectedSlot, isPlaying]);
 
-  // ─── Initialise Babylon Engine & Scene ───
+  // â”€â”€â”€ Initialise Babylon Engine & Scene â”€â”€â”€
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -326,7 +327,7 @@ export default function WorkplaceEditor({ onExit }) {
     const floorSystem = new FloorSystem(roomSystem, objectSystem, () => useWorkspaceStore.getState());
     floorSystemRef.current = floorSystem;
 
-    // ── Phase 4: Performance monitor ──
+    // â”€â”€ Phase 4: Performance monitor â”€â”€
     const perfMonitor = createPerformanceMonitor(engine);
     perfMonitorRef.current = perfMonitor;
 
@@ -365,7 +366,7 @@ export default function WorkplaceEditor({ onExit }) {
         });
       },
       onExit: () => exitPlayRef.current(),
-      // ── Team integration: E and rooms become events other modules listen to ──
+      // â”€â”€ Team integration: E and rooms become events other modules listen to â”€â”€
       describeInteraction: (raw) => {
         const t = layoutBridge._describeTarget(raw);
         const action = layoutBridge._interactionFor(t);
@@ -457,7 +458,7 @@ export default function WorkplaceEditor({ onExit }) {
       window.__ahdusStore = useWorkspaceStore;
     }
 
-    // ── Phase 3: Create managers ──
+    // â”€â”€ Phase 3: Create managers â”€â”€
     const placementMgr = createPlacementManager(scene, { snapEnabled: true, snapStep: 0.5 });
     placementManagerRef.current = placementMgr;
     // Place only on the storey being edited (not on the ground under an upper floor)
@@ -497,7 +498,7 @@ export default function WorkplaceEditor({ onExit }) {
     floorOutlineRef.current = floorOutline;
 
     const gizmoCtrl = createGizmoController(scene, (objectId, transform) => {
-      // Gizmo reports once per drag (on drag end) → one undo step per drag.
+      // Gizmo reports once per drag (on drag end) â†’ one undo step per drag.
       // The mesh is at a world height; the object stores height above its floor.
       const st = useWorkspaceStore.getState();
       const elev = elevationOf(st.floors, st.objects[objectId]?.floor ?? 0);
@@ -506,7 +507,7 @@ export default function WorkplaceEditor({ onExit }) {
     gizmoControllerRef.current = gizmoCtrl;
     gizmoCtrl.setMode('position'); // default to position gizmo
 
-    // ── Pointer handlers ──
+    // â”€â”€ Pointer handlers â”€â”€
 
     // Pointer move: update placement ghost position, or the planner tool's preview
     scene.onPointerMove = () => {
@@ -571,7 +572,7 @@ export default function WorkplaceEditor({ onExit }) {
           store.selectRoom(meta.roomId);
           store.selectObject(null);
         } else {
-          // Clicked ground — deselect all
+          // Clicked ground â€” deselect all
           store.selectRoom(null);
           store.selectObject(null);
         }
@@ -614,7 +615,7 @@ export default function WorkplaceEditor({ onExit }) {
     };
   }, []);
 
-  // ─── Sync room meshes for EVERY floor (each at its own height) ───
+  // â”€â”€â”€ Sync room meshes for EVERY floor (each at its own height) â”€â”€â”€
   useEffect(() => {
     const roomSystem = roomSystemRef.current;
     if (!roomSystem) return;
@@ -624,7 +625,7 @@ export default function WorkplaceEditor({ onExit }) {
     applyLevelVisibility();
   }, [roomsMap, objectsMap, floorsMap, selectedRoomId, applyLevelVisibility]);
 
-  // ─── Sync item meshes whenever items change (every floor) ───
+  // â”€â”€â”€ Sync item meshes whenever items change (every floor) â”€â”€â”€
   useEffect(() => {
     const objectSystem = objectSystemRef.current;
     if (!objectSystem) return;
@@ -632,7 +633,7 @@ export default function WorkplaceEditor({ onExit }) {
     applyLevelVisibility();
   }, [objectsMap, floorsMap, applyLevelVisibility]);
 
-  // ─── Planner: show the floor being edited, and point the camera at its height ───
+  // â”€â”€â”€ Planner: show the floor being edited, and point the camera at its height â”€â”€â”€
   useEffect(() => {
     if (isPlaying) return;
     floorSystemRef.current?.setFloor(currentFloor);
@@ -643,7 +644,7 @@ export default function WorkplaceEditor({ onExit }) {
     }
   }, [currentFloor, isPlaying, floorsMap, applyLevelVisibility]);
 
-  // ─── Attach gizmo to selected object ───
+  // â”€â”€â”€ Attach gizmo to selected object â”€â”€â”€
   useEffect(() => {
     const gizmoCtrl = gizmoControllerRef.current;
     if (!gizmoCtrl) return;
@@ -663,7 +664,7 @@ export default function WorkplaceEditor({ onExit }) {
     }
   }, [selectedObjectId, objects, gizmoMode, isPlaying]);
 
-  // ─── Play mode (character + hotbar) ───
+  // â”€â”€â”€ Play mode (character + hotbar) â”€â”€â”€
   const handleEnterPlay = useCallback(() => {
     const play = playRef.current;
     if (!play || isPlayingRef.current) return;
@@ -740,7 +741,7 @@ export default function WorkplaceEditor({ onExit }) {
     handleResumePlay();
   }, [handleResumePlay]);
 
-  // ─── 2D / 3D Toggle ───
+  // â”€â”€â”€ 2D / 3D Toggle â”€â”€â”€
   const handleToggleView = useCallback(() => {
     const camera = cameraRef.current;
     const lights = lightsRef.current;
@@ -760,7 +761,7 @@ export default function WorkplaceEditor({ onExit }) {
     storeActions.setIs3D(!store.is3D);
   }, [storeActions]);
 
-  // ─── Planner build tools (left toolbar) ───
+  // â”€â”€â”€ Planner build tools (left toolbar) â”€â”€â”€
   const handleSetPlannerTool = useCallback((next) => {
     const mgr = placementManagerRef.current;
     if (mgr?.isActive()) {
@@ -783,7 +784,7 @@ export default function WorkplaceEditor({ onExit }) {
     plannerToolsRef.current?.refresh();
   }, [selectedRoomId, selectedOpeningSel, currentFloor, roomsMap]);
 
-  // ─── Doors and windows (selected in Studio) ───
+  // â”€â”€â”€ Doors and windows (selected in Studio) â”€â”€â”€
   /** The selected door/window with its room, or null (also when it no longer exists). */
   const selectedOpening = useMemo(() => {
     if (!selectedOpeningSel) return null;
@@ -828,7 +829,7 @@ export default function WorkplaceEditor({ onExit }) {
     showStudioMessage(`Removed ${sel.kind}. Ctrl+Z to undo.`);
   }, [editor, showStudioMessage]);
 
-  // ─── Floor below: its outline on the floor being built on ───
+  // â”€â”€â”€ Floor below: its outline on the floor being built on â”€â”€â”€
   updateFloorOutlineRef.current = () => {
     const outline = floorOutlineRef.current;
     if (!outline) return;
@@ -844,7 +845,7 @@ export default function WorkplaceEditor({ onExit }) {
     updateFloorOutlineRef.current();
   }, [roomsMap, floorsMap, currentFloor, plannerTool, selectedRoomId, isPlaying, sceneReady]);
 
-  // ─── Floors: add (empty or with the rooms below), height ───
+  // â”€â”€â”€ Floors: add (empty or with the rooms below), height â”€â”€â”€
   /** Add a floor on top; Studio switches to it. Returns its id. */
   const handleAddFloor = useCallback((copyRooms) => {
     const id = editor.addFloor({ copyRooms });
@@ -878,7 +879,7 @@ export default function WorkplaceEditor({ onExit }) {
     handleResumePlay();
   }, [handleAddFloor, handleResumePlay]);
 
-  // ─── Rooms ───
+  // â”€â”€â”€ Rooms â”€â”€â”€
   const handleDeleteRoom = useCallback((id) => {
     editor.deleteRoom(id);
   }, [editor]);
@@ -918,7 +919,7 @@ export default function WorkplaceEditor({ onExit }) {
     editor.updateRoom(id, { type, color: ROOM_TYPES[type]?.color }, { label: 'Change room type' });
   }, [editor]);
 
-  // ─── Placing catalog items (furniture, stairs) ───
+  // â”€â”€â”€ Placing catalog items (furniture, stairs) â”€â”€â”€
   const handleStartPlacement = useCallback((assetType) => {
     const mgr = placementManagerRef.current;
     if (!mgr) return;
@@ -935,7 +936,7 @@ export default function WorkplaceEditor({ onExit }) {
     storeActions.setPlacementMode(null);
   }, [storeActions]);
 
-  // ─── Build panel ───
+  // â”€â”€â”€ Build panel â”€â”€â”€
   const handleSelectTool = useCallback(() => {
     handleSetPlannerTool({ kind: 'select' });
   }, [handleSetPlannerTool]);
@@ -964,7 +965,7 @@ export default function WorkplaceEditor({ onExit }) {
     storeActions.setPlacementMode(assetType);
   }, [storeActions]);
 
-  // ─── Camera: fit the floor, or fly to one thing ───
+  // â”€â”€â”€ Camera: fit the floor, or fly to one thing â”€â”€â”€
   const flyTo = useCallback((min, max) => {
     const camera = cameraRef.current;
     const scene = sceneRef.current;
@@ -1022,7 +1023,7 @@ export default function WorkplaceEditor({ onExit }) {
     if (want3D !== useWorkspaceStore.getState().is3D) handleToggleView();
   }, [handleToggleView]);
 
-  // ─── Selection ───
+  // â”€â”€â”€ Selection â”€â”€â”€
   const handleSelectObject = useCallback((id) => {
     storeActions.selectObject(id);
     storeActions.selectRoom(null);
@@ -1120,7 +1121,7 @@ export default function WorkplaceEditor({ onExit }) {
     setOpenTray(null);
   }, [storeActions]);
 
-  // ─── Keyboard shortcuts ───
+  // â”€â”€â”€ Keyboard shortcuts â”€â”€â”€
   useEffect(() => {
     const handleKeyDown = (e) => {
       // Ignore if typing in an input
@@ -1163,7 +1164,7 @@ export default function WorkplaceEditor({ onExit }) {
         }
 
         case '1': case '2': case '3': case '4': case '5': case '6': {
-          // Build panel tiles: 1 = Select, 2–6 open a tile's options
+          // Build panel tiles: 1 = Select, 2â€“6 open a tile's options
           if (e.ctrlKey || e.metaKey || e.altKey) break;
           const tile = STUDIO_TOOLS[Number(e.key) - 1];
           if (tile.id === 'select') {
@@ -1202,7 +1203,7 @@ export default function WorkplaceEditor({ onExit }) {
 
         case 'r':
         case 'R':
-          // During placement: rotate preview 45°. Otherwise: scale gizmo.
+          // During placement: rotate preview 45Â°. Otherwise: scale gizmo.
           if (placementManagerRef.current?.isActive()) {
             placementManagerRef.current.rotatePreview();
           } else {
@@ -1269,7 +1270,7 @@ export default function WorkplaceEditor({ onExit }) {
     };
   }, [editor, handleCancelPlacement, handleSetGizmoMode, handleEnterPlay, handleSetPlannerTool, handleDeleteOpening]);
 
-  // ─── What the Studio shows ───
+  // â”€â”€â”€ What the Studio shows â”€â”€â”€
   const selectedObject = selectedObjectId ? objectsMap[selectedObjectId] ?? null : null;
   const selectedRoom = !selectedObject && selectedRoomId ? roomsMap[selectedRoomId] ?? null : null;
   const inspectorMode = selectedObject ? 'object' : selectedRoom ? 'room'
@@ -1290,7 +1291,7 @@ export default function WorkplaceEditor({ onExit }) {
   const footerHint = (() => {
     if (plannerMessage) return { text: plannerMessage.text, tone: plannerMessage.bad ? 'bad' : 'message' };
     if (!placementMode && plannerHint) {
-      const line = [plannerHint.title, plannerHint.detail].filter(Boolean).join(' · ');
+      const line = [plannerHint.title, plannerHint.detail].filter(Boolean).join(' Â· ');
       if (plannerHint.bad) return { text: line, tone: 'bad' };
       if (plannerToolsRef.current?.isDragging() || plannerTool.kind === 'select') return { text: line, tone: 'hint' };
     }
@@ -1303,7 +1304,7 @@ export default function WorkplaceEditor({ onExit }) {
     return null;
   }, [selectedObjectId, selectedRoomId, boundsOf]);
 
-  // Not saved (with the reason) / Saving… (a change waits for the debounced save) / Saved
+  // Not saved (with the reason) / Savingâ€¦ (a change waits for the debounced save) / Saved
   const saveStatus = !hasBackend || saveError ? 'unsaved' : isDirty ? 'saving' : 'saved';
 
   const handleAllLayouts = useCallback(async () => {
@@ -1344,7 +1345,7 @@ export default function WorkplaceEditor({ onExit }) {
     if (result.ok) showStudioMessage(`Saved as "${useWorkspaceStore.getState().layoutName}"`);
   }, [showStudioMessage]);
 
-  // ─── Render ───
+  // â”€â”€â”€ Render â”€â”€â”€
   return (
     <StudioShell
       preview={isPlaying}
@@ -1352,6 +1353,8 @@ export default function WorkplaceEditor({ onExit }) {
       header={(
         <StudioHeader
           layoutName={layoutName}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
           onRenameLayout={(name) => renameLayout(name)}
           onAllLayouts={onExit ? handleAllLayouts : null}
           saveStatus={saveStatus}
@@ -1404,12 +1407,51 @@ export default function WorkplaceEditor({ onExit }) {
           onFitView={handleFitView}
           showEmpty={showEmpty}
           onAddFirstRoom={() => setOpenTray('rooms')}
+          hideCameraControls={true}
         >
-          <canvas
-            ref={canvasRef}
-            onDragOver={handleCanvasDragOver}
-            onDrop={handleCanvasDrop}
-          />
+
+<canvas
+  ref={canvasRef}
+  onDragOver={handleCanvasDragOver}
+  onDrop={handleCanvasDrop}
+  style={{
+    visibility: viewMode === '2d' ? 'hidden' : 'visible',
+    pointerEvents: viewMode === '2d' ? 'none' : 'auto',
+  }}
+/>
+
+
+{viewMode === '2d' && !isPlaying && (
+  <FloorPlanView
+    rooms={rooms}
+    objects={objects}
+    selectedRoomId={selectedRoomId}
+    selectedObjectId={selectedObjectId}
+    onSelectRoom={(id) => {
+      storeActions.selectRoom(id);
+      storeActions.selectObject(null);
+    }}
+    onSelectObject={(id) => {
+      storeActions.selectObject(id);
+      storeActions.selectRoom(null);
+    }}
+    onMoveObject={(id, patch) =>
+  editor.updateObject(id, patch, { label: 'Move object' })
+}
+onRotateObject={(id) => {
+  const object = objectsMap[id];
+  if (object && !object.isLocked) {
+    editor.updateObject(
+      id,
+      { rotationY: (Number(object.rotationY) || 0) + Math.PI / 2 },
+      { label: 'Rotate object' }
+    );
+  }
+}}
+  />
+)}
+
+
           <TabNotice
             conflict={saveConflict}
             openElsewhere={openElsewhere}
@@ -1422,9 +1464,9 @@ export default function WorkplaceEditor({ onExit }) {
             scene={sceneReady}
             rooms={rooms}
             elevation={elevationOf(floorsMap, currentFloor)}
-            hidden={isPlaying}
+            hidden={isPlaying || viewMode === '2d'}
           />
-          {!isPlaying && (selectedObject || selectedRoom) && (
+          {!isPlaying && viewMode !== '2d' && (selectedObject || selectedRoom) && (
             <SelectionToolbar
               scene={sceneReady}
               getBounds={getSelectionBounds}

@@ -17,12 +17,13 @@ export default function CanvasCard({
   onFitView,
   showEmpty,
   onAddFirstRoom,
+  hideCameraControls = false,
 }) {
   return (
     <section className={`canvas-card${preview ? ' is-preview' : ''}`} aria-label="Workplace view">
       {children}
 
-      {!preview && (
+      {!preview && !hideCameraControls && (
         <div className="canvas-card__controls">
           <div className="ui-segmented" role="group" aria-label="View">
             <button aria-label="2D view" title="2D view from above" aria-pressed={!is3D} onClick={() => onSetView(false)}>2D</button>
