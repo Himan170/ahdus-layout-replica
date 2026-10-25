@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as clientModule from '../supabaseClient';
 import {
   createVersion,
@@ -6,9 +6,9 @@ import {
   restoreVersion,
   saveNow,
   deleteLayout,
+  AUTO_VERSION_EVERY,
   _setRevisionForTesting,
-  _resetSaveCountForTesting,
-  _getSaveCountSinceVersion,
+  _resetAutoVersionForTesting,
 } from '../apiService';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { createEditorHistory } from '../../store/editorHistory';
@@ -25,8 +25,9 @@ describe('Task R4: Version History & Restore API', () => {
     useWorkspaceStore.getState().resetWorkspace();
     useWorkspaceStore.getState().setTenant(COMPANY_UUID, LAYOUT_UUID, 'HQ Test', 1);
     _setRevisionForTesting(1);
-    _resetSaveCountForTesting();
+    _resetAutoVersionForTesting();
     editor = createEditorHistory();
+    vi.stubEnv('VITE_LAYOUT_BACKEND', 'supabase'); // the prototype backend is off without it
 
     // Fake localStorage
     const storageMap = new Map();
@@ -54,6 +55,11 @@ describe('Task R4: Version History & Restore API', () => {
 
     vi.spyOn(clientModule, 'supabase', 'get').mockReturnValue(mockSupabase);
     vi.spyOn(clientModule, 'isSupabaseConfigured', 'get').mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
   });
 
   it('createVersion creates a snapshot, saves to Supabase and caches in localStorage', async () => {
@@ -189,7 +195,7 @@ describe('Task R4: Version History & Restore API', () => {
     expect(Object.keys(useWorkspaceStore.getState().objects)).toHaveLength(0);
   });
 
-  it('automatically triggers auto-save version checkpoint every 5 saves', async () => {
+  it('makes an auto checkpoint at most once per 10 minutes of editing (not every few saves)', async () => {
     // Mock saveNow's Supabase CAS call to succeed
     mockTable.update = vi.fn().mockReturnThis();
     mockTable.select = vi.fn().mockReturnValue(mockTable);
@@ -198,24 +204,30 @@ describe('Task R4: Version History & Restore API', () => {
       error: null,
     });
     mockTable.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
-
-    expect(_getSaveCountSinceVersion()).toBe(0);
-
-    for (let i = 1; i <= 4; i++) {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-25T10:00:00Z'));
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+    const autos = () => (JSON.parse(localStorage.getItem(`dwtwin_${COMPANY_UUID}_${LAYOUT_UUID}_versions`)) ?? [])
+      .filter((v) => v.auto);
+    const saveAt = async (minutes) => {
+      vi.setSystemTime(new Date(Date.UTC(2026, 9, 25, 10, 0, minutes * 60)));
       useWorkspaceStore.setState({ isDirty: true });
       await saveNow();
-      expect(_getSaveCountSinceVersion()).toBe(i);
-    }
+      await flush();
+    };
 
-    // 5th save triggers auto-checkpoint and resets counter
-    useWorkspaceStore.setState({ isDirty: true });
-    await saveNow();
-    expect(_getSaveCountSinceVersion()).toBe(0);
+    // auto-save runs about every second: 9.9 minutes of saves make no checkpoint
+    for (let s = 0; s <= 594; s += 6) await saveAt(s / 60);
+    expect(autos()).toHaveLength(0);
 
-    // Check version list contains auto-checkpoint
-    const cached = JSON.parse(localStorage.getItem(`dwtwin_${COMPANY_UUID}_${LAYOUT_UUID}_versions`));
-    expect(cached).toBeDefined();
-    expect(cached.some((v) => v.name === 'Auto-save checkpoint')).toBe(true);
+    await saveAt(AUTO_VERSION_EVERY / 60000);
+    expect(autos()).toHaveLength(1);
+    expect(autos()[0].name).toBe('Auto-save checkpoint');
+
+    await saveAt(15);
+    expect(autos()).toHaveLength(1);
+    await saveAt(20);
+    expect(autos()).toHaveLength(2);
   });
 
   it('deleteLayout purges versions cache from localStorage', async () => {

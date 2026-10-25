@@ -28,8 +28,20 @@
  * localStorage is per ORIGIN (host + port): layouts saved on localhost:3000 are
  * not visible on localhost:3001. vite.config.js sets strictPort for this reason.
  *
- * Keys: dwtwin_<companyId>_<layoutId> = layout data,
- *       dwtwin_<companyId>_layouts    = index of the company's layouts.
+ * Keys: dwtwin_<companyId>_<layoutId>          = layout data,
+ *       dwtwin_<companyId>_<layoutId>_versions = its version history (newest first),
+ *       dwtwin_<companyId>_layouts             = index of the company's layouts.
+ *
+ * Version history (R4): named versions ("Save" in the header's Version history)
+ * and auto checkpoints (at most one per AUTO_VERSION_EVERY of editing). At most
+ * MAX_AUTO_VERSIONS + MAX_NAMED_VERSIONS per layout, the oldest dropped first.
+ * Versions never block saving the layout: when storage is full, old auto
+ * checkpoints are dropped to make room, and a version that fails is skipped.
+ *
+ * Supabase (R2) is a PROTOTYPE: OFF unless VITE_LAYOUT_BACKEND=supabase (and the
+ * URL / key) are set; without the flag nothing here touches the network.
+ * Production saving goes through the platform API, which takes the tenant from
+ * the server session, never from a company_id sent by the browser.
  */
 
 import { useWorkspaceStore } from '../store/workspaceStore';
@@ -54,6 +66,24 @@ const NEARLY_FULL = 0.8;
 export const LAYOUT_FILE_FORMAT = 'ahdus-layout';
 const NO_SPACE = 'The browser has no space left for this layout. Export your layouts and delete old ones';
 const NOT_A_LAYOUT = 'This file is not an AHDUS layout';
+/** Version history limits, per layout. */
+export const AUTO_VERSION_EVERY = 10 * 60 * 1000; // ms of editing between auto checkpoints
+export const MAX_AUTO_VERSIONS  = 20;
+export const MAX_NAMED_VERSIONS = 30;
+const AUTO_VERSION_NAME = 'Auto-save checkpoint';
+const NO_SPACE_FOR_VERSION = 'No space left for another version';
+
+/**
+ * PROTOTYPE: the browser talks to Supabase only with VITE_LAYOUT_BACKEND=supabase
+ * as well as the URL and key. Read at call time (tests use vi.stubEnv).
+ */
+function _supabaseOn() {
+  return import.meta.env?.VITE_LAYOUT_BACKEND === 'supabase' && isSupabaseConfigured && !!supabase;
+}
+
+function isQuotaError(err) {
+  return err?.name === 'QuotaExceededError' || err?.name === 'NS_ERROR_DOM_QUOTA_REACHED';
+}
 
 // ─── Internal helpers ───
 
@@ -99,7 +129,7 @@ function _storedRevision(companyId, layoutId) {
  */
 function _persistToBackend(companyId, layoutId, payload, revision) {
   const savedAt = new Date().toISOString();
-  localStorage.setItem(storageKey(companyId, layoutId), JSON.stringify({ ...payload, revision, savedAt }));
+  _setItemMakingRoom(storageKey(companyId, layoutId), JSON.stringify({ ...payload, revision, savedAt }));
 
   let index;
   try { index = readJson(listKey(companyId), []); } catch { index = []; }
@@ -107,8 +137,23 @@ function _persistToBackend(companyId, layoutId, payload, revision) {
   const entry = { id: layoutId, name: payload.layoutName, updatedAt: savedAt };
   const i = index.findIndex((l) => l.id === layoutId);
   if (i >= 0) index[i] = entry; else index.push(entry);
-  localStorage.setItem(listKey(companyId), JSON.stringify(index));
+  _setItemMakingRoom(listKey(companyId), JSON.stringify(index));
   return { ok: true, savedAt };
+}
+
+/**
+ * localStorage.setItem; if storage is full, drop old auto checkpoints (any
+ * layout's, oldest first) until it fits. Throws the quota error if none are left.
+ */
+function _setItemMakingRoom(key, value) {
+  for (;;) {
+    try {
+      localStorage.setItem(key, value);
+      return;
+    } catch (err) {
+      if (!isQuotaError(err) || !_dropOldestAutoVersion(key)) throw err;
+    }
+  }
 }
 
 function _loadFromBackend(companyId, layoutId) {
@@ -127,7 +172,7 @@ function isUuid(str) {
  * Updates the row only if revision matches baseRevision, preventing concurrent overwrite.
  */
 async function _persistToSupabase(companyId, layoutId, payload, baseRevision) {
-  if (!isSupabaseConfigured || !supabase || !isUuid(companyId) || !isUuid(layoutId)) {
+  if (!_supabaseOn() || !isUuid(companyId) || !isUuid(layoutId)) {
     return { ok: false, error: 'Supabase client is not configured or IDs are not UUIDs' };
   }
   const savedAt = new Date().toISOString();
@@ -201,7 +246,7 @@ async function _persistToSupabase(companyId, layoutId, payload, baseRevision) {
  * Load a layout from Supabase workspace_layouts table.
  */
 async function _loadFromSupabase(companyId, layoutId) {
-  if (!isSupabaseConfigured || !supabase || !isUuid(companyId) || !isUuid(layoutId)) return null;
+  if (!_supabaseOn() || !isUuid(companyId) || !isUuid(layoutId)) return null;
   const { data, error } = await supabase
     .from('workspace_layouts')
     .select('id, name, revision, version, metadata, updated_at')
@@ -224,7 +269,7 @@ async function _loadFromSupabase(companyId, layoutId) {
  * List layouts for a company from Supabase.
  */
 async function _listFromSupabase(companyId) {
-  if (!isSupabaseConfigured || !supabase || !isUuid(companyId)) return null;
+  if (!_supabaseOn() || !isUuid(companyId)) return null;
   const { data, error } = await supabase
     .from('workspace_layouts')
     .select('id, name, revision, version, metadata, updated_at')
@@ -248,7 +293,7 @@ async function _listFromSupabase(companyId) {
  * Delete a layout from Supabase.
  */
 async function _deleteFromSupabase(companyId, layoutId) {
-  if (!isSupabaseConfigured || !supabase || !isUuid(companyId) || !isUuid(layoutId)) return;
+  if (!_supabaseOn() || !isUuid(companyId) || !isUuid(layoutId)) return;
   await supabase
     .from('workspace_layouts')
     .delete()
@@ -261,7 +306,7 @@ async function _deleteFromSupabase(companyId, layoutId) {
 let _realtimeChannel = null;
 
 export function _subscribeRealtime(companyId, layoutId) {
-  if (!isSupabaseConfigured || !supabase || !layoutId || typeof supabase.channel !== 'function') return;
+  if (!_supabaseOn() || !layoutId || typeof supabase.channel !== 'function') return;
   if (_realtimeChannel) {
     try { supabase.removeChannel(_realtimeChannel); } catch { /* ignore */ }
     _realtimeChannel = null;
@@ -302,20 +347,9 @@ export function _unsubscribeRealtime() {
 let _debounceTimer = null;
 /** Revision of the open layout as this tab loaded or last saved it. */
 let _revision = 0;
-/** R4: Number of saves since last auto-version checkpoint */
-const VERSION_INTERVAL = 5;
-let _saveCountSinceVersion = 0;
 
 export function _setRevisionForTesting(r = 0) {
   _revision = r;
-}
-
-export function _resetSaveCountForTesting() {
-  _saveCountSinceVersion = 0;
-}
-
-export function _getSaveCountSinceVersion() {
-  return _saveCountSinceVersion;
 }
 
 export function _getRevision() {
@@ -339,7 +373,7 @@ export async function _persistQueueItem(item) {
   }
 
   // If Supabase is configured with UUIDs, perform server-side CAS check
-  if (isSupabaseConfigured && isOnline() && supabase && isUuid(item.companyId) && isUuid(item.layoutId)) {
+  if (_supabaseOn() && isOnline() && isUuid(item.companyId) && isUuid(item.layoutId)) {
     const res = await _persistToSupabase(item.companyId, item.layoutId, item.payload, item.baseRevision);
     if (res.conflict) {
       return { ok: false, conflict: true, error: CHANGED_ELSEWHERE };
@@ -396,7 +430,11 @@ function _saveSync({ force = false } = {}) {
       payload,
       baseRevision: _revision,
     });
-    _persistToBackend(state.companyId, state.layoutId, payload, _revision);
+    try {
+      _persistToBackend(state.companyId, state.layoutId, payload, _revision);
+    } catch (err) {
+      console.warn('[apiService] offline cache write failed (the save is still queued):', err);
+    }
     useWorkspaceStore.getState().setSyncStatus?.('offline');
     useWorkspaceStore.getState().markSaveFailed?.('Offline (changes queued)');
     return { ok: true, queued: true };
@@ -413,7 +451,7 @@ function _saveSync({ force = false } = {}) {
     _post('open');
 
     // Asynchronously push to Supabase with CAS revision check if configured with UUIDs
-    if (isSupabaseConfigured && supabase && isUuid(state.companyId) && isUuid(state.layoutId)) {
+    if (_supabaseOn() && isUuid(state.companyId) && isUuid(state.layoutId)) {
       _persistToSupabase(state.companyId, state.layoutId, payload, _revision - 1).then((res) => {
         if (res.conflict) {
           _conflict();
@@ -426,24 +464,18 @@ function _saveSync({ force = false } = {}) {
       });
     }
 
-    // R4: Automatic version checkpoint every VERSION_INTERVAL saves
-    _saveCountSinceVersion++;
-    if (_saveCountSinceVersion >= VERSION_INTERVAL) {
-      _saveCountSinceVersion = 0;
-      createVersion('Auto-save checkpoint', {
-        companyId: state.companyId,
-        layoutId: state.layoutId,
-        payload,
-      }).catch((err) => {
-        console.warn('[apiService] auto-save version checkpoint failed:', err);
-      });
+    // R4: an auto checkpoint after every AUTO_VERSION_EVERY of editing (after the save: it never blocks it)
+    try {
+      _maybeAutoVersion(state.companyId, state.layoutId, payload);
+    } catch (err) {
+      console.warn('[apiService] auto-save version checkpoint failed:', err);
     }
 
     return { ok: true };
   } catch (err) {
-    const error = err?.name === 'QuotaExceededError' ? NO_SPACE : (err?.message || 'Could not save');
+    const error = isQuotaError(err) ? NO_SPACE : (err?.message || 'Could not save');
     console.error('[apiService] save failed:', err);
-    if (err?.name !== 'QuotaExceededError') {
+    if (!isQuotaError(err)) {
       // Network or unexpected failure: queue for retry
       enqueueSync({
         companyId: state.companyId,
@@ -478,7 +510,7 @@ function _scheduleSave() {
 export async function loadWorkspace(companyId, layoutId) {
   let data = null;
 
-  if (isSupabaseConfigured && isOnline() && supabase) {
+  if (_supabaseOn() && isOnline()) {
     try {
       data = await _loadFromSupabase(companyId, layoutId);
       if (data) {
@@ -541,7 +573,7 @@ export async function saveAsCopy() {
   try {
     store.setTenant(store.companyId, layoutId, name, store.layoutVersion);
     const payload = useWorkspaceStore.getState().exportWorkspace();
-    if (isSupabaseConfigured && isOnline() && supabase) {
+    if (_supabaseOn() && isOnline()) {
       await _persistToSupabase(store.companyId, layoutId, payload, 0);
     }
     _persistToBackend(store.companyId, layoutId, payload, 1);
@@ -569,7 +601,7 @@ export async function createWorkspace(companyId, name = 'Untitled Layout') {
   store.setTenant(companyId, layoutId, name, 1);
   const payload = store.exportWorkspace();
 
-  if (isSupabaseConfigured && isOnline() && supabase) {
+  if (_supabaseOn() && isOnline()) {
     try {
       await _persistToSupabase(companyId, layoutId, payload, 0);
     } catch (err) {
@@ -600,7 +632,7 @@ export async function renameLayout(name) {
   const store = useWorkspaceStore.getState();
   if (!name || name === store.layoutName) return;
   store.setTenant(store.companyId, store.layoutId, name, store.layoutVersion);
-  if (isSupabaseConfigured && isOnline() && supabase) {
+  if (_supabaseOn() && isOnline()) {
     try {
       await supabase
         .from('workspace_layouts')
@@ -622,7 +654,7 @@ export async function renameLayout(name) {
  * @returns {Promise<Array<{ id, name, rooms, floors, updatedAt, broken? }>>}
  */
 export async function listLayouts(companyId) {
-  if (isSupabaseConfigured && isOnline() && supabase) {
+  if (_supabaseOn() && isOnline()) {
     try {
       const remote = await _listFromSupabase(companyId);
       if (remote && Array.isArray(remote)) {
@@ -747,7 +779,7 @@ export async function exportLayout(companyId, layoutId) {
     await _saveSync();
     data = useWorkspaceStore.getState().exportWorkspace();
   } else {
-    if (isSupabaseConfigured && isOnline() && supabase) {
+    if (_supabaseOn() && isOnline()) {
       try {
         data = await _loadFromSupabase(companyId, layoutId);
       } catch { /* fallback to local */ }
@@ -786,7 +818,7 @@ export async function importLayout(companyId, text) {
   };
 
   try {
-    if (isSupabaseConfigured && isOnline() && supabase) {
+    if (_supabaseOn() && isOnline()) {
       await _persistToSupabase(companyId, layoutId, payload, 0);
     }
     _persistToBackend(companyId, layoutId, payload, 1);
@@ -818,7 +850,7 @@ export function storageUse() {
  * @param {string} layoutId
  */
 export async function deleteLayout(companyId, layoutId) {
-  if (isSupabaseConfigured && isOnline() && supabase) {
+  if (_supabaseOn() && isOnline()) {
     try {
       await _deleteFromSupabase(companyId, layoutId);
     } catch (err) {
@@ -942,26 +974,129 @@ export function stopAutoSave() {
 
 // ─── Version History (Task R4) ───
 
+/** Versions from before `auto` was stored are recognised by their name. */
+function isAutoVersion(v) {
+  return v?.auto === true || (v?.auto === undefined && v?.name === AUTO_VERSION_NAME);
+}
+
+function _readVersions(companyId, layoutId) {
+  try {
+    const list = readJson(versionsKey(companyId, layoutId), []);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Keep the newest MAX_AUTO_VERSIONS auto checkpoints and MAX_NAMED_VERSIONS named ones (list: newest first). */
+export function capVersions(list) {
+  let auto = 0;
+  let named = 0;
+  return list.filter((v) => (isAutoVersion(v) ? ++auto <= MAX_AUTO_VERSIONS : ++named <= MAX_NAMED_VERSIONS));
+}
+
+/**
+ * Write a layout's version list (capped). If storage is full, its own oldest
+ * auto checkpoints go first, then other layouts'. Never throws.
+ * @returns {Array<object>|null} the list as written, or null if it did not fit
+ */
+function _writeVersions(companyId, layoutId, list) {
+  const key = versionsKey(companyId, layoutId);
+  const kept = capVersions(list);
+  for (;;) {
+    try {
+      localStorage.setItem(key, JSON.stringify(kept));
+      return kept;
+    } catch (err) {
+      if (!isQuotaError(err)) return null;
+      let at = -1;
+      kept.forEach((v, i) => { if (isAutoVersion(v)) at = i; }); // the last one is the oldest
+      if (at >= 0) kept.splice(at, 1);
+      else if (!_dropOldestAutoVersion(key)) return null;
+    }
+  }
+}
+
+/**
+ * Drop the oldest auto checkpoint of any layout to free storage (not from
+ * skipKey, the key being written: shrinking it would not help).
+ * @returns {boolean} false if there was none to drop
+ */
+function _dropOldestAutoVersion(skipKey) {
+  let oldest = null;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith(STORAGE_PREFIX) || !key.endsWith('_versions') || key === skipKey) continue;
+    let list;
+    try { list = JSON.parse(localStorage.getItem(key)); } catch { continue; }
+    if (!Array.isArray(list)) continue;
+    list.forEach((v, at) => {
+      if (isAutoVersion(v) && (!oldest || String(v.created_at ?? '') < String(oldest.v.created_at ?? ''))) {
+        oldest = { key, list, at, v };
+      }
+    });
+  }
+  if (!oldest) return false;
+  oldest.list.splice(oldest.at, 1);
+  try {
+    localStorage.setItem(oldest.key, JSON.stringify(oldest.list)); // smaller than before: fits
+  } catch {
+    localStorage.removeItem(oldest.key);
+  }
+  return true;
+}
+
+/** Auto checkpoints: when this tab's editing of the open layout started (since its last checkpoint). */
+let _autoVersionKey = null;
+let _editingSince = 0;
+
+/**
+ * After a successful save: an auto checkpoint once AUTO_VERSION_EVERY of
+ * editing has passed since the last one (auto-save runs about every second,
+ * so this is time, not a count of saves). Never throws.
+ */
+function _maybeAutoVersion(companyId, layoutId, payload) {
+  const key = versionsKey(companyId, layoutId);
+  const now = Date.now();
+  if (_autoVersionKey !== key) {
+    _autoVersionKey = key;
+    _editingSince = now;
+    return;
+  }
+  if (now - _editingSince < AUTO_VERSION_EVERY) return;
+  _editingSince = now;
+  createVersion(AUTO_VERSION_NAME, { companyId, layoutId, payload, auto: true }).catch((err) => {
+    console.warn('[apiService] auto-save version checkpoint failed:', err);
+  });
+}
+
+export function _resetAutoVersionForTesting() {
+  _autoVersionKey = null;
+  _editingSince = 0;
+}
+
 /**
  * Create a new snapshot version of the layout.
- * Persists to Supabase layout_versions table and local storage cache.
+ * Kept in localStorage (capped, see MAX_*_VERSIONS); also in Supabase's
+ * layout_versions table when the prototype backend is on.
  * @param {string} [name] Human readable version name/note
- * @param {{ companyId?: string, layoutId?: string, payload?: object }} [options]
+ * @param {{ companyId?: string, layoutId?: string, payload?: object, auto?: boolean }} [options]
  * @returns {Promise<{ ok: boolean, version?: object, error?: string }>}
  */
 export async function createVersion(name = '', options = {}) {
   const state = useWorkspaceStore.getState();
   const companyId = options.companyId || state.companyId;
   const layoutId = options.layoutId || state.layoutId;
-  const payload = options.payload || state.exportWorkspace();
 
   if (!companyId || !layoutId) {
     return { ok: false, error: 'No workspace open' };
   }
+  const payload = options.payload || state.exportWorkspace();
+  const auto = options.auto === true;
 
   // Read existing versions from cache to determine next version number
-  const existing = readJson(versionsKey(companyId, layoutId), []);
-  const highestVersion = Array.isArray(existing) && existing.length > 0
+  const existing = _readVersions(companyId, layoutId);
+  const highestVersion = existing.length > 0
     ? Math.max(...existing.map((v) => Number(v.version) || 0))
     : 0;
   const nextVersion = highestVersion + 1;
@@ -977,13 +1112,14 @@ export async function createVersion(name = '', options = {}) {
     name: versionName,
     version: nextVersion,
     revision: _revision,
+    auto,
     snapshot: payload,
     created_by: null,
     created_at: new Date().toISOString(),
   };
 
-  // Try Supabase first if configured with UUIDs
-  if (isSupabaseConfigured && isOnline() && supabase && isUuid(companyId) && isUuid(layoutId)) {
+  // PROTOTYPE: also in Supabase, if it is on and the IDs are UUIDs
+  if (_supabaseOn() && isOnline() && isUuid(companyId) && isUuid(layoutId)) {
     try {
       const insertPayload = {
         layout_id: layoutId,
@@ -1010,20 +1146,20 @@ export async function createVersion(name = '', options = {}) {
     }
   }
 
-  // Cache into localStorage
-  try {
-    const updatedList = [versionRecord, ...(Array.isArray(existing) ? existing : [])];
-    localStorage.setItem(versionsKey(companyId, layoutId), JSON.stringify(updatedList));
-  } catch (err) {
-    console.warn('[apiService] caching version failed:', err);
+  const written = _writeVersions(companyId, layoutId, [versionRecord, ...existing]);
+  const now = useWorkspaceStore.getState();
+  if (now.companyId === companyId && now.layoutId === layoutId) {
+    now.setStorageNearlyFull?.(storageUse().nearlyFull);
   }
-
+  if (!written || !written.includes(versionRecord)) {
+    return { ok: false, error: NO_SPACE_FOR_VERSION };
+  }
   return { ok: true, version: versionRecord };
 }
 
 /**
  * List all snapshot versions for a layout, newest first.
- * Fetches from Supabase and syncs to local storage cache.
+ * From localStorage; from Supabase (and cached) when the prototype backend is on.
  * @param {string} companyId
  * @param {string} layoutId
  * @returns {Promise<Array<object>>}
@@ -1031,7 +1167,7 @@ export async function createVersion(name = '', options = {}) {
 export async function listVersions(companyId, layoutId) {
   if (!companyId || !layoutId) return [];
 
-  if (isSupabaseConfigured && isOnline() && supabase && isUuid(companyId) && isUuid(layoutId)) {
+  if (_supabaseOn() && isOnline() && isUuid(companyId) && isUuid(layoutId)) {
     try {
       const { data, error } = await supabase
         .from('layout_versions')
@@ -1041,9 +1177,7 @@ export async function listVersions(companyId, layoutId) {
         .order('version', { ascending: false });
 
       if (!error && Array.isArray(data)) {
-        try {
-          localStorage.setItem(versionsKey(companyId, layoutId), JSON.stringify(data));
-        } catch { /* ignore storage error */ }
+        _writeVersions(companyId, layoutId, data);
         return data;
       }
     } catch (err) {
@@ -1051,22 +1185,21 @@ export async function listVersions(companyId, layoutId) {
     }
   }
 
-  // Fallback to local storage
-  const cached = readJson(versionsKey(companyId, layoutId), []);
-  return Array.isArray(cached) ? cached : [];
+  return _readVersions(companyId, layoutId);
 }
 
 /**
- * Restore a previous layout version.
- * Applies the snapshot through editorHistory so the restore is undoable.
+ * Restore a previous layout version through editorHistory (one undo step).
+ * The layout name stays as it is: it is not part of the layout's history.
  * @param {string} companyId
  * @param {string} layoutId
  * @param {string|number} versionId Version UUID or version integer
- * @param {object} [editor] Editor history instance (from createEditorHistory)
+ * @param {object} editor Editor history instance (from createEditorHistory)
  * @returns {Promise<{ ok: boolean, version?: object, error?: string }>}
  */
 export async function restoreVersion(companyId, layoutId, versionId, editor) {
   if (!companyId || !layoutId) return { ok: false, error: 'No layout specified' };
+  if (typeof editor?.restoreVersion !== 'function') return { ok: false, error: 'Nothing to restore into' };
 
   const versions = await listVersions(companyId, layoutId);
   const target = versions.find((v) => v.id === versionId || v.version === Number(versionId));
@@ -1074,24 +1207,7 @@ export async function restoreVersion(companyId, layoutId, versionId, editor) {
     return { ok: false, error: 'Version not found' };
   }
 
-  if (editor && typeof editor.restoreVersion === 'function') {
-    editor.restoreVersion(target.snapshot);
-  } else {
-    const normalised = normaliseLayout(target.snapshot);
-    useWorkspaceStore.getState().replaceLayoutState({
-      floors: normalised.floors,
-      rooms: normalised.rooms,
-      objects: normalised.objects,
-      currentFloor: Object.keys(normalised.floors || {})[0] ? Number(Object.keys(normalised.floors)[0]) : 0,
-      anchorData: normalised.anchorData,
-    });
-    if (normalised.layoutName) {
-      useWorkspaceStore.getState().layoutName = normalised.layoutName;
-    }
-  }
-
-  // Mark dirty so the restored version persists as a new save revision
-  useWorkspaceStore.setState({ isDirty: true });
-
+  const res = editor.restoreVersion(target.snapshot);
+  if (res?.problem) return { ok: false, error: res.problem };
   return { ok: true, version: target };
 }

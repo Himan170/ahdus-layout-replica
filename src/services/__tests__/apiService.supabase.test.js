@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as clientModule from '../supabaseClient';
 import {
   loadWorkspace,
@@ -57,6 +57,11 @@ describe('apiService - Task R2: Supabase backend integration & CAS revision chec
 
     vi.spyOn(clientModule, 'supabase', 'get').mockReturnValue(mockSupabase);
     vi.spyOn(clientModule, 'isSupabaseConfigured', 'get').mockReturnValue(true);
+    vi.stubEnv('VITE_LAYOUT_BACKEND', 'supabase'); // the prototype backend is off without it
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('loadWorkspace loads layout from Supabase and caches into localStorage', async () => {
