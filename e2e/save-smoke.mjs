@@ -2,6 +2,7 @@
 //   - the name typed when creating a layout is kept, renaming updates the list
 //   - building auto-saves (header: Saving… → Saved), also floors
 //   - back to the list → reopen: the room is there (this used to show a blank page)
+//   - version history: a named version, a change, Restore, Ctrl+Z undoes the restore
 //   - closing the tab right after a change still saves it
 //   - a save from an older version of the app opens
 //   - the list shows last edit, rooms and floors; deleting asks first
@@ -151,6 +152,28 @@ log('reopening the layout shows its room (no blank page)', reopened.rooms === 1 
 log('reopened: name and floors are kept', (await p.locator('.studio-header__name').textContent()).includes('HQ North') && reopened.floors === 2);
 await p.click('[aria-label="Fit view"]'); await wait(600); await frames(3);
 await shot('s1-reopened-layout.png');
+
+// ── Version history: save a named version, change something, restore it, undo the restore ──
+const roomCount = () => p.evaluate(() => Object.keys(window.__ahdusStore.getState().rooms).length);
+const versionPop = '[role="dialog"][aria-label="Version history"]';
+await p.click('button[aria-label="Version history"]');
+await p.fill('[aria-label="Version note"]', 'One room');
+await p.click(`${versionPop} button[type="submit"]`);
+const versionRow = p.locator(`${versionPop} [role="listitem"]:has-text("One room")`);
+const versionSaved = await versionRow.waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+const extraRoom = await p.evaluate(() =>
+  window.__ahdusStore.getState().addRoom({ type: 'MEETING', x: 8, z: 0, width: 4, depth: 4, floor: 0 }).id);
+await frames(2);
+const changed = await roomCount();
+await versionRow.locator('button:has-text("Restore")').click();
+await frames(3);
+const restored = await roomCount();
+await p.keyboard.press('Control+z'); await frames(3);
+const undone = await roomCount();
+log('version history: save "One room", add a room, Restore (1 room), Ctrl+Z (2 rooms again)',
+  versionSaved && changed === 2 && restored === 1 && undone === 2, `${changed} → ${restored} → ${undone} rooms`);
+await p.evaluate((rid) => window.__ahdusStore.getState().removeRoom(rid), extraRoom); // as before this check
+await waitStatus('Saved');
 
 // ── Closing the tab right after a change still saves it ──
 await p.evaluate(() => window.__ahdusStore.getState().addRoom({ type: 'MEETING', x: 8, z: 0, width: 4, depth: 4, floor: 0 }));
