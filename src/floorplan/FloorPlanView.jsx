@@ -2,17 +2,24 @@
  * floorplan/FloorPlanView.jsx (Anshu, S1)
  *
  * The floor plan of the current floor (the canvas card's "Plan" view): rooms and
- * items from the store, drawn in world metres (SVG x = x, SVG y = z): walls with
- * their doors and windows from the room data (planMath.roomWallPieces), room names,
- * items. Click, or Tab to it and Enter, selects (it is also the accessible view);
- * dragging an item moves it by Studio's rules (planMath.planDrop).
+ * items from the store, drawn in world metres with north up, as in the 2D view
+ * (planMath: toPlan / toWorld): walls with their doors and windows from the room
+ * data (planMath.roomWallPieces), room names, items. Click, or Tab to it and
+ * Enter, selects (it is also the accessible view); dragging an item moves it by
+ * Studio's rules (planMath.planDrop).
  */
 
 import { useMemo, useState } from 'react';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { WALL_THICKNESS } from '../play/geometry';
 import { sizeLabel } from '../ui/tools';
-import { planDrop, itemSize, roomWallPieces, wallSegmentEnds } from './planMath';
+import {
+  planDrop, itemSize, roomWallPieces, wallSegmentEnds,
+  toPlan, screenToWorld, planAngle, planViewBox,
+} from './planMath';
+
+/** World point → SVG attributes. */
+const at = (p) => toPlan(p);
 
 export default function FloorPlanView({
   rooms = [],
@@ -29,59 +36,13 @@ export default function FloorPlanView({
   const [drag, setDrag] = useState(null);
 
   const plan = useMemo(() => {
-    const validRooms = rooms.filter(
-      (r) => Number(r.width) > 0 && Number(r.depth) > 0
-    );
-
-    const furniture = objects.filter(
-      (o) => Number.isFinite(Number(o.x)) && Number.isFinite(Number(o.z))
-    );
-
-    const items = [
-      ...validRooms.map((r) => ({
-        x: Number(r.x) || 0,
-        z: Number(r.z) || 0,
-        width: Number(r.width),
-        depth: Number(r.depth),
-      })),
-      ...furniture.map((o) => {
-        const type = ASSET_TYPES[o.assetType] || {};
-        const width =
-          (Number(o.width) || Number(type.defaultWidth) || 0.8) *
-          (Number(o.scaleX) || 1);
-        const depth =
-          (Number(o.depth) || Number(type.defaultDepth) || 0.8) *
-          (Number(o.scaleZ) || 1);
-
-        return {
-          x: Number(o.x) || 0,
-          z: Number(o.z) || 0,
-          width,
-          depth,
-        };
-      }),
-    ];
-
-    if (!items.length) return null;
-
-    const bounds = items.map((item) => ({
-      minX: item.x - item.width / 2,
-      minZ: item.z - item.depth / 2,
-      maxX: item.x + item.width / 2,
-      maxZ: item.z + item.depth / 2,
-    }));
-
-    return {
-      rooms: validRooms,
-      objects: furniture,
-      minX: Math.min(...bounds.map((b) => b.minX)),
-      minZ: Math.min(...bounds.map((b) => b.minZ)),
-      maxX: Math.max(...bounds.map((b) => b.maxX)),
-      maxZ: Math.max(...bounds.map((b) => b.maxZ)),
-    };
+    const validRooms = rooms.filter((r) => Number(r.width) > 0 && Number(r.depth) > 0);
+    const furniture = objects.filter((o) => Number.isFinite(Number(o.x)) && Number.isFinite(Number(o.z)));
+    const view = planViewBox(validRooms, furniture);
+    return view && { rooms: validRooms, objects: furniture, view };
   }, [rooms, objects]);
 
-  if (!plan || (!plan.rooms.length && !plan.objects.length)) {
+  if (!plan) {
     return (
       <div className="floor-plan-empty">
         Add a room or furniture to see the floor plan.
@@ -89,9 +50,11 @@ export default function FloorPlanView({
     );
   }
 
-  const padding = 2;
-  const width = Math.max(plan.maxX - plan.minX, 1) + padding * 2;
-  const height = Math.max(plan.maxZ - plan.minZ, 1) + padding * 2;
+  /** Where the pointer is, in world metres. */
+  const pointerWorld = (event, svg) => {
+    const inv = svg.getScreenCTM().inverse();
+    return screenToWorld(event.clientX, event.clientY, inv);
+  };
 
   function pointerDown(event, object) {
     if (object.isLocked) return;
@@ -100,17 +63,11 @@ export default function FloorPlanView({
     event.stopPropagation();
     onSelectObject(object.id);
 
-    const svg = event.currentTarget.ownerSVGElement;
-    const point = svg.createSVGPoint();
-    point.x = event.clientX;
-    point.y = event.clientY;
-
-    const cursor = point.matrixTransform(svg.getScreenCTM().inverse());
-
+    const start = pointerWorld(event, event.currentTarget.ownerSVGElement);
     setDrag({
       id: object.id,
-      startX: cursor.x,
-      startZ: cursor.y,
+      start,
+      current: start,
       originalX: Number(object.x) || 0,
       originalZ: Number(object.z) || 0,
       moved: false,
@@ -124,30 +81,15 @@ export default function FloorPlanView({
     const object = objects.find((o) => o.id === d.id);
     if (!object) return null;
     return planDrop(object, {
-      x: d.originalX + (d.currentX ?? d.startX) - d.startX,
-      z: d.originalZ + (d.currentZ ?? d.startZ) - d.startZ,
+      x: d.originalX + d.current.x - d.start.x,
+      z: d.originalZ + d.current.z - d.start.z,
     }, { objects, rooms, snap, ground });
   }
 
   function pointerMove(event) {
     if (!drag) return;
-
-    const svg = event.currentTarget;
-    const point = svg.createSVGPoint();
-    point.x = event.clientX;
-    point.y = event.clientY;
-    const cursor = point.matrixTransform(svg.getScreenCTM().inverse());
-
-    setDrag((previous) =>
-      previous
-        ? {
-            ...previous,
-            currentX: cursor.x,
-            currentZ: cursor.y,
-            moved: true,
-          }
-        : previous
-    );
+    const current = pointerWorld(event, event.currentTarget);
+    setDrag((previous) => (previous ? { ...previous, current, moved: true } : previous));
   }
 
   function pointerUp() {
@@ -169,6 +111,7 @@ export default function FloorPlanView({
     }
   };
 
+  const { view } = plan;
   return (
     <div className="floor-plan-view" aria-label="Floor plan">
       <div className="floor-plan-toolbar">
@@ -186,7 +129,7 @@ export default function FloorPlanView({
 
       <svg
         className="floor-plan-svg"
-        viewBox={`${plan.minX - padding} ${plan.minZ - padding} ${width} ${height}`}
+        viewBox={`${view.x} ${view.y} ${view.width} ${view.height}`}
         role="group"
         aria-label="Rooms and furniture"
         preserveAspectRatio="xMidYMid meet"
@@ -195,8 +138,7 @@ export default function FloorPlanView({
         onPointerCancel={pointerUp}
       >
         {plan.rooms.map((room) => {
-          const x = Number(room.x) || 0;
-          const z = Number(room.z) || 0;
+          const c = at(room);
           const w = Number(room.width);
           const d = Number(room.depth);
           const selected = room.id === selectedRoomId;
@@ -217,8 +159,8 @@ export default function FloorPlanView({
             >
               <rect
                 className="floor-plan-shape"
-                x={x - w / 2}
-                y={z - d / 2}
+                x={c.x - w / 2}
+                y={c.y - d / 2}
                 width={w}
                 height={d}
                 fill={selected ? '#dbeafe' : room.color || '#e2e8f0'}
@@ -227,8 +169,8 @@ export default function FloorPlanView({
                 vectorEffect="non-scaling-stroke"
               />
               <text
-                x={x}
-                y={z - 0.12}
+                x={c.x}
+                y={c.y - 0.12}
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fontSize={Math.max(0.12, Math.min(w, d) * 0.12)}
@@ -238,8 +180,8 @@ export default function FloorPlanView({
                 {name}
               </text>
               <text
-                x={x}
-                y={z + 0.22}
+                x={c.x}
+                y={c.y + 0.22}
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fontSize={Math.max(0.09, Math.min(w, d) * 0.08)}
@@ -256,35 +198,42 @@ export default function FloorPlanView({
         <g className="floor-plan-walls" pointerEvents="none" aria-hidden="true">
           {plan.rooms.map((room) => {
             const pieces = roomWallPieces(room);
-            const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => ({
+            const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => at({
               x: room.x + (sx * room.width) / 2, z: room.z + (sz * room.depth) / 2,
             }));
+            const line = (s) => {
+              const a = at(s.a);
+              const b = at(s.b);
+              return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+            };
             return (
               <g key={room.id}>
                 {pieces.walls.map((w, i) => (
-                  <line key={`w${i}`} x1={w.a.x} y1={w.a.z} x2={w.b.x} y2={w.b.z}
-                    stroke="#1f2937" strokeWidth={WALL_THICKNESS} />
+                  <line key={`w${i}`} {...line(w)} stroke="#1f2937" strokeWidth={WALL_THICKNESS} />
                 ))}
                 {corners.map((c, i) => (
-                  <rect key={`c${i}`} x={c.x - WALL_THICKNESS / 2} y={c.z - WALL_THICKNESS / 2}
+                  <rect key={`c${i}`} x={c.x - WALL_THICKNESS / 2} y={c.y - WALL_THICKNESS / 2}
                     width={WALL_THICKNESS} height={WALL_THICKNESS} fill="#1f2937" />
                 ))}
                 {pieces.windows.map((w, i) => (
                   <g key={`n${i}`} data-plan-window="">
-                    <line x1={w.a.x} y1={w.a.z} x2={w.b.x} y2={w.b.z} stroke="#ffffff" strokeWidth={WALL_THICKNESS} />
-                    <line x1={w.a.x} y1={w.a.z} x2={w.b.x} y2={w.b.z} stroke="#0ea5e9" strokeWidth={WALL_THICKNESS / 3} />
+                    <line {...line(w)} stroke="#ffffff" strokeWidth={WALL_THICKNESS} />
+                    <line {...line(w)} stroke="#0ea5e9" strokeWidth={WALL_THICKNESS / 3} />
                   </g>
                 ))}
-                {pieces.doors.map((door, i) => (
-                  <g key={`d${i}`} data-plan-door="">
-                    <line x1={door.hinge.x} y1={door.hinge.z} x2={door.open.x} y2={door.open.z}
-                      stroke="#1f2937" strokeWidth={0.04} />
-                    <path
-                      d={`M ${door.b.x} ${door.b.z} A ${door.width} ${door.width} 0 0 ${door.sweep} ${door.open.x} ${door.open.z}`}
-                      fill="none" stroke="#64748b" strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke"
-                    />
-                  </g>
-                ))}
+                {pieces.doors.map((door, i) => {
+                  const b = at(door.b);
+                  const open = at(door.open);
+                  return (
+                    <g key={`d${i}`} data-plan-door="">
+                      <line {...line({ a: door.hinge, b: door.open })} stroke="#1f2937" strokeWidth={0.04} />
+                      <path
+                        d={`M ${b.x} ${b.y} A ${door.width} ${door.width} 0 0 ${door.sweep} ${open.x} ${open.y}`}
+                        fill="none" stroke="#64748b" strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke"
+                      />
+                    </g>
+                  );
+                })}
               </g>
             );
           })}
@@ -295,12 +244,11 @@ export default function FloorPlanView({
           const { width: w, depth: d } = itemSize(object);
           const activeDrag = drag?.id === object.id;
           const dropAt = activeDrag && drag.moved ? dropOf(drag) : null;
-          const x = dropAt ? dropAt.x : Number(object.x) || 0;
-          const z = dropAt ? dropAt.z : Number(object.z) || 0;
+          const pos = dropAt ?? { x: Number(object.x) || 0, z: Number(object.z) || 0 };
+          const c = at(pos);
           const selected = object.id === selectedObjectId;
-          const angle = Number(object.rotationY) || 0;
           const label = object.label || type.label || object.assetType || 'Item';
-          const wall = wallSegmentEnds({ ...object, x, z });
+          const wall = wallSegmentEnds({ ...object, ...pos });
 
           return (
             <g
@@ -322,7 +270,7 @@ export default function FloorPlanView({
               {wall ? (
                 <line
                   className="floor-plan-shape"
-                  x1={wall.a.x} y1={wall.a.z} x2={wall.b.x} y2={wall.b.z}
+                  x1={at(wall.a).x} y1={at(wall.a).y} x2={at(wall.b).x} y2={at(wall.b).y}
                   stroke={selected ? '#2563eb' : '#374151'}
                   strokeWidth={Math.max(d, WALL_THICKNESS)}
                 />
@@ -330,8 +278,8 @@ export default function FloorPlanView({
                 <>
                   <rect
                     className="floor-plan-shape"
-                    x={x - w / 2}
-                    y={z - d / 2}
+                    x={c.x - w / 2}
+                    y={c.y - d / 2}
                     width={w}
                     height={d}
                     rx={0.04}
@@ -340,11 +288,11 @@ export default function FloorPlanView({
                     stroke={selected ? '#2563eb' : '#475569'}
                     strokeWidth={selected ? 2.5 : 1}
                     vectorEffect="non-scaling-stroke"
-                    transform={`rotate(${(-angle * 180) / Math.PI} ${x} ${z})`}
+                    transform={`rotate(${planAngle(object.rotationY)} ${c.x} ${c.y})`}
                   />
                   <text
-                    x={x}
-                    y={z}
+                    x={c.x}
+                    y={c.y}
                     textAnchor="middle"
                     dominantBaseline="middle"
                     fontSize={Math.max(0.1, Math.min(w, d) * 0.16)}

@@ -1,9 +1,54 @@
 import { describe, it, expect } from 'vitest';
-import { itemSize, itemContains, planDrop, roomWallPieces, wallSegmentEnds } from '../planMath';
+import {
+  itemSize, itemContains, planDrop, roomWallPieces, wallSegmentEnds,
+  toPlan, toWorld, screenToWorld, planAngle, planViewBox,
+} from '../planMath';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 import { wallSegmentData } from '../../play/geometry';
 
 const len = (s) => Math.hypot(s.b.x - s.a.x, s.b.z - s.a.z);
+
+describe('world ↔ plan ↔ screen', () => {
+  it('north (+z) is up in the plan, as in the 2D view; toWorld undoes toPlan', () => {
+    expect(toPlan({ x: 3, z: 4 })).toEqual({ x: 3, y: -4 });
+    expect(toWorld(toPlan({ x: -2.5, z: 7 }))).toEqual({ x: -2.5, z: 7 });
+  });
+
+  it('a pointer goes through the inverse screen matrix to world metres', () => {
+    // 50 px per metre, plan origin at pixel (100, 200)
+    const inv = { a: 1 / 50, b: 0, c: 0, d: 1 / 50, e: -100 / 50, f: -200 / 50 };
+    expect(screenToWorld(100, 200, inv)).toEqual({ x: 0, z: -0 });
+    const p = screenToWorld(250, 100, inv);
+    expect(p.x).toBeCloseTo(3);
+    expect(p.z).toBeCloseTo(2); // 2 m up the screen = 2 m north
+  });
+
+  it('planAngle: an item turned by r draws turned by r degrees (its local x axis stays on its long side)', () => {
+    expect(planAngle(Math.PI / 2)).toBeCloseTo(90);
+    expect(planAngle(undefined)).toBe(0);
+    // local x axis in world (cos r, −sin r) → plan (cos r, sin r) = SVG rotate(r)
+    const r = 0.7;
+    const plan = toPlan({ x: Math.cos(r), z: -Math.sin(r) });
+    expect(Math.atan2(plan.y, plan.x)).toBeCloseTo(r);
+  });
+
+  it('planViewBox holds every room and item with padding, and is null with nothing', () => {
+    expect(planViewBox([], [])).toBeNull();
+    const box = planViewBox([{ x: 0, z: 0, width: 6, depth: 4 }], [{ ...desk, x: 10, z: 10 }], 1);
+    const t = ASSET_TYPES.DESK_STANDARD;
+    expect(box.x).toBeCloseTo(-4);
+    expect(box.width).toBeCloseTo(10 + t.defaultWidth / 2 + 3 + 2);
+    expect(box.y).toBeCloseTo(-(10 + t.defaultDepth / 2) - 1); // the top is the most northern edge
+    expect(box.height).toBeCloseTo(10 + t.defaultDepth / 2 + 2 + 2);
+  });
+
+  it('a door\'s swing arc turns the right way in the plan', () => {
+    const { doors } = roomWallPieces({ x: 0, z: 0, width: 4, depth: 4, doors: [{ wall: 'south', offset: 0, width: 1 }] });
+    // south wall, hinge at x −0.5: the leaf swings north (up the plan) from x +0.5: counter-clockwise on screen
+    expect(doors[0].open).toEqual({ x: -0.5, z: -1 });
+    expect(doors[0].sweep).toBe(0);
+  });
+});
 
 describe('roomWallPieces: walls, doors and windows from the room data', () => {
   it('a room without openings has four whole walls', () => {
