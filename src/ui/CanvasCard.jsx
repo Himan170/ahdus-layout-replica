@@ -7,7 +7,7 @@
  * element is never re-created (Babylon is bound to it).
  */
 
-import { Boxes, Maximize2, Plus } from 'lucide-react';
+import { Boxes, Maximize2, Plus, Ruler, Trash2, X } from 'lucide-react';
 import ExportMenu from './ExportMenu';
 
 export default function CanvasCard({
@@ -23,6 +23,15 @@ export default function CanvasCard({
   onExportPdf,
   exportDisabled,   // true when there are no rooms
   exportLoading,    // true while export is running
+  measureMode,
+  onToggleMeasure,
+  onExitMeasure,
+  onClearMeasurements,
+  hasMeasurements,
+  showWallLengths,
+  onToggleWallLengths,
+  showRoomAreas,
+  onToggleRoomAreas,
 }) {
   return (
     <section className={`canvas-card${preview ? ' is-preview' : ''}`} aria-label="Workplace view">
@@ -46,6 +55,55 @@ export default function CanvasCard({
         </div>
       )}
 
+      {!preview && (
+        <div className="measurement-controls" aria-label="Measurement tools">
+          <button
+            className="ui-btn"
+            type="button"
+            aria-pressed={measureMode}
+            onClick={onToggleMeasure}
+            title="Measure distances by clicking two points on the floor plan"
+          >
+            <Ruler size={16} aria-hidden />
+            Measure Distance
+          </button>
+          {measureMode && (
+            <>
+              <span className="measurement-controls__hint">Click two points · Esc to cancel</span>
+              <button className="ui-btn" type="button" onClick={onExitMeasure}>
+                <X size={16} aria-hidden />
+                Exit Measurement Mode
+              </button>
+            </>
+          )}
+          <button
+            className="ui-btn measurement-controls__toggle"
+            type="button"
+            aria-pressed={showWallLengths}
+            onClick={onToggleWallLengths}
+          >
+            Show Wall Lengths
+          </button>
+          <button
+            className="ui-btn measurement-controls__toggle"
+            type="button"
+            aria-pressed={showRoomAreas}
+            onClick={onToggleRoomAreas}
+          >
+            Show Room Areas
+          </button>
+          <button
+            className="ui-btn"
+            type="button"
+            onClick={onClearMeasurements}
+            disabled={!hasMeasurements}
+          >
+            <Trash2 size={16} aria-hidden />
+            Clear Measurements
+          </button>
+        </div>
+      )}
+
       {!preview && showEmpty && (
         <div className="empty-state">
           <Boxes size={40} strokeWidth={1.75} className="empty-state__icon" aria-hidden />
@@ -60,4 +118,3 @@ export default function CanvasCard({
     </section>
   );
 }
-

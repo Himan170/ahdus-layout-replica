@@ -9,8 +9,9 @@
 import { useEffect, useRef } from 'react';
 import { projectPoint } from './projection';
 import { sizeLabel } from './tools';
+import { roomArea } from '../utils/measurements';
 
-export default function RoomLabels({ scene, rooms, elevation, hidden }) {
+export default function RoomLabels({ scene, rooms, elevation, hidden, showArea = false }) {
   const refs = useRef(new Map());
 
   useEffect(() => {
@@ -31,15 +32,21 @@ export default function RoomLabels({ scene, rooms, elevation, hidden }) {
   if (hidden) return null;
   return (
     <div className="room-labels" aria-hidden>
-      {rooms.map((room) => (
-        <span
-          key={room.id}
-          className="room-label"
-          ref={(el) => { if (el) refs.current.set(room.id, el); else refs.current.delete(room.id); }}
-        >
-          {room.name} · {sizeLabel(room.width, room.depth)}
-        </span>
-      ))}
+      {rooms.map((room) => {
+        const area = roomArea(room);
+        return (
+          <span
+            key={room.id}
+            className="room-label"
+            ref={(el) => { if (el) refs.current.set(room.id, el); else refs.current.delete(room.id); }}
+          >
+            <span>{room.name} · {sizeLabel(room.width, room.depth)}</span>
+            {showArea && area !== null && (
+              <span className="room-label__area">{area.toFixed(2)} m²</span>
+            )}
+          </span>
+        );
+      })}
     </div>
   );
 }

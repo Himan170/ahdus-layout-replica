@@ -8,6 +8,7 @@
  */
 
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
+import { Matrix } from '@babylonjs/core/Maths/math.vector';
 
 // Engine, scene, camera, lights and site: shared with the embeddable engine
 import { createLayoutScene } from '../engine/systems/SceneSetup';
@@ -53,6 +54,7 @@ import StudioHeader from '../ui/StudioHeader';
 import BuildPanel from '../ui/BuildPanel';
 import CanvasCard from '../ui/CanvasCard';
 import RoomLabels from '../ui/RoomLabels';
+import MeasurementOverlay from '../ui/MeasurementOverlay';
 import SelectionToolbar from '../ui/SelectionToolbar';
 import Inspector from '../ui/Inspector';
 import StudioFooter from '../ui/StudioFooter';
@@ -75,6 +77,7 @@ import {
   planRoomResize,
 } from '../play/geometry';
 import { DEFAULT_HOTBAR } from '../play/hotbarItems';
+import { distanceBetweenPoints } from '../utils/measurements';
 
 // Team integration: how other modules connect to the layout (docs/TEAM_INTEGRATION.md)
 import { layoutBridge } from '../integration/layoutBridge';
@@ -175,6 +178,15 @@ export default function WorkplaceEditor({ onExit }) {
   const [nameFocusToken, setNameFocusToken] = useState(0); // "Rename" focuses the Inspector's name box
   const [sceneReady, setSceneReady] = useState(null);   // the scene, once created (for overlays)
   const [exportLoading, setExportLoading] = useState(false); // true while PNG/PDF is being generated
+  const [measureMode, setMeasureMode] = useState(false);
+  const [measurements, setMeasurements] = useState([]);
+  const [measureStart, setMeasureStart] = useState(null);
+  const [measurePreview, setMeasurePreview] = useState(null);
+  const [showWallLengths, setShowWallLengths] = useState(true);
+  const [showRoomAreas, setShowRoomAreas] = useState(true);
+  const measureModeRef = useRef(false);
+  const measureStartRef = useRef(null);
+  const measurementIdRef = useRef(0);
 
   // ─── Zustand state selectors ───
   const roomsMap = useWorkspaceStore((s) => s.rooms);
@@ -476,9 +488,32 @@ export default function WorkplaceEditor({ onExit }) {
 
     // ── Pointer handlers ──
 
+    const pointOnCurrentFloor = () => {
+      const ray = scene.createPickingRay(scene.pointerX, scene.pointerY, Matrix.Identity(), camera);
+      const floorY = elevationOf(
+        useWorkspaceStore.getState().floors,
+        useWorkspaceStore.getState().currentFloor,
+      );
+      if (Math.abs(ray.direction.y) < 1e-8) return null;
+      const distance = (floorY - ray.origin.y) / ray.direction.y;
+      if (!Number.isFinite(distance) || distance < 0) return null;
+      const point = {
+        x: ray.origin.x + ray.direction.x * distance,
+        z: ray.origin.z + ray.direction.z * distance,
+      };
+      return [point.x, point.z].every(Number.isFinite) ? point : null;
+    };
+
     // Pointer move: update placement ghost position, or the planner tool's preview
     scene.onPointerMove = () => {
       if (isPlayingRef.current) return;
+      if (measureModeRef.current) {
+        const point = pointOnCurrentFloor();
+        const start = measureStartRef.current;
+        const length = start && point ? distanceBetweenPoints(start, point) : null;
+        setMeasurePreview(start && point && length !== null ? { a: start, b: point, length } : null);
+        return;
+      }
       if (placementMgr.isActive()) {
         placementMgr.updatePointer(scene.pointerX, scene.pointerY);
       } else {
@@ -490,6 +525,32 @@ export default function WorkplaceEditor({ onExit }) {
     scene.onPointerDown = (_evt, pickResult) => {
       if (isPlayingRef.current) return; // Play mode handles its own clicks
       const store = useWorkspaceStore.getState();
+
+      if (measureModeRef.current) {
+        if (_evt.button !== 0) return;
+        const point = pointOnCurrentFloor();
+        if (!point) return;
+        const start = measureStartRef.current;
+        if (!start) {
+          measureStartRef.current = point;
+          setMeasureStart(point);
+        } else {
+          const length = distanceBetweenPoints(start, point);
+          if (length !== null) {
+            setMeasurements((current) => [...current, {
+              id: ++measurementIdRef.current,
+              a: start,
+              b: point,
+              length,
+              floor: store.currentFloor,
+            }]);
+          }
+          measureStartRef.current = null;
+          setMeasureStart(null);
+        }
+        setMeasurePreview(null);
+        return;
+      }
 
       // If in placement mode, try to confirm placement
       if (placementMgr.isActive()) {
@@ -730,6 +791,47 @@ export default function WorkplaceEditor({ onExit }) {
     plannerToolsRef.current?.setTool(next);
     setPlannerTool(next);
   }, [storeActions]);
+
+  const handleToggleMeasureMode = useCallback(() => {
+    if (measureModeRef.current) {
+      measureModeRef.current = false;
+      measureStartRef.current = null;
+      setMeasureMode(false);
+      setMeasureStart(null);
+      setMeasurePreview(null);
+      return;
+    }
+    handleSetPlannerTool({ kind: 'select' });
+    storeActions.selectObject(null);
+    storeActions.selectRoom(null);
+    if (useWorkspaceStore.getState().is3D) handleToggleView();
+    measureStartRef.current = null;
+    measureModeRef.current = true;
+    setMeasureMode(true);
+    setMeasureStart(null);
+    setMeasurePreview(null);
+  }, [handleSetPlannerTool, handleToggleView, storeActions]);
+
+  const handleExitMeasureMode = useCallback(() => {
+    measureModeRef.current = false;
+    measureStartRef.current = null;
+    setMeasureMode(false);
+    setMeasureStart(null);
+    setMeasurePreview(null);
+  }, []);
+
+  const handleClearMeasurements = useCallback(() => {
+    measureStartRef.current = null;
+    setMeasureStart(null);
+    setMeasurePreview(null);
+    setMeasurements([]);
+  }, []);
+
+  useEffect(() => {
+    measureStartRef.current = null;
+    setMeasureStart(null);
+    setMeasurePreview(null);
+  }, [currentFloor]);
 
   // Off in Preview (it has its own tools)
   useEffect(() => {
@@ -1089,7 +1191,13 @@ export default function WorkplaceEditor({ onExit }) {
         case 'Escape': {
           // Cancel placement or a drag, then leave the build tool, then deselect
           const tools = plannerToolsRef.current;
-          if (placementManagerRef.current?.isActive()) {
+          if (measureModeRef.current) {
+            measureModeRef.current = false;
+            measureStartRef.current = null;
+            setMeasureMode(false);
+            setMeasureStart(null);
+            setMeasurePreview(null);
+          } else if (placementManagerRef.current?.isActive()) {
             handleCancelPlacement();
           } else if (tools?.isDragging()) {
             tools.cancel();
@@ -1425,9 +1533,19 @@ export default function WorkplaceEditor({ onExit }) {
           onExportPdf={!isPlaying ? handleExportPdf : undefined}
           exportDisabled={!hasAnyRoom || isPlaying}
           exportLoading={exportLoading}
+          measureMode={measureMode}
+          onToggleMeasure={handleToggleMeasureMode}
+          onExitMeasure={handleExitMeasureMode}
+          onClearMeasurements={handleClearMeasurements}
+          hasMeasurements={measurements.length > 0 || !!measureStart}
+          showWallLengths={showWallLengths}
+          onToggleWallLengths={() => setShowWallLengths((visible) => !visible)}
+          showRoomAreas={showRoomAreas}
+          onToggleRoomAreas={() => setShowRoomAreas((visible) => !visible)}
         >
           <canvas
             ref={canvasRef}
+            className={measureMode ? 'is-measuring' : ''}
             onDragOver={handleCanvasDragOver}
             onDrop={handleCanvasDrop}
           />
@@ -1443,6 +1561,19 @@ export default function WorkplaceEditor({ onExit }) {
             scene={sceneReady}
             rooms={rooms}
             elevation={elevationOf(floorsMap, currentFloor)}
+            hidden={isPlaying}
+            showArea={showRoomAreas}
+          />
+          <MeasurementOverlay
+            scene={sceneReady}
+            rooms={rooms}
+            objects={objects}
+            elevation={elevationOf(floorsMap, currentFloor)}
+            showWallLengths={showWallLengths}
+            measurements={measurements}
+            measureStart={measureStart}
+            preview={measurePreview}
+            currentFloor={currentFloor}
             hidden={isPlaying}
           />
           {!isPlaying && (selectedObject || selectedRoom) && (

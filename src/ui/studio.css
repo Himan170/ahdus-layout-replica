@@ -467,6 +467,118 @@
   white-space: nowrap;
   visibility: hidden;
 }
+.room-label__area {
+  display: block;
+  margin-top: 2px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.measurement-controls {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  max-width: calc(100% - 280px);
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-glass);
+  backdrop-filter: blur(8px);
+}
+.measurement-controls .ui-btn {
+  height: 30px;
+  padding: 0 9px;
+  gap: 6px;
+  font-size: 12px;
+}
+.measurement-controls .ui-btn[aria-pressed="true"] {
+  background: var(--bg-active);
+  border-color: var(--accent);
+}
+.measurement-controls__hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 0 4px;
+}
+.canvas-card > canvas.is-measuring { cursor: crosshair; }
+
+.measurement-overlays {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 3;
+}
+.measurement-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(11, 15, 26, 0.9);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.measurement-label--wall { font-size: 11px; }
+.measurement-label--distance {
+  border-color: var(--accent);
+  background: rgba(24, 32, 65, 0.94);
+}
+.measurement-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.measurement-lines line {
+  stroke: #9ba8ff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.measurement-lines circle {
+  fill: #fff;
+  stroke: #6b7cff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.measurement-lines__preview line {
+  stroke-dasharray: 6 4;
+}
+.measurement-lines__start {
+  visibility: hidden;
+  fill: #6b7cff;
+  stroke: #fff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+@media (max-width: 700px) {
+  .measurement-controls {
+    top: auto;
+    left: var(--space-2);
+    right: var(--space-2);
+    bottom: var(--space-2);
+    max-width: none;
+    gap: 6px;
+  }
+  .measurement-controls .ui-btn {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .measurement-controls__hint { flex: 1 1 100%; }
+}
 
 /* Floating selection toolbar */
 .selection-toolbar {

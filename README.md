@@ -22,6 +22,7 @@ Press **Tab** (or **Preview Workplace** / **Back to Studio**) to switch. The edi
 | Select | Click an item or a room. Drag a wall of a selected room to resize it. |
 | **Doors & windows** | Select: click one. The Inspector shows its width and height (type new ones), and blue handles on its sides and top resize it by dragging. Delete removes it. |
 | **Selection** | A small toolbar floats above what you selected (move / rotate / scale / duplicate / lock / delete, or rename / change type / delete for a room). The Inspector shows its exact numbers. Esc or X deselects. |
+| **Measurements** | Measure Distance captures two world-coordinate points; independent controls show/hide wall lengths and rectangular room areas. Measurements are temporary annotations; Clear Measurements does not change the layout. |
 | **Layers** | Bottom of the Build panel: everything on this floor; click one to select it and fly to it. |
 | **Header** | Click the layout name to rename it. Undo, Redo, and Settings (snap, grid, lighting). |
 | **Footer** | Floor switcher (switch, add a floor above, rename, delete), the tool's hint, Preview Workplace. |
@@ -43,7 +44,7 @@ npm run build          # production build (and npm run build:embed for the embed
 ```
 
 Browser tests (one-time: `npx playwright install chromium`) need `npm run dev` running in another terminal;
-run them one script at a time, e.g. `npm run e2e:planner` (the list is in `CLAUDE.md`).
+run them one script at a time, e.g. `npm run e2e:planner` or `npm run e2e:measurements` (the list is in `CLAUDE.md`).
 
 > **⚠️ Do NOT zip or copy `node_modules` between machines.** The Windows-installed copy
 > contains native binaries that do not run on other machines. Always run `npm ci` after cloning.
