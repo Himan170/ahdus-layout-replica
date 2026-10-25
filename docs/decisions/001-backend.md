@@ -44,3 +44,11 @@ Rejected as the primary backend because it is browser-local, not shared between 
 - Row-Level Security policies must protect every tenant-owned table.
 - Supabase environment variables must be configured locally and in CI.
 - `localStorage` will remain only as an offline cache and fallback.
+
+## Status of the browser-side Supabase code (25 Oct 2026)
+
+`src/services/apiService.js` has a browser-side Supabase path (R2: compare-and-set on `revision`, realtime;
+R4: `layout_versions`). It is a **PROTOTYPE** and stays OFF unless `VITE_LAYOUT_BACKEND=supabase` is set as well as
+the URL and key (`.env.example`); without the flag the app makes no network calls for layouts.
+Production saving goes through the platform API (`docs/AHDUS_3D_INTEGRATION_PLAN.md`), which takes the tenant
+from the server session, never from a `company_id` sent by the browser.

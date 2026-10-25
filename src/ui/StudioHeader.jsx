@@ -8,6 +8,7 @@
 import { useRef, useState } from 'react';
 import { Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload, Camera } from 'lucide-react';
 import { usePopover } from './usePopover';
+import VersionHistory from './VersionHistory';
 
 const ICON = { size: 18, strokeWidth: 1.75 };
 
@@ -220,6 +221,8 @@ export default function StudioHeader({
   undoState,
   onUndo,
   onRedo,
+  editor,              // R4: Editor instance for undoable version restore
+  onMessage,           // Toast notification callback
   settings,            // props for <Settings>
 }) {
   const statusText = {
@@ -283,6 +286,7 @@ export default function StudioHeader({
         >
           <Redo2 {...ICON} />
         </button>
+        <VersionHistory editor={editor} onMessage={onMessage} />
         <Settings {...settings} />
       </div>
     </header>

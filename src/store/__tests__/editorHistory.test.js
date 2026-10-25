@@ -491,4 +491,38 @@ describe('floor and wall heights (one undo step each)', () => {
     expect(rooms()).toHaveLength(2);
     expect(objs()).toHaveLength(1);
   });
+
+  it('Task R4: restoreVersion restores an old snapshot and keeps undo history intact', () => {
+    editor.addRoom({ type: 'OFFICE', name: 'Original Room', x: 0, z: 0, width: 4, depth: 4 });
+    const snap1 = useWorkspaceStore.getState().exportWorkspace();
+
+    editor.addRoom({ type: 'MEETING', name: 'Meeting Room', x: 10, z: 0, width: 6, depth: 4 });
+    editor.addObject({ assetType: 'DESK_STANDARD', x: 2, z: 2 });
+    expect(rooms()).toHaveLength(2);
+    expect(objs()).toHaveLength(1);
+
+    // Restore snap1
+    editor.restoreVersion(snap1);
+    expect(rooms()).toHaveLength(1);
+    expect(rooms()[0].name).toBe('Original Room');
+    expect(objs()).toHaveLength(0);
+
+    // Undo undoes the restore
+    editor.undo();
+    expect(rooms()).toHaveLength(2);
+    expect(objs()).toHaveLength(1);
+
+    // Another undo undoes the desk addition (prior history intact)
+    editor.undo();
+    expect(rooms()).toHaveLength(2);
+    expect(objs()).toHaveLength(0);
+
+    // Redo brings desk back, redo again re-applies restore
+    editor.redo();
+    expect(objs()).toHaveLength(1);
+    editor.redo();
+    expect(rooms()).toHaveLength(1);
+    expect(objs()).toHaveLength(0);
+  });
 });
+

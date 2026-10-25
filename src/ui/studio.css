@@ -143,6 +143,114 @@
   gap: var(--space-2);
 }
 
+/* ── Version History Popover (Task R4) ────────────────────────────── */
+
+.studio-header__version-history {
+  position: relative;
+}
+
+.version-history-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 340px;
+  max-height: 460px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3) var(--space-4);
+  z-index: 40;
+}
+
+.version-history-pop__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.version-history-pop__save {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.version-history-pop__save input {
+  flex: 1;
+  font-size: 12px;
+}
+
+.version-history-pop__list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0 0;
+}
+
+.version-history-pop__empty {
+  font-size: 12px;
+  text-align: center;
+  padding: var(--space-4) var(--space-2);
+  line-height: 1.5;
+}
+
+.version-history-pop__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm, 4px);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  transition: background 0.15s ease;
+}
+
+.version-history-pop__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.version-history-pop__item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.version-history-pop__item-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.version-history-pop__badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.1));
+  color: var(--accent, #6366f1);
+  text-transform: uppercase;
+}
+
+.version-history-pop__item-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+
 /* Segmented control (2D | 3D, lighting, grid step) */
 .ui-segmented {
   display: inline-flex;
@@ -466,6 +574,118 @@
   font-weight: 500;
   white-space: nowrap;
   visibility: hidden;
+}
+.room-label__area {
+  display: block;
+  margin-top: 2px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.measurement-controls {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  max-width: calc(100% - 280px);
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-glass);
+  backdrop-filter: blur(8px);
+}
+.measurement-controls .ui-btn {
+  height: 30px;
+  padding: 0 9px;
+  gap: 6px;
+  font-size: 12px;
+}
+.measurement-controls .ui-btn[aria-pressed="true"] {
+  background: var(--bg-active);
+  border-color: var(--accent);
+}
+.measurement-controls__hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 0 4px;
+}
+.canvas-card > canvas.is-measuring { cursor: crosshair; }
+
+.measurement-overlays {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 3;
+}
+.measurement-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(11, 15, 26, 0.9);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.measurement-label--wall { font-size: 11px; }
+.measurement-label--distance {
+  border-color: var(--accent);
+  background: rgba(24, 32, 65, 0.94);
+}
+.measurement-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.measurement-lines line {
+  stroke: #9ba8ff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.measurement-lines circle {
+  fill: #fff;
+  stroke: #6b7cff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.measurement-lines__preview line {
+  stroke-dasharray: 6 4;
+}
+.measurement-lines__start {
+  visibility: hidden;
+  fill: #6b7cff;
+  stroke: #fff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+@media (max-width: 700px) {
+  .measurement-controls {
+    top: auto;
+    left: var(--space-2);
+    right: var(--space-2);
+    bottom: var(--space-2);
+    max-width: none;
+    gap: 6px;
+  }
+  .measurement-controls .ui-btn {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .measurement-controls__hint { flex: 1 1 100%; }
 }
 
 /* Floating selection toolbar */
@@ -833,3 +1053,72 @@
 .export-menu__spinner {
   animation: export-spin 0.8s linear infinite;
 }
+
+
+/* 2D Floor Plan */
+.floor-plan-view {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background-color: #f8fafc;
+  background-image:
+    linear-gradient(#e2e8f0 1px, transparent 1px),
+    linear-gradient(90deg, #e2e8f0 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.floor-plan-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 320px;
+  min-height: 320px;
+}
+
+.floor-plan-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #475569;
+  background: #f8fafc;
+  text-align: center;
+}
+
+
+.floor-plan-toolbar {
+  position: absolute;
+  z-index: 2;
+  bottom: 10px; /* the view control is top right */
+  left: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #334155;
+  pointer-events: none;
+}
+
+.floor-plan-toolbar button {
+  pointer-events: auto;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: white;
+  color: #1e293b;
+  cursor: pointer;
+}
+
+.floor-plan-toolbar button:hover {
+  background: #eff6ff;
+}
+
+
+/* Floor plan: keyboard focus (Tab through rooms and items) */
+.floor-plan-svg [role="button"]:focus { outline: none; }
+.floor-plan-svg [role="button"]:focus-visible rect.floor-plan-shape { stroke: var(--accent); stroke-width: 3px; }
+.floor-plan-svg [role="button"]:focus-visible line.floor-plan-shape { stroke: var(--accent); }

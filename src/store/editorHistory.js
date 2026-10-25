@@ -21,6 +21,7 @@ import {
   GROUND_FLOOR_STAYS,
 } from '../play/building';
 import { toV1 } from '../engine/model/toV1';
+import { normaliseLayout } from './layoutData';
 import { CommandHistory } from '../engine/commands/CommandHistory';
 import {
   AddObjectCommand,
@@ -81,8 +82,8 @@ class SnapshotCommand {
     this.after = null;
   }
   capture() {
-    const { floors, rooms, objects, currentFloor } = this.store();
-    return { floors, rooms, objects, currentFloor };
+    const { floors, rooms, objects, currentFloor, anchorData } = this.store();
+    return { floors, rooms, objects, currentFloor, anchorData };
   }
   execute() {
     if (!this.after) {
@@ -505,6 +506,28 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
         }
         st.selectRoom(null);
         st.selectObject(null);
+      }, store));
+    },
+
+    /**
+     * R4: Restore an old layout version from a snapshot.
+     * Wrapped in a SnapshotCommand so Ctrl+Z undoes the restore cleanly,
+     * while keeping prior undo history intact. The layout name stays as it is
+     * (it is not part of undo).
+     * @param {object} snapshot Layout snapshot (rooms, floors, objects, anchorData)
+     */
+    restoreVersion(snapshot) {
+      if (!snapshot) return;
+      const v1 = snapshot.schemaVersion === 2 ? toV1(snapshot) : snapshot;
+      const normalised = normaliseLayout(v1);
+      return run(new SnapshotCommand('Restore version', () => {
+        store().replaceLayoutState({
+          floors: normalised.floors,
+          rooms: normalised.rooms,
+          objects: normalised.objects,
+          currentFloor: Object.keys(normalised.floors || {})[0] ? Number(Object.keys(normalised.floors)[0]) : 0,
+          anchorData: normalised.anchorData,
+        });
       }, store));
     },
 
