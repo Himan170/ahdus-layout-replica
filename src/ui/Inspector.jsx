@@ -383,14 +383,11 @@ export default function Inspector({
   onPickLayer,
   nameFocusToken,
 }) {
-  if (!mode) return null;
-  const def = object ? ASSET_TYPES[object.assetType] : null;
-  const ObjIcon = object ? assetIcon(object.assetType) : null;
-
   const [isSpeaking, setIsSpeaking] = useState(false);
   const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
   const speechText = useMemo(() => {
+    if (!mode) return '';
     if (mode === 'object' && object) {
       const parentRoom = rooms?.find((r) => r.id === object.roomId);
       return describeObject(object, parentRoom?.name, floorName);
@@ -434,6 +431,10 @@ export default function Inspector({
       }
     };
   }, [mode, object?.id, room?.id]);
+
+  if (!mode) return null;
+  const def = object ? ASSET_TYPES[object.assetType] : null;
+  const ObjIcon = object ? assetIcon(object.assetType) : null;
 
   return (
     <aside className="inspector" aria-label="Inspector">

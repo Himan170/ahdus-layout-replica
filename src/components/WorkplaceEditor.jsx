@@ -1383,7 +1383,7 @@ export default function WorkplaceEditor({ onExit }) {
     } else if (selectedRoom) {
       setAnnounceText(`Selected room ${selectedRoom.name}`);
     }
-  }, [selectedObjectId, selectedRoomId]);
+  }, [selectedObject, selectedRoom]);
   const inspectorMode = selectedObject ? 'object' : selectedRoom ? 'room'
     : selectedOpening ? 'opening' : layersOpen ? 'layers' : null;
   const floorName = floorsMap[currentFloor]?.name ?? '';
