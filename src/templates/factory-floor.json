@@ -1,0 +1,60 @@
+{
+  "layoutName": "Factory Floor",
+  "layoutVersion": 1,
+  "floors": {
+    "0": { "id": 0, "name": "Ground Floor", "height": 4 }
+  },
+  "rooms": [
+    {
+      "id": "room_production", "type": "PRODUCTION", "name": "Main Production Floor", "floor": 0,
+      "x": 0, "z": 0, "width": 16, "depth": 12, "wallHeight": 3.7, "color": "#e05252",
+      "doors": [
+        { "wall": "south", "offset": 0, "width": 1.5, "height": 2.4 },
+        { "wall": "east", "offset": 0, "width": 1.5, "height": 2.4 }
+      ],
+      "windows": [{ "wall": "north", "offset": 0, "width": 3, "height": 1.2, "sill": 1.2 }]
+    },
+    {
+      "id": "room_raw_storage", "type": "SERVER_ROOM", "name": "Raw Materials Storage", "floor": 0,
+      "x": -13, "z": 0, "width": 8, "depth": 7, "wallHeight": 3.7, "color": "#1abc9c",
+      "doors": [{ "wall": "east", "offset": 0, "width": 1.4, "height": 2.4 }],
+      "windows": []
+    },
+    {
+      "id": "room_quality", "type": "OFFICE", "name": "Quality Inspection", "floor": 0,
+      "x": 12, "z": 0, "width": 7, "depth": 6, "wallHeight": 3.7, "color": "#4a7dff",
+      "doors": [{ "wall": "west", "offset": 0, "width": 1.2, "height": 2.4 }],
+      "windows": [{ "wall": "east", "offset": 0, "width": 1.8, "height": 1.2, "sill": 1.2 }]
+    },
+    {
+      "id": "room_supervisor", "type": "OFFICE", "name": "Supervisor Office", "floor": 0,
+      "x": -7, "z": 10, "width": 6, "depth": 5, "wallHeight": 3.7, "color": "#4a7dff",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1, "height": 2.1 }],
+      "windows": [{ "wall": "north", "offset": 0, "width": 1.6, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_dispatch", "type": "PRODUCTION", "name": "Loading & Dispatch", "floor": 0,
+      "x": 3, "z": 11, "width": 8, "depth": 6, "wallHeight": 3.7, "color": "#e05252",
+      "doors": [{ "wall": "south", "offset": 0, "width": 2, "height": 2.8 }],
+      "windows": []
+    },
+    {
+      "id": "room_finished_storage", "type": "SERVER_ROOM", "name": "Finished Goods Storage", "floor": 0,
+      "x": 14, "z": 10, "width": 8, "depth": 7, "wallHeight": 3.7, "color": "#1abc9c",
+      "doors": [{ "wall": "west", "offset": 0, "width": 1.4, "height": 2.4 }],
+      "windows": []
+    }
+  ],
+  "objects": [
+    { "id": "obj_cnc_1", "assetType": "CNC_MACHINE", "floor": 0, "roomId": "room_production", "x": -4, "y": 0, "z": 1, "rotationY": 0 },
+    { "id": "obj_cnc_2", "assetType": "CNC_MACHINE", "floor": 0, "roomId": "room_production", "x": 3, "y": 0, "z": 1, "rotationY": 0 },
+    { "id": "obj_lathe", "assetType": "LATHE", "floor": 0, "roomId": "room_production", "x": 0, "y": 0, "z": -4, "rotationY": 0 },
+    { "id": "obj_raw_rack_1", "assetType": "STORAGE_RACK", "floor": 0, "roomId": "room_raw_storage", "x": -14, "y": 0, "z": 0, "rotationY": 0 },
+    { "id": "obj_raw_rack_2", "assetType": "STORAGE_RACK", "floor": 0, "roomId": "room_raw_storage", "x": -12, "y": 0, "z": 0, "rotationY": 0 },
+    { "id": "obj_quality_desk", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_quality", "x": 12, "y": 0, "z": 0, "rotationY": 0 },
+    { "id": "obj_quality_whiteboard", "assetType": "WHITEBOARD", "floor": 0, "roomId": "room_quality", "x": 12, "y": 0, "z": 2, "rotationY": 0 },
+    { "id": "obj_supervisor_desk", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_supervisor", "x": -7, "y": 0, "z": 10, "rotationY": 0 },
+    { "id": "obj_dispatch_rack", "assetType": "STORAGE_RACK", "floor": 0, "roomId": "room_finished_storage", "x": 14, "y": 0, "z": 10, "rotationY": 0 }
+  ],
+  "anchorData": {}
+}

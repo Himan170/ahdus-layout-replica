@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Building2, ChevronRight, ArrowLeft, Plus, Pencil, Trash2, Download, Upload, LayoutGrid, AlertTriangle, Check,
 } from 'lucide-react';
+import { LAYOUT_TEMPLATES } from '../templates';
 import {
   loadWorkspace,
   createWorkspace,
@@ -39,6 +40,47 @@ function formatEdited(iso) {
 }
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const mb = (chars) => (chars / 1_000_000).toFixed(1);
+const BLANK_TEMPLATE = {
+  id: 'blank',
+  name: 'Start from Blank Layout',
+  description: 'Begin with an empty floor and add rooms, walls and furniture yourself.',
+  layout: { floors: { 0: { id: 0, name: 'Ground Floor', height: 3.5 } }, rooms: [], objects: [], anchorData: {} },
+};
+
+function TemplatePreview({ layout }) {
+  const rooms = layout?.rooms ?? [];
+  if (!rooms.length) {
+    return (
+      <svg className="template-card__preview" viewBox="0 0 120 72" aria-hidden="true">
+        <rect x="7" y="7" width="106" height="58" rx="4" className="template-preview__blank" />
+        <path d="M20 22h18M20 29h30M20 36h13M20 43h24" className="template-preview__grid" />
+      </svg>
+    );
+  }
+  const minX = Math.min(...rooms.map((room) => room.x - room.width / 2));
+  const maxX = Math.max(...rooms.map((room) => room.x + room.width / 2));
+  const minZ = Math.min(...rooms.map((room) => room.z - room.depth / 2));
+  const maxZ = Math.max(...rooms.map((room) => room.z + room.depth / 2));
+  const scale = Math.min(104 / (maxX - minX), 56 / (maxZ - minZ));
+  const offsetX = (120 - (maxX - minX) * scale) / 2;
+  const offsetY = (72 - (maxZ - minZ) * scale) / 2;
+  return (
+    <svg className="template-card__preview" viewBox="0 0 120 72" aria-hidden="true">
+      {rooms.map((room) => (
+        <rect
+          key={room.id}
+          x={offsetX + (room.x - room.width / 2 - minX) * scale}
+          y={offsetY + (maxZ - room.z - room.depth / 2) * scale}
+          width={Math.max(2, room.width * scale)}
+          height={Math.max(2, room.depth * scale)}
+          rx="1"
+          fill={room.color ?? '#4a7dff'}
+          className="template-preview__room"
+        />
+      ))}
+    </svg>
+  );
+}
 
 /** "Delete …? This can't be undone." with Delete / Cancel. */
 function ConfirmRow({ label, text, onConfirm, onCancel }) {
@@ -78,6 +120,7 @@ export default function CompanySelector({ onEnterEditor, initialCompany = null }
   const [companyId, setCompanyId] = useState(null);
   const [layouts, setLayouts] = useState([]);
   const [newLayoutName, setNewLayoutName] = useState('');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('blank');
   const [companies, setCompanies] = useState(() => listCompanies());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -152,16 +195,24 @@ export default function CompanySelector({ onEnterEditor, initialCompany = null }
   // ─── Create a new layout ───
   const handleCreateLayout = useCallback(async () => {
     const finalName = newLayoutName.trim() || 'Untitled Layout';
+    const template = selectedTemplateId === 'blank'
+      ? BLANK_TEMPLATE
+      : LAYOUT_TEMPLATES.find((item) => item.id === selectedTemplateId);
+    if (!template) {
+      setError('The selected layout template is unavailable.');
+      return;
+    }
     setLoading(true);
+    setError(null);
     try {
-      await createWorkspace(companyId, finalName);
+      await createWorkspace(companyId, finalName, template.id === 'blank' ? null : template.layout);
       onEnterEditor({ id: companyId, name: companyName });
     } catch (err) {
       setError('Failed to create layout: ' + err.message);
     } finally {
       setLoading(false);
     }
-  }, [companyId, companyName, newLayoutName, onEnterEditor]);
+  }, [companyId, companyName, newLayoutName, selectedTemplateId, onEnterEditor]);
 
   // ─── Delete a layout (after "Delete?" is confirmed) ───
   const handleDeleteLayout = useCallback(async (layoutId) => {
@@ -207,13 +258,14 @@ export default function CompanySelector({ onEnterEditor, initialCompany = null }
     setLayouts([]);
     setError(null);
     setNotice(null);
+    setSelectedTemplateId('blank');
     refreshCompanies();
   }, [refreshCompanies]);
 
   // ─── Render ───
   return (
     <div className="selector">
-      <div className="selector-card">
+      <div className={`selector-card${step === 'layout' ? ' selector-card--templates' : ''}`}>
         <header className="selector-card__brand">
           <Building2 size={22} strokeWidth={1.75} aria-hidden />
           <span className="selector-card__logo">AHDUS</span>
@@ -372,6 +424,30 @@ export default function CompanySelector({ onEnterEditor, initialCompany = null }
               }} />
 
             <p className="ui-section-title selector-card__section">New layout</p>
+            <p className="template-picker__intro">Choose a starting point</p>
+            <div className="template-picker" role="radiogroup" aria-label="Layout template">
+              {[BLANK_TEMPLATE, ...LAYOUT_TEMPLATES].map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  className="template-card"
+                  role="radio"
+                  aria-checked={selectedTemplateId === template.id}
+                  aria-label={template.name}
+                  onClick={() => setSelectedTemplateId(template.id)}
+                  disabled={loading}
+                >
+                  <TemplatePreview layout={template.layout} />
+                  <span className="template-card__content">
+                    <span className="template-card__name">{template.name}</span>
+                    <span className="template-card__description">{template.description}</span>
+                  </span>
+                  <span className="template-card__check" aria-hidden>
+                    {selectedTemplateId === template.id && <Check {...ICON} />}
+                  </span>
+                </button>
+              ))}
+            </div>
             <CreateRow
               placeholder="Layout name…"
               value={newLayoutName}
