@@ -81,6 +81,8 @@ describe('save → load round trip', () => {
     expect(firstRooms.every((room) => room.floor === 0 && room.width > 0 && room.depth > 0)).toBe(true);
     expect(new Set([...firstRooms, ...firstObjects].map((item) => item.id)).size)
       .toBe(firstRooms.length + firstObjects.length);
+    expect(firstRooms.every((room) => /^room_[0-9a-f-]{36}$/.test(room.id))).toBe(true);
+    expect(firstObjects.every((object) => /^obj_[0-9a-f-]{36}$/.test(object.id))).toBe(true);
     expect(firstObjects.every((object) => ASSET_TYPES[object.assetType])).toBe(true);
     expect(firstObjects.every((object) => !object.roomId || S().rooms[object.roomId])).toBe(true);
 

@@ -625,8 +625,8 @@ export async function createWorkspace(companyId, name = 'Untitled Layout', initi
       }
     }
     normalized = normaliseLayout(template);
-    const freshRoomIds = new Map(normalized.rooms.map((room) => [room.id, uuidv4()]));
-    const freshObjectIds = new Map(normalized.objects.map((object) => [object.id, uuidv4()]));
+    const freshRoomIds = new Map(normalized.rooms.map((room) => [room.id, `room_${uuidv4()}`]));
+    const freshObjectIds = new Map(normalized.objects.map((object) => [object.id, `obj_${uuidv4()}`]));
     normalized.rooms = normalized.rooms.map((room) => ({
       ...room,
       id: freshRoomIds.get(room.id),
