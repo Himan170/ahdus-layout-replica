@@ -3,6 +3,10 @@ import { useWorkspaceStore } from '../workspaceStore';
 import { createEditorHistory } from '../editorHistory';
 import { normaliseLayout, layoutSummary } from '../layoutData';
 import { roomWallSegments, wallSegmentOpenings } from '../../play/geometry';
+import { ASSET_TYPES } from '../../utils/assetCatalog';
+import smallOffice from '../../templates/small-office.json';
+import factoryFloor from '../../templates/factory-floor.json';
+import clinic from '../../templates/clinic.json';
 import {
   createWorkspace, loadWorkspace, saveNow, listLayouts, deleteLayout, renameLayout,
   startAutoSave, stopAutoSave, reloadLayout, saveAsCopy, exportLayout, importLayout, storageUse,
@@ -64,6 +68,36 @@ function layoutOf(state) {
 }
 
 describe('save → load round trip', () => {
+  it.each([
+    ['Small Office', smallOffice, 7],
+    ['Factory Floor', factoryFloor, 6],
+    ['Clinic', clinic, 8],
+  ])('%s template normalizes and creates an independent, reloadable layout', async (name, template, expectedRooms) => {
+    const original = JSON.stringify(template);
+    const firstId = await createWorkspace(COMPANY, name, template);
+    const firstRooms = Object.values(S().rooms);
+    const firstObjects = Object.values(S().objects);
+    expect(firstRooms).toHaveLength(expectedRooms);
+    expect(firstRooms.every((room) => room.floor === 0 && room.width > 0 && room.depth > 0)).toBe(true);
+    expect(new Set([...firstRooms, ...firstObjects].map((item) => item.id)).size)
+      .toBe(firstRooms.length + firstObjects.length);
+    expect(firstObjects.every((object) => ASSET_TYPES[object.assetType])).toBe(true);
+    expect(firstObjects.every((object) => !object.roomId || S().rooms[object.roomId])).toBe(true);
+
+    const firstRoomId = firstRooms[0].id;
+    S().updateRoom(firstRoomId, { name: 'Edited copy' });
+    expect(JSON.stringify(template)).toBe(original);
+
+    const secondId = await createWorkspace(COMPANY, name, template);
+    expect(secondId).not.toBe(firstId);
+    expect(Object.values(S().rooms).some((room) => room.id === firstRoomId)).toBe(false);
+    expect(Object.values(S().rooms)[0].name).not.toBe('Edited copy');
+    expect((await saveNow()).ok).toBe(true);
+    expect(await loadWorkspace(COMPANY, secondId)).toBe(true);
+    expect(Object.keys(S().rooms)).toHaveLength(expectedRooms);
+    expect(S().layoutName).toBe(name);
+  });
+
   it('keeps rooms, doors, windows, stairs, furniture, 2 floors and anchor data', async () => {
     const id = await createWorkspace(COMPANY, 'Head Office');
     const editor = createEditorHistory();

@@ -1,0 +1,70 @@
+{
+  "layoutName": "Clinic",
+  "layoutVersion": 1,
+  "floors": {
+    "0": { "id": 0, "name": "Ground Floor", "height": 3.5 }
+  },
+  "rooms": [
+    {
+      "id": "room_reception", "type": "RECEPTION", "name": "Reception", "floor": 0,
+      "x": 0, "z": 0, "width": 8, "depth": 6, "wallHeight": 3.2, "color": "#f5a623",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1.2, "height": 2.1 }],
+      "windows": [{ "wall": "west", "offset": 0, "width": 1.6, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_waiting", "type": "OFFICE", "name": "Waiting Area", "floor": 0,
+      "x": 10, "z": 0, "width": 8, "depth": 6, "wallHeight": 3.2, "color": "#4a7dff",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1.2, "height": 2.1 }],
+      "windows": [{ "wall": "north", "offset": 0, "width": 2, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_consult_1", "type": "OFFICE", "name": "Consultation Room 1", "floor": 0,
+      "x": -8, "z": 8, "width": 5, "depth": 5, "wallHeight": 3.2, "color": "#4a7dff",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1, "height": 2.1 }],
+      "windows": [{ "wall": "north", "offset": 0, "width": 1.4, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_consult_2", "type": "OFFICE", "name": "Consultation Room 2", "floor": 0,
+      "x": -2, "z": 8, "width": 5, "depth": 5, "wallHeight": 3.2, "color": "#4a7dff",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1, "height": 2.1 }],
+      "windows": [{ "wall": "north", "offset": 0, "width": 1.4, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_treatment", "type": "OFFICE", "name": "Examination & Treatment", "floor": 0,
+      "x": 5, "z": 8, "width": 6, "depth": 6, "wallHeight": 3.2, "color": "#38b764",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1.2, "height": 2.1 }],
+      "windows": [{ "wall": "north", "offset": 0, "width": 1.6, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_staff", "type": "OFFICE", "name": "Nursing & Staff Area", "floor": 0,
+      "x": 12, "z": 8, "width": 6, "depth": 5, "wallHeight": 3.2, "color": "#1abc9c",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1, "height": 2.1 }],
+      "windows": [{ "wall": "east", "offset": 0, "width": 1.4, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_medical_storage", "type": "SERVER_ROOM", "name": "Medical Storage", "floor": 0,
+      "x": 16, "z": 0, "width": 4, "depth": 5, "wallHeight": 3.2, "color": "#1abc9c",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1, "height": 2.1 }],
+      "windows": []
+    },
+    {
+      "id": "room_restroom", "type": "RESTROOM", "name": "Restroom", "floor": 0,
+      "x": -13, "z": 8, "width": 4, "depth": 4, "wallHeight": 3.2, "color": "#95a5a6",
+      "doors": [{ "wall": "south", "offset": 0, "width": 0.9, "height": 2.1 }],
+      "windows": []
+    }
+  ],
+  "objects": [
+    { "id": "obj_reception_desk", "assetType": "RECEPTION_DESK", "floor": 0, "roomId": "room_reception", "x": 0, "y": 0, "z": -1, "rotationY": 0 },
+    { "id": "obj_waiting_sofa", "assetType": "SOFA_3SEAT", "floor": 0, "roomId": "room_waiting", "x": 10, "y": 0, "z": 0, "rotationY": 0 },
+    { "id": "obj_waiting_chair", "assetType": "CHAIR_OFFICE", "floor": 0, "roomId": "room_waiting", "x": 12.5, "y": 0, "z": 1.5, "rotationY": 0 },
+    { "id": "obj_consult_desk_1", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_consult_1", "x": -8, "y": 0, "z": 8.5, "rotationY": 0 },
+    { "id": "obj_consult_desk_2", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_consult_2", "x": -2, "y": 0, "z": 8.5, "rotationY": 0 },
+    { "id": "obj_treatment_cabinet", "assetType": "FILING_CABINET", "floor": 0, "roomId": "room_treatment", "x": 7, "y": 0, "z": 8, "rotationY": 0 },
+    { "id": "obj_staff_desk", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_staff", "x": 12, "y": 0, "z": 8, "rotationY": 0 },
+    { "id": "obj_medical_rack", "assetType": "STORAGE_RACK", "floor": 0, "roomId": "room_medical_storage", "x": 16, "y": 0, "z": 0, "rotationY": 0 },
+    { "id": "obj_restroom_toilet", "assetType": "TOILET", "floor": 0, "roomId": "room_restroom", "x": -13, "y": 0, "z": 8.5, "rotationY": 0 },
+    { "id": "obj_restroom_sink", "assetType": "WASHBASIN", "floor": 0, "roomId": "room_restroom", "x": -14, "y": 0, "z": 8.5, "rotationY": 0 }
+  ],
+  "anchorData": {}
+}
