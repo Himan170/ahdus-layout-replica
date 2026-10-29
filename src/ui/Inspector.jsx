@@ -18,7 +18,10 @@ import {
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { assetIcon, sizeLabel } from './tools';
-import { DOOR_DEFAULTS, MAX_ROOM_SIZE, WINDOW_DEFAULTS } from '../play/geometry';
+import {
+  DOOR_DEFAULTS, MAX_ROOM_SIZE, WINDOW_DEFAULTS,
+  wallThicknessOf, MIN_WALL_THICKNESS, MAX_WALL_THICKNESS, WALL_THICKNESS_STEP,
+} from '../play/geometry';
 import { MIN_WALL_HEIGHT, MAX_WALL_HEIGHT } from '../play/building';
 import { describeRoom, describeObject, describeAccessibilityRoutes } from '../utils/accessibleSummary';
 
@@ -253,13 +256,16 @@ function RoomBody({ room, floorName, onUpdate }) {
           {Object.entries(ROOM_TYPES).map(([key, def]) => <option key={key} value={key}>{def.label}</option>)}
         </select>
       </label>
-      <div className="insp-grid insp-grid--3">
+      <div className="insp-grid">
         <NumberField label="Width" value={room.width} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m"
           onCommit={(v) => onUpdate(room.id, { width: v })} />
         <NumberField label="Depth" value={room.depth} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m"
           onCommit={(v) => onUpdate(room.id, { depth: v })} />
         <NumberField label="Wall height" value={room.wallHeight ?? 3} step={0.1} min={MIN_WALL_HEIGHT} max={MAX_WALL_HEIGHT} digits={1} suffix="m"
           onCommit={(v) => onUpdate(room.id, { wallHeight: v })} />
+        <NumberField label="Wall thickness" value={wallThicknessOf(room)} step={WALL_THICKNESS_STEP}
+          min={MIN_WALL_THICKNESS} max={MAX_WALL_THICKNESS} digits={2} suffix="m"
+          onCommit={(v) => onUpdate(room.id, { wallThickness: v })} />
       </div>
       <dl className="insp-facts">
         <div><dt>Floor</dt><dd>{floorName}</dd></div>

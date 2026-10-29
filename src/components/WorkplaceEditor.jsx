@@ -78,7 +78,7 @@ import { createPlannerTools } from '../planner/plannerTools';
 import { itemOverFloorPoint, wallTargetOf } from '../utils/pickHelpers';
 import {
   openingData, openingPartner, openingCentre, openingAt, resizeOpening, planRemoveOpening,
-  planRoomResize,
+  planRoomResize, planWallThickness,
 } from '../play/geometry';
 import { DEFAULT_HOTBAR } from '../play/hotbarItems';
 import { distanceBetweenPoints } from '../utils/measurements';
@@ -995,6 +995,17 @@ export default function WorkplaceEditor({ onExit }) {
         const steep = steepStairsText(plan.height);
         showStudioMessage(`${useWorkspaceStore.getState().floors[plan.floorId]?.name} is now ${plan.height.toFixed(1)} m high, to fit ${room?.name}${steep ? `. ${steep}` : ''}`);
       }
+      return;
+    }
+    if ('wallThickness' in patch) {
+      // Thicker walls take half of it from inside the room: rooms inside it and items may be in the way
+      const state = useWorkspaceStore.getState();
+      const room = state.rooms[id];
+      const plan = planWallThickness(room, patch.wallThickness,
+        Object.values(state.rooms).filter((other) => other.floor === room.floor), Object.values(state.objects),
+        (o) => o.label || ASSET_TYPES[o.assetType]?.label || 'An item');
+      if (plan.problem) showStudioMessage(plan.problem, true);
+      else editor.updateRoom(id, { wallThickness: plan.thickness }, { mergeKey: 'room-wall-thickness', label: 'Change wall thickness' });
       return;
     }
     if ('width' in patch || 'depth' in patch) {

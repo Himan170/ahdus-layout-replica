@@ -175,6 +175,41 @@ for (const pair of pairs) {
   await p.keyboard.press('Control+z'); await frames(3);
 }
 
+// ── Wall thickness (Inspector): the shared wall is as thick as the thicker room's; Ctrl+Z puts it back ──
+{
+  const pair = pairs[0];
+  await p.evaluate((id) => window.__ahdusStore.getState().selectRoom(id), pair.eastId);
+  await wait(400);
+  const field = p.locator('aside[aria-label="Inspector"] input[aria-label="Wall thickness"]');
+  const shown = await field.inputValue();
+  await field.fill('0.4');
+  await field.press('Tab');
+  await p.evaluate(() => document.activeElement?.blur());
+  await p.waitForFunction((pair) => {
+    const w = window.__sharedWalls(pair)[0];
+    if (!w) return false;
+    const b = w.getBoundingInfo().boundingBox;
+    return Math.abs(b.maximumWorld.x - b.minimumWorld.x - 0.4) < 0.005;
+  }, pair, { timeout: 30000 }).catch(() => {});
+  const thick = await wallState(pair);
+  const saved = await p.evaluate((id) => window.__ahdusStore.getState().rooms[id].wallThickness, pair.eastId);
+  log(`${pair.name}: Inspector "Wall thickness" 0.4 m: still one shared wall, 0.4 m thick, one doorway`,
+    shown === '0.15' && saved === 0.4 && thick.wallCount === 1 && Math.abs(thick.thickness - 0.4) < 0.005 &&
+    Math.abs(thick.x - WALL_X) < 0.005 && thick.doorPanes === 1, JSON.stringify({ shown, saved, ...thick }));
+  await shot('sw-thick-wall.png');
+  await p.keyboard.press('Control+z'); await frames(3);
+  await p.waitForFunction((pair) => {
+    const w = window.__sharedWalls(pair)[0];
+    if (!w) return false;
+    const b = w.getBoundingInfo().boundingBox;
+    return Math.abs(b.maximumWorld.x - b.minimumWorld.x - 0.15) < 0.005;
+  }, pair, { timeout: 30000 }).catch(() => {});
+  const back = await wallState(pair);
+  log(`${pair.name}: Ctrl+Z puts the 0.15 m wall back`, looksRight(pair, back) &&
+    await p.evaluate((id) => window.__ahdusStore.getState().rooms[id].wallThickness, pair.eastId) === 0.15, JSON.stringify(back));
+  await p.evaluate(() => window.__ahdusStore.getState().selectRoom(null)); await frames(2);
+}
+
 // ── Save, reopen: the same geometry is derived again ──
 await p.waitForFunction(() => document.querySelector('.studio-header__status')?.textContent === 'Saved', null, { timeout: 60000 });
 await p.click('[aria-label="All layouts"]');
