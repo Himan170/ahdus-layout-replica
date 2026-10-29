@@ -34,7 +34,9 @@ Plan and contract: `docs/AHDUS_3D_INTEGRATION_PLAN.md` (sections 3 and 4). Try i
 ```
 
 - **Give the element a size.** The viewer fills it, and follows it when it changes size.
-- `mount()` returns at once. The layout is drawn a few seconds later (the `ready` event).
+- `mount()` returns at once. The layout is built a piece at a time, the floor you start on first, so a big building
+  never freezes your page: the view shows "Building your workplace… 40 %" (`progress` events), then `ready` once
+  everything is built.
 - The file brings its own styles. You don't need a stylesheet (see section 8 for the exception).
 
 ---
@@ -131,7 +133,8 @@ Ids never change once created: store `objectId` or `anchorId` in your tables to 
 
 | Name | When | `data` |
 |---|---|---|
-| `ready` | The layout is drawn | `{ name, mode, floors: [{ id, name }], rooms: [room, …] }` |
+| `progress` | While the layout is being built (the last one has `allBuilt: true`) | `{ done, total, floor, currentFloorReady, allBuilt }` |
+| `ready` | The layout is built and drawn | `{ name, mode, floors: [{ id, name }], rooms: [room, …] }` |
 | `enterRoom` | The character walked into a room (also: up the stairs into one) | `{ roomId, room, floorId, fromRoomId }` |
 | `exitRoom` | The character left a room (also: switching to `view`) | `{ roomId, room, floorId, toRoomId }` |
 | `interact` | E was pressed on an item, door or window | the target (section 4) |

@@ -170,6 +170,8 @@ src/play/modelFit.js               PURE maths: fit a model's box into the primit
 public/assets/                     models/kenney/*.glb, textures/<set>/{color,normal,rough}.jpg, env/sky.env (all CC0,
                                    docs/ASSET_LICENSES.md); made by scripts/prepare-assets.mjs + scripts/make-env.mjs
 src/utils/siteEnvironment.js       Sky, fog, grass, paving, build grid
+src/engine/systems/SceneBuilder.ts Progressive loading: builds rooms + items in ~10 ms slices, start floor first (Studio + engine)
+src/play/buildSchedule.js          PURE: floor build order, slice budget, big change (> 50 new), progress
 src/integration/layoutBridge.js    Public API for teammates' modules (events, anchors, Press-E actions)
 src/engine/                        Embeddable engine (H2): LayoutEngine (own store, loadLayout / getLayout, camera,
                                    highlights, modes, `editor` refused outside edit mode); model/ (v2 schema, v1→v2 and
@@ -288,6 +290,28 @@ Both are **derived from the room rectangles; nothing extra is saved** (no wall r
     never where an item stands (a click selects what is under the cursor). The Inspector size snaps the edges it
     moves (so it sets x / z too) and keeps inner rooms inside (`planRoomResize`).
 
+## Progressive loading (how it works)
+
+Opening a layout never freezes the page: `engine/systems/SceneBuilder` builds the rooms and items in slices of
+~10 ms (`BUILD_BUDGET_MS`), yielding between them (`scheduler.postTask` / MessageChannel). Used by Workplace Studio
+(`WorkplaceEditor`: the one effect that syncs meshes calls `builder.start()` for a new scene, else `request()`) and
+`LayoutEngine` (viewer, embed).
+- **Order** (`buildSchedule.floorBuildOrder`): the floor you are on, then the floors below (nearest first), then above.
+  Each floor's room materials first, one per piece (painting textures is slow; painted tiles are kept for the next scene).
+- **The store is the only truth:** every slice reads the latest layout, so edits, undo and floor changes during a build
+  are part of it; a deleted room / item goes at once; nothing is built twice (geometry keys).
+- **After the first build** a change is built at once, as before; one that brings > 50 new rooms + items
+  (`BIG_CHANGE`: a restored version, an import) is built in slices again.
+- **While the start floor builds, no frames are drawn** (`layoutScene.holdRendering`, ends by itself after 30 s): a frame
+  of a half-built floor shows nothing, and without a GPU one frame costs more than the building. The page (progress
+  text, clicks) keeps working. Studio's performance monitor is paused until everything is built (a low FPS while
+  building says nothing about rendering; it would lower the resolution).
+- **Progress:** `{ done, total, floor, currentFloorReady, allBuilt }`. Studio: "Building your workplace… 40 %" in the
+  middle until the floor you are on is built, then "Building the other floors… %" in the corner (`.build-progress`).
+  Viewer / embed: the same text, `progress` events, `onReady` / `ready` once everything is built.
+- Measured by `e2e:perf` (72 rooms + 864 items, no GPU): the floor you are on shows after ~1.6 s instead of ~2.6 s, and
+  the rest builds while you can already work. Numbers from SwiftShader; compare runs on the same machine only.
+
 ## Realistic look (how it works)
 
 On by default; Settings → "Realistic look" (Studio, per browser: localStorage `ahdus.realisticLook`), `quality: 'low'`
@@ -323,6 +347,8 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
   `__ahdusCards`, `__ahdusEventLog` (demo modules), `__ahdusCrashOnOpen = true` (the editor throws: error card test),
   `__ahdusRoomSync` ({ rebuilt, ms } of the last room sync that built something: perf test),
   `__ahdusAssets` ({ whenLoaded(), setRealistic(on) }: wait for the realistic look's files; switch it).
+- **Progressive loading:** after opening a layout (or a change with > 50 new rooms + items), meshes appear over
+  several slices: `await __ahdusBuild.whenBuilt()` (Studio, dev) or `engine.whenBuilt()` before checking meshes.
 - Real assets load AFTER the scene is drawn: wait for `__ahdusAssets.whenLoaded()` before checking models or
   textures. An item drawn by its real model has `metadata.model` on its child mesh; a room surface's realistic
   material is named `real_<key>` (procedural: `mat_<key>`).

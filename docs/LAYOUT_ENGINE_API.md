@@ -21,6 +21,7 @@ As of 22 Oct 2026 (TEAM_TASKS H2 done): `LayoutEngine` draws a layout on its own
 | `setMode`: `edit`, `view`, `walkthrough`; outside `edit` every edit is refused (TEAM_TASKS H3's test) | ✅ Done, tested |
 | Systems in `engine/systems/`: `SceneSetup`, `RoomSystem`, `ObjectSystem`, `FloorSystem`, `CameraSystem`, `HighlightSystem`, `WalkthroughSystem` | ✅ Done, tested (Studio draws with the first four). `PlacementSystem`, `SelectionSystem` are still stubs |
 | `<LayoutViewer />` (view / walkthrough) and `<LayoutEditor />` (edit = today's Workplace Studio) | ✅ Done; `e2e/viewer-smoke.mjs` |
+| Progressive loading: a layout is built in ~10 ms pieces, the start floor first (`SceneBuilder`), with `progress` events; nothing is drawn until the start floor is built | ✅ Done (29 Oct), also in Workplace Studio; `e2e/perf-smoke.mjs` measures it |
 | `layoutBridge` in viewers (teammates' modules, "Press E" actions) | ✅ Done (`connectEngine`; rule in `TEAM_INTEGRATION.md`) |
 | Plain HTML pages (no React, no build step): one file, `AHDUSWorkplace.mount(element, { layoutUrl, mode, onEvent, onError })` | ✅ Done; `npm run build:embed`, **`docs/EMBED_GUIDE.md`**, `e2e/embed-smoke.mjs` |
 | `quality="low"` (simple models and materials) / `"high"` (default: real models, photo textures, HDRI sky) + `assetBaseUrl` | ✅ Done (25 Oct; PROGRESS_REPORT 3.18) |
@@ -67,7 +68,8 @@ import { LayoutEditor, LayoutViewer } from '@engine/react';   // later: '@ahdus/
   mode="walkthrough"              // "view" (orbit) | "walkthrough" (W A S D, mouse, E, Page Up / Down)
   quality="high"                  // "high" (default): real models, photo textures, sky; "low": simple look
   assetBaseUrl="/assets/"         // where models/, textures/, env/ are (default: the app's public/assets/)
-  onReady={(engine) => { ... }}   // the LayoutEngine (focusOn, highlight, getAnchors, …)
+  onReady={(engine) => { ... }}   // the LayoutEngine (focusOn, highlight, getAnchors, …), once everything is built
+  onProgress={({ done, total, currentFloorReady, allBuilt }) => { ... }} // while it builds (it shows its own % too)
   onInteract={({ anchorId, objectId, roomId, part }) => { ... }}
   onEnterRoom={({ roomId, roomName, fromRoomId }) => { ... }}
   onExitRoom={({ roomId, toRoomId }) => { ... }}
@@ -92,11 +94,15 @@ const engine = await LayoutEngine.create(canvas, {
   assetBaseUrl: '/assets/', // where models/, textures/, env/ are (default: the app's public/assets/)
   focusTarget: box,    // walkthrough: the keys are the page's until the canvas has the mouse
                        // or focus is in this element (default the canvas); Esc gives them back
+  buildBudgetMs: 10,   // progressive loading: time per build piece (Infinity = everything at once)
 });
 
 // --- Loading & Reading Data ---
 engine.loadLayout(layoutJson);       // A save, an exported file or v2 (throws on bad data)
 engine.getLayout(): Layout;          // The current layout as v2 (null before loadLayout)
+engine.buildProgress;                // { done, total, floor, currentFloorReady, allBuilt }
+await engine.whenBuilt();            // everything built ('progress' events until then)
+engine.finishBuild();                // build the rest now, in one go
 
 // --- Navigation ---
 engine.setFloor(floorId);            // Switch to a specific floor
