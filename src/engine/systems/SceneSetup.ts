@@ -32,9 +32,20 @@ export interface LayoutScene {
   lights: ReturnType<typeof createLighting>;
   /** Sky, grass, paving, build grid (utils/siteEnvironment.js) */
   siteEnv: ReturnType<typeof createSiteEnvironment>;
+  /**
+   * Pause drawing frames (true) or draw again (false). Progressive loading holds
+   * them while the floor you start on is built: a frame of a half-built floor
+   * shows nothing useful, and without a GPU one frame costs more than the
+   * building. The page itself (progress text, clicks) keeps working. A hold ends
+   * by itself after HOLD_RENDER_MAX_MS, so the view can never stay blank.
+   */
+  holdRendering(hold: boolean): void;
   /** Stops rendering and disposes the site, the scene and the engine. */
   dispose(): void;
 }
+
+/** The longest a holdRendering(true) lasts. */
+export const HOLD_RENDER_MAX_MS = 30000;
 
 export interface LayoutSceneOptions {
   /** 'high' (default): realistic look (real models, photo textures, HDRI sky); 'low': simple models and materials. */
@@ -64,7 +75,10 @@ export function createLayoutScene(canvas: HTMLCanvasElement, options: LayoutScen
   const siteEnv = createSiteEnvironment(scene, ground, lights);
   siteEnv.setPlayLook(true);
 
+  let heldUntil = 0; // holdRendering: no frames until then (performance.now())
   engine.runRenderLoop(() => {
+    if (heldUntil && performance.now() < heldUntil) return;
+    heldUntil = 0;
     scene.render();
   });
 
@@ -91,6 +105,9 @@ export function createLayoutScene(canvas: HTMLCanvasElement, options: LayoutScen
     camera,
     lights,
     siteEnv,
+    holdRendering(hold: boolean) {
+      heldUntil = hold ? performance.now() + HOLD_RENDER_MAX_MS : 0;
+    },
     dispose() {
       window.removeEventListener('resize', onResize);
       resizeObserver.disconnect();

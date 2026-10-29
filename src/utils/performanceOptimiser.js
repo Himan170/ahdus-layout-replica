@@ -69,7 +69,10 @@ export function createPerformanceMonitor(engine) {
       return _currentScale;
     },
 
+    /** Pause (false) or resume (true). Resuming forgets the samples taken while paused
+     *  (e.g. during progressive loading, when a low FPS says nothing about rendering). */
     setEnabled(flag) {
+      if (flag && !_enabled) _samples = [];
       _enabled = flag;
     },
 

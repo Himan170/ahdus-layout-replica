@@ -252,7 +252,11 @@ export class LayoutEngine {
       floors: this.floors,
       getLayout: () => this._store.getState(),
       budgetMs: options.buildBudgetMs,
-      onProgress: (progress) => this.emit('progress', progress),
+      onProgress: (progress) => {
+        // No frames until the start floor is built (SceneSetup.holdRendering)
+        this._layoutScene.holdRendering?.(!progress.currentFloorReady);
+        this.emit('progress', progress);
+      },
       onChange: () => this.highlights.apply(),
     });
 
