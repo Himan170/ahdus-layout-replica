@@ -194,8 +194,8 @@ export default function WorkplaceEditor({ onExit }) {
   const [measurements, setMeasurements] = useState([]);
   const [measureStart, setMeasureStart] = useState(null);
   const [measurePreview, setMeasurePreview] = useState(null);
-  const [showWallLengths, setShowWallLengths] = useState(true);
-  const [showRoomAreas, setShowRoomAreas] = useState(true);
+  const [showWallLengths, setShowWallLengths] = useState(false);
+  const [showRoomAreas, setShowRoomAreas] = useState(false);
   const measureModeRef = useRef(false);
   const measureStartRef = useRef(null);
   const measurementIdRef = useRef(0);
