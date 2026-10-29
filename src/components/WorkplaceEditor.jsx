@@ -37,6 +37,8 @@ import { exportFloorPlanAsPng, exportFloorPlanAsPdf } from '../utils/floorPlanEx
 
 // The scene lifecycle (scene, systems, builder, play controller, tools, pointer handlers)
 import { useStudioScene } from '../hooks/useStudioScene';
+// Store → scene: meshes, the floor being edited, the gizmo
+import { useStoreMeshSync } from '../hooks/useStoreMeshSync';
 
 // Components
 import PlayHUD from './PlayHUD';
@@ -316,54 +318,12 @@ export default function WorkplaceEditor({ onExit }) {
     setSceneReady, editor, showStudioMessage, placeObject, DEMO_MODULES,
   });
 
-  // ─── Room and item meshes for EVERY floor (each at its own height) ───
-  // The first run builds the opened layout in slices; after that a change is
-  // built at once (or in slices again if it brings many new rooms / items,
-  // e.g. a restored version). The builder reads the store itself.
-  const startedBuilder = useRef(null); // a new scene (StrictMode's second mount) has a new builder
-  useEffect(() => {
-    const builder = builderRef.current;
-    if (!builder) return;
-    if (startedBuilder.current !== builder) {
-      startedBuilder.current = builder;
-      builder.start();
-    } else {
-      builder.request();
-    }
-    // Dev only (e2e/perf-smoke.mjs): how many rooms the last sync that built any rebuilt, and how long it took
-    if (import.meta.env.DEV && builder.lastRoomSync) window.__ahdusRoomSync = builder.lastRoomSync;
-  }, [roomsMap, objectsMap, floorsMap, selectedRoomId, currentFloor, sceneReady]);
-
-  // ─── Planner: show the floor being edited, and point the camera at its height ───
-  useEffect(() => {
-    if (isPlaying) return;
-    floorSystemRef.current?.setFloor(currentFloor);
-    const camera = cameraRef.current;
-    if (camera) {
-      const elev = elevationOf(useWorkspaceStore.getState().floors, currentFloor);
-      camera.target.y = elev;
-    }
-  }, [currentFloor, isPlaying, floorsMap, applyLevelVisibility]);
-
-  // ─── Attach gizmo to selected object ───
-  useEffect(() => {
-    const gizmoCtrl = gizmoControllerRef.current;
-    if (!gizmoCtrl) return;
-
-    // The move/rotate/scale gizmo is a planner tool; never show it in Play mode
-    if (selectedObjectId && !isPlaying) {
-      const mesh = objectSystemRef.current?.getObjectMesh(selectedObjectId);
-      const objData = objects.find((o) => o.id === selectedObjectId);
-
-      if (mesh && objData && !objData.isLocked) {
-        gizmoCtrl.attachToMesh(mesh, selectedObjectId);
-      } else {
-        gizmoCtrl.detach();
-      }
-    } else {
-      gizmoCtrl.detach();
-    }
-  }, [selectedObjectId, objects, gizmoMode, isPlaying, buildProgress?.allBuilt]); // a mesh built later gets its gizmo
+  // ─── Store → scene: meshes, the floor being edited, the gizmo (hooks/useStoreMeshSync.js) ───
+  useStoreMeshSync({
+    builderRef, floorSystemRef, cameraRef, gizmoControllerRef, objectSystemRef, roomsMap, objectsMap,
+    floorsMap, selectedRoomId, currentFloor, sceneReady, isPlaying, applyLevelVisibility, selectedObjectId,
+    objects, gizmoMode, buildProgress,
+  });
 
   // ─── Play mode (character + hotbar) ───
   const handleEnterPlay = useCallback(() => {
