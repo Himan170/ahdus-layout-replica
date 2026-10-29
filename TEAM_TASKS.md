@@ -60,12 +60,11 @@
 
 **Now (from 30 October):**
 
+Himan is working alone for now.
+
 | Person | Next | Then |
 |---|---|---|
-| **Anish** | A3 lifts. The lift model is CC BY 4.0: scale it down to cabin size, remove its poster, add the credit line to `docs/ASSET_LICENSES.md` | A4 exits and routes. The fire-exit door (CC BY 4.0): use its GLB, replace its sign images with our own, add the credit line |
-| **Anshu** | S5: style the newer panels (version history, measure tool, template picker, Plan view) with the tokens in `src/ui/theme.css` | S6 mobile pass |
-| **Roshan** | The nightly browser tests (`.github/workflows/e2e-nightly.yml`): make them reliable | Add more e2e scripts to the nightly run |
-| **Himan** | Tag v0.7.0; photo reconstruction behind the same off-by-default flag as saving; split `WorkplaceEditor.jsx` in small pull requests (Anish and Himan agree who goes first: A3 touches the same file) | H7 quality tiers, then H6 demo |
+| **Himan** | `fix/reconstruction-flag` (photo reconstruction behind the same off-by-default flag as saving), then split `WorkplaceEditor.jsx` | A3 lifts, A4 exits and routes, H7 quality tiers, S6 mobile, H6 demo |
 
 Done since 25 October: S1 (Anshu), S3 (Anshu), S4 (Anish), R4 (Roshan), A5 (Anish), progressive loading (Himan).
 Integration with the Training Platform comes later.
@@ -156,7 +155,7 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 
 ### R8. Photo reconstruction plumbing (V1, later, with AI/ML) ✅ done
 - [x] Upload a photo, store it tenant-scoped, send it to the AI/ML team's analysis, store the result as a **proposed** layout that a human approves in the editor (SRD: AI output is never trusted blindly).
-- **Status:** a browser-side PROTOTYPE. It is being put behind the same off-by-default flag as saving (Himan); the real upload will go through the platform API.
+- **Status:** a browser-side PROTOTYPE, behind the same off-by-default flag as saving (`VITE_LAYOUT_BACKEND=supabase`, `src/services/backendFlags.js`; Himan, `fix/reconstruction-flag`). Off, it makes no network calls and the banner is hidden. Photos never get a public URL: the analysis gets a signed URL that expires in 10 minutes. The real upload will go through the platform API.
 
 ---
 

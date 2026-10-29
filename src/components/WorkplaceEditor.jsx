@@ -65,6 +65,8 @@ import StudioFooter from '../ui/StudioFooter';
 import TabNotice from '../ui/TabNotice';
 import ProposedLayoutBanner from '../ui/ProposedLayoutBanner';
 import {
+  isPhotoReconstructionOn,
+  RECONSTRUCTION_OFF,
   uploadReconstructionPhoto,
   requestPhotoAnalysis,
   stageProposedLayout,
@@ -1538,6 +1540,10 @@ export default function WorkplaceEditor({ onExit }) {
 
   const handlePhotoReconstruct = useCallback(async (file) => {
     const { companyId, layoutId, setReconstructing, setProposedLayout } = useWorkspaceStore.getState();
+    if (!isPhotoReconstructionOn()) {
+      showStudioMessage(RECONSTRUCTION_OFF, true);
+      return;
+    }
     if (!companyId || !layoutId) {
       showStudioMessage('Please open a company workspace first', true);
       return;
@@ -1552,7 +1558,7 @@ export default function WorkplaceEditor({ onExit }) {
     }
 
     showStudioMessage('Analyzing photo with AI reconstruction…');
-    const analysisRes = await requestPhotoAnalysis(uploadRes.photoUrl, { companyId, layoutId });
+    const analysisRes = await requestPhotoAnalysis(uploadRes.storagePath, { companyId, layoutId });
     if (!analysisRes.ok) {
       setReconstructing(false, analysisRes.error);
       showStudioMessage(`AI reconstruction failed: ${analysisRes.error}`, true);
@@ -1562,14 +1568,14 @@ export default function WorkplaceEditor({ onExit }) {
     const stageRes = await stageProposedLayout({
       companyId,
       layoutId,
-      photoUrl: uploadRes.photoUrl,
+      storagePath: uploadRes.storagePath,
       proposedLayout: analysisRes.proposedLayout,
       detectionStats: analysisRes.detectionStats,
     });
 
     setProposedLayout({
       proposalId: stageRes.proposalId || null,
-      photoUrl: uploadRes.photoUrl,
+      storagePath: uploadRes.storagePath,
       layout: analysisRes.proposedLayout,
       detectionStats: analysisRes.detectionStats,
       stagedAt: new Date().toISOString(),
@@ -1615,7 +1621,7 @@ export default function WorkplaceEditor({ onExit }) {
             onRoomLabelsChange: (value) => { setRoomLabels(value); storeRoomLabels(value); },
             onExportLayout: hasBackend ? handleExportLayout : null,
             onImportLayout: handleImportLayout,
-            onPhotoReconstruct: handlePhotoReconstruct,
+            onPhotoReconstruct: isPhotoReconstructionOn() ? handlePhotoReconstruct : null,
           }}
         />
       )}

@@ -7,17 +7,21 @@
  * The active layout is NEVER overwritten automatically:
  * - "Approve & Apply": merges the proposed rooms and furniture via editorHistory (undoable!).
  * - "Discard": dismisses the proposal without touching the workplace.
+ *
+ * Renders nothing while photo reconstruction is off (the default: backendFlags.js).
  */
 
 import { Sparkles, Check, X, Loader2, AlertCircle } from 'lucide-react';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { updateProposalStatus } from '../services/reconstructionService';
+import { isPhotoReconstructionOn, updateProposalStatus } from '../services/reconstructionService';
 
 export default function ProposedLayoutBanner({ editor, onMessage }) {
   const proposedLayout = useWorkspaceStore((s) => s.proposedLayout);
   const isReconstructing = useWorkspaceStore((s) => s.isReconstructing);
   const reconstructionError = useWorkspaceStore((s) => s.reconstructionError);
   const clearProposedLayout = useWorkspaceStore((s) => s.clearProposedLayout);
+
+  if (!isPhotoReconstructionOn()) return null;
 
   if (isReconstructing) {
     return (

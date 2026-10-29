@@ -6,18 +6,35 @@
  * Workflow:
  * 1. Upload photo to tenant-scoped Supabase Storage path:
  *      <companyId>/<layoutId>/<timestamp>_<filename>
- * 2. Send photo URL to AI/ML team's analysis endpoint.
+ * 2. Send a short-lived signed URL of the photo to AI/ML team's analysis endpoint.
  * 3. Validate returned candidate layout against LayoutSchema (Layout v2).
  * 4. Stage proposed layout into Supabase PostgreSQL (proposed_layouts table).
  * 5. Update proposal status upon human review (approved / rejected).
+ *
+ * PROTOTYPE: OFF unless VITE_LAYOUT_BACKEND=supabase (and the URL / key) are set,
+ * the same switch as layout saving (backendFlags.js). Off, every function that
+ * would touch the network returns { ok: false, off: true, error: RECONSTRUCTION_OFF }
+ * at once: no Supabase call, no fetch. Photos are never given a public URL: we keep
+ * the storage path, and the analysis gets a signed URL that expires in 10 minutes.
  */
 
-import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { supabase } from './supabaseClient';
+import { isSupabaseBackendOn } from './backendFlags';
 import { LayoutSchema } from '../engine/model/schema';
 
 export const RECONSTRUCTION_STORAGE_BUCKET = 'layout-photos';
 export const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 export const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+export const RECONSTRUCTION_OFF = 'Photo reconstruction is off';
+/** Lifetime of the signed photo URL sent to the analysis endpoint (seconds, at most 10 minutes). */
+export const SIGNED_URL_SECONDS = 10 * 60;
+
+/** Photo reconstruction uses the same off-by-default switch as layout saving. */
+export function isPhotoReconstructionOn() {
+  return isSupabaseBackendOn();
+}
+
+const OFF_RESULT = Object.freeze({ ok: false, off: true, error: RECONSTRUCTION_OFF });
 
 /**
  * Clean filename to prevent path traversal or invalid storage characters.
@@ -68,16 +85,14 @@ export function validatePhotoFile(file) {
  * @param {object} opts
  * @param {string} opts.companyId
  * @param {string} opts.layoutId
- * @returns {Promise<{ ok: boolean, photoUrl?: string, storagePath?: string, error?: string }>}
+ * @returns {Promise<{ ok: boolean, storagePath?: string, off?: boolean, error?: string }>}
  */
 export async function uploadReconstructionPhoto(file, { companyId, layoutId }) {
+  if (!isPhotoReconstructionOn()) return { ...OFF_RESULT };
+
   const check = validatePhotoFile(file);
   if (!check.valid) {
     return { ok: false, error: check.error };
-  }
-
-  if (!isSupabaseConfigured || !supabase) {
-    return { ok: false, error: 'Supabase client is not configured' };
   }
 
   try {
@@ -94,15 +109,8 @@ export async function uploadReconstructionPhoto(file, { companyId, layoutId }) {
       return { ok: false, error: uploadError.message };
     }
 
-    const { data: urlData } = supabase.storage
-      .from(RECONSTRUCTION_STORAGE_BUCKET)
-      .getPublicUrl(storagePath);
-
-    return {
-      ok: true,
-      storagePath,
-      photoUrl: urlData?.publicUrl || '',
-    };
+    // No public URL: the bucket is private, the path is all we keep.
+    return { ok: true, storagePath };
   } catch (err) {
     return { ok: false, error: err?.message || 'Failed to upload photo' };
   }
@@ -121,16 +129,6 @@ export function computeDetectionStats(layout) {
   };
 }
 
-/**
- * Submits the photo URL to the AI/ML team's analysis endpoint and validates
- * the returned layout structure against the Layout v2 schema.
- *
- * @param {string} photoUrl
- * @param {object} context
- * @param {string} context.companyId
- * @param {string} context.layoutId
- * @returns {Promise<{ ok: boolean, proposedLayout?: object, detectionStats?: object, error?: string }>}
- */
 /**
  * Generates a realistic Layout v2 candidate layout for demonstration / fallback
  * when the external AI endpoint is not yet reachable or deployed.
@@ -214,21 +212,37 @@ export function generateFallbackProposedLayout(layoutId = 'layout') {
 }
 
 /**
- * Submits the photo URL to the AI/ML team's analysis endpoint and validates
- * the returned layout structure against the Layout v2 schema.
+ * Sends a signed URL of the uploaded photo (valid SIGNED_URL_SECONDS) to the AI/ML
+ * team's analysis endpoint and validates the returned layout structure against the
+ * Layout v2 schema.
  *
  * If the external endpoint is offline or 404, falls back to generateFallbackProposedLayout
  * so the team can continue testing the human-in-the-loop approval workflow.
  *
- * @param {string} photoUrl
+ * @param {string} storagePath  from uploadReconstructionPhoto
  * @param {object} context
  * @param {string} context.companyId
  * @param {string} context.layoutId
- * @returns {Promise<{ ok: boolean, proposedLayout?: object, detectionStats?: object, isFallback?: boolean, error?: string }>}
+ * @returns {Promise<{ ok: boolean, proposedLayout?: object, detectionStats?: object, isFallback?: boolean, off?: boolean, error?: string }>}
  */
-export async function requestPhotoAnalysis(photoUrl, { companyId, layoutId }) {
-  if (!photoUrl) {
-    return { ok: false, error: 'Photo URL is required for analysis' };
+export async function requestPhotoAnalysis(storagePath, { companyId, layoutId }) {
+  if (!isPhotoReconstructionOn()) return { ...OFF_RESULT };
+
+  if (!storagePath) {
+    return { ok: false, error: 'Photo storage path is required for analysis' };
+  }
+
+  let photoUrl;
+  try {
+    const { data, error } = await supabase.storage
+      .from(RECONSTRUCTION_STORAGE_BUCKET)
+      .createSignedUrl(storagePath, SIGNED_URL_SECONDS);
+    if (error || !data?.signedUrl) {
+      return { ok: false, error: error?.message || 'Could not get a link to the photo' };
+    }
+    photoUrl = data.signedUrl;
+  } catch (err) {
+    return { ok: false, error: err?.message || 'Could not get a link to the photo' };
   }
 
   const endpoint = import.meta.env?.VITE_AI_RECONSTRUCTION_URL || '/api/ai/reconstruct';
@@ -239,6 +253,7 @@ export async function requestPhotoAnalysis(photoUrl, { companyId, layoutId }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         photoUrl,
+        storagePath,
         companyId,
         layoutId,
         requestedAt: new Date().toISOString(),
@@ -295,21 +310,19 @@ export async function requestPhotoAnalysis(photoUrl, { companyId, layoutId }) {
  * @param {object} params
  * @param {string} params.companyId
  * @param {string} params.layoutId
- * @param {string} params.photoUrl
+ * @param {string} params.storagePath  the photo's storage path (never a public URL)
  * @param {object} params.proposedLayout
  * @param {object} params.detectionStats
- * @returns {Promise<{ ok: boolean, proposalId?: string, isLocal?: boolean, error?: string }>}
+ * @returns {Promise<{ ok: boolean, proposalId?: string, isLocal?: boolean, off?: boolean, error?: string }>}
  */
 export async function stageProposedLayout({
   companyId,
   layoutId,
-  photoUrl,
+  storagePath,
   proposedLayout,
   detectionStats,
 }) {
-  if (!isSupabaseConfigured || !supabase) {
-    return { ok: true, proposalId: `local_${Date.now()}`, isLocal: true };
-  }
+  if (!isPhotoReconstructionOn()) return { ...OFF_RESULT };
 
   try {
     const { data, error } = await supabase
@@ -317,7 +330,7 @@ export async function stageProposedLayout({
       .insert({
         company_id: String(companyId),
         layout_id: String(layoutId),
-        photo_url: photoUrl,
+        photo_url: storagePath, // column name from db/schema.sql; it holds the storage path
         status: 'pending',
         proposed_data: proposedLayout,
         detection_stats: detectionStats || computeDetectionStats(proposedLayout),
@@ -343,15 +356,13 @@ export async function stageProposedLayout({
  * @param {string} proposalId
  * @param {'approved'|'rejected'} status
  * @param {string} [reviewerId]
- * @returns {Promise<{ ok: boolean, error?: string }>}
+ * @returns {Promise<{ ok: boolean, off?: boolean, error?: string }>}
  */
 export async function updateProposalStatus(proposalId, status, reviewerId = null) {
+  if (!isPhotoReconstructionOn()) return { ...OFF_RESULT };
+
   if (!['approved', 'rejected'].includes(status)) {
     return { ok: false, error: `Invalid status "${status}". Must be approved or rejected.` };
-  }
-
-  if (!isSupabaseConfigured || !supabase) {
-    return { ok: false, error: 'Supabase client is not configured' };
   }
 
   try {

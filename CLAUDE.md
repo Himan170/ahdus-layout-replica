@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (558, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (564, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -415,6 +415,13 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
 - **The browser-side Supabase path in `apiService.js` (Roshan, R2: CAS on `revision`, realtime) is a PROTOTYPE.**
   It is OFF unless `VITE_LAYOUT_BACKEND=supabase` is set as well as `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
   (`.env.example`); without the flag apiService makes zero network calls (`apiService.noBackend.test.js`).
+  The switch is ONE helper, `services/backendFlags.js` (`isSupabaseBackendOn`); every browser → Supabase path uses it.
+- **Photo reconstruction (Roshan, R8; `reconstructionService.js`, `ui/ProposedLayoutBanner.jsx`) uses the same switch.**
+  Off: upload, analysis, staging and review return `{ ok: false, off: true, error: 'Photo reconstruction is off' }`
+  with no Supabase call and no fetch (`reconstructionService.noBackend.test.js`); the banner renders nothing and
+  Settings hides "Reconstruct from photo". On: photos stay private (no `getPublicUrl`, ever): the upload returns the
+  storage path, the analysis endpoint gets a `createSignedUrl` that expires in 10 minutes (`SIGNED_URL_SECONDS`),
+  and `proposed_layouts.photo_url` stores the path.
   Production saving goes through the platform API, which takes the tenant from the server session, never a
   `company_id` sent by the browser (private-docs/AHDUS_3D_INTEGRATION_PLAN.md).
 

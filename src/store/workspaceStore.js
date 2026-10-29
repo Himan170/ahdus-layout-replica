@@ -68,7 +68,7 @@ export const createWorkspaceStore = () => create(
     pendingSyncCount: 0,               // number of queued saves waiting to sync
 
     // ━━ R8: Proposed Layout Staging (Photo Reconstruction) ━━
-    proposedLayout: null,              // { proposalId, photoUrl, layout, detectionStats, stagedAt }
+    proposedLayout: null,              // { proposalId, storagePath, layout, detectionStats, stagedAt }
     isReconstructing: false,           // true while photo is uploading / analyzing
     reconstructionError: null,         // message if photo reconstruction failed
 
