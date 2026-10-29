@@ -57,6 +57,9 @@ export default function FloorPlanView({
 
   // ── Item Drag State ──
   const [drag, setDrag] = useState(null);
+  // The same drag, kept at once: on a slow machine pointer moves can arrive before React re-renders
+  const dragRef = useRef(null);
+  const startDrag = (next) => { dragRef.current = next; setDrag(next); };
 
   // Base plan bounds from room & furniture geometry
   const plan = useMemo(() => {
@@ -139,7 +142,7 @@ export default function FloorPlanView({
     onSelectObject(object.id);
 
     const start = pointerWorld(event.clientX, event.clientY);
-    setDrag({
+    startDrag({
       id: object.id,
       start,
       current: start,
@@ -154,7 +157,7 @@ export default function FloorPlanView({
   // ── Pointer Down on Background (Pan plan) ──
   function handleBackgroundPointerDown(event) {
     if (event.button !== 0) return; // Left mouse button only
-    if (drag) return;
+    if (dragRef.current) return;
 
     // Deselect if clicking pure background
     if (event.target === svgRef.current || event.target.classList.contains('floor-plan-bg')) {
@@ -174,9 +177,9 @@ export default function FloorPlanView({
   // ── Pointer Move (Pan background or move item) ──
   function handlePointerMove(event) {
     // 1. Moving an item
-    if (drag) {
+    if (dragRef.current) {
       const current = pointerWorld(event.clientX, event.clientY);
-      setDrag((prev) => (prev ? { ...prev, current, moved: true } : prev));
+      startDrag({ ...dragRef.current, current, moved: true });
       return;
     }
 
@@ -199,12 +202,13 @@ export default function FloorPlanView({
 
   // ── Pointer Up (Finish drag or pan) ──
   function handlePointerUp() {
-    if (drag) {
-      const to = drag.moved ? dropOf(drag) : null;
-      const object = objects.find((o) => o.id === drag.id);
+    const d = dragRef.current;
+    if (d) {
+      const to = d.moved ? dropOf(d) : null;
+      const object = objects.find((o) => o.id === d.id);
       const same = to && object && to.x === object.x && to.z === object.z && to.y === (object.y ?? 0);
-      if (to && !same) onMoveObject(drag.id, to);
-      setDrag(null);
+      if (to && !same) onMoveObject(d.id, to);
+      startDrag(null);
     }
 
     if (panDrag) {
@@ -644,6 +648,7 @@ export default function FloorPlanView({
               const color = ANCHOR_COLORS[anchor.kind] || '#64748b';
               const symbol = ANCHOR_BADGE_SYMBOLS[anchor.kind] || 'A';
               const isSelectedObj = anchor.objectId === selectedObjectId;
+              const owner = plan.objects.find((o) => o.id === anchor.objectId);
 
               return (
                 <g
@@ -654,6 +659,8 @@ export default function FloorPlanView({
                     e.stopPropagation();
                     if (anchor.objectId) onSelectObject(anchor.objectId);
                   }}
+                  // The badge sits on its item: a press on it grabs the item (else the plan would pan)
+                  onPointerDown={(event) => { if (owner) handleItemPointerDown(event, owner); }}
                   style={{ cursor: 'pointer' }}
                 >
                   <title>{`Hook point: ${anchor.kind}${anchor.label ? ` (${anchor.label})` : ''}`}</title>
