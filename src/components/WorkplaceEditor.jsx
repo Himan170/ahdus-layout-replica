@@ -55,7 +55,8 @@ import StudioShell from '../ui/StudioShell';
 import StudioHeader from '../ui/StudioHeader';
 import BuildPanel from '../ui/BuildPanel';
 import CanvasCard from '../ui/CanvasCard';
-import RoomLabels from '../ui/RoomLabels';
+import RoomLabels, { storedRoomLabels, storeRoomLabels } from '../ui/RoomLabels';
+import RoomHoverCard from '../ui/RoomHoverCard';
 import MeasurementOverlay from '../ui/MeasurementOverlay';
 import FloorPlanView from '../floorplan/FloorPlanView';
 import SelectionToolbar from '../ui/SelectionToolbar';
@@ -185,6 +186,7 @@ export default function WorkplaceEditor({ onExit }) {
   const [layersOpen, setLayersOpen] = useState(false);  // Inspector shows the floor's outline
   const [showGrid, setShowGrid] = useState(false);      // off: grid only while a build tool is active
   const [realisticLook, setRealisticLook] = useState(storedRealisticLook); // Settings → Realistic look
+  const [roomLabels, setRoomLabels] = useState(storedRoomLabels); // Settings → Room labels: 'names' | 'off'
   const [nameFocusToken, setNameFocusToken] = useState(0); // "Rename" focuses the Inspector's name box
   const [planView, setPlanView] = useState(false); // the canvas card's view: Plan (floor plan) instead of the 3D canvas
   const [announceText, setAnnounceText] = useState(''); // Screen reader live feedback (Task S3)
@@ -1593,6 +1595,8 @@ export default function WorkplaceEditor({ onExit }) {
             fpsRef: fpsDisplayRef,
             realisticLook,
             onRealisticLookToggle: handleRealisticLookToggle,
+            roomLabels,
+            onRoomLabelsChange: (value) => { setRoomLabels(value); storeRoomLabels(value); },
             onExportLayout: hasBackend ? handleExportLayout : null,
             onImportLayout: handleImportLayout,
             onPhotoReconstruct: handlePhotoReconstruct,
@@ -1724,6 +1728,18 @@ export default function WorkplaceEditor({ onExit }) {
             elevation={elevationOf(floorsMap, currentFloor)}
             hidden={isPlaying || planView}
             showArea={showRoomAreas}
+            showNames={roomLabels !== 'off'}
+            selectedRoomId={selectedOpening ? null : selectedRoomId}
+          />
+          <RoomHoverCard
+            scene={sceneReady}
+            rooms={rooms}
+            floorId={currentFloor}
+            is3D={is3D}
+            hidden={isPlaying || planView}
+            selectedRoomId={selectedOpening ? null : selectedRoomId}
+            isBusy={() => measureModeRef.current || !!plannerToolsRef.current?.isDragging() ||
+              !!placementManagerRef.current?.isActive()}
           />
           <MeasurementOverlay
             scene={sceneReady}

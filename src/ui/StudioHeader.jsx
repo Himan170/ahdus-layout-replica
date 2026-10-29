@@ -64,6 +64,7 @@ function Settings({
   snapEnabled, onSnapToggle, snapStep, onSnapStepChange,
   showGrid, onShowGridToggle, environment, onEnvironmentChange, fpsRef,
   realisticLook, onRealisticLookToggle, // real models, photo textures, sky (off: simple look for slow PCs)
+  roomLabels, onRoomLabelsChange, // 'names' | 'off': the room names on the canvas
   onExportLayout, onImportLayout, onPhotoReconstruct, // backup & photo reconstruction
 }) {
   const [open, setOpen] = useState(false);
@@ -149,6 +150,17 @@ function Settings({
                 title="Real furniture models, photo textures and sky. Off: a simpler look for slow computers"
                 onClick={onRealisticLookToggle}
               />
+            </div>
+          )}
+          {onRoomLabelsChange && (
+            <div className="settings-pop__row">
+              <span>Room labels</span>
+              <div className="ui-segmented" role="group" aria-label="Room labels">
+                <button aria-pressed={roomLabels !== 'off'} title="Show each room's name on the canvas"
+                  onClick={() => onRoomLabelsChange('names')}>Names</button>
+                <button aria-pressed={roomLabels === 'off'} title="No names (hover a room to see its details)"
+                  onClick={() => onRoomLabelsChange('off')}>Off</button>
+              </div>
             </div>
           )}
           <div className="settings-pop__row">
