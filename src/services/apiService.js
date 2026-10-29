@@ -54,7 +54,8 @@ import {
   stopSyncListener,
   dequeueLayoutSync,
 } from './syncQueue';
-import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { supabase } from './supabaseClient';
+import { isSupabaseBackendOn as _supabaseOn } from './backendFlags';
 
 // ─── Config ───
 const SAVE_DELAY     = 1000;  // ms — debounce trailing edge
@@ -73,14 +74,6 @@ export const MAX_AUTO_VERSIONS  = 20;
 export const MAX_NAMED_VERSIONS = 30;
 const AUTO_VERSION_NAME = 'Auto-save checkpoint';
 const NO_SPACE_FOR_VERSION = 'No space left for another version';
-
-/**
- * PROTOTYPE: the browser talks to Supabase only with VITE_LAYOUT_BACKEND=supabase
- * as well as the URL and key. Read at call time (tests use vi.stubEnv).
- */
-function _supabaseOn() {
-  return import.meta.env?.VITE_LAYOUT_BACKEND === 'supabase' && isSupabaseConfigured && !!supabase;
-}
 
 function isQuotaError(err) {
   return err?.name === 'QuotaExceededError' || err?.name === 'NS_ERROR_DOM_QUOTA_REACHED';
