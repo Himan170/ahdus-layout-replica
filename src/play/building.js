@@ -20,7 +20,7 @@
  * room was made lower on purpose. Floors stack in id order (ground = 0).
  */
 
-import { roomOpenings } from './geometry';
+import { roomOpenings, wallThicknessOf } from './geometry';
 
 /** Floor-to-floor height of a new floor (metres). */
 export const STOREY_HEIGHT = 3.5;
@@ -250,6 +250,7 @@ export function copyRoomsUp(rooms, fromFloorId, toFloorId) {
       width: r.width,
       depth: r.depth,
       wallHeight: r.wallHeight ?? DEFAULT_WALL_HEIGHT,
+      wallThickness: wallThicknessOf(r),
       doors: (r.doors ?? []).map((d) => ({ ...d })),
       windows: (r.windows ?? []).map((w) => ({ ...w })),
       floor: toFloorId,

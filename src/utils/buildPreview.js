@@ -20,7 +20,7 @@
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
-import { wallLine, WALL_THICKNESS } from '../play/geometry';
+import { wallLine, wallThicknessOf } from '../play/geometry';
 
 const FLOOR_Y = 0.02;
 
@@ -65,7 +65,7 @@ export function createBuildPreview(scene, name = 'build') {
     const { floor, walls } = roomMeshes();
     floor.position.set(rect.x, elevation + FLOOR_Y + 0.01, rect.z);
     floor.scaling.set(rect.width, 1, rect.depth);
-    const T = WALL_THICKNESS;
+    const T = wallThicknessOf(rect);
     const defs = [
       [rect.x, rect.z + rect.depth / 2, rect.width + T, T],
       [rect.x, rect.z - rect.depth / 2, rect.width + T, T],
@@ -110,6 +110,7 @@ export function createBuildPreview(scene, name = 'build') {
 
   function wallHighlight(roomData, wallName, elevation, ok = true) {
     const line = wallLine(roomData, wallName);
+    const WALL_THICKNESS = wallThicknessOf(roomData);
     const h = roomData.wallHeight ?? 3;
     const len = line.to - line.from + WALL_THICKNESS;
     const mid = (line.from + line.to) / 2;
@@ -127,6 +128,7 @@ export function createBuildPreview(scene, name = 'build') {
   /** A thin strip along the top of a room wall: grab it to change the height of the walls. */
   function wallTop(roomData, wallName, elevation, ok = true) {
     const line = wallLine(roomData, wallName);
+    const WALL_THICKNESS = wallThicknessOf(roomData);
     const h = roomData.wallHeight ?? 3;
     const len = line.to - line.from + WALL_THICKNESS;
     const mid = (line.from + line.to) / 2;
@@ -143,6 +145,7 @@ export function createBuildPreview(scene, name = 'build') {
 
   function opening(roomData, wallName, offset, defaults, elevation, ok = true) {
     const line = wallLine(roomData, wallName);
+    const WALL_THICKNESS = wallThicknessOf(roomData);
     const alongX = line.axis === 'z';
     box({
       x: alongX ? roomData.x + offset : line.value,

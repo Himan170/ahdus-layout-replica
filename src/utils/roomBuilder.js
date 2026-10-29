@@ -43,7 +43,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { getMaterials, TILE_SIZE, FLOOR_BY_ROOM_TYPE } from './materialLibrary';
 import {
-  roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, WALL_THICKNESS, OPPOSITE, roomBuildInput,
+  roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, wallThicknessOf, OPPOSITE, roomBuildInput,
 } from '../play/geometry';
 import { subtractRects, SLAB } from '../play/building';
 import { mergeByMaterial } from './assetInstances';
@@ -139,7 +139,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
     return mesh;
   };
 
-  const T = WALL_THICKNESS;
+  const T = wallThicknessOf(roomData); // this room's walls (a shared piece: segment.thickness)
   const inner = { x0: -width / 2, x1: width / 2, z0: -depth / 2, z1: depth / 2 };
   const outer = { x0: -width / 2 - T / 2, x1: width / 2 + T / 2, z0: -depth / 2 - T / 2, z1: depth / 2 + T / 2 };
   const floorHoles = toLocal(options.floorHoles, roomData);
@@ -184,9 +184,10 @@ export function buildRoomMesh(roomData, scene, options = {}) {
       const h = storeyTop - segmentBase;
       const midpoint = (segment.u0 + segment.u1) / 2;
       const length = segment.u1 - segment.u0;
+      const bandT = segment.shared ? segment.thickness : T;
       const band = MeshBuilder.CreateBox(`band_${id}_${wall.name}_${i}`, {
-        width: wall.alongX ? length : T,
-        depth: wall.alongX ? T : length,
+        width: wall.alongX ? length : bandT,
+        depth: wall.alongX ? bandT : length,
         height: h,
       }, scene);
       band.position.set(
@@ -277,7 +278,8 @@ export function buildRoomMesh(roomData, scene, options = {}) {
       const segmentCentre = (su0 + su1) / 2;
       const segmentLength = su1 - su0;
       const inward = trim ? -Math.sign(wall.alongX ? wall.cz : wall.cx) * inset / 2 : 0;
-      const wallT = trim ? T - inset : T;
+      const segT = segment.shared ? segment.thickness : T;
+      const wallT = trim ? segT - inset : segT;
       const segmentHeight = segment.shared
         ? Math.max(wallHeight, segment.partnerRoom.wallHeight ?? wallHeight)
         : wallHeight;
@@ -323,7 +325,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         placeBox(`wall_${id}_${wall.name}_${segmentIndex}_${i}`, u0, u1, p.y0, p.y1, wallT, mats.plaster(), wallMeta);
         // Skirting: not pickable, a click on it goes through to the wall behind it.
         if (p.y0 === 0) {
-          placeBox(`skirt_${id}_${wall.name}_${segmentIndex}_${i}`, u0, u1, 0, SKIRTING_H, T + 0.03,
+          placeBox(`skirt_${id}_${wall.name}_${segmentIndex}_${i}`, u0, u1, 0, SKIRTING_H, segT + 0.03,
             mats.skirting(), wallMeta, { castShadow: false });
         }
       });
@@ -338,11 +340,11 @@ export function buildRoomMesh(roomData, scene, options = {}) {
           roomId: o.roomId, ...shared(o.roomId),
         };
         const frameMat = o.kind === 'door' ? mats.doorFrame() : mats.windowFrame();
-        const D = T + FRAME_DEPTH_EXTRA;
+        const D = segT + FRAME_DEPTH_EXTRA;
         const tag = `${o.kind}_${id}_${wall.name}_${segmentIndex}_${o.roomId}_${o.index}`;
 
         // The invisible pane is pickable, but does not block movement through doors.
-        const pane = placeBox(`${tag}_pick`, u0, u1, o.bottom, o.top, T, null, { ...meta, pickPane: true }, { castShadow: false });
+        const pane = placeBox(`${tag}_pick`, u0, u1, o.bottom, o.top, segT, null, { ...meta, pickPane: true }, { castShadow: false });
         pane.visibility = 0;
 
         placeBox(`${tag}_jl`, u0, u0 + FRAME_W, o.bottom, o.top, D, frameMat, meta, { castShadow: false });

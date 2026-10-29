@@ -16,7 +16,7 @@ import {
   ZoomIn, ZoomOut, Maximize2, RotateCw, Ruler, Anchor,
 } from 'lucide-react';
 import { ASSET_TYPES } from '../utils/assetCatalog';
-import { WALL_THICKNESS } from '../play/geometry';
+import { WALL_THICKNESS, wallThicknessOf } from '../play/geometry';
 import { sizeLabel } from '../ui/tools';
 import { anchorsForObject } from '../integration/anchorsFromStore';
 import {
@@ -494,6 +494,7 @@ export default function FloorPlanView({
             const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => at({
               x: room.x + (sx * room.width) / 2, z: room.z + (sz * room.depth) / 2,
             }));
+            const T = wallThicknessOf(room); // this room's walls
             const line = (s) => {
               const a = at(s.a);
               const b = at(s.b);
@@ -502,22 +503,22 @@ export default function FloorPlanView({
             return (
               <g key={room.id}>
                 {pieces.walls.map((w, i) => (
-                  <line key={`w${i}`} {...line(w)} stroke="#1f2937" strokeWidth={WALL_THICKNESS} strokeLinecap="square" />
+                  <line key={`w${i}`} {...line(w)} stroke="#1f2937" strokeWidth={T} strokeLinecap="square" />
                 ))}
                 {corners.map((c, i) => (
                   <rect
                     key={`c${i}`}
-                    x={c.x - WALL_THICKNESS / 2}
-                    y={c.y - WALL_THICKNESS / 2}
-                    width={WALL_THICKNESS}
-                    height={WALL_THICKNESS}
+                    x={c.x - T / 2}
+                    y={c.y - T / 2}
+                    width={T}
+                    height={T}
                     fill="#1f2937"
                   />
                 ))}
                 {pieces.windows.map((w, i) => (
                   <g key={`win${i}`} data-plan-window="">
-                    <line {...line(w)} stroke="#ffffff" strokeWidth={WALL_THICKNESS} />
-                    <line {...line(w)} stroke="#0ea5e9" strokeWidth={WALL_THICKNESS / 2.5} />
+                    <line {...line(w)} stroke="#ffffff" strokeWidth={T} />
+                    <line {...line(w)} stroke="#0ea5e9" strokeWidth={T / 2.5} />
                   </g>
                 ))}
                 {pieces.doors.map((door, i) => {

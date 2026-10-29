@@ -16,6 +16,7 @@ import { ROOM_TYPES } from '../utils/roomStore';
 import { OBJECT_CATEGORIES } from '../utils/assetCatalog';
 import { normaliseLayout } from './layoutData';
 import { STOREY_HEIGHT, wallSpace, floorsInOrder, isGroundFloor } from '../play/building';
+import { WALL_THICKNESS } from '../play/geometry';
 
 /** A record as saved: without UI state. */
 const withoutSelection = ({ isSelected: _s, ...rest }) => rest;
@@ -124,6 +125,7 @@ export const createWorkspaceStore = () => create(
         width:      typeDef.defaultW,
         depth:      typeDef.defaultD,
         wallHeight: wallSpace(state.floors, floor), // the walls fill the floor
+        wallThickness: WALL_THICKNESS,
         doors:      [],
         windows:    [],
         color:      typeDef.color,

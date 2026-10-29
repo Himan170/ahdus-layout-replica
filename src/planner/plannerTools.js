@@ -31,7 +31,7 @@ import { ASSET_TYPES } from '../utils/assetCatalog';
 import {
   snap, formatRoomSize, wallSegmentTransform, openingAt, roomOpenings,
   planRoom, planRoomMove, planOpening, planRemoveOpening, wallSegmentData, stretchRoom,
-  openingData, wallLine, formatOpeningSize, resizeOpening, OPENING_STEP, WALL_THICKNESS, OVERHANG_WARNING,
+  openingData, wallLine, formatOpeningSize, resizeOpening, OPENING_STEP, wallThicknessOf, OVERHANG_WARNING,
 } from '../play/geometry';
 import {
   elevationOf, floorBelow, planWallHeight, wallHeightText, HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT,
@@ -192,7 +192,7 @@ export function createPlannerTools(scene, canvas, {
     const { start, end, centre } = openingEdges(t);
     const e = elev();
     const S = 0.16;
-    const D = WALL_THICKNESS + 0.2;
+    const D = wallThicknessOf(t.room) + 0.2;
     const place = (m, along, y, alongSize, ySize) => {
       const alongX = t.line.axis === 'z';
       m.position.set(alongX ? along : t.line.value, y, alongX ? t.line.value : along);

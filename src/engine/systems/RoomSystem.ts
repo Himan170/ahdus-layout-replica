@@ -18,7 +18,7 @@ import {
 import {
   elevationOf, floorBelow, stairOpening, roomRect, intersectRects, wallSpace,
 } from '../../play/building';
-import { roomContainedBy, WALL_THICKNESS } from '../../play/geometry';
+import { roomContainedBy, wallThicknessOf } from '../../play/geometry';
 
 /** A record keyed by id (the store) or a plain list. */
 export type Records<T> = Record<string, T> | T[];
@@ -101,12 +101,15 @@ export function stairHolesFor(room: V1Room, stairs: V1Object[], floors: LayoutRe
 }
 
 /** Floor / ceiling cutouts under rooms nested inside this one (to the outside of their walls). */
-const nestedCutouts = (nestedRooms: V1Room[]) => nestedRooms.map((nested) => ({
-  x0: nested.x - nested.width / 2 - WALL_THICKNESS / 2,
-  x1: nested.x + nested.width / 2 + WALL_THICKNESS / 2,
-  z0: nested.z - nested.depth / 2 - WALL_THICKNESS / 2,
-  z1: nested.z + nested.depth / 2 + WALL_THICKNESS / 2,
-}));
+const nestedCutouts = (nestedRooms: V1Room[]) => nestedRooms.map((nested) => {
+  const half = wallThicknessOf(nested) / 2;
+  return {
+    x0: nested.x - nested.width / 2 - half,
+    x1: nested.x + nested.width / 2 + half,
+    z0: nested.z - nested.depth / 2 - half,
+    z1: nested.z + nested.depth / 2 + half,
+  };
+});
 
 export class RoomSystem {
   /** roomId → the room's root node (its parts are children). */

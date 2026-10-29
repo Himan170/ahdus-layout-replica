@@ -96,6 +96,8 @@ export const RoomSchema = z.object({
   width: z.number().min(0.5).default(4),
   depth: z.number().min(0.5).default(4),
   wallHeight: z.number().min(0.5).default(3),
+  // metres; walls are centred on the room's edge. Files without it get 0.15 (all walls were 0.15 m before)
+  wallThickness: z.number().min(0.1).max(0.6).default(0.15),
   color: z.string().default('#4a90d9'),
   floorFinish: z.string().default('default'),
   departmentRef: z.string().optional(),
