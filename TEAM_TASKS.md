@@ -220,10 +220,10 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 - [x] Layout templates: Small Office, Factory Floor, Medical Clinic.
 - [x] A template picker with card previews, room/item statistics, and blank start option when creating a new layout in `CompanySelector.jsx`.
 
-### S5. UI for new features ▶ Anshu, next
+### S5. UI for new features ▶ Himan, later
 - [ ] Style Roshan's version history list, Anish's measure tool, the template picker and the Plan view's controls using the design tokens in `src/ui/theme.css` (Anish's route panel when A4 lands).
 
-### S6. Mobile pass ▶ Anshu, after S5
+### S6. Mobile pass ▶ Himan, later
 - [ ] Check the Studio screens at phone width and fix layout problems.
 
 ---
@@ -247,7 +247,6 @@ Change the weeks to fit your real deadline. If time is short, cut in this order:
 | A6 (GLB) | Existing `assetInstances.js` (done) |
 | S3 route text | A3 and A4 |
 | S5 version panel | R4 (done) |
-| A3 (lifts) and the `WorkplaceEditor.jsx` split | Each other: same file, agree who goes first |
 | H3 | Login team's role system |
 | R2 | R1 (backend decision) |
 

@@ -151,8 +151,11 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
 ## Code map
 
 ```
-src/components/WorkplaceEditor.jsx  Studio wiring, mode switching; calls engine/systems for the scene, store→mesh syncing and
-                                   level visibility (~1500 lines)
+src/components/WorkplaceEditor.jsx  Studio wiring, mode switching, store→mesh syncing and level visibility (~1,500 lines)
+src/hooks/useStudioScene.js        Studio's scene lifecycle, ONE effect: createLayoutScene, Room/Object/FloorSystem,
+                                   SceneBuilder, perf monitor, play controller, bridge context, placement manager, planner
+                                   tools, floor outline, gizmo controller, pointer handlers, FPS counter; one cleanup.
+                                   WorkplaceEditor owns the refs / state and passes them in (same names)
 src/ui/                            Workplace Studio: theme.css, tools.js, StudioShell, StudioHeader, BuildPanel (+ trays,
                                    CatalogPicker), CanvasCard, ExportMenu, MeasureMenu, RoomLabels (+ labelLayout.js),
                                    RoomHoverCard, SelectionToolbar, Inspector, StudioFooter, EditorErrorBoundary, preview.css
