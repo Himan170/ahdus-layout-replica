@@ -23,6 +23,7 @@ Press **Tab** (or **Preview Workplace** / **Back to Studio**) to switch. The edi
 | **Doors & windows** | Select: click one. The Inspector shows its width and height (type new ones), and blue handles on its sides and top resize it by dragging. Delete removes it. |
 | **Selection** | A small toolbar floats above what you selected (move / rotate / scale / duplicate / lock / delete, or rename / change type / delete for a room). The Inspector shows its exact numbers. Esc or X deselects. |
 | **Measurements** | Measure Distance captures two world-coordinate points; independent controls show/hide wall lengths and rectangular room areas. Measurements are temporary annotations; Clear Measurements does not change the layout. |
+| **Layout templates** | When creating a layout, choose Start from Blank Layout, Small Office, Factory Floor, or Clinic. Template previews are generated from the JSON room geometry. |
 | **Layers** | Bottom of the Build panel: everything on this floor; click one to select it and fly to it. |
 | **Header** | Click the layout name to rename it. Undo, Redo, and Settings (snap, grid, lighting). |
 | **Footer** | Floor switcher (switch, add a floor above, rename, delete), the tool's hint, Preview Workplace. |
@@ -37,14 +38,14 @@ git clone https://github.com/Himan170/ahdus-layout-replica.git
 cd ahdus-layout-replica
 npm ci                 # install dependencies exactly as in package-lock.json
 npm run dev            # http://localhost:3000
-npm test               # 436 unit tests
+npm test               # unit tests
 npm run lint           # ESLint: real mistakes only, no style rules
 npm run typecheck      # TypeScript check
 npm run build          # production build (and npm run build:embed for the embed)
 ```
 
 Browser tests (one-time: `npx playwright install chromium`) need `npm run dev` running in another terminal;
-run them one script at a time, e.g. `npm run e2e:planner` or `npm run e2e:measurements` (the list is in `CLAUDE.md`).
+run them one script at a time, e.g. `npm run e2e:planner`, `npm run e2e:measurements`, or `npm run e2e:templates` (the list is in `CLAUDE.md`).
 
 > **⚠️ Do NOT zip or copy `node_modules` between machines.** The Windows-installed copy
 > contains native binaries that do not run on other machines. Always run `npm ci` after cloning.

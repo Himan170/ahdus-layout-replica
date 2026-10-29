@@ -1,0 +1,66 @@
+{
+  "layoutName": "Small Office",
+  "layoutVersion": 1,
+  "floors": {
+    "0": { "id": 0, "name": "Ground Floor", "height": 3.5 }
+  },
+  "rooms": [
+    {
+      "id": "room_reception", "type": "RECEPTION", "name": "Reception", "floor": 0,
+      "x": -9, "z": 0, "width": 8, "depth": 6, "wallHeight": 3.2, "color": "#f5a623",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1.2, "height": 2.1 }],
+      "windows": [{ "wall": "west", "offset": 0, "width": 1.6, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_open_workspace", "type": "OFFICE", "name": "Open Workspace", "floor": 0,
+      "x": 3, "z": 0, "width": 12, "depth": 8, "wallHeight": 3.2, "color": "#4a7dff",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1.2, "height": 2.1 }],
+      "windows": [{ "wall": "north", "offset": 0, "width": 2.4, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_private_office_1", "type": "OFFICE", "name": "Private Office 1", "floor": 0,
+      "x": -10, "z": 8, "width": 5, "depth": 5, "wallHeight": 3.2, "color": "#4a7dff",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1, "height": 2.1 }],
+      "windows": [{ "wall": "north", "offset": 0, "width": 1.4, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_private_office_2", "type": "OFFICE", "name": "Private Office 2", "floor": 0,
+      "x": -3, "z": 8, "width": 5, "depth": 5, "wallHeight": 3.2, "color": "#4a7dff",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1, "height": 2.1 }],
+      "windows": [{ "wall": "north", "offset": 0, "width": 1.4, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_meeting", "type": "MEETING", "name": "Meeting Room", "floor": 0,
+      "x": 5, "z": 8, "width": 7, "depth": 6, "wallHeight": 3.2, "color": "#38b764",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1.2, "height": 2.1 }],
+      "windows": [{ "wall": "east", "offset": 0, "width": 1.6, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_pantry", "type": "OFFICE", "name": "Pantry & Break Area", "floor": 0,
+      "x": 13, "z": 8, "width": 5, "depth": 5, "wallHeight": 3.2, "color": "#1abc9c",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1, "height": 2.1 }],
+      "windows": [{ "wall": "east", "offset": 0, "width": 1.4, "height": 1.2, "sill": 0.9 }]
+    },
+    {
+      "id": "room_storage", "type": "SERVER_ROOM", "name": "Storage", "floor": 0,
+      "x": 13, "z": 0, "width": 5, "depth": 5, "wallHeight": 3.2, "color": "#1abc9c",
+      "doors": [{ "wall": "south", "offset": 0, "width": 1, "height": 2.1 }],
+      "windows": []
+    }
+  ],
+  "objects": [
+    { "id": "obj_reception_desk", "assetType": "RECEPTION_DESK", "floor": 0, "roomId": "room_reception", "x": -9, "y": 0, "z": -1, "rotationY": 0 },
+    { "id": "obj_work_desk_1", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_open_workspace", "x": 0, "y": 0, "z": 1, "rotationY": 0 },
+    { "id": "obj_work_chair_1", "assetType": "CHAIR_OFFICE", "floor": 0, "roomId": "room_open_workspace", "x": 0, "y": 0, "z": 0.2, "rotationY": 3.141592653589793 },
+    { "id": "obj_work_desk_2", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_open_workspace", "x": 4, "y": 0, "z": 1, "rotationY": 0 },
+    { "id": "obj_work_chair_2", "assetType": "CHAIR_OFFICE", "floor": 0, "roomId": "room_open_workspace", "x": 4, "y": 0, "z": 0.2, "rotationY": 3.141592653589793 },
+    { "id": "obj_work_desk_3", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_open_workspace", "x": 0, "y": 0, "z": -2, "rotationY": 0 },
+    { "id": "obj_work_chair_3", "assetType": "CHAIR_OFFICE", "floor": 0, "roomId": "room_open_workspace", "x": 0, "y": 0, "z": -2.8, "rotationY": 0 },
+    { "id": "obj_private_desk_1", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_private_office_1", "x": -10, "y": 0, "z": 8.5, "rotationY": 0 },
+    { "id": "obj_private_desk_2", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_private_office_2", "x": -3, "y": 0, "z": 8.5, "rotationY": 0 },
+    { "id": "obj_meeting_table", "assetType": "TABLE_MEETING", "floor": 0, "roomId": "room_meeting", "x": 5, "y": 0, "z": 8, "rotationY": 0 },
+    { "id": "obj_pantry_fridge", "assetType": "FRIDGE", "floor": 0, "roomId": "room_pantry", "x": 14.5, "y": 0, "z": 8.5, "rotationY": 0 },
+    { "id": "obj_storage_shelf", "assetType": "STORAGE_RACK", "floor": 0, "roomId": "room_storage", "x": 13, "y": 0, "z": 0, "rotationY": 0 }
+  ],
+  "anchorData": {}
+}

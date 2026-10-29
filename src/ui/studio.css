@@ -759,6 +759,7 @@
 .inspector__titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .inspector__title { margin: 0; font-size: 15px; font-weight: 600; }
 .inspector__type { font-size: 12px; color: var(--text-muted); }
+.inspector__actions { display: flex; align-items: center; gap: var(--space-1); }
 .insp-name {
   width: 100%;
   margin-left: -6px;
@@ -1055,24 +1056,25 @@
 }
 
 
-/* 2D Floor Plan */
+/* ── 2D Floor Plan ─────────────────────────────────────────────────────── */
 .floor-plan-view {
   position: absolute;
   inset: 0;
-  overflow: auto;
+  overflow: hidden;
   background-color: #f8fafc;
   background-image:
     linear-gradient(#e2e8f0 1px, transparent 1px),
     linear-gradient(90deg, #e2e8f0 1px, transparent 1px);
   background-size: 20px 20px;
+  user-select: none;
 }
 
 .floor-plan-svg {
   display: block;
   width: 100%;
   height: 100%;
-  min-width: 320px;
-  min-height: 320px;
+  min-width: 240px;
+  min-height: 240px;
 }
 
 .floor-plan-empty {
@@ -1086,39 +1088,209 @@
   text-align: center;
 }
 
+/* Floating Zoom Bar (Top Left) */
+.floor-plan-zoom-bar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  padding: 3px;
+}
 
+.floor-plan-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.floor-plan-icon-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.floor-plan-icon-btn:active {
+  background: #e2e8f0;
+}
+
+.floor-plan-zoom-label {
+  font-variant-numeric: tabular-nums;
+  min-width: 46px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Bottom Toolbar */
 .floor-plan-toolbar {
   position: absolute;
-  z-index: 2;
-  bottom: 10px; /* the view control is top right */
-  left: 10px;
-  right: 10px;
+  z-index: 10;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: #334155;
+  gap: 12px;
   pointer-events: none;
 }
 
-.floor-plan-toolbar button {
+.floor-plan-toolbar__left,
+.floor-plan-toolbar__center,
+.floor-plan-toolbar__right {
   pointer-events: auto;
-  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 5px 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.floor-plan-toolbar__title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #0f172a;
+  margin-right: 4px;
+}
+
+.floor-plan-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   background: white;
   color: #1e293b;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
+  transition: all 120ms ease;
 }
 
 .floor-plan-toolbar button:hover {
-  background: #eff6ff;
+  background: #f8fafc;
+  border-color: #94a3b8;
 }
 
+.floor-plan-toggle-btn.is-active {
+  background: #eff6ff !important;
+  border-color: #3b82f6 !important;
+  color: #1d4ed8 !important;
+  font-weight: 600;
+}
+
+.floor-plan-toolbar__item-name {
+  font-weight: 600;
+  color: #1e293b;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floor-plan-angle-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.floor-plan-toolbar__right {
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+}
 
 /* Floor plan: keyboard focus (Tab through rooms and items) */
 .floor-plan-svg [role="button"]:focus { outline: none; }
 .floor-plan-svg [role="button"]:focus-visible rect.floor-plan-shape { stroke: var(--accent); stroke-width: 3px; }
 .floor-plan-svg [role="button"]:focus-visible line.floor-plan-shape { stroke: var(--accent); }
+
+/* Anchor hover & active effects */
+.floor-plan-anchor circle {
+  transition: r 120ms ease, stroke-width 120ms ease;
+}
+.floor-plan-anchor:hover circle {
+  r: 0.26;
+  stroke: #ffffff;
+  stroke-width: 0.05;
+}
+
+/* Responsive adjustments for tablet and phone */
+@media (max-width: 768px) {
+  .floor-plan-toolbar {
+    flex-direction: column-reverse;
+    align-items: flex-start;
+    gap: 8px;
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+  }
+  .floor-plan-toolbar__right {
+    display: none;
+  }
+  .floor-plan-toolbar__left,
+  .floor-plan-toolbar__center {
+    width: 100%;
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+  .floor-plan-zoom-bar {
+    top: 8px;
+    left: 8px;
+  }
+}
+
+/* ── Accessibility (SRD section 18) ─────────────────────────────────── */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

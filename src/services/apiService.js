@@ -46,6 +46,7 @@
 
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { layoutSummary, normaliseLayout } from '../store/layoutData';
+import { v4 as uuidv4 } from 'uuid';
 import {
   enqueueSync,
   isOnline,
@@ -107,8 +108,12 @@ function readJson(key, fallback) {
 
 // ─── Mock backend (localStorage) & Local Cache ───
 
-function newLayoutId() {
-  return `layout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+function newLayoutId(companyId = null) {
+  let id;
+  do {
+    id = `layout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  } while (companyId && localStorage.getItem(storageKey(companyId, id)) !== null);
+  return id;
 }
 
 /** The revision of a saved layout (0 for saves from before revisions), or null if there is none. */
@@ -594,10 +599,47 @@ export async function saveAsCopy() {
  * @param {string} name
  * @returns {Promise<string>} the new layout ID
  */
-export async function createWorkspace(companyId, name = 'Untitled Layout') {
-  const layoutId = newLayoutId();
+export async function createWorkspace(companyId, name = 'Untitled Layout', initialLayout = null) {
+  const layoutId = newLayoutId(companyId);
   const store = useWorkspaceStore.getState();
+  let normalized = null;
+  if (initialLayout) {
+    const template = JSON.parse(JSON.stringify(initialLayout));
+    const roomIds = new Set();
+    const objectIds = new Set();
+    const rooms = Array.isArray(template.rooms) ? template.rooms : [];
+    const objects = Array.isArray(template.objects) ? template.objects : [];
+    for (const room of rooms) {
+      if (typeof room?.id !== 'string' || roomIds.has(room.id)) {
+        throw new Error('Template contains a missing or duplicate room ID');
+      }
+      roomIds.add(room.id);
+    }
+    for (const object of objects) {
+      if (typeof object?.id !== 'string' || objectIds.has(object.id)) {
+        throw new Error('Template contains a missing or duplicate object ID');
+      }
+      objectIds.add(object.id);
+      if (object.roomId && !roomIds.has(object.roomId)) {
+        throw new Error(`Template object "${object.id}" references a missing room`);
+      }
+    }
+    normalized = normaliseLayout(template);
+    const freshRoomIds = new Map(normalized.rooms.map((room) => [room.id, `room_${uuidv4()}`]));
+    const freshObjectIds = new Map(normalized.objects.map((object) => [object.id, `obj_${uuidv4()}`]));
+    normalized.rooms = normalized.rooms.map((room) => ({
+      ...room,
+      id: freshRoomIds.get(room.id),
+    }));
+    normalized.objects = normalized.objects.map((object) => ({
+      ...object,
+      id: freshObjectIds.get(object.id),
+      roomId: object.roomId ? freshRoomIds.get(object.roomId) : null,
+    }));
+    normalized.layoutName = name;
+  }
   store.resetWorkspace();
+  if (normalized) store.loadWorkspace(normalized);
   store.setTenant(companyId, layoutId, name, 1);
   const payload = store.exportWorkspace();
 
@@ -608,7 +650,7 @@ export async function createWorkspace(companyId, name = 'Untitled Layout') {
       console.warn('[apiService] Supabase initial create error:', err);
     }
   }
-  // Write the empty layout now, so it is in the list even before the first change
+  // Write the layout now, so it is in the list even before the first change
   _persistToBackend(companyId, layoutId, payload, 1);
   _revision = 1;
   return layoutId;
