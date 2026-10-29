@@ -183,6 +183,8 @@ const focusName = () => p.evaluate(() => {
   return a?.closest('[data-layout-viewer]') ? 'viewer' : a?.id || a?.tagName || ''; // in the view: the box or its canvas
 });
 const scrollY = () => p.evaluate(() => Math.round(window.scrollY));
+/** Space scrolls the page with an animation: at ~1 fps (no GPU) it can take seconds to start, so wait for it. */
+const scrolledBySpace = () => p.waitForFunction(() => window.scrollY > 0, null, { timeout: 10000 }).catch(() => {});
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 /** Hold a key while frames are drawn (the walk reads held keys once a frame); how far the character moved. */
 async function hold(key, n = 4) {
@@ -208,7 +210,7 @@ log('not engaged: the view doesn\'t take the mouse at load; typing and Tab work;
   onButton < 0.01 && distance(start, await pos()) < 0.01 && clicks === 'clicked 1×' && afterTab !== 'page-button',
   JSON.stringify({ atLoad, typed, onButton, clicks, afterTab }));
 await p.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
-await p.keyboard.press('Space'); await wait(500);
+await p.keyboard.press('Space'); await scrolledBySpace();
 const pageScroll = await scrollY();
 await p.evaluate(() => window.scrollTo(0, 0)); await wait(300);
 log('not engaged: Space scrolls the page', pageScroll > 0, `scrollY ${pageScroll}`);
@@ -234,7 +236,7 @@ await p.keyboard.press('Space'); await frames(3);                       // jumps
 const engagedScroll = await scrollY();
 await p.keyboard.press('Escape'); await frames(2);
 const escaped = { lock: await p.evaluate(() => !!document.pointerLockElement), focus: await focusName() };
-await p.keyboard.press('Space'); await wait(500);
+await p.keyboard.press('Space'); await scrolledBySpace();
 const releasedScroll = await scrollY();
 await p.evaluate(() => window.scrollTo(0, 0)); await wait(300);
 log('click the view: mouse captured, W walks, Space doesn\'t scroll; after Esc, Space scrolls the page again',
