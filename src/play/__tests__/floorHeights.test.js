@@ -4,6 +4,7 @@ import {
   floorHeight, elevationOf, wallSpace, levelForY, floorPosition, fillsFloor,
   planWallHeight, planFloorHeight, copyRoomsUp, stairDims, stairDimsFor, stairHeightAt,
   supportHeight, stairNeedsRoomAbove, arrivalOnFloor, overhangArea, overhangs,
+  MAX_WALL_HEIGHT, MAX_FLOOR_HEIGHT, STEEP_STAIRS_ABOVE, steepStairsText, wallHeightText,
 } from '../building';
 import { planRoom, stretchRoom, snapRectToOutline } from '../geometry';
 import { normaliseLayout } from '../../store/layoutData';
@@ -82,9 +83,42 @@ describe('wall heights keep the storeys closed', () => {
 
   it('limits, and doors that would stick out of the wall', () => {
     expect(planWallHeight(floors, rooms, rooms[0], 1.5).problem).toMatch(/at least 2.0/);
-    expect(planWallHeight(floors, rooms, rooms[0], 6.5).problem).toMatch(/at most 6.0/);
+    expect(planWallHeight(floors, rooms, rooms[0], 15.5).problem).toMatch(/at most 15.0/);
     const withDoor = { ...rooms[0], doors: [{ wall: 'north', offset: 0, width: 1, height: 2.1 }] };
     expect(planWallHeight(floors, [withDoor], withDoor, 2.1).problem).toMatch(/door in Office is too high/);
+  });
+
+  it('factory halls: walls up to 15 m raise the floor to 15.3 m', () => {
+    expect(MAX_WALL_HEIGHT).toBe(15);
+    expect(MAX_FLOOR_HEIGHT).toBeCloseTo(15.3);
+    const plan = planWallHeight(floors, rooms, rooms[0], 12);
+    expect(plan.problem).toBeNull();
+    expect(plan.raised).toBe(true);
+    expect(plan.height).toBeCloseTo(12.3);
+    expect(new Map(plan.rooms)).toEqual(new Map([['a', 12], ['b', 12]])); // the 2.5 m store stays low
+    const top = planWallHeight(floors, rooms, rooms[0], 15);
+    expect(top.problem).toBeNull();
+    expect(top.height).toBeCloseTo(15.3);
+  });
+
+  it('floors up to 15.3 m: filling rooms follow; higher is refused', () => {
+    const plan = planFloorHeight(floors, rooms, 0, 15.3);
+    expect(plan.problem).toBeNull();
+    expect(new Map(plan.rooms)).toEqual(new Map([['a', 15], ['b', 15]]));
+    expect(planFloorHeight(floors, rooms, 0, 15.4).problem).toBe('Floors are 2.3 to 15.3 m high');
+    expect(planFloorHeight(floors, rooms, 0, 9).problem).toBeNull();
+  });
+
+  it('warns that stairs get very steep on floors over 6.3 m (one 4 m flight)', () => {
+    expect(steepStairsText(STEEP_STAIRS_ABOVE)).toBeNull();
+    expect(steepStairsText(3.5)).toBeNull();
+    expect(steepStairsText(9.3)).toBe('Stairs here would be very steep (9.3 m in one 4 m flight)');
+    const plan = planWallHeight(floors, rooms, rooms[0], 9);
+    expect(wallHeightText(rooms[0], plan, 'Ground Floor'))
+      .toBe('Office · walls 9.0 m · Ground Floor is now 9.3 m high · Stairs here would be very steep (9.3 m in one 4 m flight)');
+    // a normal height says nothing about stairs
+    expect(wallHeightText(rooms[0], planWallHeight(floors, rooms, rooms[0], 5), 'Ground Floor'))
+      .toBe('Office · walls 5.0 m · Ground Floor is now 5.3 m high');
   });
 
   it('a floor height change: filling rooms follow, taller rooms shrink, low rooms stay', () => {

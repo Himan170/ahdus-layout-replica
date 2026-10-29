@@ -24,7 +24,7 @@ import { setCameraView, flyTo as flyCamera } from '../engine/systems/CameraSyste
 import { ROOM_TYPES } from '../utils/roomStore';
 import {
   elevationOf, floorBelow,
-  stairNeedsRoomAbove, floorPosition,
+  stairNeedsRoomAbove, floorPosition, steepStairsText, floorHeight,
 } from '../play/building';
 import { createFloorOutline } from '../utils/floorOutline';
 
@@ -290,6 +290,8 @@ export default function WorkplaceEditor({ onExit }) {
       { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor },
       store.floors, Object.values(useWorkspaceStore.getState().rooms))) {
       showStudioMessage('Build a room above to use these stairs');
+    } else if (result.assetType === 'STAIRCASE' && steepStairsText(floorHeight(store.floors, store.currentFloor))) {
+      showStudioMessage(steepStairsText(floorHeight(store.floors, store.currentFloor)));
     }
   };
 
@@ -961,6 +963,8 @@ export default function WorkplaceEditor({ onExit }) {
       showStudioMessage(plan.problem, true);
       return plan.problem;
     }
+    const steep = steepStairsText(plan.height);
+    if (steep) showStudioMessage(steep);
     return null;
   }, [editor, showStudioMessage]);
 
@@ -988,7 +992,8 @@ export default function WorkplaceEditor({ onExit }) {
       const plan = editor.setWallHeight(id, patch.wallHeight, { mergeKey: 'room-wall-height' });
       if (plan.problem) showStudioMessage(plan.problem, true);
       else if (plan.raised) {
-        showStudioMessage(`${useWorkspaceStore.getState().floors[plan.floorId]?.name} is now ${plan.height.toFixed(1)} m high, to fit ${room?.name}`);
+        const steep = steepStairsText(plan.height);
+        showStudioMessage(`${useWorkspaceStore.getState().floors[plan.floorId]?.name} is now ${plan.height.toFixed(1)} m high, to fit ${room?.name}${steep ? `. ${steep}` : ''}`);
       }
       return;
     }

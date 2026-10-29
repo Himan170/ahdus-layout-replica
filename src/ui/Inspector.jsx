@@ -19,6 +19,7 @@ import { ASSET_TYPES } from '../utils/assetCatalog';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { assetIcon, sizeLabel } from './tools';
 import { DOOR_DEFAULTS, MAX_ROOM_SIZE, WINDOW_DEFAULTS } from '../play/geometry';
+import { MIN_WALL_HEIGHT, MAX_WALL_HEIGHT } from '../play/building';
 import { describeRoom, describeObject, describeAccessibilityRoutes } from '../utils/accessibleSummary';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
@@ -257,7 +258,7 @@ function RoomBody({ room, floorName, onUpdate }) {
           onCommit={(v) => onUpdate(room.id, { width: v })} />
         <NumberField label="Depth" value={room.depth} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m"
           onCommit={(v) => onUpdate(room.id, { depth: v })} />
-        <NumberField label="Wall height" value={room.wallHeight ?? 3} step={0.1} min={2} max={6} digits={1} suffix="m"
+        <NumberField label="Wall height" value={room.wallHeight ?? 3} step={0.1} min={MIN_WALL_HEIGHT} max={MAX_WALL_HEIGHT} digits={1} suffix="m"
           onCommit={(v) => onUpdate(room.id, { wallHeight: v })} />
       </div>
       <dl className="insp-facts">
