@@ -16,3 +16,6 @@ Company_Digital_Twin_Software_Requirements_Document-1.pdf
 
 # Real assets: the HDRI is only the source of public/assets/env/sky.env (scripts/make-env.mjs)
 public/assets/env/*.hdr
+
+# Himan's private documents: kept on his laptop, never on GitHub (the repo is public)
+private-docs/

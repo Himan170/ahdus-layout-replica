@@ -1,7 +1,7 @@
 // Workplace Studio smoke test: drives the real editor in Chromium and checks
 // the Studio layout (1280×720 and 1920×1080), the empty state and first room,
 // placing / deleting / undo, the selection toolbar and Inspector, the floor
-// switcher, and Preview ↔ Studio. Saves the UI_SPEC screenshots to e2e/screens/.
+// switcher, and Preview ↔ Studio. Saves the Studio screenshots to e2e/screens/.
 //
 // One-time setup:   npm install && npx playwright install chromium
 // Run:              npm run dev            (in one terminal)
@@ -96,7 +96,7 @@ const dragWorld = async (from, to) => {
   await frames(3);
 };
 
-/** UI_SPEC 8: no page or Build panel scroll, canvas ≥ 75 % wide, nothing overlaps the footer */
+/** Studio layout rule: no page or Build panel scroll, canvas ≥ 75 % wide, nothing overlaps the footer */
 const layoutCheck = () => page.evaluate(() => {
   const r = (sel) => document.querySelector(sel)?.getBoundingClientRect();
   const doc = document.documentElement;
