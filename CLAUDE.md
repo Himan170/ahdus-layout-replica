@@ -13,7 +13,7 @@ Plain HTML pages (the AI Training Platform): `docs/EMBED_GUIDE.md`; integration 
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (484, all must pass)
+npm test             # vitest unit tests (502, all must pass)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -33,6 +33,7 @@ npm run e2e:tools    # 45 checks   e2e/tools-smoke.mjs     (Studio mouse tools, 
                      #                                       room's floor + Preview's Edit item)
 npm run e2e:measurements # 17   e2e/measurements-smoke.mjs (measure distance in 2D, wall lengths, room areas, toggles,
                      #                                       Esc, per floor, Clear Measurements keeps the room)
+npm run e2e:templates # 9 checks  e2e/templates-smoke.mjs (new layout from a template: small office, clinic, factory floor)
 npm run e2e:save     # 30 checks   e2e/save-smoke.mjs      (auto-save, reopen, version history, old saves, list, delete, export/import,
                      #                                       companies, two tabs on one layout)
 npm run e2e:perf     # 10 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls;
@@ -111,6 +112,8 @@ Spec of the look: `UI_SPEC.md` (repo root).
   (`wallSegmentEnds`, the inverse of `wallSegmentData`), items. Click, or Tab + Enter (the accessible view, S3),
   selects; dragging an item = `planDrop`: Studio's snap step, locked items stay, table tops via `placementHeight`,
   one `editor.updateObject` per drag (+ `endBurst`); Rotate 90°. Plan stops the 3D tools and hides the measure buttons.
+  Each item's hook-point badge (anchors, on by default) sits on top of it: a press on the badge grabs the item
+  (else the plan would pan). The plan's drag state is kept in a ref too, so slow machines don't drop the first moves.
   Select a door/window (click it; in 2D the wall over it): Inspector width/height + blue drag handles on its sides
   and top (`store.selectedOpening` = { roomId, kind, index }; one undo step per drag).
   Furniture stacks on table tops. Clicking the floor under a desk selects the desk.
@@ -390,7 +393,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
   keep their primitive models. The placement ghost shows the primitive model. A faint vertical line can show on
   textured walls where wall pieces meet beside a door or window. Item icons are generic lucide icons, not thumbnails.
 - Stretching a wall with a door shared with a neighbour moves only this room's half.
-- The "2D" view is the 3D camera from above; the "Plan" view is the real floor plan (no pan / zoom yet, it fits the floor;
+- The "2D" view is the 3D camera from above; the "Plan" view is the real floor plan (scroll zooms, dragging the background pans;
   room names can sit under items; rotation in 90° steps only).
 - Room labels and the selection toolbar are HTML over the canvas (always on top, even behind a wall).
 - The layout name is saved at once but is not part of undo.
