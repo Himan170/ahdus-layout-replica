@@ -13,7 +13,13 @@
 
 import { stairOpening, overhangs } from './building';
 
+/** A room's walls are this thick unless it says otherwise (`room.wallThickness`). */
 export const WALL_THICKNESS = 0.15;
+/** Limits for a room's wall thickness (metres). */
+export const MIN_WALL_THICKNESS = 0.1;
+export const MAX_WALL_THICKNESS = 0.6;
+/** One + / − step of the wall thickness. */
+export const WALL_THICKNESS_STEP = 0.05;
 export const SHARED_WALL_TOLERANCE = 0.02;
 const GEOMETRY_EPSILON = 1e-6;
 export const MIN_ROOM_SIZE = 1.5;
@@ -23,6 +29,15 @@ export const DOOR_DEFAULTS = { width: 1.0, height: 2.1, sill: 0 };
 export const WINDOW_DEFAULTS = { width: 1.4, height: 1.2, sill: 0.9 };
 /** Length of the WALL_SEGMENT asset at scale 1 (see assetCatalog). */
 export const WALL_ASSET_LENGTH = 3;
+
+/**
+ * How thick a room's walls are: its `wallThickness`, or WALL_THICKNESS (old saves,
+ * rectangles being drawn). Walls are centred on the room's edge: half inside, half outside.
+ */
+export function wallThicknessOf(room) {
+  const t = Number(room?.wallThickness);
+  return Number.isFinite(t) && t >= MIN_WALL_THICKNESS - 1e-6 && t <= MAX_WALL_THICKNESS + 1e-6 ? t : WALL_THICKNESS;
+}
 
 export function snap(v, step = 0.5) {
   return Math.round(v / step) * step;
@@ -74,7 +89,7 @@ export function wallSegmentTransform(a, b) {
  */
 export function roomWalls(room) {
   const { width, depth } = room;
-  const T = WALL_THICKNESS;
+  const T = wallThicknessOf(room);
   return [
     { name: 'north', cx: 0, cz: depth / 2, length: width + T, alongX: true },
     { name: 'south', cx: 0, cz: -depth / 2, length: width + T, alongX: true },
@@ -200,8 +215,9 @@ export function formatRoomSize(width, depth) {
 
 // ── Neighbouring rooms ────────────────────────────────────────────────────
 // Rooms built next to each other sit "back to back": the new room's wall is
-// placed one wall-thickness outside the neighbour's wall. That avoids two walls
-// in the exact same place (flickering), and lets a door cut through both.
+// placed one wall-thickness (the thicker of the two) outside the neighbour's
+// wall. That avoids two walls in the exact same place (flickering), and lets a
+// door cut through both. Their wall is built once, as thick as the thicker one.
 
 export const OPPOSITE = { north: 'south', south: 'north', east: 'west', west: 'east' };
 
@@ -219,9 +235,19 @@ function physicalWallLine(room, wallName) {
   };
 }
 
-function isSharedBoundary(a, b, tolerance = SHARED_WALL_TOLERANCE) {
-  const distance = Math.abs(a.value - b.value);
-  return distance <= tolerance || Math.abs(distance - WALL_THICKNESS) <= tolerance;
+/**
+ * Two opposite walls are one wall when their centre lines are at most the
+ * thicker wall's thickness apart (± tolerance): the same line (older / manual
+ * layouts), back to back (the planner), or anything between after one of them
+ * was made thicker. The shared wall, centred between them, covers both lines.
+ */
+function isSharedBoundary(a, b, thickness, tolerance = SHARED_WALL_TOLERANCE) {
+  return Math.abs(a.value - b.value) <= thickness + tolerance;
+}
+
+/** The thickness of the wall two back-to-back rooms share: the thicker of theirs. */
+export function sharedWallThickness(a, b) {
+  return Math.max(wallThicknessOf(a), wallThicknessOf(b));
 }
 
 /** True when `room`'s `wallName` lies on the same wall of `other` (same line, ± tolerance). */
@@ -272,9 +298,11 @@ function subtractSpans(spans, holes) {
 function wallExtent(room, wallName, rooms) {
   const line = physicalWallLine(room, wallName);
   if (!ALONG_X(wallName) || outerRoomOfWall(room, wallName, rooms)) return line;
-  const T = WALL_THICKNESS;
-  if (outerRoomOfWall(room, 'west', rooms)) line.from = room.x - room.width / 2 + T / 2;
-  if (outerRoomOfWall(room, 'east', rooms)) line.to = room.x + room.width / 2 - T / 2;
+  // the outer room's wall there is as thick as the outer room's walls
+  const west = outerRoomOfWall(room, 'west', rooms);
+  const east = outerRoomOfWall(room, 'east', rooms);
+  if (west) line.from = room.x - room.width / 2 + wallThicknessOf(west) / 2;
+  if (east) line.to = room.x + room.width / 2 - wallThicknessOf(east) / 2;
   return line;
 }
 
@@ -286,13 +314,13 @@ function ownWallSpans(room, wallName, rooms, extent = wallExtent(room, wallName,
 
 /**
  * Physical wall pieces for a room boundary.
- * - Back to back: opposing boundaries either share a centreline (older/manual
- *   layouts) or are WALL_THICKNESS apart (the planner's back-to-back
- *   placement). Shared pieces are emitted by exactly one room, chosen by
- *   stable ID order.
+ * - Back to back: opposing boundaries are at most the thicker wall's thickness
+ *   apart (the same centreline in older/manual layouts; the planner places them
+ *   exactly that far apart). Shared pieces are emitted by exactly one room,
+ *   chosen by stable ID order, as thick as the thicker wall.
  * - A room inside a room may stand on the outer room's wall (same line): there
- *   the outer room builds nothing and the inner room builds the wall, full
- *   thickness on that line, as a piece shared with the outer room
+ *   the outer room builds nothing and the inner room builds the wall, as thick
+ *   as the outer room's walls, on that line, as a piece shared with the outer room
  *   (`sameSide`: both rooms are on its inner side; outside it is the outer
  *   room's). The inner room's other walls stop at that wall's inside face.
  * Shared pieces carry partnerRoom and partnerWall (the partner's wall name).
@@ -307,7 +335,8 @@ export function roomWallSegments(room, wallName, rooms = []) {
   for (const other of rooms) {
     if (other.id === room.id || floorOf(other) !== floorOf(room)) continue;
     const theirs = physicalWallLine(other, theirName);
-    if (!isSharedBoundary(mine, theirs)) continue;
+    const thickness = sharedWallThickness(room, other);
+    if (!isSharedBoundary(mine, theirs, thickness)) continue;
     // Where rooms inside `other` stand on its wall, the wall is theirs (they are in this loop too)
     for (const span of ownWallSpans(other, theirName, rooms)) {
       for (const own of ownSpans) {
@@ -320,7 +349,7 @@ export function roomWallSegments(room, wallName, rooms = []) {
           crossOffset: (theirs.value - mine.value) / 2,
           worldValue: (theirs.value + mine.value) / 2,
           axis: mine.axis,
-          thickness: WALL_THICKNESS,
+          thickness,
           partnerRoom: other,
           partnerWall: theirName,
           shared: true,
@@ -354,7 +383,7 @@ export function roomWallSegments(room, wallName, rooms = []) {
   const segments = plain.map(({ from, to }) => (outer
     ? {
       u0: from - centre, u1: to - centre, crossOffset: 0, worldValue: mine.value, axis: mine.axis,
-      thickness: WALL_THICKNESS, partnerRoom: outer, partnerWall: wallName, shared: true, sameSide: true,
+      thickness: wallThicknessOf(outer), partnerRoom: outer, partnerWall: wallName, shared: true, sameSide: true,
     }
     : { u0: from - centre, u1: to - centre, crossOffset: 0, shared: false }));
 
@@ -419,8 +448,9 @@ export function wallPickTarget(meta, from) {
 
 // ── Which rooms to rebuild ────────────────────────────────────────────────
 // A room's mesh depends on the rooms it can share a wall with: back to back
-// they are at most WALL_THICKNESS (+ tolerance) apart.
-const TOUCH_GAP = WALL_THICKNESS + SHARED_WALL_TOLERANCE + GEOMETRY_EPSILON;
+// they are at most the thicker wall's thickness (+ tolerance) apart, never
+// more than MAX_WALL_THICKNESS.
+const TOUCH_GAP = MAX_WALL_THICKNESS + SHARED_WALL_TOLERANCE + GEOMETRY_EPSILON;
 
 /** Rooms on `room`'s floor whose rectangle touches (or overlaps) it, close enough to share a wall. */
 export function touchingRooms(room, rooms) {
@@ -436,9 +466,10 @@ export function touchingRooms(room, rooms) {
  */
 export function roomBuildInput(room, rooms) {
   return [
-    floorOf(room), room.x, room.z, room.width, room.depth, room.wallHeight, room.type, room.color,
+    floorOf(room), room.x, room.z, room.width, room.depth, room.wallHeight, wallThicknessOf(room), room.type, room.color,
     room.doors ?? [], room.windows ?? [],
-    touchingRooms(room, rooms).map((r) => [r.id, r.x, r.z, r.width, r.depth, r.wallHeight, r.doors ?? [], r.windows ?? []]),
+    touchingRooms(room, rooms).map((r) => [r.id, r.x, r.z, r.width, r.depth, r.wallHeight, wallThicknessOf(r),
+      r.doors ?? [], r.windows ?? []]),
   ];
 }
 
@@ -490,7 +521,7 @@ export function partnerWall(rooms, room, wallName, point, span = 0) {
   const theirName = OPPOSITE[wallName];
   for (const other of sameFloor) {
     const theirs = wallLine(other, theirName);
-    if (!isSharedBoundary(mine, theirs)) continue;
+    if (!isSharedBoundary(mine, theirs, sharedWallThickness(room, other))) continue;
     const spans = subtractSpans([{ from: theirs.from, to: theirs.to }],
       roomsStandingOnWall(other, theirName, rooms).map((inner) => wallLine(inner, theirName)));
     for (const span of spans) {
@@ -512,12 +543,13 @@ export function rectsOverlap(a, b, eps = 0.05) {
 
 /**
  * True when the inner room lies inside the outer room on the same floor: on
- * each side its walls are at least `clearance` in from the outer walls (so
- * they don't touch), or it stands exactly on the outer wall (same line, ±
- * SHARED_WALL_TOLERANCE: that wall is then its wall too). Anything between
- * (walls partly in each other) or the very same rectangle is not inside.
+ * each side its walls are at least `clearance` in from the outer walls (half
+ * of each room's wall thickness, so they don't touch), or it stands exactly on
+ * the outer wall (same line, ± SHARED_WALL_TOLERANCE: that wall is then its
+ * wall too). Anything between (walls partly in each other) or the very same
+ * rectangle is not inside.
  */
-export function roomContainedBy(outer, inner, clearance = WALL_THICKNESS) {
+export function roomContainedBy(outer, inner, clearance = (wallThicknessOf(outer) + wallThicknessOf(inner)) / 2) {
   if (floorOf(outer) !== floorOf(inner)) return false;
   if (outer.width / 2 - clearance <= 0 || outer.depth / 2 - clearance <= 0) return false;
   const side = (gap) => gap >= clearance - GEOMETRY_EPSILON || Math.abs(gap) <= SHARED_WALL_TOLERANCE;
@@ -588,6 +620,36 @@ export function planRoomResize(room, width, depth, rooms) {
   };
 }
 
+/**
+ * A new wall thickness for a room (Inspector). Walls stay centred on the
+ * room's edge, so a thicker wall takes half of it from inside the room.
+ * Refused when the rooms inside it, or the room it stands in, would run into
+ * its walls, or (thicker) when an item of the room would end up in a wall.
+ * @param {object}   room
+ * @param {number}   thickness  metres
+ * @param {object[]} rooms      rooms (any floors)
+ * @param {object[]} [objects]  items (their `roomId` says whose they are)
+ * @param {(obj) => string} [nameOf]
+ * @returns {{ problem: string } | { problem: null, thickness: number }}
+ */
+export function planWallThickness(room, thickness, rooms, objects = [], nameOf = (o) => o.label || o.name || 'An item') {
+  const t = Math.round(thickness * 100) / 100;
+  if (!(t >= MIN_WALL_THICKNESS - GEOMETRY_EPSILON && t <= MAX_WALL_THICKNESS + GEOMETRY_EPSILON)) {
+    return { problem: `Walls are ${MIN_WALL_THICKNESS.toFixed(2)} to ${MAX_WALL_THICKNESS.toFixed(2)} m thick` };
+  }
+  const target = { ...room, wallThickness: t };
+  const blocker = roomRectBlocker(room, target, rooms);
+  if (blocker) return { problem: `Too thick: it would run into ${blocker.name ?? 'the room next to it'}` };
+  if (t > wallThicknessOf(room) + GEOMETRY_EPSILON) {
+    const reach = t / 2 + 0.05; // an item's centre stays clear of the wall's inside face
+    const inWall = objects.find((o) => o.roomId === room.id && (
+      o.x < room.x - room.width / 2 + reach || o.x > room.x + room.width / 2 - reach ||
+      o.z < room.z - room.depth / 2 + reach || o.z > room.z + room.depth / 2 - reach));
+    if (inWall) return { problem: `${nameOf(inWall)} is in the way` };
+  }
+  return { problem: null, thickness: t };
+}
+
 function insideRoomFootprint(outer, inner) {
   if (floorOf(outer) !== floorOf(inner)) return false;
   return inner.x - inner.width / 2 >= outer.x - outer.width / 2 - GEOMETRY_EPSILON &&
@@ -597,8 +659,8 @@ function insideRoomFootprint(outer, inner) {
 }
 
 function pointInsideRoomInterior(room, point) {
-  const halfWidth = room.width / 2 - WALL_THICKNESS;
-  const halfDepth = room.depth / 2 - WALL_THICKNESS;
+  const halfWidth = room.width / 2 - wallThicknessOf(room);
+  const halfDepth = room.depth / 2 - wallThicknessOf(room);
   return halfWidth > 0 && halfDepth > 0 &&
     point.x >= room.x - halfWidth - GEOMETRY_EPSILON &&
     point.x <= room.x + halfWidth + GEOMETRY_EPSILON &&
@@ -616,11 +678,11 @@ export function snapRectToNeighbours(rect, rooms, tolerance = 0.35) {
   let x1 = rect.x + rect.width / 2;
   let z0 = rect.z - rect.depth / 2;
   let z1 = rect.z + rect.depth / 2;
-  const T = WALL_THICKNESS;
 
   for (const r of rooms) {
     if (floorOf(r) !== floorOf(rect)) continue;
     if (insideRoomFootprint(r, rect) || insideRoomFootprint(rect, r)) continue;
+    const T = sharedWallThickness(rect, r);
     const rx0 = r.x - r.width / 2, rx1 = r.x + r.width / 2;
     const rz0 = r.z - r.depth / 2, rz1 = r.z + r.depth / 2;
     const zOverlap = Math.min(z1, rz1) - Math.max(z0, rz0) > 0.1;
@@ -697,7 +759,7 @@ const EDGES = ['west', 'east', 'south', 'north'];
 
 /**
  * Snap a room's rectangle, the same way wherever a room is drawn or changed:
- * - back to back (WALL_THICKNESS apart) onto rooms in the same room as it
+ * - back to back (the thicker wall's thickness apart) onto rooms in the same room as it
  *   (inside the same outer room, or both outside): they then share one wall;
  *   rooms inside other rooms, or inside this one, are not neighbours;
  * - onto the wall of the room it stands in (`container`): that wall becomes
@@ -719,7 +781,8 @@ const EDGES = ['west', 'east', 'south', 'north'];
 export function snapRoomRect(rect, rooms, options = {}) {
   const { id = null, edges = EDGES, translate = false, below = null } = options;
   const floor = floorOf(rect);
-  const T = WALL_THICKNESS;
+  // the room being changed keeps its walls; a new one has `rect.wallThickness` or the default
+  const self = (id !== null && rooms.find((r) => r.id === id)) || rect;
   const same = rooms.filter((r) => r.id !== id && floorOf(r) === floor);
   const container = options.container !== undefined ? options.container : containerOf({ ...rect, id }, same);
   const containerId = container?.id ?? null;
@@ -747,6 +810,7 @@ export function snapRoomRect(rect, rooms, options = {}) {
     for (const r of siblings) {
       if (!overlapsAlong(r, edge)) continue;
       const e = edgesOf(r);
+      const T = sharedWallThickness(self, r);
       if (edge === 'west') near.push(e.east + T);
       else if (edge === 'east') near.push(e.west - T);
       else if (edge === 'south') near.push(e.north + T);
@@ -1146,7 +1210,7 @@ function openingProblem(room, kind, index, wall, offset, width, height, sill, st
   // Stairs: a door needs free space on both sides; nothing may be in the wall itself
   const line = wallLine(room, wall);
   const along = (line.axis === 'z' ? room.x : room.z) + offset;
-  const depth = kind === 'door' ? DOOR_CLEARANCE : WALL_THICKNESS / 2;
+  const depth = kind === 'door' ? DOOR_CLEARANCE : wallThicknessOf(room) / 2;
   const a0 = along - width / 2;
   const a1 = along + width / 2;
   const n0 = line.value - depth;

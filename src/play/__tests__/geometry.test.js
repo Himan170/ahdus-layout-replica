@@ -226,11 +226,25 @@ describe('shared physical wall geometry', () => {
     expect(shared[0].u1 - shared[0].u0).toBeCloseTo(2 - WALL_THICKNESS);
   });
 
-  it('does not share walls across floors or across a nearby but unsnapped gap', () => {
+  it('does not share walls across floors or across a gap wider than the thicker wall', () => {
     expect(roomWallSegments(westRoom, 'east', [westRoom, { ...eastRoom, floor: 1 }])
       .some((s) => s.shared)).toBe(false);
-    expect(roomWallSegments(westRoom, 'east', [westRoom, { ...eastRoom, x: 5.1 }])
+    expect(roomWallSegments(westRoom, 'east', [westRoom, { ...eastRoom, x: 5.4 }]) // 0.4 m apart
       .some((s) => s.shared)).toBe(false);
+  });
+
+  it('shares a wall across any gap up to the thicker wall, as thick as the thicker wall', () => {
+    // 0.1 m apart: the walls would be partly in each other, so they are one
+    const close = roomWallSegments(westRoom, 'east', [westRoom, { ...eastRoom, x: 5.1 }]).filter((s) => s.shared);
+    expect(close).toHaveLength(1);
+    expect(close[0].thickness).toBeCloseTo(WALL_THICKNESS);
+    expect(close[0].worldValue).toBeCloseTo(3.05);
+    // a 0.4 m wall on the east room: 0.4 m apart is now back to back, and the shared wall is 0.4 m thick
+    const thick = { ...eastRoom, x: 5.4, wallThickness: 0.4 };
+    const shared = roomWallSegments(westRoom, 'east', [westRoom, thick]).filter((s) => s.shared);
+    expect(shared).toHaveLength(1);
+    expect(shared[0].thickness).toBeCloseTo(0.4);
+    expect(shared[0].worldValue).toBeCloseTo(3.2);
   });
 
   it('deduplicates paired doors and keeps the doorway clear through the shared wall', () => {

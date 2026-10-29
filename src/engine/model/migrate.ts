@@ -107,6 +107,8 @@ export function migrateV1toV2(v1: V1State): Layout {
       width: r.width ?? 4,
       depth: r.depth ?? 4,
       wallHeight: r.wallHeight ?? 3,
+      wallThickness: typeof r.wallThickness === 'number' && r.wallThickness >= 0.1 && r.wallThickness <= 0.6
+        ? r.wallThickness : 0.15,
       color: r.color ?? '#4a90d9',
       floorFinish: typeof r.floorFinish === 'string' ? r.floorFinish : 'default',
       ...(typeof r.departmentRef === 'string' ? { departmentRef: r.departmentRef } : {}),

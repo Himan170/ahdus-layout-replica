@@ -12,7 +12,7 @@
  */
 
 import { STOREY_HEIGHT, SLAB, MIN_FLOOR_HEIGHT, MAX_FLOOR_HEIGHT } from '../play/building';
-import { DOOR_DEFAULTS, WINDOW_DEFAULTS } from '../play/geometry';
+import { DOOR_DEFAULTS, WINDOW_DEFAULTS, wallThicknessOf } from '../play/geometry';
 
 const num = (v, fallback) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 /** rooms/objects were saved as arrays; accept a { id: record } map too. */
@@ -46,6 +46,8 @@ function normaliseRoom(r, i) {
     width: num(r.width, 4),
     depth: num(r.depth, 4),
     wallHeight: num(r.wallHeight, undefined), // filled in with the floors (normaliseFloors)
+    // walls were all 0.15 m before rooms had their own thickness
+    wallThickness: cm(wallThicknessOf(r)),
     doors: asList(r.doors).filter(Boolean).map((o) => normaliseOpening(o, 'door')),
     windows: asList(r.windows).filter(Boolean).map((o) => normaliseOpening(o, 'window')),
   };

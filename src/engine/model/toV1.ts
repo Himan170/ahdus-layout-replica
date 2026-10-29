@@ -51,6 +51,7 @@ export interface V1Room {
   width: number;
   depth: number;
   wallHeight: number;
+  wallThickness: number;
   color: string;
   floorFinish: string;
   departmentRef?: string;
@@ -138,6 +139,7 @@ function convertRoom(r: Room, openings: Opening[], floorOf: (id: string | number
     width: r.width,
     depth: r.depth,
     wallHeight: r.wallHeight,
+    wallThickness: r.wallThickness ?? 0.15,
     color: r.color,
     floorFinish: r.floorFinish,
     ...(r.departmentRef ? { departmentRef: r.departmentRef } : {}),

@@ -15,7 +15,7 @@
  *   - This matches the "top-down" view the editor normally shows.
  */
 
-import { WALL_THICKNESS, roomOpenings } from '../play/geometry';
+import { WALL_THICKNESS, wallThicknessOf, roomOpenings } from '../play/geometry';
 import { ROOM_TYPES } from './roomStore';
 import { ASSET_TYPES } from './assetCatalog';
 
@@ -100,7 +100,7 @@ function floorBounds(rooms, objects) {
  */
 function drawDoor(ctx, opening, room, tx, ty, pxPerM, detailScale) {
   const { wall, offset, width } = opening;
-  const T  = WALL_THICKNESS;
+  const T   = wallThicknessOf(room);
   const cx = room.x;
   const cz = room.z;
 
@@ -187,7 +187,7 @@ function drawDoor(ctx, opening, room, tx, ty, pxPerM, detailScale) {
 
 function drawWindow(ctx, opening, room, tx, ty, pxPerM, detailScale) {
   const { wall, offset, width } = opening;
-  const T   = WALL_THICKNESS;
+  const T   = wallThicknessOf(room);
   const cx  = room.x;
   const cz  = room.z;
 
@@ -396,9 +396,10 @@ export function renderFloorPlanToCanvas({ rooms, objects = {}, floors, floorId, 
 
   // ── Draw walls (outlines) ─────────────────────────────────────────────
   ctx.strokeStyle = WALL_COLOR;
-  ctx.lineWidth   = WALL_STROKE * detailScale;
   ctx.lineJoin    = 'miter';
   for (const room of floorRooms) {
+    // 0.15 m walls draw as before; thicker walls in step
+    ctx.lineWidth = WALL_STROKE * detailScale * (wallThicknessOf(room) / WALL_THICKNESS);
     const tl = toCanvas(room.x - room.width / 2, room.z + room.depth / 2, tx, ty, pxPerM);
     const wPx = room.width * pxPerM;
     const hPx = room.depth * pxPerM;

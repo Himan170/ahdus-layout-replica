@@ -7,7 +7,7 @@ an ID-keyed store record (saved as an array) with fields such as:
 
 ```js
 {
-  id, floor, type, name, x, z, width, depth, wallHeight, color,
+  id, floor, type, name, x, z, width, depth, wallHeight, wallThickness, color,
   doors: [{ wall, offset, width, height }],
   windows: [{ wall, offset, width, height, sill }]
 }
@@ -24,6 +24,17 @@ the live room record. The room store creates rectangular rooms and the
 workspace store retains this shape for undo, localStorage saves, and reloads.
 Doors and windows are nested in the room and use wall-relative offsets.
 
+`wallThickness` (metres, `0.1` to `0.6`, Inspector step `0.05`) is how thick the
+room's walls are. Walls are **centred on the room's edge**: half inside, half
+outside, so a thicker wall takes half of it from inside the room and `x`, `z`,
+`width`, `depth` and door offsets keep their meaning. Rooms saved before it
+existed (and v2 files without it) load with `0.15`, the thickness every wall had
+before (`normaliseLayout`, `geometry.wallThicknessOf`). The v2 `RoomSchema` has
+`wallThickness` with default `0.15`; `migrateV1toV2` and `toV1` copy it.
+A change goes through `geometry.planWallThickness`: it is refused when rooms
+inside it, or the room it stands in, would run into its walls, or (thicker) when
+one of its items would end up in a wall.
+
 The engine's v2 export format is separate. Its `RoomSchema` uses `floorId` and
 keeps the same rectangular centre/dimensions, while doors and windows are
 serialized in the top-level `openings` array with a `roomId`. `migrateV1toV2`
@@ -37,7 +48,8 @@ Room nesting uses the same centre-based rectangles and world coordinates; it
 does not add a parent ID or change either serialized format. The enclosing room
 is derived from same-floor containment (`roomContainedBy`; the innermost one is
 `containerOf`). On each side a child either keeps at least `0.15 m` from the
-parent's boundary (its own wall, clear of the parent's), or **stands on the
+parent's boundary with `0.15 m` walls (in general half of each room's wall
+thickness added up: `(parent + child) / 2`, its own wall, clear of the parent's), or **stands on the
 parent's wall**: its edge lies on the parent's edge (± `0.02 m`), and the
 parent's wall is its wall there. Anything between (the two walls partly in each
 other), sticking out, or the very same rectangle is not contained. A child may
@@ -50,7 +62,8 @@ Preview), Stretch, the Studio wall drag, the Inspector size and dragging a room
 by its floor all use it; Stretch moves only the dragged edge, the Inspector the
 edges that change, moving keeps the size (`translate`). Within `ROOM_SNAP`
 (`0.35 m`) an edge moves to the nearest of:
-- a **sibling's** wall, back to back (`0.15 m` apart): rooms in the same parent,
+- a **sibling's** wall, back to back (the thicker of the two walls apart, `0.15 m`
+  for two default rooms): rooms in the same parent,
   or both top-level. Rooms inside other rooms, or inside the room being
   changed, are never neighbours;
 - the **parent's** wall on the same side (the child then stands on it); and the
@@ -67,7 +80,7 @@ and is undoable. Rooms on different floors do not contain or block one another.
 
 **A child standing on the parent's wall** (`roomWallSegments`): the parent
 builds nothing along the child's stretch of that wall; the child builds it,
-full thickness, on the parent's line, as a piece shared with the parent
+as thick as the parent's walls, on the parent's line, as a piece shared with the parent
 (`sameSide`, `partnerWall` = the same wall name). The child's other walls stop
 at that wall's inside face, so no faces coincide. If an outside neighbour is back
 to back with the parent there, the child shares that stretch with the neighbour
@@ -110,16 +123,17 @@ Wall orientation follows the editor conventions:
 
 An opening's `offset` is measured from its room's centre along the wall
 (positive X on north/south; positive Z on east/west). A boundary is shared
-only by opposite-facing walls on the same floor whose centre lines coincide
-within `0.02 m`, or are separated by the existing `0.15 m` wall thickness
-within `0.02 m`. The latter is the current planner's back-to-back placement.
+only by opposite-facing walls on the same floor whose centre lines are at most
+the thicker of the two walls apart (± `0.02 m`): the same line, the planner's
+back-to-back placement (`0.15 m` for two default rooms), or anything between
+after one room was made thicker.
 The intersection of the walls' physical along-wall extents is the shared
 segment; a point or corner contact is not enough. This tight tolerance avoids
 merging rooms merely because they are nearby. The same matching rule is used
 for wall openings.
 
 For a shared segment, the renderer removes the matching portions from both
-room walls and emits one wall of `0.15 m` thickness. Its fixed coordinate is
+room walls and emits one wall as thick as the thicker of the two rooms' walls. Its fixed coordinate is
 the midpoint of the two room wall centre lines (the centre line itself when
 they coincide). The room whose `id` sorts first (string order) owns that
 piece and builds it. With UUID ids the owner of two neighbours is stable but
