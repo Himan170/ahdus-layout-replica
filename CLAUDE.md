@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (502, all must pass)
+npm test             # vitest unit tests (545, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -25,16 +25,18 @@ npm run assets:env      # public/assets/env/sky.env from the HDRI (needs npm run
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
 # One-time: npx playwright install chromium
-npm run e2e:planner  # 37 checks   e2e/editor-smoke.mjs    (Workplace Studio + its screenshots, the Realistic look
+npm run e2e:planner  # 42 checks   e2e/editor-smoke.mjs    (Workplace Studio + its screenshots, the Realistic look
                      #                                       switch, no missing asset files, floor plan PNG / PDF export,
+                     #                                       room names + hover card, Settings → Room labels,
                      #                                       Plan view: select, drag, Ctrl+Z)
 npm run e2e:play     # 19 checks   e2e/play-smoke.mjs
 npm run e2e:modules  # 17 checks   e2e/modules-smoke.mjs   (uses ?demoModules=1)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
 npm run e2e:tools    # 45 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
                      #                                       room's floor + Preview's Edit item)
-npm run e2e:measurements # 17   e2e/measurements-smoke.mjs (measure distance in 2D, wall lengths, room areas, toggles,
-                     #                                       Esc, per floor, Clear Measurements keeps the room)
+npm run e2e:measurements # 23   e2e/measurements-smoke.mjs (off at start, the Measurements panel, measure distance
+                     #                                       in 2D, wall lengths, room areas, toggles, Esc, per floor,
+                     #                                       Clear Measurements keeps the room)
 npm run e2e:templates # 9 checks  e2e/templates-smoke.mjs (new layout from a template: small office, clinic, factory floor)
 npm run e2e:save     # 30 checks   e2e/save-smoke.mjs      (auto-save, reopen, version history, old saves, list, delete, export/import,
                      #                                       companies, two tabs on one layout)
@@ -89,10 +91,11 @@ and **Preview** (code: "play", `playController.js`, `PlayHUD.jsx`; formerly "Bui
 Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are under "Testing gotchas".
 
 - **Workplace Studio** (`src/ui/`): header (AHDUS = all layouts, breadcrumb with the layout name (click to rename),
-  save status, Undo, Redo, Settings popover: snap, step, show grid, lighting, FPS in dev); **Build panel** of tiles
+  save status, Undo, Redo, Settings popover: snap, step, show grid, lighting, realistic look, room labels, FPS in dev);
+  **Build panel** of tiles
   (Select, Rooms, Walls, Doors & Windows, Stairs, Furniture; keys 1–6) whose **options trays** arm a planner tool or
-  start placing an asset; Layers at its bottom; **canvas card** (Export floor plan, 2D | 3D | Plan, Fit view, empty state,
-  room labels, floating **selection toolbar**); **Inspector** card only while something is selected (or Layers is on);
+  start placing an asset; Layers at its bottom; **canvas card** (Export floor plan, Measurements, 2D | 3D | Plan, Fit view,
+  empty state, room labels, floating **selection toolbar**); **Inspector** card only while something is selected (or Layers is on);
   **footer**: floor switcher menu, the active tool's hint, "Preview Workplace". The tool list is defined once in
   `src/ui/tools.js` (also gives Preview's hotbar/catalog icons). Studio uses the same sky/grass/paving as Preview;
   the build grid shows only while a build tool is active (or "Show grid" is on).
@@ -102,11 +105,22 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   **Export floor plan** (Anish, S2; button left of 2D | 3D, `ui/ExportMenu.jsx`): the current floor as a PNG
   (`floor-plan-<floor>.png`) or an A4 PDF (jsPDF, loaded on first use), drawn on an offscreen 2D canvas from the store
   by `utils/floorPlanExporter.js` (rooms, walls, doors, windows, items, dimensions; no Babylon). Disabled with no rooms.
-  **Measurements** (Anish, A5; buttons on the canvas card, `ui/MeasurementOverlay.jsx`, pure maths in
-  `utils/measurements.js`): "Measure Distance" switches to 2D and takes two clicks on the current floor (Esc or
-  "Exit Measurement Mode" cancels); "Show Wall Lengths" (room walls + WALL_SEGMENT items, overlapping runs merged) and
-  "Show Room Areas" (on the room labels) toggle on their own; "Clear Measurements". Measurements are temporary
-  annotations per floor (React state, not saved, not in undo) and never change the layout.
+  **Measurements** (Anish, A5; the ruler button `Measurements` next to Export opens a small panel, `ui/MeasureMenu.jsx`;
+  labels in `ui/MeasurementOverlay.jsx`, pure maths in `utils/measurements.js`; not in Plan view): "Measure Distance"
+  closes the panel, switches to 2D and takes two clicks on the current floor (Esc or "Exit Measurement Mode", in a hint
+  under the controls, cancels); "Show Wall Lengths" (room walls + WALL_SEGMENT items, overlapping runs merged) and
+  "Show Room Areas" (on the room labels) toggle on their own, both OFF when a layout opens; "Clear Measurements".
+  Esc or a click outside closes the panel; the button shows as active (`data-active`) while any measurement is on.
+  Measurements are temporary annotations per floor (React state, not saved, not in undo) and never change the layout.
+  **Room labels** (`ui/RoomLabels.jsx`): only the room's name, small; a label that would overlap one already drawn is
+  hidden, bigger rooms first (`ui/labelLayout.js`, pure + tested); the selected room's label is its details card.
+  Settings → "Room labels: Names / Off" (per browser, localStorage `ahdus.roomLabels`; Off still shows areas when
+  "Show Room Areas" is on). **Hover card** (`ui/RoomHoverCard.jsx`): hovering a room's floor or walls (3D and 2D) shows
+  name, type, W × D, area, wall height, doors / windows next to the cursor; picked at most every 50 ms, React renders
+  only when the hovered room changes; none in Preview / Plan, while a mouse button is down, measuring or placing.
+  **Limits:** rooms 2 to 200 m wide / deep (`geometry.MAX_ROOM_SIZE`: drawing stops there, Stretch / wall drag refuse,
+  Inspector clamps); walls 2 to 15 m (`building.MAX_WALL_HEIGHT`), floors 2.3 to 15.3 m. Big halls stay light: at most
+  24 ceiling light panels along a wall; the Studio camera zooms out to 320 m and the fog thins past 80 m.
   **Plan** (Anshu, S1 step 1; third option of the canvas card's view control, aria-label `Plan view`;
   `floorplan/FloorPlanView.jsx`, pure maths in `floorplan/planMath.js`): an SVG plan of the current floor, north up as
   in 2D, in place of the 3D canvas (`planView` in WorkplaceEditor; Preview always shows 3D). Rooms with names, walls
@@ -137,8 +151,8 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
 src/components/WorkplaceEditor.jsx  Studio wiring, mode switching; calls engine/systems for the scene, store→mesh syncing and
                                    level visibility (~1500 lines)
 src/ui/                            Workplace Studio: theme.css, tools.js, StudioShell, StudioHeader, BuildPanel (+ trays,
-                                   CatalogPicker), CanvasCard, ExportMenu, RoomLabels, SelectionToolbar, Inspector, StudioFooter,
-                                   EditorErrorBoundary, preview.css
+                                   CatalogPicker), CanvasCard, ExportMenu, MeasureMenu, RoomLabels (+ labelLayout.js),
+                                   RoomHoverCard, SelectionToolbar, Inspector, StudioFooter, EditorErrorBoundary, preview.css
 src/utils/floorPlanExporter.js     2D floor plan of one floor on an offscreen canvas → PNG / PDF download (Anish, S2; tested
                                    in src/utils/__tests__/floorPlanExporter.test.js with jsdom)
 src/floorplan/                     Plan view (Anshu, S1): FloorPlanView.jsx (SVG) + planMath.js (PURE: bounds, world / plan /
@@ -233,7 +247,8 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
   `planWallHeight`: lower walls change only that room; walls higher than the floor allows raise the floor to
   walls + SLAB, rooms that filled it grow with it, floors above follow (one undo step: `HeightsCommand` in
   editorHistory, mergeable for + / − bursts). `planFloorHeight` (Studio floor menu "Floor height"): filling rooms
-  follow, taller ones shrink. A room made lower than its floor gets a wall **band** (part `band`) up to the slab,
+  follow, taller ones shrink (walls 2 to 15 m, floors 2.3 to 15.3 m; on floors over 6.3 m the hints add "Stairs here
+  would be very steep": `steepStairsText`). A room made lower than its floor gets a wall **band** (part `band`) up to the slab,
   shown only where rooms above cover it, so no gap shows from outside. Old saves (`normaliseLayout`): height =
   distance between the saved elevations; walls that met the old 0.5 m slab grow 0.2 m; every floor ≥ tallest wall + SLAB.
 - Stair openings are cut from the floor above and from the ceiling **and roof** below (`stairHolesFor` →
@@ -310,7 +325,7 @@ Opening a layout never freezes the page: `engine/systems/SceneBuilder` builds th
   building says nothing about rendering; it would lower the resolution).
 - **Progress:** `{ done, total, floor, currentFloorReady, allBuilt }`. Studio: "Building your workplace… 40 %" in the
   middle until the floor you are on is built, then "Building the other floors… %" in a corner (`.build-progress`:
-  top left in Studio, clear of the Measurements bar; bottom right in Preview; not shown in Plan view).
+  top left in Studio, clear of the canvas controls; bottom right in Preview; not shown in Plan view).
   Viewer / embed: the same text, `progress` events, `onReady` / `ready` once everything is built.
 - Measured by `e2e:perf` (72 rooms + 864 items, no GPU): the floor you are on shows after ~1.6 s instead of ~2.6 s, and
   the rest builds while you can already work. Numbers from SwiftShader; compare runs on the same machine only.
@@ -341,7 +356,8 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
 - Studio controls have fixed `aria-label`s and e2e scripts select by them; keep these exact labels: `Undo`, `Redo`,
   `Settings`, `Select`, `Rooms`, `Walls`, `Doors & Windows`, `Stairs`, `Furniture`, `Layers`, `Floor switcher`,
   `Add floor above`, `Preview Workplace`, `Back to Studio`, `Add your first room`, `2D view`, `3D view`, `Plan view`,
-  `Fit view`, `Close inspector`. Studio at 1280×720 and 1920×1080: no page / Build panel scroll, canvas ≥ 75 % wide. While Preview has the mouse captured, clicks go to the canvas: release it first.
+  `Fit view`, `Close inspector`, `Measurements` (and its panel `Measurement tools`: `Measure Distance`,
+  `Show Wall Lengths`, `Show Room Areas`, `Clear Measurements`), `Room labels`. Studio at 1280×720 and 1920×1080: no page / Build panel scroll, canvas ≥ 75 % wide. While Preview has the mouse captured, clicks go to the canvas: release it first.
 - viewer.html's dev hooks: `__ahdusViewer` (the LayoutEngine; `.walkthrough.setPose`), `__ahdusScene`, `ahdus`,
   `__viewerEvents` (bridge events), `__ahdusCards`. A viewer captures the mouse on pointerdown (Babylon prevents
   the default of pointerdown, so the browser sends no mousedown; Studio captures it from its button).
@@ -403,8 +419,12 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 
 ## Known limitations
 
-- One straight flight per staircase, always 4.0 m long: on tall floors (5–6 m) the steps get short and the flight steep.
+- One straight flight per staircase, always 4.0 m long: on tall floors the steps get short and the flight steep; over
+  6.3 m (walls go up to 15 m) it is very steep and the hints say so. A proper fix (landings / U-shaped flights) is not done.
   A staircase turned 45° cuts a square opening. Stairs can't be resized (Preview's Edit item says so; Studio's scale gizmo still can).
+- Room labels: a name hidden because it would overlap a bigger room's shows on hover only. The hover card ignores items
+  (pointing at a desk shows the room under it).
+- Old saves that stored elevations (no floor heights) still read a gap over 6.3 m as a missing floor, not one tall floor.
 - A partly covered roof is still drawn; the wall band of a lowered room shows only when ≥ 90 % of it is covered.
 - Lowering a room's walls never lowers its floor (use "Floor height" in the floor menu for that).
 - The outline of the floor below is hidden where it lies exactly under walls of the floor being edited.
