@@ -307,7 +307,8 @@ Opening a layout never freezes the page: `engine/systems/SceneBuilder` builds th
   text, clicks) keeps working. Studio's performance monitor is paused until everything is built (a low FPS while
   building says nothing about rendering; it would lower the resolution).
 - **Progress:** `{ done, total, floor, currentFloorReady, allBuilt }`. Studio: "Building your workplace… 40 %" in the
-  middle until the floor you are on is built, then "Building the other floors… %" in the corner (`.build-progress`).
+  middle until the floor you are on is built, then "Building the other floors… %" in a corner (`.build-progress`:
+  top left in Studio, clear of the Measurements bar; bottom right in Preview; not shown in Plan view).
   Viewer / embed: the same text, `progress` events, `onReady` / `ready` once everything is built.
 - Measured by `e2e:perf` (72 rooms + 864 items, no GPU): the floor you are on shows after ~1.6 s instead of ~2.6 s, and
   the rest builds while you can already work. Numbers from SwiftShader; compare runs on the same machine only.

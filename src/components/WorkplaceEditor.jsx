@@ -1699,10 +1699,11 @@ export default function WorkplaceEditor({ onExit }) {
               }}
             />
           )}
-          {buildProgress && !buildProgress.allBuilt && (
+          {/* Not in Plan view: the plan is drawn from the store, so nothing there waits for the build */}
+          {buildProgress && !buildProgress.allBuilt && !(planView && !isPlaying) && (
             <div
               role="status"
-              className={`build-progress ${buildProgress.currentFloorReady ? 'is-rest' : 'is-start'}`}
+              className={`build-progress ${buildProgress.currentFloorReady ? 'is-rest' : 'is-start'}${isPlaying ? ' in-preview' : ''}`}
               data-build-progress={buildProgress.currentFloorReady ? 'rest' : 'start'}
             >
               {buildProgress.currentFloorReady ? 'Building the other floors…' : 'Building your workplace…'}{' '}
