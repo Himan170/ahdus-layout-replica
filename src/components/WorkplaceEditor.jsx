@@ -16,6 +16,8 @@ import { storedRealisticLook, storeRealisticLook, whenLoaded, setRealistic } fro
 import { RoomSystem } from '../engine/systems/RoomSystem';
 import { ObjectSystem } from '../engine/systems/ObjectSystem';
 import { FloorSystem } from '../engine/systems/FloorSystem';
+import { SceneBuilder } from '../engine/systems/SceneBuilder';
+import { progressPercent } from '../play/buildSchedule';
 import { setCameraView, flyTo as flyCamera } from '../engine/systems/CameraSystem';
 
 // Phase 2 utilities
@@ -114,6 +116,13 @@ export default function WorkplaceEditor({ onExit }) {
 
   // Item meshes of every floor (engine/systems/ObjectSystem), made with the scene
   const objectSystemRef = useRef(null);
+
+  // Progressive loading (engine/systems/SceneBuilder): builds the rooms and items
+  // in ~10 ms slices, the floor you are on first, so opening a big layout never
+  // freezes the page. Every layout change goes through it too.
+  const builderRef = useRef(null);
+  // Shown as "Building your workplace… 40 %"; set only when the text would change
+  const [buildProgress, setBuildProgress] = useState(null);
 
   // Phase 3 managers
   const placementManagerRef = useRef(null);
@@ -325,6 +334,26 @@ export default function WorkplaceEditor({ onExit }) {
     objectSystemRef.current = objectSystem;
     const floorSystem = new FloorSystem(roomSystem, objectSystem, () => useWorkspaceStore.getState());
     floorSystemRef.current = floorSystem;
+    let shownProgress = '';
+    const builder = new SceneBuilder({
+      rooms: roomSystem,
+      objects: objectSystem,
+      floors: floorSystem,
+      getLayout: () => useWorkspaceStore.getState(),
+      onProgress: (progress) => {
+        // No frames until the floor you are on is built (it then shows at once)
+        layoutScene.holdRendering(!progress.currentFloorReady);
+        // A low FPS while building says nothing about rendering: don't lower the resolution then
+        perfMonitorRef.current?.setEnabled(progress.allBuilt);
+        const key = `${progressPercent(progress)}|${progress.currentFloorReady}|${progress.allBuilt}`;
+        if (key === shownProgress) return;
+        shownProgress = key;
+        setBuildProgress(progress);
+      },
+    });
+    builderRef.current = builder;
+    // Dev only (e2e): wait for the build (__ahdusBuild.whenBuilt()), see how far it is
+    if (import.meta.env.DEV) window.__ahdusBuild = builder;
 
     // ── Phase 4: Performance monitor ──
     const perfMonitor = createPerformanceMonitor(engine);
@@ -635,6 +664,8 @@ export default function WorkplaceEditor({ onExit }) {
       floorOutlineRef.current = null;
       clearTimeout(plannerMessageTimer.current);
       gizmoCtrl.dispose();
+      builder.dispose();
+      builderRef.current = null;
       layoutScene.dispose();
       // The scene took every room/item mesh with it. Forget them, or the next
       // scene (React StrictMode mounts twice; Vite hot reload) would reuse
@@ -646,23 +677,23 @@ export default function WorkplaceEditor({ onExit }) {
     };
   }, []);
 
-  // ─── Sync room meshes for EVERY floor (each at its own height) ───
+  // ─── Room and item meshes for EVERY floor (each at its own height) ───
+  // The first run builds the opened layout in slices; after that a change is
+  // built at once (or in slices again if it brings many new rooms / items,
+  // e.g. a restored version). The builder reads the store itself.
+  const startedBuilder = useRef(null); // a new scene (StrictMode's second mount) has a new builder
   useEffect(() => {
-    const roomSystem = roomSystemRef.current;
-    if (!roomSystem) return;
-    const { rebuilt, ms } = roomSystem.sync({ rooms: roomsMap, objects: objectsMap, floors: floorsMap }, selectedRoomId);
+    const builder = builderRef.current;
+    if (!builder) return;
+    if (startedBuilder.current !== builder) {
+      startedBuilder.current = builder;
+      builder.start();
+    } else {
+      builder.request();
+    }
     // Dev only (e2e/perf-smoke.mjs): how many rooms the last sync that built any rebuilt, and how long it took
-    if (import.meta.env.DEV && rebuilt) window.__ahdusRoomSync = { rebuilt, ms };
-    applyLevelVisibility();
-  }, [roomsMap, objectsMap, floorsMap, selectedRoomId, applyLevelVisibility]);
-
-  // ─── Sync item meshes whenever items change (every floor) ───
-  useEffect(() => {
-    const objectSystem = objectSystemRef.current;
-    if (!objectSystem) return;
-    objectSystem.sync({ objects: objectsMap, floors: floorsMap });
-    applyLevelVisibility();
-  }, [objectsMap, floorsMap, applyLevelVisibility]);
+    if (import.meta.env.DEV && builder.lastRoomSync) window.__ahdusRoomSync = builder.lastRoomSync;
+  }, [roomsMap, objectsMap, floorsMap, selectedRoomId, currentFloor, sceneReady]);
 
   // ─── Planner: show the floor being edited, and point the camera at its height ───
   useEffect(() => {
@@ -693,7 +724,7 @@ export default function WorkplaceEditor({ onExit }) {
     } else {
       gizmoCtrl.detach();
     }
-  }, [selectedObjectId, objects, gizmoMode, isPlaying]);
+  }, [selectedObjectId, objects, gizmoMode, isPlaying, buildProgress?.allBuilt]); // a mesh built later gets its gizmo
 
   // ─── Play mode (character + hotbar) ───
   const handleEnterPlay = useCallback(() => {
@@ -1667,6 +1698,16 @@ export default function WorkplaceEditor({ onExit }) {
                 }
               }}
             />
+          )}
+          {buildProgress && !buildProgress.allBuilt && (
+            <div
+              role="status"
+              className={`build-progress ${buildProgress.currentFloorReady ? 'is-rest' : 'is-start'}`}
+              data-build-progress={buildProgress.currentFloorReady ? 'rest' : 'start'}
+            >
+              {buildProgress.currentFloorReady ? 'Building the other floors…' : 'Building your workplace…'}{' '}
+              {progressPercent(buildProgress)} %
+            </div>
           )}
           <TabNotice
             conflict={saveConflict}

@@ -108,6 +108,7 @@ const build = await p.evaluate(() => {
 await frames(3);
 // The realistic look (on by default): measure with the real models and textures loaded
 const real = await p.evaluate(async () => {
+  await window.__ahdusBuild?.whenBuilt(); // progressive loading: big changes are built in slices
   await window.__ahdusAssets.whenLoaded();
   const items = window.__ahdusScene.meshes.filter((m) => m.metadata?.objectId && m.parent?.metadata?.objectId);
   return { items: items.length, models: items.filter((m) => m.metadata.model).length };
