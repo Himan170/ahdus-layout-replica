@@ -245,6 +245,7 @@ The user and company should be added **by the backend from the login**, not trus
 
 ### Dhruv: app shell
 
+- Rooms in the v2 layout JSON have `wallThickness` (metres, 0.1 to 0.6; missing = 0.15, the old fixed thickness), next to `wallHeight`. Walls are centred on the room's edge. Nothing else changed: older files still load.
 - Mount `<LayoutEditor layout={json} mode="edit" onChange={save} />` for admins and `<LayoutViewer layout={json} mode="walkthrough" />` for employees (`src/engine/react`, props in `LAYOUT_ENGINE_API.md`). You fetch the layout JSON and save what `onChange` gives you (v2).
 - `layoutBridge` is the same object whichever page imports it, and follows the rule above when Studio and viewers share a page.
 - `showCard` is temporary. When your shell has a panel area, modules should render there instead.

@@ -99,6 +99,7 @@ CREATE TABLE rooms (
   width           REAL NOT NULL DEFAULT 6 CHECK (width > 0),
   depth           REAL NOT NULL DEFAULT 5 CHECK (depth > 0),
   wall_height     REAL NOT NULL DEFAULT 3 CHECK (wall_height > 0),
+  wall_thickness  REAL NOT NULL DEFAULT 0.15 CHECK (wall_thickness BETWEEN 0.1 AND 0.6),
   color           TEXT NOT NULL DEFAULT '#4a7dff',
   floor_finish    TEXT NOT NULL DEFAULT 'default',
   department_ref  TEXT,

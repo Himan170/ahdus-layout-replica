@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (545, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (558, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -43,7 +43,8 @@ npm run e2e:save     # 30 checks   e2e/save-smoke.mjs      (auto-save, reopen, v
 npm run e2e:perf     # 10 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls;
                      #                                       one room change rebuilds only it + its neighbours; all items
                      #                                       real models; REALISTIC=off measures the simple look)
-npm run e2e:shared-walls  # 15     e2e/shared-walls-smoke.mjs (one wall + one doorway; picks with either owner)
+npm run e2e:shared-walls  # 17     e2e/shared-walls-smoke.mjs (one wall + one doorway; picks with either owner;
+                          #                                    Inspector "Wall thickness" 0.4 m + Ctrl+Z)
 npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
                           #                                    rooms drawn inside sharing walls with each other and
                           #                                    the outer wall, doors, picks, upper floor, save + reopen)
@@ -118,6 +119,8 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   "Show Room Areas" is on). **Hover card** (`ui/RoomHoverCard.jsx`): hovering a room's floor or walls (3D and 2D) shows
   name, type, W × D, area, wall height, doors / windows next to the cursor; picked at most every 50 ms, React renders
   only when the hovered room changes; none in Preview / Plan, while a mouse button is down, measuring or placing.
+  **Wall thickness** (Inspector "Wall thickness", 0.10 to 0.60 m, step 0.05; room field `wallThickness`, default 0.15):
+  see "Shared walls and nested rooms". `geometry.planWallThickness` checks it; `editor.updateRoom`, one undo step.
   **Limits:** rooms 2 to 200 m wide / deep (`geometry.MAX_ROOM_SIZE`: drawing stops there, Stretch / wall drag refuse,
   Inspector clamps); walls 2 to 15 m (`building.MAX_WALL_HEIGHT`), floors 2.3 to 15.3 m. Big halls stay light: at most
   24 ceiling light panels along a wall; the Studio camera zooms out to 320 m and the fog thins past 80 m.
@@ -276,10 +279,14 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 
 ## Shared walls and nested rooms (how they work)
 
-Both are **derived from the room rectangles; nothing extra is saved** (no wall records, no parent ids). Details:
-`docs/ROOM_FORMAT.md`.
-- **Shared walls:** two rooms on one floor are back to back when opposite walls are 0 or 0.15 m apart (± 0.02 m).
-  The shared part is built ONCE, 0.15 m thick, by the room whose **id sorts first** (with UUIDs that is unpredictable:
+Both are **derived from the room rectangles and their `wallThickness`; nothing extra is saved** (no wall records, no
+parent ids). Details: `docs/ROOM_FORMAT.md`.
+- **Wall thickness** (per room, `geometry.wallThicknessOf`: `room.wallThickness` or 0.15 m for old saves and drawn
+  rectangles; 0.1 to 0.6 m): walls are centred on the room's edge (half inside, half outside). Never use the
+  constant `WALL_THICKNESS` for a room's walls; it is only the default.
+- **Shared walls:** two rooms on one floor are back to back when opposite walls are at most the thicker wall apart
+  (± 0.02 m; 0 or 0.15 m for default rooms). The shared part is built ONCE, as thick as the thicker wall
+  (`sharedWallThickness`), centred between them, by the room whose **id sorts first** (with UUIDs that is unpredictable:
   never assume which), as its own mesh tagged `{ sharedWith, sharedWall, sharedAt }`.
   - **Picks:** every pick of a wall goes through `pickHelpers.wallTargetOf(hit, eye)`, which returns the room on the
     side it was hit from (face normal; camera or hit point on its top). This covers Studio select, wall drag and
@@ -289,7 +296,7 @@ Both are **derived from the room rectangles; nothing extra is saved** (no wall r
   change rebuilds that room plus the rooms touching its old or new rectangle (`roomsToRebuild`), not the whole floor.
   Every rebuild input must be in that key.
 - **Nested rooms:** a room may lie inside another one (`roomContainedBy`; the innermost is `containerOf`): on each
-  side at least 0.15 m from the outer walls, or **standing on the outer wall** (its edge on the outer room's edge,
+  side at least (outer + inner wall thickness) / 2 from the outer walls (0.15 m for default rooms), or **standing on the outer wall** (its edge on the outer room's edge,
   ± 0.02 m: that wall is its wall there). Walls partly in each other, partial overlaps and sticking out stay blocked.
   - **Snapping: one rule, `geometry.snapRoomRect`**, used by drawing (Studio + Preview), Stretch, the Studio wall drag,
     the Inspector size and moving a room by its floor (`translate`: the size stays). Within `ROOM_SNAP` 0.35 m an edge
@@ -297,7 +304,7 @@ Both are **derived from the room rectangles; nothing extra is saved** (no wall r
     the **outer room's wall** (an outer room's edge also onto the rooms standing inside it); else, top-level only,
     onto the floor below. `roomRectBlocker`: changing a room keeps its children inside and itself inside its parent.
   - **One wall on the outer wall:** where an inner room stands on it the outer room builds nothing; the inner room
-    builds that stretch, full thickness on the outer line, shared with the outer room (`sameSide`, `innerRoom`,
+    builds that stretch, as thick as the outer room's walls, on the outer line, shared with the outer room (`sameSide`, `innerRoom`,
     `outerRoom` tags: a pick from inside is the inner room, from outside the outer room). Its other walls stop at that
     wall's inside face. A door there is stored on both rooms (`partnerWall`). Siblings share through the normal code.
   - **Drawing:** the outer room's floor (and ceiling, if the inner walls reach it) is cut out under the inner room
@@ -429,7 +436,11 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Lowering a room's walls never lowers its floor (use "Floor height" in the floor menu for that).
 - The outline of the floor below is hidden where it lies exactly under walls of the floor being edited.
 - Rooms are rectangles (no L-shapes or free-form walls). Neighbours share one wall only when back to back
-  (0 or 0.15 m apart); further apart they keep two walls.
+  (at most the thicker wall apart); further apart they keep two walls.
+- Wall thickness is per room, not per wall (a room's outside and inside walls are equally thick). Thickening a
+  wall checks only that room's items, not the neighbour's on the other side of a shared wall. The build previews
+  and the wall highlight use the room's own thickness, not the shared wall's. Free-standing walls (Walls tool) are
+  still 0.15 m.
 - Nested rooms: the outer room's slab and roof are not cut; moving or resizing the outer room doesn't take the rooms
   inside along (it is blocked if they would stick out of it); moving a room doesn't move its furniture; rooms can be
   moved by their floor only in Studio. A nested room's own walls are drawn 1 cm thinner on the outside than the data says.
