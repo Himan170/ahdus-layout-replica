@@ -156,6 +156,8 @@ src/hooks/useStudioScene.js        Studio's scene lifecycle, ONE effect: createL
                                    SceneBuilder, perf monitor, play controller, bridge context, placement manager, planner
                                    tools, floor outline, gizmo controller, pointer handlers, FPS counter; one cleanup.
                                    WorkplaceEditor owns the refs / state and passes them in (same names)
+src/hooks/studioPointer.js         installStudioPointer(): Studio's scene.onPointerMove / onPointerDown (measure clicks,
+                                   placing, planner build tools, selection), called inside useStudioScene's effect
 src/hooks/useStoreMeshSync.js      Store → scene, right after useStudioScene: room + item meshes of every floor
                                    (builder.start() / request()), the floor being edited + camera height, the gizmo on
                                    the selected object. Refs and values passed in by WorkplaceEditor (same names)
