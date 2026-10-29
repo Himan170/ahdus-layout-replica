@@ -151,11 +151,14 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
 ## Code map
 
 ```
-src/components/WorkplaceEditor.jsx  Studio wiring, mode switching, store→mesh syncing and level visibility (~1,500 lines)
+src/components/WorkplaceEditor.jsx  Studio wiring, mode switching, level visibility (~1,460 lines)
 src/hooks/useStudioScene.js        Studio's scene lifecycle, ONE effect: createLayoutScene, Room/Object/FloorSystem,
                                    SceneBuilder, perf monitor, play controller, bridge context, placement manager, planner
                                    tools, floor outline, gizmo controller, pointer handlers, FPS counter; one cleanup.
                                    WorkplaceEditor owns the refs / state and passes them in (same names)
+src/hooks/useStoreMeshSync.js      Store → scene, right after useStudioScene: room + item meshes of every floor
+                                   (builder.start() / request()), the floor being edited + camera height, the gizmo on
+                                   the selected object. Refs and values passed in by WorkplaceEditor (same names)
 src/ui/                            Workplace Studio: theme.css, tools.js, StudioShell, StudioHeader, BuildPanel (+ trays,
                                    CatalogPicker), CanvasCard, ExportMenu, MeasureMenu, RoomLabels (+ labelLayout.js),
                                    RoomHoverCard, SelectionToolbar, Inspector, StudioFooter, EditorErrorBoundary, preview.css
@@ -321,8 +324,8 @@ parent ids). Details: `docs/ROOM_FORMAT.md`.
 
 Opening a layout never freezes the page: `engine/systems/SceneBuilder` builds the rooms and items in slices of
 ~10 ms (`BUILD_BUDGET_MS`), yielding between them (`scheduler.postTask` / MessageChannel). Used by Workplace Studio
-(`WorkplaceEditor`: the one effect that syncs meshes calls `builder.start()` for a new scene, else `request()`) and
-`LayoutEngine` (viewer, embed).
+(`hooks/useStoreMeshSync.js`, called by WorkplaceEditor: the one effect that syncs meshes calls `builder.start()` for a
+new scene, else `request()`) and `LayoutEngine` (viewer, embed).
 - **Order** (`buildSchedule.floorBuildOrder`): the floor you are on, then the floors below (nearest first), then above.
   Each floor's room materials first, one per piece (painting textures is slow; painted tiles are kept for the next scene).
 - **The store is the only truth:** every slice reads the latest layout, so edits, undo and floor changes during a build
