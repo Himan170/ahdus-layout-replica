@@ -18,7 +18,7 @@ import {
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { assetIcon, sizeLabel } from './tools';
-import { DOOR_DEFAULTS, WINDOW_DEFAULTS } from '../play/geometry';
+import { DOOR_DEFAULTS, MAX_ROOM_SIZE, WINDOW_DEFAULTS } from '../play/geometry';
 import { describeRoom, describeObject, describeAccessibilityRoutes } from '../utils/accessibleSummary';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
@@ -253,9 +253,9 @@ function RoomBody({ room, floorName, onUpdate }) {
         </select>
       </label>
       <div className="insp-grid insp-grid--3">
-        <NumberField label="Width" value={room.width} step={0.5} min={2} max={30} digits={1} suffix="m"
+        <NumberField label="Width" value={room.width} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m"
           onCommit={(v) => onUpdate(room.id, { width: v })} />
-        <NumberField label="Depth" value={room.depth} step={0.5} min={2} max={30} digits={1} suffix="m"
+        <NumberField label="Depth" value={room.depth} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m"
           onCommit={(v) => onUpdate(room.id, { depth: v })} />
         <NumberField label="Wall height" value={room.wallHeight ?? 3} step={0.1} min={2} max={6} digits={1} suffix="m"
           onCommit={(v) => onUpdate(room.id, { wallHeight: v })} />

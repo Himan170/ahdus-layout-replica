@@ -392,6 +392,9 @@ export default function FloorPlanView({
           const selected = room.id === selectedRoomId;
           const name = room.name || room.type || 'Room';
 
+          // name above the size; the gap grows with the text (big halls have big text)
+          const nameSize = Math.max(0.12, Math.min(w, d) * 0.12);
+          const sizeSize = Math.max(0.09, Math.min(w, d) * 0.08);
           return (
             <g
               key={room.id}
@@ -422,10 +425,10 @@ export default function FloorPlanView({
               />
               <text
                 x={c.x}
-                y={c.y - 0.12}
+                y={c.y - sizeSize * 0.7}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fontSize={Math.max(0.12, Math.min(w, d) * 0.12)}
+                fontSize={nameSize}
                 fill="#111827"
                 fontWeight="600"
                 pointerEvents="none"
@@ -434,10 +437,10 @@ export default function FloorPlanView({
               </text>
               <text
                 x={c.x}
-                y={c.y + 0.22}
+                y={c.y + nameSize * 0.7}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fontSize={Math.max(0.09, Math.min(w, d) * 0.08)}
+                fontSize={sizeSize}
                 fill="#64748b"
                 pointerEvents="none"
               >

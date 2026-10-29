@@ -16,6 +16,13 @@ describe('stretchRoom', () => {
     expect(r.rect.z - r.rect.depth / 2).toBeCloseTo(-2.5);
   });
 
+  it('stretches a wall out to a 200 m hall, not further', () => {
+    const big = stretchRoom(office(), 'east', 197);
+    expect(big.problem).toBeNull();
+    expect(big.rect.width).toBeCloseTo(200);
+    expect(stretchRoom(office(), 'east', 198).problem).toBe('Too big (rooms are at most 200 m)');
+  });
+
   it('pulling the east wall in shrinks the room (negative delta)', () => {
     const r = stretchRoom(office(), 'east', 1);
     expect(r.problem).toBeNull();

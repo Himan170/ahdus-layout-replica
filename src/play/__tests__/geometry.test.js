@@ -4,6 +4,7 @@ import {
   rectFromCorners, wallSegmentTransform, splitWall, roomWalls, openingOffsetFromHit,
   overlapsExisting, openingAt, findRoomAt, roomOpenings, WALL_THICKNESS,
   roomWallSegments, wallSegmentOpenings, wallPickTarget, touchingRooms, roomsToRebuild,
+  MAX_ROOM_SIZE, planRoom,
 } from '../geometry';
 
 describe('rectFromCorners', () => {
@@ -15,6 +16,16 @@ describe('rectFromCorners', () => {
   });
   it('grows a tiny drag to the minimum size, in the drag direction', () => {
     expect(rectFromCorners({ x: 2, z: 2 }, { x: 1.5, z: 2 })).toEqual({ x: 1.25, z: 2.75, width: 1.5, depth: 1.5 });
+  });
+  it('allows big halls up to MAX_ROOM_SIZE (200 m) and stops a bigger drag there', () => {
+    expect(MAX_ROOM_SIZE).toBe(200);
+    expect(rectFromCorners({ x: 0, z: 0 }, { x: 150, z: 35.7 })).toEqual({ x: 75, z: 17.85, width: 150, depth: 35.7 });
+    expect(rectFromCorners({ x: 10, z: 0 }, { x: -250, z: 5 })).toEqual({ x: -90, z: 2.5, width: 200, depth: 5 });
+  });
+  it('planRoom draws a 120 m × 60 m hall', () => {
+    const { rect, blocker } = planRoom({ x: -60, z: -30 }, { x: 60, z: 30 }, []);
+    expect(blocker).toBeNull();
+    expect(rect).toEqual({ x: 0, z: 0, width: 120, depth: 60 });
   });
 });
 

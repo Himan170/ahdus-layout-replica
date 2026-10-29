@@ -27,6 +27,8 @@ const SKY = {
   night: '#141a2a',
 };
 const PLANNER_BG = new Color4(0.06, 0.08, 0.12, 1);
+/** Camera distance (m) up to which the fog is as thick as the preset says. */
+const FOG_CLEAR_RADIUS = 80;
 /** How strongly the HDRI sky lights the photo-textured rooms, per preset. */
 const ENV_INTENSITY = { day: 0.7, office: 0.45, night: 0.08 };
 
@@ -52,6 +54,7 @@ export function createSiteEnvironment(scene, ground, lights = null) {
 
   let playLook = false;
   let preset = 'day';
+  let fogDensity = 0.009; // the preset's fog (thinned when the camera is far out)
   let gridVisible = false;
 
   // ── Realistic look: the HDRI sky (env/sky.env) lights the PBR room surfaces
@@ -136,8 +139,17 @@ export function createSiteEnvironment(scene, ground, lights = null) {
     scene.clearColor = new Color4(sky.r, sky.g, sky.b, 1);
     scene.fogMode = Scene.FOGMODE_EXP2;
     scene.fogColor = sky;
-    scene.fogDensity = preset === 'night' ? 0.02 : 0.009;
+    fogDensity = preset === 'night' ? 0.02 : 0.009;
+    scene.fogDensity = fogDensity;
   }
+
+  // The Studio camera can zoom out to 320 m (a 200 m hall): past FOG_CLEAR_RADIUS the
+  // fog thins in step, so the building stays visible. Walking views have no radius.
+  const thinFog = scene.onBeforeRenderObservable.add(() => {
+    if (scene.fogMode !== Scene.FOGMODE_EXP2) return;
+    const r = scene.activeCamera?.radius;
+    scene.fogDensity = r > FOG_CLEAR_RADIUS ? fogDensity * (FOG_CLEAR_RADIUS / r) : fogDensity;
+  });
 
   return {
     /** true = Play look (sky, land, paving), false = planner look */
@@ -172,6 +184,7 @@ export function createSiteEnvironment(scene, ground, lights = null) {
       applySky();
     },
     dispose() {
+      scene.onBeforeRenderObservable.remove(thinFog);
       land.dispose();
       skybox?.dispose(false, true);
     },
