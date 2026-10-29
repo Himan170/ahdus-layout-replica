@@ -60,10 +60,13 @@ export function createSiteEnvironment(scene, ground, lights = null) {
   let skyTexture = null; // prefiltered cube map, once loaded
   let skybox = null;
   let skyFailed = false;
+  let skyLoading = false;
   function loadSky() {
-    if (skyTexture || skyFailed) return;
+    if (skyTexture || skyFailed || skyLoading) return;
+    skyLoading = true;
     let settle;
     trackLoad(scene, new Promise((res) => { settle = res; }));
+    let tex = null;
     const loaded = () => {
       if (scene.isDisposed || skyFailed) return settle();
       skyTexture = tex;
@@ -89,9 +92,19 @@ export function createSiteEnvironment(scene, ground, lights = null) {
       console.warn(`[realistic look] the sky (${ENV_FILE}) could not be loaded: ${message ?? ''}`);
       settle();
     };
-    // a prefiltered .env cube map (CubeTexture.CreateFromPrefilteredData, with an onError)
-    const tex = new CubeTexture(assetUrl(scene, ENV_FILE), scene, null, false, null, () => queueMicrotask(loaded), failed,
-      undefined, true, '.env', true);
+    // Start on the next task, and only if the scene still exists. React's
+    // StrictMode (dev) disposes the first scene of a canvas at once and makes a
+    // second one on the same WebGL context. Babylon fetches the file after that
+    // dispose, so the disposed engine would still decode it, and its rgbdDecode
+    // shader would take over the live engine's (they share the context's shader
+    // cache): with parallel shader compile that shader then never gets ready and
+    // the sky never shows ("Unable to compile effect ... rgbdDecode" after 120 s).
+    setTimeout(() => {
+      if (scene.isDisposed || scene.getEngine().isDisposed) return settle();
+      // a prefiltered .env cube map (CubeTexture.CreateFromPrefilteredData, with an onError)
+      tex = new CubeTexture(assetUrl(scene, ENV_FILE), scene, null, false, null, () => queueMicrotask(loaded), failed,
+        undefined, true, '.env', true);
+    });
   }
   onLookChange(scene, () => applySky());
 
