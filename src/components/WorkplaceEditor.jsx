@@ -48,7 +48,7 @@ import { createPerformanceMonitor } from '../utils/performanceOptimiser';
 // Components
 import PlayHUD from './PlayHUD';
 
-// Workplace Studio UI (UI_SPEC.md)
+// Workplace Studio UI
 import StudioShell from '../ui/StudioShell';
 import StudioHeader from '../ui/StudioHeader';
 import BuildPanel from '../ui/BuildPanel';

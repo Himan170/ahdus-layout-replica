@@ -5,8 +5,10 @@ This module is the **3D replica of the company's building**: rooms, floors, stai
 Other interns build modules that plug into it (see "Team" below), but **the current priority is making the
 3D workspace complete and polished, not team integration.**
 
-Full history, status and backlog: `docs/PROGRESS_REPORT.md`. Teammate API guide: `docs/TEAM_INTEGRATION.md`.
-Plain HTML pages (the AI Training Platform): `docs/EMBED_GUIDE.md`; integration plan: `docs/AHDUS_3D_INTEGRATION_PLAN.md`.
+Teammate API guide: `docs/TEAM_INTEGRATION.md`. Plain HTML pages (the AI Training Platform): `docs/EMBED_GUIDE.md`.
+**Not in git** (Himan's laptop only, folder `private-docs/`, ignored by git): `PROGRESS_REPORT.md` (full history, status,
+backlog), `AHDUS_3D_INTEGRATION_PLAN.md`, `UI_SPEC.md`, `NEXT_FIXES.md`, the cost estimate and the SRD PDF. A cloud
+copy of the repo doesn't have them: ask Himan, and never commit them (the repo is public).
 
 ## Commands
 
@@ -23,7 +25,7 @@ npm run assets:env      # public/assets/env/sky.env from the HDRI (needs npm run
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
 # One-time: npx playwright install chromium
-npm run e2e:planner  # 37 checks   e2e/editor-smoke.mjs    (Workplace Studio + UI_SPEC screenshots, the Realistic look
+npm run e2e:planner  # 37 checks   e2e/editor-smoke.mjs    (Workplace Studio + its screenshots, the Realistic look
                      #                                       switch, no missing asset files, floor plan PNG / PDF export,
                      #                                       Plan view: select, drag, Ctrl+Z)
 npm run e2e:play     # 19 checks   e2e/play-smoke.mjs
@@ -68,7 +70,7 @@ explain each step he must do in one sentence.
   then `git switch main` + `git pull`. Tags go on `main`'s merge commit after the pull.
 - Never commit when tests fail: run `npm test` (and the e2e script for the area touched) before every commit.
 - Commit after every working step, with a clear message ("Fix: deleting ground floor", "Add: export layout").
-- Bigger tasks (e.g. Part A of `NEXT_FIXES.md`) get their own branch (`fix/next-fixes`), one commit per fixed item.
+- Bigger tasks (e.g. a review's list of fixes) get their own branch (`fix/next-fixes`), one commit per fixed item.
 - Never force-push, never rewrite history on `main`, never delete branches without asking.
 - **Always ask Himan before pushing to GitHub, opening a PR, merging one, or pushing a tag.**
 - Secrets (Supabase keys later) go in `.env`, never in git; keep a `.env.example` with no real values.
@@ -84,7 +86,7 @@ UI: plain CSS with design tokens (`src/ui/theme.css`), `lucide-react` icons, Int
 
 UI names (use them in all UI text): **Workplace Studio** (code: "planner", `WorkplaceEditor.jsx`, `plannerTools.js`)
 and **Preview** (code: "play", `playController.js`, `PlayHUD.jsx`; formerly "Build mode" / "Play mode").
-Spec of the look: `UI_SPEC.md` (repo root).
+Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are under "Testing gotchas".
 
 - **Workplace Studio** (`src/ui/`): header (AHDUS = all layouts, breadcrumb with the layout name (click to rename),
   save status, Undo, Redo, Settings popover: snap, step, show grid, lighting, FPS in dev); **Build panel** of tiles
@@ -311,8 +313,10 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
 
 ## Testing gotchas
 
-- Studio controls have fixed `aria-label`s (UI_SPEC section 7: `Rooms`, `Floor switcher`, `Preview Workplace`, …);
-  e2e scripts select by them. While Preview has the mouse captured, clicks go to the canvas: release it first.
+- Studio controls have fixed `aria-label`s and e2e scripts select by them; keep these exact labels: `Undo`, `Redo`,
+  `Settings`, `Select`, `Rooms`, `Walls`, `Doors & Windows`, `Stairs`, `Furniture`, `Layers`, `Floor switcher`,
+  `Add floor above`, `Preview Workplace`, `Back to Studio`, `Add your first room`, `2D view`, `3D view`, `Plan view`,
+  `Fit view`, `Close inspector`. Studio at 1280×720 and 1920×1080: no page / Build panel scroll, canvas ≥ 75 % wide. While Preview has the mouse captured, clicks go to the canvas: release it first.
 - viewer.html's dev hooks: `__ahdusViewer` (the LayoutEngine; `.walkthrough.setPose`), `__ahdusScene`, `ahdus`,
   `__viewerEvents` (bridge events), `__ahdusCards`. A viewer captures the mouse on pointerdown (Babylon prevents
   the default of pointerdown, so the browser sends no mousedown; Studio captures it from its button).
@@ -362,7 +366,7 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
   It is OFF unless `VITE_LAYOUT_BACKEND=supabase` is set as well as `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
   (`.env.example`); without the flag apiService makes zero network calls (`apiService.noBackend.test.js`).
   Production saving goes through the platform API, which takes the tenant from the server session, never a
-  `company_id` sent by the browser (docs/AHDUS_3D_INTEGRATION_PLAN.md).
+  `company_id` sent by the browser (private-docs/AHDUS_3D_INTEGRATION_PLAN.md).
 
 ## Team (other interns' modules plug in through layoutBridge)
 
@@ -409,7 +413,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 
 ## DONE: "make both modes work the same way" (requested by Himan, 13 Oct 2026)
 
-The planner "felt very hard to understand". Done (see docs/PROGRESS_REPORT.md section 3.8):
+The planner "felt very hard to understand". Done (see private-docs/PROGRESS_REPORT.md section 3.8):
 1. Planner toolbar is now a vertical bar on the left (`PlannerToolbar.jsx`).
 2. Build mode has the Edit item tool (slot 9): move, turn, resize, lock what you look at.
 3. The planner has Build mode's tools with the mouse: draw room, drag a wall to resize, door / window, wall,
@@ -417,13 +421,13 @@ The planner "felt very hard to understand". Done (see docs/PROGRESS_REPORT.md se
 
 ## DONE: Workplace Studio UI (approved by Himan, 14 Oct 2026)
 
-The planner screen is now **Workplace Studio** and Build mode is **Preview**, per `UI_SPEC.md`
-(see docs/PROGRESS_REPORT.md section 3.10). The store, `editorHistory`, `layoutBridge` and the pure maths are unchanged.
+The planner screen is now **Workplace Studio** and Build mode is **Preview**, per `private-docs/UI_SPEC.md`
+(see private-docs/PROGRESS_REPORT.md section 3.10). The store, `editorHistory`, `layoutBridge` and the pure maths are unchanged.
 
-## DONE: NEXT_FIXES.md Part A (15 Oct 2026)
+## DONE: review fixes, Part A (15 Oct 2026, private-docs/NEXT_FIXES.md)
 
 Ground floor protected, two-tab conflicts, undo bursts, instancing/merging for big buildings, UUIDs, export/import,
-companies screen restyle, clean-up (docs/PROGRESS_REPORT.md section 3.13).
+companies screen restyle, clean-up (private-docs/PROGRESS_REPORT.md section 3.13).
 
 ## DONE: shared walls + nested rooms (v0.3.0, 20 Oct 2026)
 
@@ -433,7 +437,7 @@ coinciding faces for nested rooms. See "Shared walls and nested rooms" above.
 
 ## DONE: H2 embeddable engine (22 Oct 2026, branch `himan/engine`)
 
-`LayoutEngine` draws a layout without the editor UI (docs/LAYOUT_ENGINE_API.md, docs/PROGRESS_REPORT.md 3.14):
+`LayoutEngine` draws a layout without the editor UI (docs/LAYOUT_ENGINE_API.md, private-docs/PROGRESS_REPORT.md 3.14):
 - **Own copy:** each engine has its own workspace store (`createWorkspaceStore()`, the app's shape); `loadLayout`
   takes a save, an exported file or v2 (`toV1`), `getLayout` returns v2 (`mergeV2Extras` keeps routes, links, …).
 - **Modes:** `edit` / `view` (orbit) / `walkthrough` (Preview's controller with `readOnly`). `engine.editor` =
@@ -446,7 +450,7 @@ coinciding faces for nested rooms. See "Shared walls and nested rooms" above.
 
 ## DONE: the embed for plain HTML pages (22 Oct 2026, branch `himan/embed`)
 
-Step 2 of `docs/AHDUS_3D_INTEGRATION_PLAN.md` (docs/EMBED_GUIDE.md, docs/PROGRESS_REPORT.md 3.16): the Training Platform's
+Step 2 of `private-docs/AHDUS_3D_INTEGRATION_PLAN.md` (docs/EMBED_GUIDE.md, private-docs/PROGRESS_REPORT.md 3.16): the Training Platform's
 pages are plain HTML, so they get one file, `dist-embed/ahdus-workplace.js` (`npm run build:embed`, IIFE, React +
 Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 - `AHDUSWorkplace.mount(element, { layout | layoutUrl, headers, mode, quality, onEvent, onError })` → `{ ready, setMode,
@@ -465,7 +469,7 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 
 ## DONE: realistic look, real assets (25 Oct 2026, branch `feat/real-assets`)
 
-Real furniture models, photo textures and an HDRI sky (docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
+Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
 
 Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): lifts; free-form walls,
 L-shaped rooms; measure tool + dimensions; industrial machine models (Industrial Pack: FBX → GLB first); SVG 2D

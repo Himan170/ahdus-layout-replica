@@ -93,7 +93,7 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 
 ### H5. Review and merge
 - [ ] Review every pull request within 24 hours. Himan's own pull requests are reviewed by Roshan.
-- [ ] Keep `docs/PROGRESS_REPORT.md` and `CLAUDE.md` up to date after each merge.
+- [ ] Keep `CLAUDE.md` (and Himan's private progress report) up to date after each merge.
 
 ### H6. First gate demo (SRD section 33)
 - [ ] Prepare the 3D part of the demo journey: company creation, digital workplace, employee characters, HR explanation, knowledge, training, completion, employee replacement. Record a screen demo.
@@ -210,7 +210,7 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 - [ ] A template picker with card previews, room/item statistics, and blank start option when creating a new layout in `CompanySelector.jsx`.
 
 ### S5. UI for new features
-- [ ] Style Roshan's version history list, Anish's route panel and measure tool using `UI_SPEC.md` and `src/ui/theme.css`.
+- [ ] Style Roshan's version history list, Anish's route panel and measure tool using the design tokens in `src/ui/theme.css`.
 
 ### S6. Mobile pass
 - [ ] Check the Studio screens at phone width and fix layout problems.

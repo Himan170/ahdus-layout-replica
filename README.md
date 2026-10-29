@@ -158,7 +158,7 @@ src/
 ├── components/
 │   ├── WorkplaceEditor.jsx    Scene setup, mesh syncing, Studio wiring, Studio/Preview switching
 │   └── PlayHUD.jsx            Preview screen: hotbar, crosshair, hints, catalog
-├── ui/                        Workplace Studio (docs: UI_SPEC.md)
+├── ui/                        Workplace Studio (design tokens in theme.css)
 │   ├── theme.css              Design tokens (colours, radii, spacing, font)
 │   ├── tools.js               The build tools, defined once (Studio tiles + Preview icons)
 │   ├── StudioShell.jsx        Header / Build panel / canvas card / Inspector / footer layout
