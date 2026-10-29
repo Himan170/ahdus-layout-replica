@@ -29,11 +29,7 @@ import {
   useWorkspaceStore,
 } from '../store/workspaceStore';
 import { createEditorHistory } from '../store/editorHistory';
-import {
-  startAutoSave, stopAutoSave, saveNow, renameLayout, reloadLayout, saveAsCopy, exportLayout, importLayout,
-} from '../services/apiService';
-import { downloadText } from '../ui/download';
-import { exportFloorPlanAsPng, exportFloorPlanAsPdf } from '../utils/floorPlanExporter';
+import { startAutoSave, stopAutoSave, saveNow, renameLayout } from '../services/apiService';
 
 // The scene lifecycle (scene, systems, builder, play controller, tools, pointer handlers)
 import { useStudioScene } from '../hooks/useStudioScene';
@@ -41,6 +37,8 @@ import { useStudioScene } from '../hooks/useStudioScene';
 import { useStoreMeshSync } from '../hooks/useStoreMeshSync';
 // Keyboard shortcuts (keydown + wheel)
 import { useStudioKeyboard } from '../hooks/useStudioKeyboard';
+// File and layout actions (all layouts, export / import, copy, floor plan, photo)
+import { useStudioFileActions } from '../hooks/useStudioFileActions';
 
 // Components
 import PlayHUD from './PlayHUD';
@@ -59,13 +57,7 @@ import Inspector from '../ui/Inspector';
 import StudioFooter from '../ui/StudioFooter';
 import TabNotice from '../ui/TabNotice';
 import ProposedLayoutBanner from '../ui/ProposedLayoutBanner';
-import {
-  isPhotoReconstructionOn,
-  RECONSTRUCTION_OFF,
-  uploadReconstructionPhoto,
-  requestPhotoAnalysis,
-  stageProposedLayout,
-} from '../services/reconstructionService';
+import { isPhotoReconstructionOn } from '../services/reconstructionService';
 import { activeTile, toolHint } from '../ui/tools';
 
 import {
@@ -888,109 +880,11 @@ export default function WorkplaceEditor({ onExit }) {
             ? 'saving'
             : 'saved';
 
-  const handleAllLayouts = useCallback(async () => {
-    const result = await saveNow();
-    if (!result.ok && !window.confirm(`Your last changes could not be saved: ${result.error}.\nLeave anyway?`)) return;
-    useWorkspaceStore.getState().resetWorkspace();
-    onExit();
-  }, [onExit]);
-
-  // Another tab saved this layout: load theirs (our undo steps describe the old
-  // layout, so they go), or keep ours as a new layout.
-  const handleReloadTheirs = useCallback(async () => {
-    gizmoControllerRef.current?.detach();
-    if (await reloadLayout()) editor.clear();
-    else showStudioMessage('This layout was deleted in another tab', true);
-  }, [editor, showStudioMessage]);
-  // Backup until there is a server: this layout as a file, or a file added to the layouts
-  const handleExportLayout = useCallback(async () => {
-    const { companyId, layoutId } = useWorkspaceStore.getState();
-    try {
-      const { fileName, text } = await exportLayout(companyId, layoutId);
-      downloadText(fileName, text);
-      showStudioMessage(`Downloaded ${fileName}`);
-    } catch (err) {
-      showStudioMessage(err.message, true);
-    }
-  }, [showStudioMessage]);
-  const handleImportLayout = useCallback(async (file) => {
-    try {
-      const { name } = await importLayout(useWorkspaceStore.getState().companyId, await file.text());
-      showStudioMessage(`Added "${name}" to your layouts`);
-    } catch (err) {
-      showStudioMessage(err.message, true);
-    }
-  }, [showStudioMessage]);
-  const handleSaveCopy = useCallback(async () => {
-    const result = await saveAsCopy();
-    if (result.ok) showStudioMessage(`Saved as "${useWorkspaceStore.getState().layoutName}"`);
-  }, [showStudioMessage]);
-
-  // ─── Floor plan export (PNG / PDF) ───
-  const handleExportPng = useCallback(async () => {
-    const { rooms, objects, floors, currentFloor } = useWorkspaceStore.getState();
-    const floorName = floors[currentFloor]?.name ?? `Floor ${currentFloor}`;
-    setExportLoading(true);
-    const result = await exportFloorPlanAsPng({ rooms, objects, floors, floorId: currentFloor, floorName });
-    setExportLoading(false);
-    if (!result.ok) showStudioMessage(result.error, true);
-    else showStudioMessage(`Exported ${floorName} as PNG`);
-  }, [showStudioMessage]);
-
-  const handleExportPdf = useCallback(async () => {
-    const { rooms, objects, floors, currentFloor } = useWorkspaceStore.getState();
-    const floorName = floors[currentFloor]?.name ?? `Floor ${currentFloor}`;
-    setExportLoading(true);
-    const result = await exportFloorPlanAsPdf({ rooms, objects, floors, floorId: currentFloor, floorName });
-    setExportLoading(false);
-    if (!result.ok) showStudioMessage(result.error, true);
-    else showStudioMessage(`Exported ${floorName} as PDF`);
-  }, [showStudioMessage]);
-
-  const handlePhotoReconstruct = useCallback(async (file) => {
-    const { companyId, layoutId, setReconstructing, setProposedLayout } = useWorkspaceStore.getState();
-    if (!isPhotoReconstructionOn()) {
-      showStudioMessage(RECONSTRUCTION_OFF, true);
-      return;
-    }
-    if (!companyId || !layoutId) {
-      showStudioMessage('Please open a company workspace first', true);
-      return;
-    }
-    setReconstructing(true);
-    showStudioMessage('Uploading photo to tenant storage…');
-    const uploadRes = await uploadReconstructionPhoto(file, { companyId, layoutId });
-    if (!uploadRes.ok) {
-      setReconstructing(false, uploadRes.error);
-      showStudioMessage(`Upload failed: ${uploadRes.error}`, true);
-      return;
-    }
-
-    showStudioMessage('Analyzing photo with AI reconstruction…');
-    const analysisRes = await requestPhotoAnalysis(uploadRes.storagePath, { companyId, layoutId });
-    if (!analysisRes.ok) {
-      setReconstructing(false, analysisRes.error);
-      showStudioMessage(`AI reconstruction failed: ${analysisRes.error}`, true);
-      return;
-    }
-
-    const stageRes = await stageProposedLayout({
-      companyId,
-      layoutId,
-      storagePath: uploadRes.storagePath,
-      proposedLayout: analysisRes.proposedLayout,
-      detectionStats: analysisRes.detectionStats,
-    });
-
-    setProposedLayout({
-      proposalId: stageRes.proposalId || null,
-      storagePath: uploadRes.storagePath,
-      layout: analysisRes.proposedLayout,
-      detectionStats: analysisRes.detectionStats,
-      stagedAt: new Date().toISOString(),
-    });
-    showStudioMessage('AI Proposed layout ready for your review');
-  }, [showStudioMessage]);
+  // ─── File and layout actions (hooks/useStudioFileActions.js) ───
+  const {
+    handleAllLayouts, handleReloadTheirs, handleExportLayout, handleImportLayout, handleSaveCopy,
+    handleExportPng, handleExportPdf, handlePhotoReconstruct,
+  } = useStudioFileActions({ onExit, editor, showStudioMessage, gizmoControllerRef, setExportLoading });
 
   // ─── Render ───
   return (
