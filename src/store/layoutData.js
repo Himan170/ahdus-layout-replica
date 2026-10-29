@@ -78,6 +78,12 @@ function normaliseObject(o, i) {
 
 /** The slab older versions of the app drew between storeys (3 m walls + 0.5 m = 3.5 m). */
 const OLD_SLAB = 0.5;
+/**
+ * Saves with elevations instead of heights were made when floors were at most
+ * 6.3 m high: a bigger gap between two saved elevations is a missing floor, not
+ * one tall floor (MAX_FLOOR_HEIGHT is 15.3 m now).
+ */
+const OLD_MAX_FLOOR_HEIGHT = 6.3;
 const cm = (v) => Math.round(v * 100) / 100;
 
 /**
@@ -132,7 +138,7 @@ function normaliseFloors(saved, rooms, objects) {
     if (oldStyle.has(f.id)) {
       const next = sorted[i + 1];
       const gap = next && oldStyle.has(next.id) ? next.oldElevation - f.oldElevation : NaN;
-      f.height = gap >= MIN_FLOOR_HEIGHT && gap <= MAX_FLOOR_HEIGHT ? cm(gap) : STOREY_HEIGHT;
+      f.height = gap >= MIN_FLOOR_HEIGHT && gap <= OLD_MAX_FLOOR_HEIGHT ? cm(gap) : STOREY_HEIGHT;
       // Walls that met the old slab fill the floor (missing wallHeight = the old 3 m default)
       for (const r of rooms) {
         if (r.floor !== f.id) continue;

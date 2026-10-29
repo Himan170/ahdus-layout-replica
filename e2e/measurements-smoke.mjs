@@ -53,6 +53,14 @@ const clickWorld = async (x, z) => {
   });
 };
 
+// The measure tools sit in the panel of the "Measurements" button (top right of the canvas)
+const measurePanel = () => page.locator('[aria-label="Measurement tools"]');
+const openMeasure = async () => {
+  if (await measurePanel().count() === 0) await page.locator('button[aria-label="Measurements"]').click();
+  await measurePanel().waitFor();
+};
+const measureActive = () => page.locator('button[aria-label="Measurements"]').getAttribute('data-active');
+
 try {
   await page.goto(url);
   await page.waitForSelector('input[placeholder="Company name…"]', { timeout: 90000 });
@@ -75,7 +83,20 @@ try {
 
   const room = await page.evaluate(() => Object.values(window.__ahdusStore.getState().rooms)[0]);
   check('created a 6 m × 4 m room', room?.width === 6 && room?.depth === 4);
-  await page.getByRole('button', { name: 'Show Room Areas' }).waitFor();
+  await frames(3);
+  check('wall lengths and room areas are off when a layout opens',
+    await page.locator('.measurement-label--wall').count() === 0 && await page.locator('.room-label__area').count() === 0 &&
+    await measureActive() === 'false');
+  check('the old measurement bar is gone (one Measurements button)',
+    await page.locator('.measurement-controls').count() === 0 && await measurePanel().count() === 0);
+  await openMeasure();
+  await page.getByRole('button', { name: 'Show Room Areas' }).click();
+  await page.getByRole('button', { name: 'Show Wall Lengths' }).click();
+  check('the Measurements button shows as active while a measurement is on', await measureActive() === 'true');
+  await frames(3);
+  await page.screenshot({ path: 'e2e/screens/measure-panel.png' });
+  await page.keyboard.press('Escape');
+  check('Esc closes the measurement panel', await measurePanel().count() === 0);
   await page.waitForFunction(() => [...document.querySelectorAll('.room-label__area')].some((label) => label.textContent === '24.00 m²'));
   check('room area label shows 24.00 m²', await page.locator('.room-label__area').filter({ hasText: '24.00 m²' }).count() === 1);
 
@@ -94,12 +115,15 @@ try {
   check('resizing a room updates its area label immediately',
     await page.locator('.room-label__area').filter({ hasText: '28.00 m²' }).count() === 1);
 
+  await openMeasure();
   await page.getByRole('button', { name: 'Show Wall Lengths' }).click();
   await frames(2);
   check('wall-length labels toggle independently', await page.locator('.measurement-label--wall').count() === 0 &&
     await page.locator('.room-label__area').filter({ hasText: '28.00 m²' }).count() === 1);
 
   await page.getByRole('button', { name: 'Measure Distance' }).click();
+  check('Measure Distance closes the panel and shows the hint',
+    await measurePanel().count() === 0 && await page.getByRole('button', { name: 'Exit Measurement Mode' }).count() === 1);
   check('measurement mode uses the 2D view', await page.getByRole('button', { name: '2D view' }).getAttribute('aria-pressed') === 'true');
   const horizontalStart = await clickWorld(0, 0);
   check('first point prompts for the second point', await page.getByText('Choose the second point').count() === 1);
@@ -122,6 +146,7 @@ try {
     (await page.locator('.measurement-label--distance').allTextContents()).some((text) => text.includes('5.00 m')),
     `${JSON.stringify(diagonalStart)} → ${JSON.stringify(diagonalEnd)}`);
 
+  await openMeasure();
   await page.getByRole('button', { name: 'Show Room Areas' }).click();
   await frames(2);
   check('room area toggle does not exit distance mode',
@@ -131,10 +156,13 @@ try {
     (await page.locator('.measurement-label--distance').count()) >= 2,
     `areas=${await page.locator('.room-label__area').count()}, distances=${await page.locator('.measurement-label--distance').count()}`);
   await clickWorld(1, 1);
+  check('a click on the canvas closes the panel', await measurePanel().count() === 0);
   await page.keyboard.press('Escape');
+  await openMeasure();
   check('Escape cancels an unfinished measurement and exits the tool',
     await page.getByRole('button', { name: 'Measure Distance' }).getAttribute('aria-pressed') === 'false' &&
     await page.locator('.measurement-label--pending').count() === 0);
+  await page.keyboard.press('Escape');
 
   await page.getByRole('button', { name: 'Floor switcher' }).click();
   await page.getByRole('menuitem', { name: 'Add floor above' }).click();
@@ -149,6 +177,7 @@ try {
   check('measurements return on their original floor',
     await page.locator('.measurement-label--distance').count() === 2);
 
+  await openMeasure();
   await page.getByRole('button', { name: 'Clear Measurements' }).click();
   await frames(2);
   check('Clear Measurements removes annotations without deleting the room',

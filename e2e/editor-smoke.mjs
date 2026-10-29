@@ -184,6 +184,34 @@ await click('[aria-label="2D view"]');
 await click('[aria-label="Fit view"]');
 await frames(6);
 
+// ── Room labels: only the name; hovering the room shows its details card; Settings → Room labels ──
+const roomLabel = ((await page.locator('.room-label').first().textContent()) ?? '').trim();
+log('the room label shows only the room name', /^Office \d+$/.test(roomLabel), roomLabel);
+await hover(-1, 0.02, -1); // the room's floor (it spans -4…2 × -3…1)
+await page.waitForSelector('.room-hover__card', { timeout: 15000 }).catch(() => {});
+const hoverCard = (await page.locator('.room-hover__card').textContent().catch(() => '')) ?? '';
+log('hovering a room shows its details card: name, type, size, area, wall height, doors / windows',
+  /Office \d/.test(hoverCard) && hoverCard.includes('6 × 4 m') && hoverCard.includes('24.0 m²') &&
+  /Walls \d+\.\d m high/.test(hoverCard) && hoverCard.includes('0 doors · 0 windows'), hoverCard);
+await shot('studio-room-hover.png');
+await page.mouse.down(); // a press (start of a drag) hides it
+const cardWhilePressed = await page.locator('.room-hover__card').count();
+await page.mouse.up();
+await key('Escape'); // the click selected the room: deselect it
+log('no hover card while the mouse button is down', cardWhilePressed === 0);
+await page.mouse.move(2, 2); // off the canvas
+await frames(2);
+log('the card goes when the pointer leaves the canvas', await page.locator('.room-hover__card').count() === 0);
+await click('[aria-label="Settings"]');
+await click('[aria-label="Room labels"] button:has-text("Off")');
+const labelsOff = await page.locator('.room-label').count();
+const storedOff = await page.evaluate(() => localStorage.getItem('ahdus.roomLabels'));
+await click('[aria-label="Room labels"] button:has-text("Names")');
+const labelsOn = await page.locator('.room-label').count();
+await key('Escape');
+log('Settings → Room labels: Off hides the names, Names shows them (kept in this browser)',
+  labelsOff === 0 && labelsOn === 1 && storedOff === 'off', JSON.stringify({ labelsOff, labelsOn, storedOff }));
+
 // ── Furniture: pick a card, click the floor ──
 await click('[aria-label="Furniture"]');
 await page.locator('[title^="Standard Desk"]').first().click();

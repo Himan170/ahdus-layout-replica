@@ -56,6 +56,7 @@ const ROOF_T = 0.2;            // roof slab thickness
 const PARAPET_H = 0.25;        // low wall around the roof edge
 const PARAPET_T = 0.15;
 const LIGHT_SPACING = 2.4;     // ceiling light panels every 2.4 m
+const MAX_LIGHTS_ALONG = 24;   // …but at most 24 along a wall: a 200 m hall would need ~7,000 panels
 const LIGHT_SIZE = 0.6;
 const NESTED_INSET = 0.01;     // a nested room's walls are drawn this much in on the outside
 
@@ -246,8 +247,8 @@ export function buildRoomMesh(roomData, scene, options = {}) {
     worldUVs(ceiling, x + ceiling.position.x, z + ceiling.position.z, TILE_SIZE.ceiling);
     addPart(ceiling, { part: 'ceiling' }, mats.ceiling(), { castShadow: false, pickable: false });
   });
-  const nx = Math.max(1, Math.round(width / LIGHT_SPACING));
-  const nz = Math.max(1, Math.round(depth / LIGHT_SPACING));
+  const nx = Math.min(MAX_LIGHTS_ALONG, Math.max(1, Math.round(width / LIGHT_SPACING)));
+  const nz = Math.min(MAX_LIGHTS_ALONG, Math.max(1, Math.round(depth / LIGHT_SPACING)));
   for (let i = 0; i < nx; i++) {
     for (let j = 0; j < nz; j++) {
       const lx = -width / 2 + (i + 0.5) * (width / nx);

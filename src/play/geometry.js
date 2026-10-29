@@ -17,6 +17,8 @@ export const WALL_THICKNESS = 0.15;
 export const SHARED_WALL_TOLERANCE = 0.02;
 const GEOMETRY_EPSILON = 1e-6;
 export const MIN_ROOM_SIZE = 1.5;
+/** Rooms are at most this wide and deep (m): a big factory hall. */
+export const MAX_ROOM_SIZE = 200;
 export const DOOR_DEFAULTS = { width: 1.0, height: 2.1, sill: 0 };
 export const WINDOW_DEFAULTS = { width: 1.4, height: 1.2, sill: 0.9 };
 /** Length of the WALL_SEGMENT asset at scale 1 (see assetCatalog). */
@@ -28,11 +30,13 @@ export function snap(v, step = 0.5) {
 
 /**
  * Room rectangle from two corner points (as clicked in Play mode).
- * Grows to MIN_ROOM_SIZE in the direction the user dragged if too small.
+ * Grows to MIN_ROOM_SIZE in the direction the user dragged if too small,
+ * and stops at MAX_ROOM_SIZE if too big.
  */
-export function rectFromCorners(a, b, min = MIN_ROOM_SIZE) {
+export function rectFromCorners(a, b, min = MIN_ROOM_SIZE, max = MAX_ROOM_SIZE) {
   const grow = (from, to) => {
     const d = to - from;
+    if (Math.abs(d) > max) return [from, from + Math.sign(d) * max];
     if (Math.abs(d) >= min) return [from, to];
     return [from, from + (d < 0 ? -min : min)];
   };
@@ -911,6 +915,9 @@ export function stretchRoom(room, wallName, target, context = {}) {
 
   if (rect.width < MIN_ROOM_SIZE - 1e-6 || rect.depth < MIN_ROOM_SIZE - 1e-6) {
     problem = `Too small (rooms are at least ${MIN_ROOM_SIZE} m)`;
+  }
+  if (rect.width > MAX_ROOM_SIZE + 1e-6 || rect.depth > MAX_ROOM_SIZE + 1e-6) {
+    problem = `Too big (rooms are at most ${MAX_ROOM_SIZE} m)`;
   }
   if (!problem) {
     const blocker = roomRectBlocker(room, rect, others);

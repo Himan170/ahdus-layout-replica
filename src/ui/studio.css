@@ -539,8 +539,8 @@
 .tab-notice.is-bad .tab-notice__text { margin-right: var(--space-2); }
 
 /* Progressive loading: "Building your workplace… 40 %" (centre) until the floor you are on is built,
-   then a quiet "Building the other floors…" in a corner: top left in Studio (the Measurements bar
-   is bottom right), bottom right in Preview (its HUD is at the top) */
+   then a quiet "Building the other floors…" in a corner: top left in Studio (the canvas controls
+   are top right), bottom right in Preview (its HUD is at the top) */
 .build-progress {
   position: absolute;
   z-index: 2;
@@ -590,13 +590,14 @@
   position: absolute;
   left: 0;
   top: 0;
-  padding: 3px 8px;
+  padding: 2px 6px;
   border-radius: var(--radius-sm);
   background: var(--bg-glass);
   border: 1px solid var(--border);
   color: var(--text);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
+  line-height: 1.3;
   white-space: nowrap;
   visibility: hidden;
 }
@@ -607,37 +608,92 @@
   font-weight: 600;
 }
 
-.measurement-controls {
+/* A room's details: the selected room's label and the hover card (ui/RoomHoverCard.jsx) */
+.room-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.room-card.is-selected { border-color: var(--accent); }
+.room-card__name { color: var(--text); font-size: 12px; font-weight: 600; }
+.room-card__type { margin-bottom: 2px; }
+.room-card__row { color: var(--text); }
+.room-hover { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 4; }
+.room-hover__card { position: absolute; left: 0; top: 0; }
+
+/* Measure button + its panel (ui/MeasureMenu.jsx) */
+.measure-menu { position: relative; }
+.measure-menu__trigger { width: 30px; height: 30px; }
+.measure-menu__trigger.is-active { background: var(--bg-active); color: var(--accent); }
+.measure-menu__pop {
   position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 200px;
+  padding: 4px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+}
+.measure-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.measure-menu__item:hover:not(:disabled) { background: var(--bg-hover); }
+.measure-menu__item:disabled { opacity: 0.45; cursor: default; }
+.measure-menu__item > svg { color: var(--text-muted); flex-shrink: 0; }
+.measure-menu__item[aria-pressed="true"] { background: var(--bg-active); }
+.measure-menu__item[aria-pressed="true"] > svg { color: var(--accent); }
+.measure-menu__check {
+  width: 14px;
+  height: 14px;
+  margin: 0 1px;
+  border: 1.5px solid var(--text-muted);
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.measure-menu__item[aria-pressed="true"] .measure-menu__check {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--bg-panel);
+}
+.measure-menu__sep { height: 1px; margin: 4px 2px; background: var(--border); }
+.measure-hint {
+  position: absolute;
+  top: calc(var(--space-3) + 48px);
   right: var(--space-3);
-  bottom: var(--space-3);
   z-index: 6;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--space-2);
-  max-width: calc(100% - 280px);
-  padding: 5px;
+  padding: 4px 4px 4px var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-glass);
   backdrop-filter: blur(8px);
-}
-.measurement-controls .ui-btn {
-  height: 30px;
-  padding: 0 9px;
-  gap: 6px;
+  color: var(--text-muted);
   font-size: 12px;
 }
-.measurement-controls .ui-btn[aria-pressed="true"] {
-  background: var(--bg-active);
-  border-color: var(--accent);
-}
-.measurement-controls__hint {
-  color: var(--text-muted);
-  font-size: 11px;
-  padding: 0 4px;
-}
+.measure-hint .ui-btn { height: 28px; padding: 0 9px; gap: 6px; font-size: 12px; }
 .canvas-card > canvas.is-measuring { cursor: crosshair; }
 
 .measurement-overlays {
@@ -695,22 +751,6 @@
   stroke: #fff;
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
-}
-
-@media (max-width: 700px) {
-  .measurement-controls {
-    top: auto;
-    left: var(--space-2);
-    right: var(--space-2);
-    bottom: var(--space-2);
-    max-width: none;
-    gap: 6px;
-  }
-  .measurement-controls .ui-btn {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .measurement-controls__hint { flex: 1 1 100%; }
 }
 
 /* Floating selection toolbar */

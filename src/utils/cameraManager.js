@@ -36,7 +36,7 @@ export function createCamera(scene, canvas) {
 
   // Zoom limits
   camera.lowerRadiusLimit = 5;
-  camera.upperRadiusLimit = 80;
+  camera.upperRadiusLimit = 320; // Fit view shows a whole 200 m hall (siteEnvironment thins the fog out there)
 
   // Smooth inertia
   camera.inertia = 0.7;

@@ -24,7 +24,7 @@ import { setCameraView, flyTo as flyCamera } from '../engine/systems/CameraSyste
 import { ROOM_TYPES } from '../utils/roomStore';
 import {
   elevationOf, floorBelow,
-  stairNeedsRoomAbove, floorPosition,
+  stairNeedsRoomAbove, floorPosition, steepStairsText, floorHeight,
 } from '../play/building';
 import { createFloorOutline } from '../utils/floorOutline';
 
@@ -55,7 +55,8 @@ import StudioShell from '../ui/StudioShell';
 import StudioHeader from '../ui/StudioHeader';
 import BuildPanel from '../ui/BuildPanel';
 import CanvasCard from '../ui/CanvasCard';
-import RoomLabels from '../ui/RoomLabels';
+import RoomLabels, { storedRoomLabels, storeRoomLabels } from '../ui/RoomLabels';
+import RoomHoverCard from '../ui/RoomHoverCard';
 import MeasurementOverlay from '../ui/MeasurementOverlay';
 import FloorPlanView from '../floorplan/FloorPlanView';
 import SelectionToolbar from '../ui/SelectionToolbar';
@@ -185,6 +186,7 @@ export default function WorkplaceEditor({ onExit }) {
   const [layersOpen, setLayersOpen] = useState(false);  // Inspector shows the floor's outline
   const [showGrid, setShowGrid] = useState(false);      // off: grid only while a build tool is active
   const [realisticLook, setRealisticLook] = useState(storedRealisticLook); // Settings → Realistic look
+  const [roomLabels, setRoomLabels] = useState(storedRoomLabels); // Settings → Room labels: 'names' | 'off'
   const [nameFocusToken, setNameFocusToken] = useState(0); // "Rename" focuses the Inspector's name box
   const [planView, setPlanView] = useState(false); // the canvas card's view: Plan (floor plan) instead of the 3D canvas
   const [announceText, setAnnounceText] = useState(''); // Screen reader live feedback (Task S3)
@@ -194,8 +196,8 @@ export default function WorkplaceEditor({ onExit }) {
   const [measurements, setMeasurements] = useState([]);
   const [measureStart, setMeasureStart] = useState(null);
   const [measurePreview, setMeasurePreview] = useState(null);
-  const [showWallLengths, setShowWallLengths] = useState(true);
-  const [showRoomAreas, setShowRoomAreas] = useState(true);
+  const [showWallLengths, setShowWallLengths] = useState(false);
+  const [showRoomAreas, setShowRoomAreas] = useState(false);
   const measureModeRef = useRef(false);
   const measureStartRef = useRef(null);
   const measurementIdRef = useRef(0);
@@ -288,6 +290,8 @@ export default function WorkplaceEditor({ onExit }) {
       { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor },
       store.floors, Object.values(useWorkspaceStore.getState().rooms))) {
       showStudioMessage('Build a room above to use these stairs');
+    } else if (result.assetType === 'STAIRCASE' && steepStairsText(floorHeight(store.floors, store.currentFloor))) {
+      showStudioMessage(steepStairsText(floorHeight(store.floors, store.currentFloor)));
     }
   };
 
@@ -959,6 +963,8 @@ export default function WorkplaceEditor({ onExit }) {
       showStudioMessage(plan.problem, true);
       return plan.problem;
     }
+    const steep = steepStairsText(plan.height);
+    if (steep) showStudioMessage(steep);
     return null;
   }, [editor, showStudioMessage]);
 
@@ -986,7 +992,8 @@ export default function WorkplaceEditor({ onExit }) {
       const plan = editor.setWallHeight(id, patch.wallHeight, { mergeKey: 'room-wall-height' });
       if (plan.problem) showStudioMessage(plan.problem, true);
       else if (plan.raised) {
-        showStudioMessage(`${useWorkspaceStore.getState().floors[plan.floorId]?.name} is now ${plan.height.toFixed(1)} m high, to fit ${room?.name}`);
+        const steep = steepStairsText(plan.height);
+        showStudioMessage(`${useWorkspaceStore.getState().floors[plan.floorId]?.name} is now ${plan.height.toFixed(1)} m high, to fit ${room?.name}${steep ? `. ${steep}` : ''}`);
       }
       return;
     }
@@ -1593,6 +1600,8 @@ export default function WorkplaceEditor({ onExit }) {
             fpsRef: fpsDisplayRef,
             realisticLook,
             onRealisticLookToggle: handleRealisticLookToggle,
+            roomLabels,
+            onRoomLabelsChange: (value) => { setRoomLabels(value); storeRoomLabels(value); },
             onExportLayout: hasBackend ? handleExportLayout : null,
             onImportLayout: handleImportLayout,
             onPhotoReconstruct: handlePhotoReconstruct,
@@ -1724,6 +1733,18 @@ export default function WorkplaceEditor({ onExit }) {
             elevation={elevationOf(floorsMap, currentFloor)}
             hidden={isPlaying || planView}
             showArea={showRoomAreas}
+            showNames={roomLabels !== 'off'}
+            selectedRoomId={selectedOpening ? null : selectedRoomId}
+          />
+          <RoomHoverCard
+            scene={sceneReady}
+            rooms={rooms}
+            floorId={currentFloor}
+            is3D={is3D}
+            hidden={isPlaying || planView}
+            selectedRoomId={selectedOpening ? null : selectedRoomId}
+            isBusy={() => measureModeRef.current || !!plannerToolsRef.current?.isDragging() ||
+              !!placementManagerRef.current?.isActive()}
           />
           <MeasurementOverlay
             scene={sceneReady}

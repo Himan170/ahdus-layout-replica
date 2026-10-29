@@ -31,9 +31,9 @@ export const SLAB = 0.3;
 /** The walls of a new room fill a standard floor. */
 export const DEFAULT_WALL_HEIGHT = STOREY_HEIGHT - SLAB;
 
-/** Limits for wall heights, and the floor heights they need. */
+/** Limits for wall heights, and the floor heights they need (15 m: factory halls). */
 export const MIN_WALL_HEIGHT = 2;
-export const MAX_WALL_HEIGHT = 6;
+export const MAX_WALL_HEIGHT = 15;
 export const MIN_FLOOR_HEIGHT = MIN_WALL_HEIGHT + SLAB;
 export const MAX_FLOOR_HEIGHT = MAX_WALL_HEIGHT + SLAB;
 
@@ -53,6 +53,18 @@ export function stairDims(rise = STOREY_HEIGHT) {
 
 /** A staircase on a standard floor (catalog size, tests). */
 export const STAIR = stairDims(STOREY_HEIGHT);
+
+/**
+ * A staircase is one 4 m flight whatever the floor height: above this floor
+ * height (the old 6 m walls + SLAB) it gets steeper than ~58°.
+ */
+export const STEEP_STAIRS_ABOVE = 6.3;
+
+/** "Stairs here would be very steep (9.3 m in one 4 m flight)" for a floor this high, or null. */
+export function steepStairsText(height) {
+  if (!(height > STEEP_STAIRS_ABOVE + 1e-6)) return null;
+  return `Stairs here would be very steep (${height.toFixed(1)} m in one ${STAIR.length.toFixed(0)} m flight)`;
+}
 
 /** How high the character can step up without jumping (a stair step is at most 0.2 m). */
 export const STEP_UP = 0.45;
@@ -211,10 +223,15 @@ export function planWallHeight(floors, rooms, room, wallHeight) {
   return { ...plan, raised: true, wallHeight: h, rooms: [[room.id, h], ...others] };
 }
 
-/** Hint for a wall-height change: "Office · walls 3.4 m · Ground Floor is now 3.7 m high". */
+/**
+ * Hint for a wall-height change: "Office · walls 3.4 m · Ground Floor is now 3.7 m high",
+ * plus a warning when the floor is so high its stairs get very steep (steepStairsText).
+ */
 export function wallHeightText(room, plan, floorName = 'The floor') {
   const walls = `${room.name} · walls ${plan.wallHeight.toFixed(1)} m`;
-  return plan.raised ? `${walls} · ${floorName} is now ${plan.height.toFixed(1)} m high` : walls;
+  const text = plan.raised ? `${walls} · ${floorName} is now ${plan.height.toFixed(1)} m high` : walls;
+  const steep = steepStairsText(plan.height);
+  return steep ? `${text} · ${steep}` : text;
 }
 
 /**
