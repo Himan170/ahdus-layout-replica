@@ -151,7 +151,7 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
 ## Code map
 
 ```
-src/components/WorkplaceEditor.jsx  Studio wiring, mode switching, level visibility (~1,460 lines)
+src/components/WorkplaceEditor.jsx  Studio wiring, mode switching, level visibility (~1,280 lines)
 src/hooks/useStudioScene.js        Studio's scene lifecycle, ONE effect: createLayoutScene, Room/Object/FloorSystem,
                                    SceneBuilder, perf monitor, play controller, bridge context, placement manager, planner
                                    tools, floor outline, gizmo controller, pointer handlers, FPS counter; one cleanup.
@@ -161,6 +161,8 @@ src/hooks/studioPointer.js         installStudioPointer(): Studio's scene.onPoin
 src/hooks/useStoreMeshSync.js      Store → scene, right after useStudioScene: room + item meshes of every floor
                                    (builder.start() / request()), the floor being edited + camera height, the gizmo on
                                    the selected object. Refs and values passed in by WorkplaceEditor (same names)
+src/hooks/useStudioKeyboard.js     Studio's keyboard shortcuts (keydown: Tab, Esc, 1–6, Delete, arrows, W / E / R, L,
+                                   Ctrl+Z / Y / D; Preview: undo / redo only) + the wheel (placement ghost height)
 src/ui/                            Workplace Studio: theme.css, tools.js, StudioShell, StudioHeader, BuildPanel (+ trays,
                                    CatalogPicker), CanvasCard, ExportMenu, MeasureMenu, RoomLabels (+ labelLayout.js),
                                    RoomHoverCard, SelectionToolbar, Inspector, StudioFooter, EditorErrorBoundary, preview.css
