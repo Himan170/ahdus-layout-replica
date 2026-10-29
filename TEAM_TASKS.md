@@ -3,7 +3,7 @@
 **Team:** Himan (lead), Roshan, Anish, Anshu
 **Module:** Digital Workplace Engine + Environment Editor (SRD sections 6 and 7)
 **Repo:** `Himan170/ahdus-layout-replica`
-**Last updated:** 25 October 2026 (v0.6.0)
+**Last updated:** 30 October 2026 (v0.7.0)
 
 ---
 
@@ -22,20 +22,28 @@
 | Embeddable engine: `<LayoutViewer />`, `<LayoutEditor />`, the one-file embed for plain HTML pages (H2) | `src/engine/`, `src/embed/`, `docs/LAYOUT_ENGINE_API.md`, `docs/EMBED_GUIDE.md` |
 | Realistic look: Kenney GLB furniture, photo textures, HDRI sky (A6, Himan) | `src/utils/modelRegistry.js`, `src/utils/modelLoader.js`, `public/assets/` |
 | Floor plan export as PNG / PDF (S2, Anish) | `src/utils/floorPlanExporter.js`, `src/ui/ExportMenu.jsx` |
+| Real 2D floor plan: the SVG "Plan" view (select, drag, rotate, zoom, pan, anchors, dimensions) (S1, Anshu) | `src/floorplan/` |
+| Accessibility: keyboard moves, screen-reader announcements, audio descriptions, route summary (S3, Anshu) | `src/utils/accessibleSummary.js`, `src/ui/Inspector.jsx`, `src/ui/studio.css` |
+| Version history kept in the browser: named versions, auto checkpoints, restore as one undo step (R4, Roshan) | `src/services/apiService.js`, `src/ui/VersionHistory.jsx` |
+| Measure tool: distance, wall lengths, room areas (A5, Anish) | `src/utils/measurements.js`, `src/ui/MeasureMenu.jsx`, `src/ui/MeasurementOverlay.jsx` |
+| Layout templates: small office, clinic, factory floor, with a picker (S4, Anish) | `src/templates/`, `src/components/CompanySelector.jsx` |
+| Progressive loading: your floor is built first, the page never freezes (Himan) | `src/engine/systems/SceneBuilder.ts`, `src/play/buildSchedule.js` |
+| Room labels and hover card, rooms up to 200 m, walls up to 15 m, wall thickness per room (Himan) | `src/ui/RoomLabels.jsx`, `src/ui/RoomHoverCard.jsx`, `src/play/geometry.js` |
 | Backend decision, schema, audit log (R1, R3, R5, Roshan) | `docs/decisions/001-backend.md`, `db/schema.sql` |
-| Offline save queue, photo reconstruction plumbing (R7, R8, Roshan) | `src/services/syncQueue.js`, `src/services/reconstructionService.js`, `src/ui/ProposedLayoutBanner.jsx` |
-| CI on every pull request (lint, typecheck, unit tests, both builds) + nightly browser tests | `.github/workflows/` |
-| 436 unit tests (26 files) and 265 browser checks in 11 scripts (`e2e/`) | `npm test`, `npm run e2e:...` |
+| Offline save queue, photo reconstruction plumbing (prototype) (R7, R8, Roshan) | `src/services/syncQueue.js`, `src/services/reconstructionService.js`, `src/ui/ProposedLayoutBanner.jsx` |
+| CI on every pull request (lint, typecheck, unit tests, both builds) + nightly browser tests; `main` protected (pull request + green CI) | `.github/workflows/` |
+| 558 unit tests (39 files) and 13 browser test scripts (`e2e/`) | `npm test`, `npm run e2e:...` (one script at a time) |
 
 ## 2. What is left (from the SRD)
 
-1. A real 2D floor plan. The "2D" view today is only the 3D camera from above (PNG / PDF export exists: S2).
-2. The real backend wired in: saving is still `localStorage`. Supabase is chosen and the schema is written; it waits for the Login team's logins and tenants.
-3. Workplace version history (R4).
-4. Elevators, emergency exits and accessible routes. `RouteSchema` exists, but nothing draws or edits routes.
-5. Accessibility: keyboard use, screen reader, audio descriptions, route information.
-6. Realism: L-shaped rooms, measure tool, industrial machine models.
-7. Templates (small office, factory, clinic).
+1. The real backend wired in: saving is still `localStorage`. Supabase is chosen and the schema is written; the browser-side path is an off-by-default prototype. It waits for the Login team's logins and tenants.
+2. Version history on the server (the browser version is done: R4).
+3. Elevators, emergency exits and accessible routes (A3, A4). `RouteSchema` exists, but nothing draws or edits routes.
+4. Route information in the accessible views (after A3 and A4).
+5. Realism: L-shaped rooms (A2), industrial machine models.
+6. Lighter 3D for phones and weak GPUs (H7), and a smaller embed (2.9 MB, 711 KB compressed; the target is 600 KB).
+7. The newer panels styled to the design tokens (S5) and a mobile pass (S6).
+8. Smaller files: `WorkplaceEditor.jsx` is 1,864 lines and every feature touches it.
 
 **Waits for integration** (with the Login team's roles and tenants): R2, R4 (server part), R6, H3.
 
@@ -50,14 +58,17 @@
 | **Anish** | Building geometry (walls, rooms), lifts, exits and routes, measure tool, GLB furniture | A1 to A7 |
 | **Anshu** | 2D floor plan, accessibility, templates, UI polish | S1 to S6 |
 
-**Now (from 25 October):**
+**Now (from 30 October):**
 
 | Person | Next | Then |
 |---|---|---|
-| **Anish** | A3 lifts | A4 exits and routes |
-| **Anshu** | S1 real 2D plan (reuse the drawing in `src/utils/floorPlanExporter.js`) | S4 templates |
-| **Roshan** | R4 groundwork: version history kept locally, built so it can move to the server later | The nightly browser tests workflow (`.github/workflows/e2e-nightly.yml`): make it reliable, add more scripts |
-| **Himan** | Reviews, H4 support for the other teams, H7 | H6 demo |
+| **Anish** | A3 lifts. The lift model is CC BY 4.0: scale it down to cabin size, remove its poster, add the credit line to `docs/ASSET_LICENSES.md` | A4 exits and routes. The fire-exit door (CC BY 4.0): use its GLB, replace its sign images with our own, add the credit line |
+| **Anshu** | S5: style the newer panels (version history, measure tool, template picker, Plan view) with the tokens in `src/ui/theme.css` | S6 mobile pass |
+| **Roshan** | The nightly browser tests (`.github/workflows/e2e-nightly.yml`): make them reliable | Add more e2e scripts to the nightly run |
+| **Himan** | Tag v0.7.0; photo reconstruction behind the same off-by-default flag as saving; split `WorkplaceEditor.jsx` in small pull requests (Anish and Himan agree who goes first: A3 touches the same file) | H7 quality tiers, then H6 demo |
+
+Done since 25 October: S1 (Anshu), S3 (Anshu), S4 (Anish), R4 (Roshan), A5 (Anish), progressive loading (Himan).
+Integration with the Training Platform comes later.
 
 Each task lists **what to build**, **files to start in**, and **done when**. A task is only finished when its "done when" is true and a pull request is merged.
 
@@ -68,7 +79,7 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 ### H1. Get the team working (Day 1)
 - [x] Run `git push origin main` (10 commits are not on GitHub yet).
 - [ ] Add Roshan, Anish and Anshu as collaborators (GitHub, Settings, Collaborators).
-- [ ] Turn on branch protection for `main`: pull request required, no direct pushes, the "CI checks" check must pass.
+- [x] Turn on branch protection for `main`: pull request required, no direct pushes, the "CI checks" check must pass.
 - [x] Add a "Getting started" section to `README.md`: `git clone`, `npm ci`, `npm run dev`, `npm test`, `npm run e2e`. Tell people **not to zip `node_modules`**, because the Windows-installed copy does not run on other machines.
 - **Done when:** all three can clone, run the app and see the tests pass.
 
@@ -145,6 +156,7 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 
 ### R8. Photo reconstruction plumbing (V1, later, with AI/ML) ✅ done
 - [x] Upload a photo, store it tenant-scoped, send it to the AI/ML team's analysis, store the result as a **proposed** layout that a human approves in the editor (SRD: AI output is never trusted blindly).
+- **Status:** a browser-side PROTOTYPE. It is being put behind the same off-by-default flag as saving (Himan); the real upload will go through the platform API.
 
 ---
 
@@ -170,8 +182,8 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 - [ ] Let the admin configure the number and type of access routes for a room (SRD section 7).
 - **Done when:** a route can be drawn on a floor, saved and shown again after reload.
 
-### A5. Measure tool
-- [ ] Click two points to show the distance in metres. Show wall lengths and room area.
+### A5. Measure tool ✅ done (Anish, PR #7)
+- [x] Click two points to show the distance in metres. Show wall lengths and room area.
 
 ### A6. Real 3D furniture (GLB) ✅ done (Himan: the realistic look, v0.6.0)
 - [x] Load models with `@babylonjs/loaders`.
@@ -205,14 +217,14 @@ Each task lists **what to build**, **files to start in**, and **done when**. A t
 - [x] Accessible route summary in Layers panel describing single vs multi-floor navigation and vertical access (stairs, elevators).
 - [x] Contrast, visible focus (`:focus-visible`), and reduced-motion checks (`@media (prefers-reduced-motion: reduce)` in `studio.css`).
 
-### S4. Templates
-- [ ] Layout templates: Small Office, Factory Floor, Medical Clinic.
-- [ ] A template picker with card previews, room/item statistics, and blank start option when creating a new layout in `CompanySelector.jsx`.
+### S4. Templates ✅ done (Anish, PRs #10 and #11)
+- [x] Layout templates: Small Office, Factory Floor, Medical Clinic.
+- [x] A template picker with card previews, room/item statistics, and blank start option when creating a new layout in `CompanySelector.jsx`.
 
-### S5. UI for new features
-- [ ] Style Roshan's version history list, Anish's route panel and measure tool using the design tokens in `src/ui/theme.css`.
+### S5. UI for new features ▶ Anshu, next
+- [ ] Style Roshan's version history list, Anish's measure tool, the template picker and the Plan view's controls using the design tokens in `src/ui/theme.css` (Anish's route panel when A4 lands).
 
-### S6. Mobile pass
+### S6. Mobile pass ▶ Anshu, after S5
 - [ ] Check the Studio screens at phone width and fix layout problems.
 
 ---
@@ -235,7 +247,8 @@ Change the weeks to fit your real deadline. If time is short, cut in this order:
 | S1 (floor plan) and R3 (schema) | **A1**: they read the new room format |
 | A6 (GLB) | Existing `assetInstances.js` (done) |
 | S3 route text | A3 and A4 |
-| S5 version panel | R4 |
+| S5 version panel | R4 (done) |
+| A3 (lifts) and the `WorkplaceEditor.jsx` split | Each other: same file, agree who goes first |
 | H3 | Login team's role system |
 | R2 | R1 (backend decision) |
 
@@ -254,7 +267,7 @@ Change the weeks to fit your real deadline. If time is short, cut in this order:
 2. **Small pull requests.** Himan reviews. Himan's own pull requests are reviewed by Roshan.
 3. **Before every pull request:** run `npm run lint`, `npm test`, `npm run typecheck`, `npm run build`, and the matching `npm run e2e:...` script. CI runs the first four (and `build:embed`) on every pull request; it must be green before merging.
 4. **Follow `CLAUDE.md`:** every layout change goes through `editorHistory.js` (so it stays undoable), works on all floors, and old saves must still load.
-5. **Tell the group before editing a hot file:** `WorkplaceEditor.jsx` (1,538 lines), `playController.js` (1,419 lines), `geometry.js` (1,205 lines), `workspaceStore.js`, `editorHistory.js`. These cause the most merge conflicts.
+5. **Tell the group before editing a hot file:** `WorkplaceEditor.jsx` (1,864 lines), `playController.js` (1,419 lines), `geometry.js` (1,276 lines), `workspaceStore.js`, `editorHistory.js`. These cause the most merge conflicts.
 6. **Pull `main` every morning** and rebase before opening a pull request.
 7. **Commit messages** use the repo style: `Add: ...`, `Fix: ...`.
 8. **Never commit `node_modules`** or send it in a zip.
@@ -267,7 +280,7 @@ Change the weeks to fit your real deadline. If time is short, cut in this order:
 - [ ] Cross-tenant tests pass.
 - [ ] 2D floor plan works on a phone and exports PNG/PDF.
 - [ ] Lifts, exits and routes can be built and shown.
-- [ ] Keyboard, screen-reader and audio-description support exist for the core flows.
-- [ ] At least 3 templates and real 3D furniture for the common items.
-- [ ] Old saves still load, `npm test` and `npm run e2e` pass.
+- [x] Keyboard, screen-reader and audio-description support exist for the core flows.
+- [x] At least 3 templates and real 3D furniture for the common items.
+- [ ] Old saves still load, `npm test` and every `npm run e2e:...` script pass.
 - [ ] The other four teams are connected through `layoutBridge`, and the demo runs end to end.
