@@ -122,8 +122,12 @@ afterEach(() => {
   useWorkspaceStore.getState().resetWorkspace();
 });
 
-/** An engine on a NullEngine scene (no canvas, no GPU). */
+/**
+ * An engine on a NullEngine scene (no canvas, no GPU). It builds a layout at
+ * once (buildBudgetMs: Infinity) unless a test asks for slices.
+ */
 function makeEngine(options = {}) {
+  options = { buildBudgetMs: Infinity, ...options };
   const engine = new NullEngine();
   const scene = new Scene(engine);
   const camera = new ArcRotateCamera('camera', -Math.PI / 3, Math.PI / 4, 30, Vector3.Zero(), scene);
@@ -180,6 +184,32 @@ describe('LayoutEngine.loadLayout draws a layout', () => {
     engine.loadLayout(smaller);
     expect([...engine.rooms.meshes.keys()]).toEqual(['room_a']);
     expect([...engine.objects.meshes.keys()]).toEqual(['obj_desk']);
+  });
+
+  it('builds in slices: progress events, whenBuilt() and finishBuild()', async () => {
+    const engine = makeEngine({ buildBudgetMs: 0 }); // one room or item per slice
+    const progress: { done: number; total: number; currentFloorReady: boolean; allBuilt: boolean }[] = [];
+    engine.on('progress', (p) => progress.push(p));
+    let built = false;
+    engine.loadLayout(save());
+    const done = engine.whenBuilt().then(() => { built = true; });
+    expect(engine.buildProgress.allBuilt).toBe(false);
+    expect(engine.rooms.meshes.size + engine.objects.meshes.size).toBeLessThan(5);
+    await Promise.resolve();
+    expect(built).toBe(false);
+    engine.finishBuild();
+    await done;
+    expect(engine.rooms.meshes.size + engine.objects.meshes.size).toBe(5);
+    expect(engine.buildProgress).toMatchObject({ done: 5, total: 5, currentFloorReady: true, allBuilt: true });
+    expect(progress.at(-1)).toMatchObject({ allBuilt: true });
+    expect(progress.some((p) => !p.allBuilt)).toBe(true);
+  });
+
+  it('dispose() during a build stops it without errors', () => {
+    const engine = makeEngine({ buildBudgetMs: 0 });
+    engine.loadLayout(save());
+    expect(() => { engines.pop()!.dispose(); }).not.toThrow();
+    expect(engine.buildProgress.allBuilt).toBe(false);
   });
 
   it('refuses data that is not a layout and keeps the one shown', () => {

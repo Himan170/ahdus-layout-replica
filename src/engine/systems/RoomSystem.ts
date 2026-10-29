@@ -12,7 +12,9 @@
 import type { Scene } from '@babylonjs/core/scene';
 import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 
-import { buildRoomMesh, disposeRoomMesh, setRoomSelected, roomGeometryKey } from '../../utils/roomBuilder';
+import {
+  buildRoomMesh, disposeRoomMesh, setRoomSelected, roomGeometryKey, roomMaterialSteps,
+} from '../../utils/roomBuilder';
 import {
   elevationOf, floorBelow, stairOpening, roomRect, intersectRects, wallSpace,
 } from '../../play/building';
@@ -65,6 +67,20 @@ export interface RoomSystemOptions {
   shadowGenerator?: unknown;
 }
 
+/** A slice's time budget (play/buildSchedule.createBudget): take() before each build. */
+export interface BuildBudget {
+  take(): boolean;
+  hasTime(): boolean;
+  readonly unlimited: boolean;
+}
+
+export interface SyncOptions {
+  /** Only build / rebuild rooms on these floors (deletions and outlines still apply everywhere). */
+  floors?: number[];
+  /** Stop building when it runs out; what is left is counted in `pending`. */
+  budget?: BuildBudget;
+}
+
 const NEAR = 0.005;
 
 /**
@@ -105,11 +121,19 @@ export class RoomSystem {
 
   /**
    * Bring the meshes up to date with the layout and outline `selectedRoomId`.
-   * @returns how many rooms were (re)built and how long it took (ms)
+   * With `floors` / `budget` (progressive loading, engine/systems/SceneBuilder):
+   * only rooms on those floors are built, until the budget runs out.
+   * @returns how many rooms were (re)built, how long it took (ms), how many
+   *   rooms on those floors are not built yet, and whether every room on them
+   *   was checked and is up to date (`complete`; a built room is not checked
+   *   once the time is up)
    */
-  sync(layout: LayoutRecords, selectedRoomId: string | null = null): { rebuilt: number; ms: number } {
+  sync(layout: LayoutRecords, selectedRoomId: string | null = null, options: SyncOptions = {}):
+    { rebuilt: number; ms: number; pending: number; complete: boolean } {
     const start = performance.now();
     const { floors } = layout;
+    const onlyFloors = options.floors ? new Set(options.floors) : null;
+    const budget = options.budget ?? null;
     const allRooms = Object.values(layout.rooms);
     const stairs = Object.values(layout.objects).filter((o) => o.assetType === 'STAIRCASE');
     const roomsByFloor = new Map<number, V1Room[]>();
@@ -129,8 +153,17 @@ export class RoomSystem {
 
     // Add or rebuild each room
     let rebuilt = 0;
+    let pending = 0;
+    let unchecked = 0;
     for (const room of allRooms) {
+      if (onlyFloors && !onlyFloors.has(room.floor)) continue;
       const existing = this.meshes.get(room.id);
+      // Out of time: count what is left (a built room is checked next time)
+      if (budget && !budget.hasTime()) {
+        if (!existing || existing.isDisposed()) pending++;
+        else unchecked++;
+        continue;
+      }
       const sameFloorRooms = roomsByFloor.get(room.floor) ?? [room];
       const nestedRooms = sameFloorRooms.filter((other) =>
         other.id !== room.id && roomContainedBy(room, other));
@@ -151,8 +184,14 @@ export class RoomSystem {
       };
       const key = roomGeometryKey(room, buildOptions);
 
+      if (existing && !existing.isDisposed() && existing.metadata?._geometryKey === key) continue; // unchanged
+      if (budget && !budget.take()) {
+        // the old mesh (if any) stays until there is time to rebuild it
+        if (existing && !existing.isDisposed()) unchecked++;
+        else pending++;
+        continue;
+      }
       if (existing) {
-        if (!existing.isDisposed() && existing.metadata?._geometryKey === key) continue; // unchanged
         if (!existing.isDisposed()) disposeRoomMesh(existing);
         this.meshes.delete(room.id);
       }
@@ -170,8 +209,21 @@ export class RoomSystem {
     // Selection outline: the selected room's parts, and its walls shared with
     // (and so built by) a neighbour
     const selectedColor = allRooms.find((r) => r.id === selectedRoomId)?.color;
-    for (const node of this.meshes.values()) setRoomSelected(node, selectedRoomId ?? null, selectedColor);
-    return { rebuilt, ms: performance.now() - start };
+    for (const node of this.meshes.values()) {
+      if (onlyFloors && !onlyFloors.has(node.metadata?.floorId)) continue;
+      setRoomSelected(node, selectedRoomId ?? null, selectedColor);
+    }
+    return { rebuilt, ms: performance.now() - start, pending, complete: pending === 0 && unchecked === 0 };
+  }
+
+  /**
+   * The materials the rooms on these floors use, as steps that each make one
+   * (progressive loading: painting a texture is the slow part of the first room).
+   */
+  materialSteps(layout: LayoutRecords, floors?: number[]): (() => void)[] {
+    const only = floors ? new Set(floors) : null;
+    const rooms = Object.values(layout.rooms).filter((r) => !only || only.has(r.floor));
+    return roomMaterialSteps(this.scene, rooms);
   }
 
   getRoomMesh(roomId: string): TransformNode | null {

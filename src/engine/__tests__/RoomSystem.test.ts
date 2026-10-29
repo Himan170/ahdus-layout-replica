@@ -89,6 +89,74 @@ describe('RoomSystem', () => {
     expect(outlined('c')).toBe(true);
   });
 
+  describe('progressive loading (floors + budget)', () => {
+    // A budget that allows n builds (play/buildSchedule.createBudget, without a clock)
+    const budget = (n: number) => {
+      let taken = 0;
+      return { take: () => (taken < n ? (taken++, true) : false), hasTime: () => taken < n, unlimited: false };
+    };
+    const layout = {
+      rooms: {
+        a: room('a', 0, 0), b: room('b', 10, 0), c: room('c', 20, 0),
+        up: room('up', 0, 0, { floor: 1 }),
+      },
+      objects: {},
+      floors: FLOORS,
+    };
+
+    it('builds only the floors asked for, until the budget runs out, and counts the rest', () => {
+      const rooms = system();
+      const first = rooms.sync(layout, null, { floors: [0], budget: budget(2) });
+      expect(first).toMatchObject({ rebuilt: 2, pending: 1, complete: false });
+      expect(rooms.getRoomMesh('up')).toBeNull();
+
+      const second = rooms.sync(layout, null, { floors: [0], budget: budget(2) });
+      expect(second).toMatchObject({ rebuilt: 1, pending: 0 }); // the built two are not built again
+      expect([...rooms.meshes.keys()].sort()).toEqual(['a', 'b', 'c']);
+
+      expect(rooms.sync(layout, null, { floors: [1], budget: budget(2) })).toMatchObject({ rebuilt: 1, pending: 0 });
+      expect(rooms.sync(layout).rebuilt).toBe(0); // all up to date
+    });
+
+    it('builds a room from the latest layout, and removes deleted rooms even when out of time', () => {
+      const rooms = system();
+      rooms.sync(layout, null, { floors: [0], budget: budget(1) }); // only a
+      const nodeA = rooms.getRoomMesh('a')!;
+      // edited while loading: b grew, a was deleted
+      const edited = { ...layout, rooms: { b: { ...layout.rooms.b, width: 6 }, c: layout.rooms.c, up: layout.rooms.up } };
+      expect(rooms.sync(edited, null, { floors: [0], budget: budget(0) })).toMatchObject({ rebuilt: 0, pending: 2 });
+      expect(nodeA.isDisposed()).toBe(true);
+      expect(rooms.getRoomMesh('a')).toBeNull();
+
+      rooms.sync(edited, null, { floors: [0], budget: budget(5) });
+      const b = rooms.getRoomMesh('b')!;
+      const box = b.getHierarchyBoundingVectors(true);
+      expect(box.max.x - box.min.x).toBeGreaterThan(6); // the new width (plus walls), not 4
+    });
+
+    it('a changed room that does not fit in the budget keeps its old mesh until it is rebuilt', () => {
+      const rooms = system();
+      rooms.sync(layout);
+      const old = rooms.getRoomMesh('c')!;
+      const edited = { ...layout, rooms: { ...layout.rooms, c: { ...layout.rooms.c, depth: 6 } } };
+      // out of time: c is not checked, so the floor is not complete
+      expect(rooms.sync(edited, null, { floors: [0], budget: budget(0) }))
+        .toMatchObject({ rebuilt: 0, pending: 0, complete: false });
+      expect(rooms.getRoomMesh('c')).toBe(old);
+      expect(old.isDisposed()).toBe(false);
+      expect(rooms.sync(edited, null, { floors: [0], budget: budget(1) }))
+        .toMatchObject({ rebuilt: 1, pending: 0, complete: true });
+      expect(old.isDisposed()).toBe(true);
+    });
+
+    it('lists the materials of the rooms on a floor as separate steps', () => {
+      const rooms = system();
+      expect(rooms.materialSteps(layout, [0]).length).toBeGreaterThanOrEqual(3);
+      expect(rooms.materialSteps(layout, [5])).toEqual([]);
+      for (const step of rooms.materialSteps(layout)) step();
+    });
+  });
+
   it('disposeAll removes every room', () => {
     const rooms = system();
     rooms.sync({ rooms: { a: room('a', 0, 0) }, objects: {}, floors: FLOORS });

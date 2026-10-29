@@ -84,6 +84,25 @@ describe('ObjectSystem', () => {
     expect(objects.getObjectMesh('s')!.metadata).toMatchObject({ floorId: 1, rise: 4 });
   });
 
+  it('progressive loading: new items on the floors asked for until the budget runs out; built ones still move', () => {
+    const objects = system();
+    const budget = (n: number) => {
+      let taken = 0;
+      return { take: () => (taken < n ? (taken++, true) : false), hasTime: () => taken < n, unlimited: false };
+    };
+    const layout = { objects: { d: item('d'), e: item('e'), f: item('f'), up: item('up', { floor: 1 }) }, floors: FLOORS };
+    expect(objects.sync(layout, { floors: [0], budget: budget(2) })).toEqual({ built: 2, pending: 1 });
+    expect(objects.getObjectMesh('up')).toBeNull();
+
+    const moved = { ...layout, objects: { ...layout.objects, d: item('d', { x: 7 }) } };
+    expect(objects.sync(moved, { floors: [0], budget: budget(0) })).toEqual({ built: 0, pending: 1 });
+    expect(objects.getObjectMesh('d')!.position.x).toBe(7); // moving never waits
+
+    expect(objects.sync(moved, { floors: [0], budget: budget(5) })).toEqual({ built: 1, pending: 0 });
+    expect(objects.sync(moved, { floors: [1], budget: budget(5) })).toEqual({ built: 1, pending: 0 });
+    expect(createItemMesh).toHaveBeenCalledTimes(4); // each item made once
+  });
+
   it('disposeAll removes every item', () => {
     const objects = system();
     objects.sync({ objects: { d: item('d') }, floors: FLOORS });

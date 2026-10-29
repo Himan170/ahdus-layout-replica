@@ -71,7 +71,8 @@ function call(fn, ...args) {
 
 /**
  * Show a layout in `element` (give it a size). Returns at once; the layout is
- * drawn a little later (the 'ready' event, `handle.ready`). If it can't be
+ * built a slice at a time, the start floor first ('progress' events), and
+ * 'ready' / `handle.ready` come when everything is built. If it can't be
  * loaded, onError(err) is called and the element is left as it was, so the page
  * can show its own fallback.
  *
@@ -160,11 +161,18 @@ export function mount(element, options = {}) {
     root?.render(
       <LayoutViewer
         layout={layout} mode={mode} quality={quality} assetBaseUrl={assetBaseUrl}
-        onReady={onReady} onError={fail}
+        onReady={onReady} onError={fail} onProgress={onProgress}
         onCard={(card) => emit('card', { title: card.title, body: card.body ?? card.text ?? '' })}
         style={{ width: '100%', height: '100%' }}
       />,
     );
+  }
+
+  /** Building the layout: the viewer shows its own "Building your workplace… 40 %" from now on. */
+  function onProgress(progress) {
+    if (closed) return;
+    loading.remove();
+    emit('progress', { ...progress });
   }
 
   function onReady(e) {
