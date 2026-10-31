@@ -31,7 +31,8 @@
     "e2e:nested-rooms": "node e2e/nested-rooms-smoke.mjs",
     "e2e:viewer": "node e2e/viewer-smoke.mjs",
     "e2e:embed": "node e2e/embed-smoke.mjs",
-    "schema:json": "node scripts/schema-json.mjs"
+    "schema:json": "node scripts/schema-json.mjs",
+    "build:ahdus": "node scripts/build-ahdus.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^7.0.0",
