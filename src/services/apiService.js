@@ -63,10 +63,10 @@ import {
 import { supabase } from './supabaseClient';
 import { isSupabaseBackendOn as _supabaseOn, isAhdusBackendOn as _ahdusOn } from './backendFlags';
 import * as ahdus from './ahdusBackend';
+import { STORAGE_PREFIX, storageKey } from './savedLayouts';
 
 // ─── Config ───
 const SAVE_DELAY     = 1000;  // ms — debounce trailing edge
-const STORAGE_PREFIX = 'dwtwin_';
 const CHANGED_ELSEWHERE = 'This layout was changed in another tab';
 /** Browsers give a site about 5 MB of localStorage, for ALL its layouts together. */
 const STORAGE_QUOTA = 5_000_000;
@@ -87,10 +87,6 @@ function isQuotaError(err) {
 }
 
 // ─── Internal helpers ───
-
-function storageKey(companyId, layoutId) {
-  return `${STORAGE_PREFIX}${companyId}_${layoutId}`;
-}
 
 function listKey(companyId) {
   return `${STORAGE_PREFIX}${companyId}_layouts`;
@@ -623,13 +619,10 @@ export async function loadWorkspace(companyId, layoutId) {
 
 /**
  * A saved layout as it is stored (a save: v1), without opening it in the app's
- * store. For <LayoutViewer companyId layoutId />, which keeps its own copy.
- * Synchronous read from local cache.
- * @returns {object|null} null if there is no such layout
+ * store. Lives in savedLayouts.js: <LayoutViewer companyId layoutId /> imports it
+ * from there, so the viewer and the embed don't bundle saving (the Supabase client).
  */
-export function readSavedLayout(companyId, layoutId) {
-  return _loadFromBackend(companyId, layoutId);
-}
+export { readSavedLayout } from './savedLayouts';
 
 /**
  * "Reload": throw away this tab's unsaved changes and load what the other tab

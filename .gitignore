@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-embed/
+dist-ahdus/
 e2e/screens/
 *.log
 .env

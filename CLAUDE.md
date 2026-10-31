@@ -15,11 +15,16 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (580, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (586, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
 npm run build:embed  # dist-embed/ahdus-workplace.js (+ .css, + assets/): the one-file embed for plain HTML pages
+npm run build:ahdus  # dist-ahdus/ (git-ignored) for AHDUS-FRONTEND (scripts/build-ahdus.mjs): workplace-studio/ = Studio
+                     # with VITE_LAYOUT_BACKEND=ahdus + base /workplace-studio/ (vite.ahdus.config.js), 3d-environment/ =
+                     # a copy of build:embed's output, layout.schema.json, VERSION (version=, commit=, built=)
+npm run schema:json  # dist-ahdus/layout.schema.json (or: node scripts/schema-json.mjs <file>): JSON Schema (draft-07) of
+                     # the v2 layout from the Zod LayoutSchema (engine/model/jsonSchema.ts); the AHDUS server checks saves
 npm run assets:prepare  # public/assets/ from the downloaded packs (D:\assets-raw, outside the repo; sharp)
 npm run assets:env      # public/assets/env/sky.env from the HDRI (needs npm run dev)
 
@@ -51,8 +56,8 @@ npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside room
 npm run e2e:viewer   # 14 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
                      #                                       the vite build), walk in, E + a module's action, edits
                      #                                       refused, Page Up, view mode, a saved layout)
-npm run e2e:embed    # 26 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, serves embed-test.html
-                     #                                       itself; keys are the page's until the view is engaged, walk in,
+npm run e2e:embed    # 27 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
+                     #                                       in it (no Supabase), serves embed-test.html itself; keys are the page's until the view is engaged, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
                      #                                       with cookies, destroy(), assets next to the script, quality low)
 npm run e2e          # all of them (Himan's laptop once hung on this: run the scripts ONE AT A TIME)
@@ -215,6 +220,8 @@ src/embed/                         The one-file embed for plain HTML pages: inde
                                    built by vite.embed.config.js. embed-test.html + embed-sample.ahdus.json: its test page
 src/services/apiService.js         Save/load + auto-save (1 s debounce, tab close), revisions + other tabs, export/import,
                                    companies, version history: localStorage for now (Supabase path: prototype, flag off)
+src/services/savedLayouts.js       Reads a layout saved in this browser (LayoutViewer, the embed): not apiService, so a viewer
+                                   bundles no saving code (no Supabase client)
 src/services/ahdusBackend.js       VITE_LAYOUT_BACKEND=ahdus: a site's draft, versions, publish through the AHDUS API (v2, Bearer token)
 db/schema.sql                      PostgreSQL schema (base for the Supabase backend)
 ```
@@ -449,10 +456,18 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
     `{ layout (v2), expectedRevision }` (v2 via the engine's model; routes / links / underlays of the loaded layout kept
     by `mergeV2Extras`). Saves run one at a time; nothing about the layout goes to localStorage (no offline queue: a
     failed save says why, the next change retries). **409** → TabNotice "This workplace was changed by someone else",
-    Reload only (no copies); **401 / 403** → "Not saved: you are not allowed to edit this workplace".
+    Reload only (no copies); **401** → "Not saved: Your AHDUS login has expired. Log in again." (opening: the same
+    text); **403** → "Not saved: you are not allowed to edit this workplace".
   - Versions on the server (`GET` / `POST …/versions`, `POST …/versions/{v}/restore`); restore saves pending changes,
     then `editor.restoreVersion` (one undo step). Export layout stays; Import layout puts the file into this workplace
     (`editor.restoreVersion`, one undo step) instead of adding a layout. Tests: `ahdusBackend.test.js` (mocked fetch).
+  - **Dev:** with `VITE_LAYOUT_BACKEND=ahdus` (in `.env`), `npm run dev` proxies `/api` to `VITE_AHDUS_API` (default
+    `http://127.0.0.1:8000`, the AHDUS FastAPI); open `localhost:3000/?site=<id>` and copy the AHDUS `authToken` into
+    localStorage there (`.env.example` says how). Without the flag there is no proxy.
+  - **Build (W2):** `npm run build:ahdus` → `dist-ahdus/` (see Commands), which AHDUS-FRONTEND copies in after a
+    `git subtree pull` of a tag (plan section 3). It sets `VITE_LAYOUT_BACKEND=ahdus` itself and blanks the Supabase URL /
+    key and `VITE_AHDUS_API` (Vite inlines every `VITE_*` value into the built files AHDUS commits). The server checks
+    each saved layout against `layout.schema.json` (`npm run schema:json`: unknown fields are accepted, as in Zod).
 
 ## Team (other interns' modules plug in through layoutBridge)
 
@@ -550,7 +565,9 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 - `AHDUSWorkplace.mount(element, { layout | layoutUrl, headers, mode, quality, onEvent, onError })` → `{ ready, setMode,
   setFloor, focusOn, highlight, anchors(), registerAction(), destroy() }`; `AHDUSWorkplace.bridge` = layoutBridge.
   It renders `<LayoutViewer />` and adds no engine logic. Import LayoutViewer directly, never `engine/react/index.ts`
-  (it pulls in LayoutEditor → Studio, and an IIFE build inlines dynamic imports).
+  (it pulls in LayoutEditor → Studio, and an IIFE build inlines dynamic imports). LayoutViewer reads saved layouts
+  through `services/savedLayouts.js`, never apiService (that bundled the Supabase client: 2,864 → 2,636 kB, 713 → 654 kB
+  gzip); e2e:embed fails if saving code comes back.
 - Mode `edit` is refused. `layoutUrl`: `credentials: 'include'`, only v2 JSON or an exported `.ahdus.json` (a bare
   save or other JSON is an error). Loading fails → our box is removed, then `onError`, so the page shows its fallback.
 - Events (`ready`, `enterRoom`, `exitRoom`, `interact`, `floorChange`, `card`) come from that viewer's engine in

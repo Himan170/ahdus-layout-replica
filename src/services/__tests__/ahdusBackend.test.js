@@ -13,7 +13,7 @@ import {
   publishLayout,
   _getRevision,
 } from '../apiService';
-import { AHDUS_COMPANY, AHDUS_CHANGED, AHDUS_NOT_ALLOWED, siteFromUrl } from '../ahdusBackend';
+import { AHDUS_COMPANY, AHDUS_CHANGED, AHDUS_NOT_ALLOWED, AHDUS_LOGIN_EXPIRED, siteFromUrl } from '../ahdusBackend';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { createEditorHistory } from '../../store/editorHistory';
 import { loadLayout } from '../../engine/model';
@@ -185,13 +185,16 @@ describe('apiService with VITE_LAYOUT_BACKEND=ahdus', () => {
     expect(_getRevision()).toBe(9);
   });
 
-  it.each([401, 403])('%i: "Not saved: you are not allowed to edit this workplace"', async (status) => {
+  it.each([
+    [403, AHDUS_NOT_ALLOWED],     // "Not saved: you are not allowed to edit this workplace"
+    [401, AHDUS_LOGIN_EXPIRED],   // "Not saved: Your AHDUS login has expired. Log in again."
+  ])('%i on save: "Not saved: %s"', async (status, reason) => {
     await loadWorkspace(AHDUS_COMPANY, SITE);
     server.answer['PUT /layout'] = status;
     createEditorHistory().addRoom(STORE);
-    expect(await saveNow()).toEqual({ ok: false, error: AHDUS_NOT_ALLOWED });
+    expect(await saveNow()).toEqual({ ok: false, error: reason });
     const s = useWorkspaceStore.getState();
-    expect(s.saveError).toBe(AHDUS_NOT_ALLOWED);
+    expect(s.saveError).toBe(reason);
     expect(s.saveConflict).toBe(false);
     expect(s.isDirty).toBe(true); // the next change retries
   });
@@ -199,6 +202,17 @@ describe('apiService with VITE_LAYOUT_BACKEND=ahdus', () => {
   it('opening a site the user may not edit fails with a short reason', async () => {
     server.answer['GET /layout'] = 403;
     await expect(loadWorkspace(AHDUS_COMPANY, SITE)).rejects.toThrow('You are not allowed to edit this workplace');
+  });
+
+  it('opening a site with an expired login says to log in again', async () => {
+    server.answer['GET /layout'] = 401;
+    await expect(loadWorkspace(AHDUS_COMPANY, SITE)).rejects.toThrow('Your AHDUS login has expired. Log in again.');
+  });
+
+  it('publish with an expired login says to log in again', async () => {
+    await loadWorkspace(AHDUS_COMPANY, SITE);
+    server.answer['POST /publish'] = 401;
+    expect(await publishLayout()).toMatchObject({ ok: false, error: AHDUS_LOGIN_EXPIRED });
   });
 
   it('a site without a draft yet opens empty, at revision 0', async () => {

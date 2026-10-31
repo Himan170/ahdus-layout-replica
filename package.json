@@ -1,7 +1,7 @@
 {
   "name": "company-digital-twin",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.9.0",
   "type": "module",
   "engines": {
     "node": ">=20.19"
@@ -30,7 +30,9 @@
     "e2e:perf": "node e2e/perf-smoke.mjs",
     "e2e:nested-rooms": "node e2e/nested-rooms-smoke.mjs",
     "e2e:viewer": "node e2e/viewer-smoke.mjs",
-    "e2e:embed": "node e2e/embed-smoke.mjs"
+    "e2e:embed": "node e2e/embed-smoke.mjs",
+    "schema:json": "node scripts/schema-json.mjs",
+    "build:ahdus": "node scripts/build-ahdus.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^7.0.0",
@@ -52,6 +54,7 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "ajv": "8.20.0",
     "eslint": "^10.13.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.13.0",
@@ -60,6 +63,7 @@
     "sharp": "^0.35.5",
     "typescript": "^5.5.0",
     "vite": "^5.4.0",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "zod-to-json-schema": "3.25.2"
   }
 }
