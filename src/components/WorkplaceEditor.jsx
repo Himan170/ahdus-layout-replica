@@ -58,6 +58,7 @@ import StudioFooter from '../ui/StudioFooter';
 import TabNotice from '../ui/TabNotice';
 import ProposedLayoutBanner from '../ui/ProposedLayoutBanner';
 import { isPhotoReconstructionOn } from '../services/reconstructionService';
+import { isAhdusBackendOn } from '../services/backendFlags';
 import { activeTile, toolHint } from '../ui/tools';
 
 import {
@@ -218,6 +219,7 @@ export default function WorkplaceEditor({ onExit }) {
   const selectedOpeningSel = useWorkspaceStore((s) => s.selectedOpening);
   const layoutName = useWorkspaceStore((s) => s.layoutName);
   const hasBackend = useWorkspaceStore((s) => !!(s.companyId && s.layoutId));
+  const inAhdus = isAhdusBackendOn(); // Studio inside AHDUS: Back to AHDUS, Publish, no copies
 
   // FPS is local — no need to put it in global store
   const fpsRef = useRef(0);
@@ -882,7 +884,7 @@ export default function WorkplaceEditor({ onExit }) {
 
   // ─── File and layout actions (hooks/useStudioFileActions.js) ───
   const {
-    handleAllLayouts, handleReloadTheirs, handleExportLayout, handleImportLayout, handleSaveCopy,
+    handleAllLayouts, handleReloadTheirs, handleExportLayout, handleImportLayout, handleSaveCopy, handlePublish,
     handleExportPng, handleExportPdf, handlePhotoReconstruct,
   } = useStudioFileActions({ onExit, editor, showStudioMessage, gizmoControllerRef, setExportLoading });
 
@@ -901,6 +903,8 @@ export default function WorkplaceEditor({ onExit }) {
           layoutName={layoutName}
           onRenameLayout={(name) => renameLayout(name)}
           onAllLayouts={onExit ? handleAllLayouts : null}
+          allLayoutsLabel={inAhdus ? 'Back to AHDUS' : 'All layouts'}
+          onPublish={inAhdus && hasBackend ? handlePublish : null}
           saveStatus={saveStatus}
           saveError={hasBackend ? saveError : 'This layout has no place to save to'}
           undoState={undoState}
@@ -924,6 +928,7 @@ export default function WorkplaceEditor({ onExit }) {
             onRoomLabelsChange: (value) => { setRoomLabels(value); storeRoomLabels(value); },
             onExportLayout: hasBackend ? handleExportLayout : null,
             onImportLayout: handleImportLayout,
+            importTitle: inAhdus ? 'Replace this workplace with a layout from a file (Ctrl+Z undoes it)' : undefined,
             onPhotoReconstruct: isPhotoReconstructionOn() ? handlePhotoReconstruct : null,
           }}
         />
@@ -1041,10 +1046,11 @@ export default function WorkplaceEditor({ onExit }) {
           )}
           <TabNotice
             conflict={saveConflict}
+            conflictText={inAhdus ? saveError : null}
             openElsewhere={openElsewhere}
             storageNearlyFull={storageNearlyFull}
             onReload={handleReloadTheirs}
-            onSaveCopy={handleSaveCopy}
+            onSaveCopy={inAhdus ? null : handleSaveCopy}
             onExport={hasBackend ? handleExportLayout : null}
           />
           <RoomLabels

@@ -42,6 +42,12 @@
  * URL / key) are set; without the flag nothing here touches the network.
  * Production saving goes through the platform API, which takes the tenant from
  * the server session, never from a company_id sent by the browser.
+ *
+ * AHDUS (VITE_LAYOUT_BACKEND=ahdus, ahdusBackend.js): Studio inside AHDUS. The open
+ * layout is a site's draft (companyId AHDUS_COMPANY, layoutId = the site id), loaded
+ * and saved through the AHDUS API with the revision check on the server (409 →
+ * "This workplace was changed by someone else"); versions live on the server too.
+ * Nothing about the layout is kept in localStorage, and saves run one at a time.
  */
 
 import { useWorkspaceStore } from '../store/workspaceStore';
@@ -55,7 +61,8 @@ import {
   dequeueLayoutSync,
 } from './syncQueue';
 import { supabase } from './supabaseClient';
-import { isSupabaseBackendOn as _supabaseOn } from './backendFlags';
+import { isSupabaseBackendOn as _supabaseOn, isAhdusBackendOn as _ahdusOn } from './backendFlags';
+import * as ahdus from './ahdusBackend';
 
 // ─── Config ───
 const SAVE_DELAY     = 1000;  // ms — debounce trailing edge
@@ -355,8 +362,85 @@ export function _getRevision() {
 }
 
 function _conflict() {
-  useWorkspaceStore.getState().markSaveConflict(CHANGED_ELSEWHERE);
-  return { ok: false, conflict: true, error: CHANGED_ELSEWHERE };
+  const message = _ahdusOn() ? ahdus.AHDUS_CHANGED : CHANGED_ELSEWHERE;
+  useWorkspaceStore.getState().markSaveConflict(message);
+  return { ok: false, conflict: true, error: message };
+}
+
+// ─── AHDUS backend (VITE_LAYOUT_BACKEND=ahdus) ───
+
+/** The open site's layout as loaded (v2): what only v2 has (routes, links, underlays) is sent back with every save. */
+let _ahdusLoaded = null;
+/** Saves to AHDUS run one after another (each waits for the one before). */
+let _ahdusQueue = Promise.resolve();
+
+function _saveToAhdus(options) {
+  const run = _ahdusQueue.then(() => _saveToAhdusNow(options)).catch((err) => {
+    const error = err?.message || 'Could not save';
+    console.error('[apiService] save failed:', err);
+    useWorkspaceStore.getState().markSaveFailed(error);
+    return { ok: false, error };
+  });
+  _ahdusQueue = run;
+  return run;
+}
+
+async function _saveToAhdusNow({ force = false } = {}) {
+  const state = useWorkspaceStore.getState();
+  if (!state.companyId || !state.layoutId) return { ok: true, skipped: true };
+  if (state.saveConflict) return _conflict();
+  if (!state.isDirty && !force) return { ok: true, skipped: true };
+
+  const payload = state.exportWorkspace();
+  const res = await ahdus.saveDraft(state.layoutId, payload, _revision, _ahdusLoaded);
+  const now = useWorkspaceStore.getState();
+  if (now.layoutId !== state.layoutId) return res.ok ? { ok: true } : { ok: false, error: res.error }; // left meanwhile
+  if (res.conflict) return _conflict();
+  if (!res.ok) {
+    now.markSaveFailed(res.error);
+    return { ok: false, error: res.error };
+  }
+  _revision = res.revision;
+  // Changed while the request was on its way: still dirty (that change has its own save scheduled)
+  const unchanged = now.rooms === state.rooms && now.objects === state.objects &&
+    now.floors === state.floors && now.anchorData === state.anchorData;
+  if (unchanged) now.markSaved();
+  else useWorkspaceStore.setState({ saveError: null });
+  _post('open');
+  try {
+    _maybeAutoVersion(state.companyId, state.layoutId, payload);
+  } catch (err) {
+    console.warn('[apiService] auto-save version checkpoint failed:', err);
+  }
+  return { ok: true };
+}
+
+/** Open an AHDUS site's draft in the store. Throws with a short reason if it can't be loaded. */
+async function _loadFromAhdus(site) {
+  const res = await ahdus.loadDraft(site);
+  if (!res.ok) throw new Error(res.forbidden ? 'You are not allowed to edit this workplace' : res.error);
+  const store = useWorkspaceStore.getState();
+  if (res.layout) store.loadWorkspace(res.layout);
+  else store.resetWorkspace();
+  store.setTenant(ahdus.AHDUS_COMPANY, site, res.name || res.layout?.layoutName || 'Workplace', 1);
+  _revision = res.revision;
+  _ahdusLoaded = res.v2;
+  return true;
+}
+
+/**
+ * Publish (AHDUS only): save the draft, then make it what employees see.
+ * @returns {Promise<{ ok: boolean, error?: string, conflict?: boolean }>}
+ */
+export async function publishLayout() {
+  if (!_ahdusOn()) return { ok: false, error: 'Publishing is only possible inside AHDUS' };
+  const saved = await _saveSync();
+  if (!saved.ok) return saved;
+  const { layoutId } = useWorkspaceStore.getState();
+  if (!layoutId) return { ok: false, error: 'No workplace open' };
+  const res = await ahdus.publish(layoutId, _revision);
+  if (res.conflict) return _conflict();
+  return res.ok ? { ok: true } : { ok: false, error: res.error };
 }
 
 /**
@@ -413,6 +497,7 @@ function _saveSync({ force = false } = {}) {
     clearTimeout(_debounceTimer);
     _debounceTimer = null;
   }
+  if (_ahdusOn()) return _saveToAhdus({ force }); // a Promise of the same result
   const state = useWorkspaceStore.getState();
   if (!state.companyId || !state.layoutId) return { ok: true, skipped: true }; // nowhere to save
   if (state.saveConflict) return _conflict();                                  // wait for Reload / Save a copy
@@ -506,6 +591,7 @@ function _scheduleSave() {
  * @returns {Promise<boolean>} true if layout was found and loaded
  */
 export async function loadWorkspace(companyId, layoutId) {
+  if (_ahdusOn()) return _loadFromAhdus(layoutId);
   let data = null;
 
   if (_supabaseOn() && isOnline()) {
@@ -565,6 +651,7 @@ export async function reloadLayout() {
 export async function saveAsCopy() {
   const store = useWorkspaceStore.getState();
   if (!store.companyId) return { ok: false, error: 'This layout has no place to save to' };
+  if (_ahdusOn()) return { ok: false, error: 'A workplace in AHDUS can only be reloaded' };
   dequeueLayoutSync(store.companyId, store.layoutId);
   const layoutId = newLayoutId();
   const name = `${store.layoutName} (copy)`;
@@ -830,6 +917,21 @@ export async function exportLayout(companyId, layoutId) {
 }
 
 /**
+ * The layout in an exported file (or a bare save), filled in like old saves
+ * (normaliseLayout). Throws "This file is not an AHDUS layout" otherwise.
+ * @param {string} text  the file's contents
+ */
+export function readLayoutFile(text) {
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { throw new Error(NOT_A_LAYOUT); }
+  const layout = parsed?.format === LAYOUT_FILE_FORMAT ? parsed.layout : parsed;
+  const looksLikeLayout = layout && typeof layout === 'object' && !Array.isArray(layout) &&
+    ['rooms', 'objects', 'floors'].some((k) => k in layout);
+  if (!looksLikeLayout) throw new Error(NOT_A_LAYOUT);
+  return normaliseLayout(layout);
+}
+
+/**
  * Add a layout from an exported file to a company's layouts (a new layout; the
  * file's rooms, items and their ids are kept, so other modules' links still
  * work). Old files are filled in like old saves (normaliseLayout).
@@ -837,14 +939,7 @@ export async function exportLayout(companyId, layoutId) {
  * @returns {Promise<{ id: string, name: string }>}  throws with a short reason
  */
 export async function importLayout(companyId, text) {
-  let parsed;
-  try { parsed = JSON.parse(text); } catch { throw new Error(NOT_A_LAYOUT); }
-  const layout = parsed?.format === LAYOUT_FILE_FORMAT ? parsed.layout : parsed;
-  const looksLikeLayout = layout && typeof layout === 'object' && !Array.isArray(layout) &&
-    ['rooms', 'objects', 'floors'].some((k) => k in layout);
-  if (!looksLikeLayout) throw new Error(NOT_A_LAYOUT);
-
-  const n = normaliseLayout(layout);
+  const n = readLayoutFile(text);
   const layoutId = newLayoutId();
   const payload = {
     companyId, layoutId,
@@ -963,7 +1058,8 @@ const _onVisibility = () => { if (document.visibilityState === 'hidden') _saveSy
 export function startAutoSave() {
   if (_unsubscribe) return; // already running
 
-  const stopSync = startSyncListener(_persistQueueItem);
+  // The offline queue writes localStorage: not for AHDUS sites (a failed save says why; the next change retries)
+  const stopSync = _ahdusOn() ? null : startSyncListener(_persistQueueItem);
 
   const unsubStore = useWorkspaceStore.subscribe(
     (s) => ({ rooms: s.rooms, objects: s.objects, floors: s.floors, anchorData: s.anchorData }),
@@ -1129,6 +1225,11 @@ export async function createVersion(name = '', options = {}) {
   const payload = options.payload || state.exportWorkspace();
   const auto = options.auto === true;
 
+  if (_ahdusOn()) {
+    const res = await ahdus.createVersion(layoutId, { name, auto, payload, loaded: _ahdusLoaded, revision: _revision });
+    return res.ok ? { ok: true, version: res.version } : { ok: false, error: res.error };
+  }
+
   // Read existing versions from cache to determine next version number
   const existing = _readVersions(companyId, layoutId);
   const highestVersion = existing.length > 0
@@ -1202,6 +1303,12 @@ export async function createVersion(name = '', options = {}) {
 export async function listVersions(companyId, layoutId) {
   if (!companyId || !layoutId) return [];
 
+  if (_ahdusOn()) {
+    const res = await ahdus.listVersions(layoutId);
+    if (!res.ok) throw new Error(res.error);
+    return res.versions;
+  }
+
   if (_supabaseOn() && isOnline() && isUuid(companyId) && isUuid(layoutId)) {
     try {
       const { data, error } = await supabase
@@ -1235,6 +1342,20 @@ export async function listVersions(companyId, layoutId) {
 export async function restoreVersion(companyId, layoutId, versionId, editor) {
   if (!companyId || !layoutId) return { ok: false, error: 'No layout specified' };
   if (typeof editor?.restoreVersion !== 'function') return { ok: false, error: 'Nothing to restore into' };
+
+  if (_ahdusOn()) {
+    // Changes not saved yet go first; then the server makes the version its draft, and the
+    // editor takes it as one undo step (undo saves the layout from before, like any change)
+    const saved = await _saveSync();
+    if (!saved.ok) return { ok: false, error: saved.error };
+    const res = await ahdus.restoreVersion(layoutId, versionId);
+    if (!res.ok) return { ok: false, error: res.error };
+    _revision = res.revision;
+    _ahdusLoaded = res.v2;
+    const done = editor.restoreVersion(res.layout);
+    if (done?.problem) return { ok: false, error: done.problem };
+    return { ok: true, version: { id: versionId } };
+  }
 
   const versions = await listVersions(companyId, layoutId);
   const target = versions.find((v) => v.id === versionId || v.version === Number(versionId));

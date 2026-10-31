@@ -4,7 +4,9 @@
  * Banner at the top of the canvas when this layout is open in more than one tab
  * (services/apiService.js watches the other tabs):
  *   - "This layout was changed in another tab": saving has stopped so neither tab
- *     loses work. Reload (load theirs) or Save mine as a copy.
+ *     loses work. Reload (load theirs) or Save mine as a copy. In AHDUS the text is
+ *     conflictText ("This workplace was changed by someone else") and there is no
+ *     copy to save to (onSaveCopy null): Reload only.
  *   - "Also open in another tab": a small note; changes in both would clash.
  * And when the browser's storage is almost full: export layouts, delete old ones.
  */
@@ -13,20 +15,26 @@ import { AlertTriangle, Copy, Download, Info, RotateCcw } from 'lucide-react';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 
-export default function TabNotice({ conflict, openElsewhere, storageNearlyFull, onReload, onSaveCopy, onExport }) {
+export default function TabNotice({
+  conflict, conflictText, openElsewhere, storageNearlyFull, onReload, onSaveCopy, onExport,
+}) {
   if (conflict) {
     return (
-      <div className="tab-notice is-bad" role="alertdialog" aria-label="Changed in another tab">
+      <div className="tab-notice is-bad" role="alertdialog"
+        aria-label={conflictText ? 'Changed by someone else' : 'Changed in another tab'}>
         <AlertTriangle {...ICON} />
-        <p className="tab-notice__text">This layout was changed in another tab</p>
-        <button className="ui-btn" aria-label="Reload" title="Load the other tab's version (your changes here are lost)"
+        <p className="tab-notice__text">{conflictText || 'This layout was changed in another tab'}</p>
+        <button className="ui-btn" aria-label="Reload"
+          title={conflictText ? 'Load the saved version (your changes here are lost)' : "Load the other tab's version (your changes here are lost)"}
           onClick={onReload}>
           <RotateCcw {...ICON} /> Reload
         </button>
-        <button className="ui-btn is-primary" aria-label="Save mine as a copy" title="Keep your version as a new layout"
-          onClick={onSaveCopy}>
-          <Copy {...ICON} /> Save mine as a copy
-        </button>
+        {onSaveCopy && (
+          <button className="ui-btn is-primary" aria-label="Save mine as a copy" title="Keep your version as a new layout"
+            onClick={onSaveCopy}>
+            <Copy {...ICON} /> Save mine as a copy
+          </button>
+        )}
       </div>
     );
   }
