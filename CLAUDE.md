@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (586, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (591, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -452,14 +452,19 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
     no site or a refused load: "This workplace could not be opened" + Back to AHDUS). Store: companyId `ahdus`,
     layoutId = the site id. "All layouts" is "Back to AHDUS" (`/3d-model.html`); a **Publish** button (header, AHDUS
     only) saves, then `POST …/publish` with `expectedRevision`.
+  - **Not logged in** (no `authToken`, or the first load answers 401): the browser goes to
+    `/login.html?redirect=<this /workplace-studio/ address, encoded>` (`ahdusBackend.goToLogin`; "Taking you to the
+    AHDUS login…" meanwhile), so AHDUS-FRONTEND's `studio-login.js` patch is no longer needed. No site: the error card.
+    Tests: `src/__tests__/App.ahdusLogin.test.jsx` (jsdom, editor mocked) + `loginUrl` with a mocked location.
   - Load = `GET …/layout?state=draft` (`{ layout (v2 | null), revision, name? }`); save = `PUT …/layout`
     `{ layout (v2), expectedRevision }` (v2 via the engine's model; routes / links / underlays of the loaded layout kept
     by `mergeV2Extras`). Saves run one at a time; nothing about the layout goes to localStorage (no offline queue: a
     failed save says why, the next change retries). **409** → TabNotice "This workplace was changed by someone else",
-    Reload only (no copies); **401** → "Not saved: Your AHDUS login has expired. Log in again." (opening: the same
-    text); **403** → "Not saved: you are not allowed to edit this workplace".
+    Reload only (no copies); **401** → "Not saved: Your AHDUS login has expired. Log in again." (opening: the login
+    page, see above); **403** → "Not saved: you are not allowed to edit this workplace".
   - Versions on the server (`GET` / `POST …/versions`, `POST …/versions/{v}/restore`); restore saves pending changes,
-    then `editor.restoreVersion` (one undo step). Export layout stays; Import layout puts the file into this workplace
+    then `editor.restoreVersion` (one undo step). The restored layout is the server's draft already, so it is marked
+    saved and its auto-save dropped (the revision goes up by 1, not 2); undo / redo save like any change. Export layout stays; Import layout puts the file into this workplace
     (`editor.restoreVersion`, one undo step) instead of adding a layout. Tests: `ahdusBackend.test.js` (mocked fetch).
   - **Dev:** with `VITE_LAYOUT_BACKEND=ahdus` (in `.env`), `npm run dev` proxies `/api` to `VITE_AHDUS_API` (default
     `http://127.0.0.1:8000`, the AHDUS FastAPI); open `localhost:3000/?site=<id>` and copy the AHDUS `authToken` into
