@@ -6,7 +6,7 @@ import globals from 'globals';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default [
-  { ignores: ['dist/', 'dist-embed/', 'node_modules/', 'public/', 'e2e/screens/', '**/*.ts', '**/*.tsx'] },
+  { ignores: ['dist/', 'dist-embed/', 'dist-ahdus/', 'node_modules/', 'public/', 'e2e/screens/', '**/*.ts', '**/*.tsx'] },
 
   js.configs.recommended,
 
