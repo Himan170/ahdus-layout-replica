@@ -31,7 +31,8 @@ import type {
 } from '../LayoutEngine';
 import { progressPercent } from '../../play/buildSchedule';
 import { connectEngine } from '../../integration/layoutBridge';
-import { readSavedLayout } from '../../services/apiService';
+// Not apiService: that would bundle saving (the Supabase client) into every viewer
+import { readSavedLayout } from '../../services/savedLayouts';
 
 export interface LayoutViewerProps {
   /** The layout: a save, an exported layout file or v2 JSON. */

@@ -35,6 +35,10 @@ const css = statSync('dist-embed/ahdus-workplace.css', { throwIfNoEntry: false }
 log('build:embed makes one IIFE file (global AHDUSWorkplace) + its .css, with no Studio code and no process.env',
   bundle.includes('var AHDUSWorkplace=') && !STUDIO.test(bundle) && !/process\.env/.test(bundle) && !!css?.size,
   `${(bundle.length / 1e6).toFixed(2)} MB${STUDIO.test(bundle) ? ` | Studio: ${bundle.match(STUDIO)[0]}` : ''}`);
+// The viewer never saves: no Supabase client, no sync queue (LayoutViewer reads saves through savedLayouts.js)
+const SAVING = /GoTrueClient|RealtimeClient|supabase|dwtwin_sync_queue/i;
+log('the embed has no saving code (no Supabase client, no sync queue)', !SAVING.test(bundle),
+  SAVING.test(bundle) ? `found: ${bundle.match(SAVING)[0]}` : '');
 
 // ── A plain static server for the repo (the page), and an "API" on another origin ──
 const root = resolve('.');
