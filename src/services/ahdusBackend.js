@@ -13,14 +13,14 @@
  * (src/engine/model); the store keeps v1, so this file converts both ways:
  *   GET  /api/workplace/sites/{site}/layout?state=draft  → { layout (v2 | null), revision, name? }
  *   PUT  /api/workplace/sites/{site}/layout               { layout, expectedRevision } → { revision }
- *        409 = someone saved in between; 401 / 403 = not allowed to edit
+ *        409 = someone saved in between; 401 = the login expired; 403 = not allowed to edit
  *   GET  /api/workplace/sites/{site}/versions             → [{ id, revision, name, kind, createdAt, createdBy }]
  *                                                           (or { versions: [...] })
  *   POST /api/workplace/sites/{site}/versions             { name, kind: 'auto' | 'named', layout, revision } → the version
  *   POST /api/workplace/sites/{site}/versions/{v}/restore → { layout, revision } (the draft is now that version)
  *   POST /api/workplace/sites/{site}/publish              { expectedRevision } → the draft becomes the published layout
  *
- * Every function returns { ok: true, … } or { ok: false, error, conflict?, forbidden?, notFound? }; none throws.
+ * Every function returns { ok: true, … } or { ok: false, error, conflict?, loginExpired?, forbidden?, notFound? }; none throws.
  */
 
 import { loadLayout as parseLayout, toV1, mergeV2Extras } from '../engine/model';
@@ -31,6 +31,7 @@ export const AHDUS_COMPANY = 'ahdus';
 export const AHDUS_HOME = '/3d-model.html';
 export const AHDUS_CHANGED = 'This workplace was changed by someone else';
 export const AHDUS_NOT_ALLOWED = 'you are not allowed to edit this workplace';
+export const AHDUS_LOGIN_EXPIRED = 'Your AHDUS login has expired. Log in again.';
 const NO_CONNECTION = 'AHDUS could not be reached';
 const NOT_FOUND = 'This workplace does not exist';
 /** fetch's keepalive (a save still arrives when the tab closes) takes bodies up to 64 KB. */
@@ -52,7 +53,7 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/** One API call. @returns {{ ok, status, data?, error?, conflict?, forbidden?, notFound? }} */
+/** One API call. @returns {{ ok, status, data?, error?, conflict?, loginExpired?, forbidden?, notFound? }} */
 async function request(method, path, body) {
   const headers = { Accept: 'application/json', ...authHeaders() };
   const init = { method, headers, credentials: 'same-origin' };
@@ -71,7 +72,8 @@ async function request(method, path, body) {
   try { data = await res.json(); } catch { /* empty or not JSON */ }
   if (res.ok) return { ok: true, status: res.status, data };
   if (res.status === 409) return { ok: false, status: 409, conflict: true, error: AHDUS_CHANGED };
-  if (res.status === 401 || res.status === 403) return { ok: false, status: res.status, forbidden: true, error: AHDUS_NOT_ALLOWED };
+  if (res.status === 401) return { ok: false, status: 401, loginExpired: true, error: AHDUS_LOGIN_EXPIRED };
+  if (res.status === 403) return { ok: false, status: 403, forbidden: true, error: AHDUS_NOT_ALLOWED };
   if (res.status === 404) return { ok: false, status: 404, notFound: true, error: NOT_FOUND };
   const detail = typeof data?.detail === 'string' ? data.detail : null; // FastAPI's error shape
   return { ok: false, status: res.status, error: detail || `AHDUS answered ${res.status}` };
@@ -114,7 +116,7 @@ export async function loadDraft(site) {
  * Save the draft, only if the server still has `expectedRevision`.
  * @param {object} payload  the store's exportWorkspace()
  * @param {object|null} loaded  the v2 layout as loaded (its extras are kept)
- * @returns {Promise<{ ok: true, revision: number }|{ ok: false, error, conflict?, forbidden? }>}
+ * @returns {Promise<{ ok: true, revision: number }|{ ok: false, error, conflict?, loginExpired?, forbidden? }>}
  */
 export async function saveDraft(site, payload, expectedRevision, loaded = null) {
   let layout;
