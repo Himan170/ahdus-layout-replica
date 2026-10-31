@@ -9,7 +9,8 @@
  *
  * AHDUS mode (VITE_LAYOUT_BACKEND=ahdus): no companies screen. The site in the
  * address (?site=<id>) opens straight in Workplace Studio; leaving goes back to
- * AHDUS (AHDUS_HOME).
+ * AHDUS (AHDUS_HOME). Not logged in (no token, or the load answers 401): the
+ * browser goes to AHDUS's login page, which comes back here afterwards.
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -20,7 +21,7 @@ import EditorErrorBoundary from './ui/EditorErrorBoundary';
 import { useWorkspaceStore } from './store/workspaceStore';
 import { loadWorkspace, stopAutoSave } from './services/apiService';
 import { isAhdusBackendOn } from './services/backendFlags';
-import { AHDUS_COMPANY, AHDUS_HOME, siteFromUrl } from './services/ahdusBackend';
+import { AHDUS_COMPANY, AHDUS_HOME, siteFromUrl, hasLoginToken, goToLogin } from './services/ahdusBackend';
 
 function backToAhdus() {
   window.location.assign(AHDUS_HOME);
@@ -33,10 +34,16 @@ function AhdusStudio() {
 
   useEffect(() => {
     if (!site) return undefined;
+    const toLogin = () => { setStatus({ state: 'login' }); goToLogin(); };
+    if (!hasLoginToken()) { toLogin(); return undefined; }
     let cancelled = false;
     loadWorkspace(AHDUS_COMPANY, site).then(
       () => { if (!cancelled) setStatus({ state: 'open' }); },
-      (err) => { if (!cancelled) setStatus({ state: 'error', error: err?.message ?? String(err) }); },
+      (err) => {
+        if (cancelled) return;
+        if (err?.loginExpired) toLogin();
+        else setStatus({ state: 'error', error: err?.message ?? String(err) });
+      },
     );
     return () => { cancelled = true; };
   }, [site]);
@@ -54,8 +61,12 @@ function AhdusStudio() {
       </EditorErrorBoundary>
     );
   }
-  if (status.state === 'loading') {
-    return <div className="editor-error ui-muted" role="status">Opening the workplace…</div>;
+  if (status.state === 'loading' || status.state === 'login') {
+    return (
+      <div className="editor-error ui-muted" role="status">
+        {status.state === 'login' ? 'Taking you to the AHDUS login…' : 'Opening the workplace…'}
+      </div>
+    );
   }
   return (
     <div className="editor-error" role="alert">

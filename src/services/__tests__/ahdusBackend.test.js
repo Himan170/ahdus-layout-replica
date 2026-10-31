@@ -13,7 +13,10 @@ import {
   publishLayout,
   _getRevision,
 } from '../apiService';
-import { AHDUS_COMPANY, AHDUS_CHANGED, AHDUS_NOT_ALLOWED, AHDUS_LOGIN_EXPIRED, siteFromUrl } from '../ahdusBackend';
+import {
+  AHDUS_COMPANY, AHDUS_CHANGED, AHDUS_NOT_ALLOWED, AHDUS_LOGIN_EXPIRED, siteFromUrl,
+  hasLoginToken, loginUrl, goToLogin,
+} from '../ahdusBackend';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { createEditorHistory } from '../../store/editorHistory';
 import { loadLayout } from '../../engine/model';
@@ -207,6 +210,27 @@ describe('apiService with VITE_LAYOUT_BACKEND=ahdus', () => {
   it('opening a site with an expired login says to log in again', async () => {
     server.answer['GET /layout'] = 401;
     await expect(loadWorkspace(AHDUS_COMPANY, SITE)).rejects.toThrow('Your AHDUS login has expired. Log in again.');
+    // App sends the browser to the login page for this one
+    await expect(loadWorkspace(AHDUS_COMPANY, SITE)).rejects.toMatchObject({ loginExpired: true });
+    server.answer['GET /layout'] = 403;
+    await expect(loadWorkspace(AHDUS_COMPANY, SITE)).rejects.not.toHaveProperty('loginExpired');
+  });
+
+  it('not logged in: the login page, coming back to this Studio address', () => {
+    expect(hasLoginToken()).toBe(true);
+    storage.delete('authToken');
+    expect(hasLoginToken()).toBe(false);
+    storage.set('authToken', '');
+    expect(hasLoginToken()).toBe(false);
+
+    const location = {
+      pathname: '/workplace-studio/', search: '?site=hq 2&x=1', hash: '#top', assign: vi.fn(),
+    };
+    expect(loginUrl(location)).toBe('/login.html?redirect=%2Fworkplace-studio%2F%3Fsite%3Dhq%202%26x%3D1%23top');
+    goToLogin(location);
+    expect(location.assign).toHaveBeenCalledWith(loginUrl(location));
+    expect(new URLSearchParams(location.assign.mock.calls[0][0].split('?')[1]).get('redirect'))
+      .toBe('/workplace-studio/?site=hq 2&x=1#top');
   });
 
   it('publish with an expired login says to log in again', async () => {

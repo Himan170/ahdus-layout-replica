@@ -414,7 +414,11 @@ async function _saveToAhdusNow({ force = false } = {}) {
 /** Open an AHDUS site's draft in the store. Throws with a short reason if it can't be loaded. */
 async function _loadFromAhdus(site) {
   const res = await ahdus.loadDraft(site);
-  if (!res.ok) throw new Error(res.forbidden ? 'You are not allowed to edit this workplace' : res.error);
+  if (!res.ok) {
+    const err = new Error(res.forbidden ? 'You are not allowed to edit this workplace' : res.error);
+    if (res.loginExpired) err.loginExpired = true; // App sends the browser to the login page
+    throw err;
+  }
   const store = useWorkspaceStore.getState();
   if (res.layout) store.loadWorkspace(res.layout);
   else store.resetWorkspace();
