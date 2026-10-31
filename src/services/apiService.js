@@ -1351,6 +1351,13 @@ export async function restoreVersion(companyId, layoutId, versionId, editor) {
     _ahdusLoaded = res.v2;
     const done = editor.restoreVersion(res.layout);
     if (done?.problem) return { ok: false, error: done.problem };
+    // The store now holds the server's draft at res.revision: the auto-save that change
+    // scheduled would only send it back (revision +2). Undo / redo are changes of their own.
+    if (_debounceTimer) {
+      clearTimeout(_debounceTimer);
+      _debounceTimer = null;
+    }
+    useWorkspaceStore.getState().markSaved();
     return { ok: true, version: { id: versionId } };
   }
 

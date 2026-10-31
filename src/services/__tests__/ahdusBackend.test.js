@@ -11,6 +11,8 @@ import {
   listVersions,
   restoreVersion,
   publishLayout,
+  startAutoSave,
+  stopAutoSave,
   _getRevision,
 } from '../apiService';
 import {
@@ -288,6 +290,44 @@ describe('apiService with VITE_LAYOUT_BACKEND=ahdus', () => {
     // Undo is a change like any other: saved over the restored draft without a conflict
     expect((await saveNow()).ok).toBe(true);
     expect(server.draft.rooms).toHaveLength(2);
+  });
+
+  it('restoring a version saves nothing more: the revision goes up by 1 (the restore), undo / redo still save', async () => {
+    vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
+    vi.stubGlobal('document', { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} });
+    vi.useFakeTimers();
+    try {
+      await loadWorkspace(AHDUS_COMPANY, SITE);
+      startAutoSave();
+      const editor = createEditorHistory();
+      await createVersion('Before the store');
+      editor.addRoom(STORE);
+      await vi.advanceTimersByTimeAsync(2000); // auto-saved: revision 8
+      const puts = () => server.calls.filter((c) => c.method === 'PUT').length;
+      expect(puts()).toBe(1);
+      const before = server.revision;
+
+      expect((await restoreVersion(AHDUS_COMPANY, SITE, 'v1', editor)).ok).toBe(true);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(server.revision).toBe(before + 1);
+      expect(puts()).toBe(1);
+      expect(_getRevision()).toBe(server.revision);
+      expect(useWorkspaceStore.getState().isDirty).toBe(false);
+      expect(useWorkspaceStore.getState().saveError).toBe(null);
+
+      editor.undo(); // back to 2 rooms: saved over the restored draft
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(puts()).toBe(2);
+      expect(server.draft.rooms).toHaveLength(2);
+      editor.redo(); // the restored version again
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(puts()).toBe(3);
+      expect(server.draft.rooms).toHaveLength(1);
+      expect(server.revision).toBe(before + 3);
+    } finally {
+      stopAutoSave();
+      vi.useRealTimers();
+    }
   });
 
   it('restoring a missing version says so', async () => {
