@@ -7,7 +7,9 @@
  * backendFlags.isAhdusBackendOn(); the default build never calls anything here.
  *
  * Login: AHDUS keeps its token in localStorage 'authToken'; every request sends
- * it as "Authorization: Bearer <token>". The server decides who may edit.
+ * it as "Authorization: Bearer <token>". The server decides who may edit. With no
+ * token (or a 401 when the site opens), Studio sends the browser to AHDUS's login
+ * page (goToLogin), which comes back to this address after logging in.
  *
  * API (private-docs/WORKPLACE_INTEGRATION_PLAN.md 4.2). Layouts travel as v2 JSON
  * (src/engine/model); the store keeps v1, so this file converts both ways:
@@ -29,6 +31,8 @@ import { loadLayout as parseLayout, toV1, mergeV2Extras } from '../engine/model'
 export const AHDUS_COMPANY = 'ahdus';
 /** Where "Back to AHDUS" goes. */
 export const AHDUS_HOME = '/3d-model.html';
+/** AHDUS's login page; ?redirect= is where it goes after logging in. */
+export const AHDUS_LOGIN = '/login.html';
 export const AHDUS_CHANGED = 'This workplace was changed by someone else';
 export const AHDUS_NOT_ALLOWED = 'you are not allowed to edit this workplace';
 export const AHDUS_LOGIN_EXPIRED = 'Your AHDUS login has expired. Log in again.';
@@ -47,10 +51,29 @@ function sitePath(site, rest = '') {
   return `/api/workplace/sites/${encodeURIComponent(site)}${rest}`;
 }
 
+function readToken() {
+  try { return localStorage.getItem('authToken') || null; } catch { return null; } // storage blocked: no token
+}
+
 function authHeaders() {
-  let token = null;
-  try { token = localStorage.getItem('authToken'); } catch { /* storage blocked: no token */ }
+  const token = readToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Whether AHDUS's login token is there (localStorage 'authToken'). */
+export function hasLoginToken() {
+  return readToken() !== null;
+}
+
+/** The login page's address, coming back to `location` (this Studio address) after logging in. */
+export function loginUrl(location = window.location) {
+  const back = `${location.pathname}${location.search}${location.hash}`;
+  return `${AHDUS_LOGIN}?redirect=${encodeURIComponent(back)}`;
+}
+
+/** Send the browser to AHDUS's login page (not logged in, or the login expired). */
+export function goToLogin(location = window.location) {
+  location.assign(loginUrl(location));
 }
 
 /** One API call. @returns {{ ok, status, data?, error?, conflict?, loginExpired?, forbidden?, notFound? }} */

@@ -414,7 +414,11 @@ async function _saveToAhdusNow({ force = false } = {}) {
 /** Open an AHDUS site's draft in the store. Throws with a short reason if it can't be loaded. */
 async function _loadFromAhdus(site) {
   const res = await ahdus.loadDraft(site);
-  if (!res.ok) throw new Error(res.forbidden ? 'You are not allowed to edit this workplace' : res.error);
+  if (!res.ok) {
+    const err = new Error(res.forbidden ? 'You are not allowed to edit this workplace' : res.error);
+    if (res.loginExpired) err.loginExpired = true; // App sends the browser to the login page
+    throw err;
+  }
   const store = useWorkspaceStore.getState();
   if (res.layout) store.loadWorkspace(res.layout);
   else store.resetWorkspace();
@@ -1347,6 +1351,13 @@ export async function restoreVersion(companyId, layoutId, versionId, editor) {
     _ahdusLoaded = res.v2;
     const done = editor.restoreVersion(res.layout);
     if (done?.problem) return { ok: false, error: done.problem };
+    // The store now holds the server's draft at res.revision: the auto-save that change
+    // scheduled would only send it back (revision +2). Undo / redo are changes of their own.
+    if (_debounceTimer) {
+      clearTimeout(_debounceTimer);
+      _debounceTimer = null;
+    }
+    useWorkspaceStore.getState().markSaved();
     return { ok: true, version: { id: versionId } };
   }
 

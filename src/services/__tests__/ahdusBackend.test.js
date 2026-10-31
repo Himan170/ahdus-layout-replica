@@ -11,9 +11,14 @@ import {
   listVersions,
   restoreVersion,
   publishLayout,
+  startAutoSave,
+  stopAutoSave,
   _getRevision,
 } from '../apiService';
-import { AHDUS_COMPANY, AHDUS_CHANGED, AHDUS_NOT_ALLOWED, AHDUS_LOGIN_EXPIRED, siteFromUrl } from '../ahdusBackend';
+import {
+  AHDUS_COMPANY, AHDUS_CHANGED, AHDUS_NOT_ALLOWED, AHDUS_LOGIN_EXPIRED, siteFromUrl,
+  hasLoginToken, loginUrl, goToLogin,
+} from '../ahdusBackend';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { createEditorHistory } from '../../store/editorHistory';
 import { loadLayout } from '../../engine/model';
@@ -207,6 +212,27 @@ describe('apiService with VITE_LAYOUT_BACKEND=ahdus', () => {
   it('opening a site with an expired login says to log in again', async () => {
     server.answer['GET /layout'] = 401;
     await expect(loadWorkspace(AHDUS_COMPANY, SITE)).rejects.toThrow('Your AHDUS login has expired. Log in again.');
+    // App sends the browser to the login page for this one
+    await expect(loadWorkspace(AHDUS_COMPANY, SITE)).rejects.toMatchObject({ loginExpired: true });
+    server.answer['GET /layout'] = 403;
+    await expect(loadWorkspace(AHDUS_COMPANY, SITE)).rejects.not.toHaveProperty('loginExpired');
+  });
+
+  it('not logged in: the login page, coming back to this Studio address', () => {
+    expect(hasLoginToken()).toBe(true);
+    storage.delete('authToken');
+    expect(hasLoginToken()).toBe(false);
+    storage.set('authToken', '');
+    expect(hasLoginToken()).toBe(false);
+
+    const location = {
+      pathname: '/workplace-studio/', search: '?site=hq 2&x=1', hash: '#top', assign: vi.fn(),
+    };
+    expect(loginUrl(location)).toBe('/login.html?redirect=%2Fworkplace-studio%2F%3Fsite%3Dhq%202%26x%3D1%23top');
+    goToLogin(location);
+    expect(location.assign).toHaveBeenCalledWith(loginUrl(location));
+    expect(new URLSearchParams(location.assign.mock.calls[0][0].split('?')[1]).get('redirect'))
+      .toBe('/workplace-studio/?site=hq 2&x=1#top');
   });
 
   it('publish with an expired login says to log in again', async () => {
@@ -264,6 +290,44 @@ describe('apiService with VITE_LAYOUT_BACKEND=ahdus', () => {
     // Undo is a change like any other: saved over the restored draft without a conflict
     expect((await saveNow()).ok).toBe(true);
     expect(server.draft.rooms).toHaveLength(2);
+  });
+
+  it('restoring a version saves nothing more: the revision goes up by 1 (the restore), undo / redo still save', async () => {
+    vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
+    vi.stubGlobal('document', { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} });
+    vi.useFakeTimers();
+    try {
+      await loadWorkspace(AHDUS_COMPANY, SITE);
+      startAutoSave();
+      const editor = createEditorHistory();
+      await createVersion('Before the store');
+      editor.addRoom(STORE);
+      await vi.advanceTimersByTimeAsync(2000); // auto-saved: revision 8
+      const puts = () => server.calls.filter((c) => c.method === 'PUT').length;
+      expect(puts()).toBe(1);
+      const before = server.revision;
+
+      expect((await restoreVersion(AHDUS_COMPANY, SITE, 'v1', editor)).ok).toBe(true);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(server.revision).toBe(before + 1);
+      expect(puts()).toBe(1);
+      expect(_getRevision()).toBe(server.revision);
+      expect(useWorkspaceStore.getState().isDirty).toBe(false);
+      expect(useWorkspaceStore.getState().saveError).toBe(null);
+
+      editor.undo(); // back to 2 rooms: saved over the restored draft
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(puts()).toBe(2);
+      expect(server.draft.rooms).toHaveLength(2);
+      editor.redo(); // the restored version again
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(puts()).toBe(3);
+      expect(server.draft.rooms).toHaveLength(1);
+      expect(server.revision).toBe(before + 3);
+    } finally {
+      stopAutoSave();
+      vi.useRealTimers();
+    }
   });
 
   it('restoring a missing version says so', async () => {
