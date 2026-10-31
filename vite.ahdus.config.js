@@ -5,19 +5,22 @@
 // realLook.js builds its paths from import.meta.env.BASE_URL.
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
-import app from './vite.config.js';
+import appConfig from './vite.config.js';
 
 export const AHDUS_STUDIO_BASE = '/workplace-studio/';
 
-export default defineConfig({
-  plugins: app.plugins,
-  resolve: app.resolve,
-  base: AHDUS_STUDIO_BASE,
-  build: {
-    outDir: 'dist-ahdus/workplace-studio',
-    emptyOutDir: true,
-    rollupOptions: {
-      input: { main: resolve(__dirname, 'index.html') },
+export default defineConfig((env) => {
+  const app = appConfig(env);
+  return {
+    plugins: app.plugins,
+    resolve: app.resolve,
+    base: AHDUS_STUDIO_BASE,
+    build: {
+      outDir: 'dist-ahdus/workplace-studio',
+      emptyOutDir: true,
+      rollupOptions: {
+        input: { main: resolve(__dirname, 'index.html') },
+      },
     },
-  },
+  };
 });

@@ -15,13 +15,14 @@ const run = (cmd, env = {}) => execSync(cmd, { stdio: 'inherit', env: { ...proce
 
 rmSync(OUT, { recursive: true, force: true });
 
-// Workplace Studio in AHDUS mode. These win over any .env: the Supabase prototype stays off
-// and its URL / key never end up in files AHDUS commits and serves.
+// Workplace Studio in AHDUS mode. These win over any .env: the Supabase prototype stays off,
+// and its URL / key (and the dev proxy's target) never end up in files AHDUS commits and serves.
 run('npx vite build --config vite.ahdus.config.js', {
   VITE_LAYOUT_BACKEND: 'ahdus',
   VITE_SUPABASE_URL: '',
   VITE_SUPABASE_ANON_KEY: '',
   VITE_AI_RECONSTRUCTION_URL: '',
+  VITE_AHDUS_API: '',
 });
 
 // The embed: build:embed itself, then a copy of its output
