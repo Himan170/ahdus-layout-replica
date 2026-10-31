@@ -3,10 +3,12 @@
  *
  * Top bar of Workplace Studio: AHDUS (back to all layouts), the breadcrumb
  * with the layout name (click to rename), save status, Undo, Redo, Settings.
+ * Inside AHDUS (VITE_LAYOUT_BACKEND=ahdus) the brand is "Back to AHDUS" and a
+ * Publish button makes the saved draft what employees see.
  */
 
 import { useRef, useState } from 'react';
-import { Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload, Camera } from 'lucide-react';
+import { Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload, Camera, Send } from 'lucide-react';
 import { usePopover } from './usePopover';
 import VersionHistory from './VersionHistory';
 
@@ -60,12 +62,32 @@ function LayoutName({ name, onRename }) {
   );
 }
 
+/** Publish (AHDUS): onPublish returns a Promise; the button waits for it. */
+function PublishButton({ onPublish }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      className="ui-btn is-primary"
+      aria-label="Publish"
+      title="Save and publish: employees see this version of the workplace"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try { await onPublish(); } finally { setBusy(false); }
+      }}
+    >
+      <Send size={16} strokeWidth={1.75} aria-hidden /> {busy ? 'Publishing…' : 'Publish'}
+    </button>
+  );
+}
+
 function Settings({
   snapEnabled, onSnapToggle, snapStep, onSnapStepChange,
   showGrid, onShowGridToggle, environment, onEnvironmentChange, fpsRef,
   realisticLook, onRealisticLookToggle, // real models, photo textures, sky (off: simple look for slow PCs)
   roomLabels, onRoomLabelsChange, // 'names' | 'off': the room names on the canvas
   onExportLayout, onImportLayout, onPhotoReconstruct, // backup & photo reconstruction
+  importTitle = 'Add a layout from a file to your layouts',
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -176,7 +198,7 @@ function Settings({
                 </button>
               )}
               {onImportLayout && (
-                <button className="ui-btn" aria-label="Import layout" title="Add a layout from a file to your layouts"
+                <button className="ui-btn" aria-label="Import layout" title={importTitle}
                   onClick={() => fileRef.current?.click()}>
                   <Upload size={16} strokeWidth={1.75} aria-hidden /> Import layout…
                 </button>
@@ -228,6 +250,8 @@ export default function StudioHeader({
   layoutName,
   onRenameLayout,
   onAllLayouts,
+  allLayoutsLabel = 'All layouts', // inside AHDUS: 'Back to AHDUS'
+  onPublish,           // inside AHDUS only: shows the Publish button
   saveStatus,          // 'saved' | 'saving' | 'unsaved' | 'offline' | 'syncing'
   saveError,           // why it is not saved (shown next to "Not saved")
   undoState,
@@ -249,8 +273,8 @@ export default function StudioHeader({
       <div className="studio-header__left">
         <button
           className="studio-header__brand"
-          aria-label="All layouts"
-          title="All layouts"
+          aria-label={allLayoutsLabel}
+          title={allLayoutsLabel}
           onClick={onAllLayouts}
           disabled={!onAllLayouts}
         >
@@ -300,6 +324,7 @@ export default function StudioHeader({
         </button>
         <VersionHistory editor={editor} onMessage={onMessage} />
         <Settings {...settings} />
+        {onPublish && <PublishButton onPublish={onPublish} />}
       </div>
     </header>
   );

@@ -1,5 +1,6 @@
 // The browser-side Supabase path is a PROTOTYPE: without VITE_LAYOUT_BACKEND=supabase
-// apiService makes no network calls at all, even with a Supabase URL and key set.
+// apiService makes no network calls at all, even with a Supabase URL and key set
+// (and an AHDUS login token: the AHDUS backend is VITE_LAYOUT_BACKEND=ahdus only).
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as clientModule from '../supabaseClient';
 import {
@@ -16,6 +17,7 @@ import {
   listVersions,
   restoreVersion,
   _persistQueueItem,
+  publishLayout,
 } from '../apiService';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { createEditorHistory } from '../../store/editorHistory';
@@ -39,6 +41,7 @@ describe('apiService without VITE_LAYOUT_BACKEND=supabase', () => {
     useWorkspaceStore.getState().resetWorkspace();
     // A Supabase URL + key are configured, but the flag is not set
     vi.stubEnv('VITE_LAYOUT_BACKEND', '');
+    localStorage.setItem('authToken', 'token-abc');
     const table = new Proxy({}, { get: () => vi.fn(() => table) });
     mockSupabase = { from: vi.fn(() => table), channel: vi.fn(), removeChannel: vi.fn() };
     vi.spyOn(clientModule, 'supabase', 'get').mockReturnValue(mockSupabase);
@@ -69,6 +72,7 @@ describe('apiService without VITE_LAYOUT_BACKEND=supabase', () => {
     expect((await restoreVersion(COMPANY_UUID, layoutId, version.version.id, editor)).ok).toBe(true);
     await _persistQueueItem({ companyId: COMPANY_UUID, layoutId, payload: useWorkspaceStore.getState().exportWorkspace(), baseRevision: 99 });
     await saveAsCopy();
+    expect((await publishLayout()).ok).toBe(false); // AHDUS only
     await deleteLayout(COMPANY_UUID, layoutId);
 
     expect(mockSupabase.from).not.toHaveBeenCalled();

@@ -2,8 +2,8 @@
  * ui/EditorErrorBoundary.jsx
  *
  * Wraps the editor. If it fails to render (a bad save, a bug in scene setup),
- * show a message with "Back to layouts" instead of a blank page, and log the
- * error to the console.
+ * show a message with "Back to layouts" (backLabel: "Back to AHDUS" there)
+ * instead of a blank page, and log the error to the console.
  */
 
 import { Component } from 'react';
@@ -36,7 +36,7 @@ export default class EditorErrorBoundary extends Component {
           </p>
           <p className="editor-error__detail ui-muted">{String(error?.message ?? error)}</p>
           <button className="ui-btn is-primary" onClick={this.props.onBack}>
-            <ArrowLeft size={16} strokeWidth={1.75} aria-hidden /> Back to layouts
+            <ArrowLeft size={16} strokeWidth={1.75} aria-hidden /> {this.props.backLabel ?? 'Back to layouts'}
           </button>
         </div>
       </div>

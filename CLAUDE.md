@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (564, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (580, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -215,6 +215,7 @@ src/embed/                         The one-file embed for plain HTML pages: inde
                                    built by vite.embed.config.js. embed-test.html + embed-sample.ahdus.json: its test page
 src/services/apiService.js         Save/load + auto-save (1 s debounce, tab close), revisions + other tabs, export/import,
                                    companies, version history: localStorage for now (Supabase path: prototype, flag off)
+src/services/ahdusBackend.js       VITE_LAYOUT_BACKEND=ahdus: a site's draft, versions, publish through the AHDUS API (v2, Bearer token)
 db/schema.sql                      PostgreSQL schema (base for the Supabase backend)
 ```
 
@@ -436,6 +437,22 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
   and `proposed_layouts.photo_url` stores the path.
   Production saving goes through the platform API, which takes the tenant from the server session, never a
   `company_id` sent by the browser (private-docs/AHDUS_3D_INTEGRATION_PLAN.md).
+- **AHDUS backend (W1 of private-docs/WORKPLACE_INTEGRATION_PLAN.md): `VITE_LAYOUT_BACKEND=ahdus`**, for the AHDUS
+  build only (`isAhdusBackendOn` in `backendFlags.js`; the default build and its localStorage saves are unchanged,
+  zero network calls). Requests in `services/ahdusBackend.js` (its header lists the API), called only by apiService:
+  same origin, `/api/workplace/sites/{site}/…`, token = localStorage `authToken` as `Authorization: Bearer <token>`.
+  - **AHDUS mode** (`App.jsx`): the site in the address (`?site=<id>`) opens straight in Studio (no companies screen;
+    no site or a refused load: "This workplace could not be opened" + Back to AHDUS). Store: companyId `ahdus`,
+    layoutId = the site id. "All layouts" is "Back to AHDUS" (`/3d-model.html`); a **Publish** button (header, AHDUS
+    only) saves, then `POST …/publish` with `expectedRevision`.
+  - Load = `GET …/layout?state=draft` (`{ layout (v2 | null), revision, name? }`); save = `PUT …/layout`
+    `{ layout (v2), expectedRevision }` (v2 via the engine's model; routes / links / underlays of the loaded layout kept
+    by `mergeV2Extras`). Saves run one at a time; nothing about the layout goes to localStorage (no offline queue: a
+    failed save says why, the next change retries). **409** → TabNotice "This workplace was changed by someone else",
+    Reload only (no copies); **401 / 403** → "Not saved: you are not allowed to edit this workplace".
+  - Versions on the server (`GET` / `POST …/versions`, `POST …/versions/{v}/restore`); restore saves pending changes,
+    then `editor.restoreVersion` (one undo step). Export layout stays; Import layout puts the file into this workplace
+    (`editor.restoreVersion`, one undo step) instead of adding a layout. Tests: `ahdusBackend.test.js` (mocked fetch).
 
 ## Team (other interns' modules plug in through layoutBridge)
 

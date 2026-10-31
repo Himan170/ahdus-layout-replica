@@ -4,7 +4,8 @@
  * Workplace Studio's file and layout actions, moved as one piece out of WorkplaceEditor.jsx
  * (same useCallback dependencies): back to all layouts, reload the other tab's save, export /
  * import a layout file, save as a copy, floor plan PNG / PDF, and photo reconstruction (off
- * unless the backend flag is on: services/backendFlags.js).
+ * unless the backend flag is on: services/backendFlags.js). Inside AHDUS also Publish, and
+ * Import puts the file's layout into the open workplace (one undo step) instead of adding a layout.
  *
  * WorkplaceEditor passes in what they use under the same names and gets them back.
  */
@@ -12,7 +13,10 @@
 import { useCallback } from 'react';
 
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { saveNow, reloadLayout, saveAsCopy, exportLayout, importLayout } from '../services/apiService';
+import {
+  saveNow, reloadLayout, saveAsCopy, exportLayout, importLayout, readLayoutFile, publishLayout,
+} from '../services/apiService';
+import { isAhdusBackendOn } from '../services/backendFlags';
 import { downloadText } from '../ui/download';
 import { exportFloorPlanAsPng, exportFloorPlanAsPdf } from '../utils/floorPlanExporter';
 import {
@@ -35,8 +39,12 @@ export function useStudioFileActions({ onExit, editor, showStudioMessage, gizmoC
   // layout, so they go), or keep ours as a new layout.
   const handleReloadTheirs = useCallback(async () => {
     gizmoControllerRef.current?.detach();
-    if (await reloadLayout()) editor.clear();
-    else showStudioMessage('This layout was deleted in another tab', true);
+    try {
+      if (await reloadLayout()) editor.clear();
+      else showStudioMessage('This layout was deleted in another tab', true);
+    } catch (err) {
+      showStudioMessage(err.message, true); // AHDUS: the server could not be reached, or no longer allows it
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- gizmoControllerRef is a useRef passed in (stable)
   }, [editor, showStudioMessage]);
   // Backup until there is a server: this layout as a file, or a file added to the layouts
@@ -52,11 +60,24 @@ export function useStudioFileActions({ onExit, editor, showStudioMessage, gizmoC
   }, [showStudioMessage]);
   const handleImportLayout = useCallback(async (file) => {
     try {
+      if (isAhdusBackendOn()) {
+        // A workplace in AHDUS is one site: the file replaces its layout (Ctrl+Z brings it back)
+        const layout = readLayoutFile(await file.text());
+        const res = editor.restoreVersion(layout);
+        if (res?.problem) showStudioMessage(res.problem, true);
+        else showStudioMessage(`Loaded "${layout.layoutName}" into this workplace. Press Ctrl+Z to undo.`);
+        return;
+      }
       const { name } = await importLayout(useWorkspaceStore.getState().companyId, await file.text());
       showStudioMessage(`Added "${name}" to your layouts`);
     } catch (err) {
       showStudioMessage(err.message, true);
     }
+  }, [editor, showStudioMessage]);
+  const handlePublish = useCallback(async () => {
+    const res = await publishLayout();
+    if (res.ok) showStudioMessage('Published: employees now see this version');
+    else if (!res.conflict) showStudioMessage(`Not published: ${res.error}`, true);
   }, [showStudioMessage]);
   const handleSaveCopy = useCallback(async () => {
     const result = await saveAsCopy();
@@ -137,6 +158,7 @@ export function useStudioFileActions({ onExit, editor, showStudioMessage, gizmoC
     handleExportLayout,
     handleImportLayout,
     handleSaveCopy,
+    handlePublish,
     handleExportPng,
     handleExportPdf,
     handlePhotoReconstruct,
