@@ -13,6 +13,8 @@
  *
  * API (private-docs/WORKPLACE_INTEGRATION_PLAN.md 4.2). Layouts travel as v2 JSON
  * (src/engine/model); the store keeps v1, so this file converts both ways:
+ *   GET   /api/workplace/sites                         → [{ id, name, published, publishedRevision (null: never), … }]
+ *   PATCH /api/workplace/sites/{site}                  { name } → the site (1 to 200 characters, trimmed)
  *   GET  /api/workplace/sites/{site}/layout?state=draft  → { layout (v2 | null), revision, name? }
  *   PUT  /api/workplace/sites/{site}/layout               { layout, expectedRevision } → { revision }
  *        409 = someone saved in between; 401 = the login expired; 403 = not allowed to edit
@@ -38,6 +40,12 @@ export const AHDUS_NOT_ALLOWED = 'you are not allowed to edit this workplace';
 export const AHDUS_LOGIN_EXPIRED = 'Your AHDUS login has expired. Log in again.';
 const NO_CONNECTION = 'AHDUS could not be reached';
 const NOT_FOUND = 'This workplace does not exist';
+/** The longest site name the AHDUS server takes (SiteBody: MAX_NAME in its backend/workplace/validation.py). */
+export const MAX_SITE_NAME = 200;
+/** The 3D Company page, showing one site as employees see it (published). */
+export function companyPageUrl(site) {
+  return `${AHDUS_HOME}?site=${encodeURIComponent(site)}`;
+}
 /** fetch's keepalive (a save still arrives when the tab closes) takes bodies up to 64 KB. */
 const KEEPALIVE_LIMIT = 60_000;
 
@@ -217,4 +225,38 @@ export async function restoreVersion(site, versionId) {
 export async function publish(site, expectedRevision) {
   const res = await request('POST', sitePath(site, '/publish'), { expectedRevision });
   return res.ok ? { ok: true } : res;
+}
+
+/**
+ * The site as AHDUS lists it: { id, name, published, publishedRevision (null: never published), … }.
+ * @returns {Promise<{ ok: true, site: object }|{ ok: false, error, notFound? }>}
+ */
+export async function getSite(site) {
+  const res = await request('GET', '/api/workplace/sites');
+  if (!res.ok) return res;
+  const list = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.sites) ? res.data.sites : [];
+  const found = list.find((s) => s && String(s.id) === String(site));
+  return found ? { ok: true, site: found } : { ok: false, status: 404, notFound: true, error: NOT_FOUND };
+}
+
+/** Why a site name can't be used (it is trimmed first), or null. */
+export function siteNameProblem(name) {
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  if (!trimmed) return 'Enter a name for the workplace';
+  if (trimmed.length > MAX_SITE_NAME) return `The name is too long (at most ${MAX_SITE_NAME} characters)`;
+  return null;
+}
+
+/**
+ * Rename the site (what AHDUS lists and Studio's breadcrumb shows). The name is trimmed;
+ * an empty or too long one is refused without asking the server.
+ * @returns {Promise<{ ok: true, site: object }|{ ok: false, error, loginExpired?, forbidden?, notFound? }>}
+ */
+export async function renameSite(site, name) {
+  const problem = siteNameProblem(name);
+  if (problem) return { ok: false, error: problem };
+  const trimmed = name.trim();
+  const res = await request('PATCH', sitePath(site), { name: trimmed });
+  if (!res.ok) return res;
+  return { ok: true, site: { ...res.data, name: typeof res.data?.name === 'string' ? res.data.name : trimmed } };
 }

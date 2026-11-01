@@ -4,8 +4,9 @@
  * Workplace Studio's file and layout actions, moved as one piece out of WorkplaceEditor.jsx
  * (same useCallback dependencies): back to all layouts, reload the other tab's save, export /
  * import a layout file, save as a copy, floor plan PNG / PDF, and photo reconstruction (off
- * unless the backend flag is on: services/backendFlags.js). Inside AHDUS also Publish, and
- * Import puts the file's layout into the open workplace (one undo step) instead of adding a layout.
+ * unless the backend flag is on: services/backendFlags.js). Inside AHDUS, Import puts the file's
+ * layout into the open workplace (one undo step) instead of adding a layout (Publish:
+ * hooks/useAhdusPublish.js).
  *
  * WorkplaceEditor passes in what they use under the same names and gets them back.
  */
@@ -14,7 +15,7 @@ import { useCallback } from 'react';
 
 import { useWorkspaceStore } from '../store/workspaceStore';
 import {
-  saveNow, reloadLayout, saveAsCopy, exportLayout, importLayout, readLayoutFile, publishLayout,
+  saveNow, reloadLayout, saveAsCopy, exportLayout, importLayout, readLayoutFile,
 } from '../services/apiService';
 import { isAhdusBackendOn } from '../services/backendFlags';
 import { downloadText } from '../ui/download';
@@ -74,11 +75,6 @@ export function useStudioFileActions({ onExit, editor, showStudioMessage, gizmoC
       showStudioMessage(err.message, true);
     }
   }, [editor, showStudioMessage]);
-  const handlePublish = useCallback(async () => {
-    const res = await publishLayout();
-    if (res.ok) showStudioMessage('Published: employees now see this version');
-    else if (!res.conflict) showStudioMessage(`Not published: ${res.error}`, true);
-  }, [showStudioMessage]);
   const handleSaveCopy = useCallback(async () => {
     const result = await saveAsCopy();
     if (result.ok) showStudioMessage(`Saved as "${useWorkspaceStore.getState().layoutName}"`);
@@ -158,7 +154,6 @@ export function useStudioFileActions({ onExit, editor, showStudioMessage, gizmoC
     handleExportLayout,
     handleImportLayout,
     handleSaveCopy,
-    handlePublish,
     handleExportPng,
     handleExportPdf,
     handlePhotoReconstruct,

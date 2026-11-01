@@ -1,0 +1,108 @@
+/* Loading screen, toast and dialog (StudioSplash, Toast, Dialog). Colours only from theme.css. */
+
+/* ── Loading screen (ui/StudioSplash.jsx) ─────────────────────────── */
+
+.studio-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  padding: var(--space-4);
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font);
+  opacity: 1;
+  transition: opacity var(--splash-fade, 300ms) ease;
+}
+.studio-splash.is-leaving { opacity: 0; pointer-events: none; }
+.studio-splash.is-error { gap: 0; }
+.studio-splash__brand { display: flex; align-items: center; gap: var(--space-3); }
+.studio-splash__logo { color: var(--accent); }
+.studio-splash__name { display: flex; flex-direction: column; font-size: 22px; font-weight: 600; line-height: 1.2; }
+.studio-splash__ahdus { color: var(--text-muted); font-size: 13px; font-weight: 600; letter-spacing: 0.08em; }
+.studio-splash__spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: studio-splash-spin 0.9s linear infinite;
+}
+.studio-splash__text { margin: 0; color: var(--text-muted); font-size: 14px; }
+.studio-splash__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+@keyframes studio-splash-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .studio-splash { transition: none; }   /* StudioSplash hides it at once too (splashFadeMs) */
+}
+
+/* ── Toast (ui/Toast.jsx) ─────────────────────────────────────────── */
+
+.ui-toast-region {
+  position: fixed;
+  top: calc(56px + var(--space-2));   /* under Studio's top bar, so its name and status stay readable */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--space-4));
+  pointer-events: none;
+}
+.ui-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  pointer-events: auto;
+  font-size: 13px;
+}
+.ui-toast.is-ok { border-color: var(--success); background: var(--bg-panel); }
+.ui-toast.is-ok .ui-toast__icon { color: var(--success); }
+.ui-toast.is-bad { border-color: var(--danger); }
+.ui-toast.is-bad .ui-toast__icon { color: var(--danger); }
+.ui-toast__icon { flex-shrink: 0; }
+.ui-toast__text { margin: 0; max-width: 560px; }
+.ui-toast__link { color: var(--accent-hover); font-weight: 500; white-space: nowrap; }
+.ui-toast__link:hover { color: var(--text); }
+.ui-toast__link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.ui-toast__close { width: 28px; height: 28px; flex-shrink: 0; }
+
+/* ── Dialog (ui/Dialog.jsx) ───────────────────────────────────────── */
+
+.ui-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: var(--backdrop);
+}
+.ui-dialog {
+  width: 420px;
+  max-width: 100%;
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  outline: none;
+}
+.ui-dialog__title { margin: 0; font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+.ui-dialog__text { display: flex; flex-direction: column; gap: var(--space-2); font-size: 14px; }
+.ui-dialog__text p { margin: 0; }
+.ui-dialog__actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+
+/* ── Publish button (ui/StudioHeader.jsx, AHDUS) ──────────────────── */
+
+.publish-btn__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.publish-btn.is-published:disabled { opacity: 1; background: var(--success-soft); border-color: var(--success); color: var(--success); }

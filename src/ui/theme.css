@@ -18,6 +18,7 @@
   --accent: #6b7cff;        /* primary buttons, focus ring, selection */
   --accent-hover: #7d8cff;
   --danger: #ef6b6b;
+  --success: #4fd18b;       /* done (published), the green check */
   --radius-sm: 6px; --radius: 10px; --radius-lg: 14px;
   --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px;
   --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -27,6 +28,8 @@
   --bg-glass: rgba(28, 35, 53, 0.86);   /* --bg-panel over the 3D view */
   --accent-soft: rgba(107, 124, 255, 0.16);
   --danger-soft: rgba(239, 107, 107, 0.12);
+  --success-soft: rgba(79, 209, 139, 0.14);
+  --backdrop: rgba(11, 15, 26, 0.6);    /* --bg-canvas behind a dialog */
 }
 
 html, body, #root {

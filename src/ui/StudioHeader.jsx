@@ -3,14 +3,18 @@
  *
  * Top bar of Workplace Studio: AHDUS (back to all layouts), the breadcrumb
  * with the layout name (click to rename), save status, Undo, Redo, Settings.
- * Inside AHDUS (VITE_LAYOUT_BACKEND=ahdus) the brand is "Back to AHDUS" and a
- * Publish button makes the saved draft what employees see.
+ * Inside AHDUS (VITE_LAYOUT_BACKEND=ahdus) the brand is "Back to AHDUS", the name is
+ * the site's (renamed on the server), and the Publish button (Publish / Publish changes /
+ * Published ✓, ui/publishFlow.js) opens WorkplaceEditor's Publish dialog.
  */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload, Camera, Send } from 'lucide-react';
 import { usePopover } from './usePopover';
 import VersionHistory from './VersionHistory';
+import { publishButton, publishStatusText } from './publishFlow';
+import { MAX_SITE_NAME } from '../services/ahdusBackend';
+import './overlays.css';
 
 const ICON = { size: 18, strokeWidth: 1.75 };
 
@@ -21,15 +25,33 @@ const LIGHTING = [
 ];
 const SNAP_STEPS = [0.25, 0.5, 1];
 
-function LayoutName({ name, onRename }) {
+/**
+ * The layout name: click (or Enter) → a text field; Enter or clicking away saves, Escape
+ * cancels. Inside AHDUS (site) it is the workplace's name: onRename gets every changed
+ * value (also an empty one: AHDUS says why it can't be used).
+ */
+function LayoutName({ name, onRename, site = false }) {
   const [draft, setDraft] = useState(null);
   const inputRef = useRef(null);
+  const buttonRef = useRef(null);
+  const finished = useRef(false); // Enter / Escape ended it: the blur that follows does nothing
+  const refocus = useRef(false);
   const editing = draft !== null;
 
-  const save = () => {
-    const next = draft?.trim();
-    if (next && next !== name) onRename(next);
+  useEffect(() => {
+    if (!editing && refocus.current) { refocus.current = false; buttonRef.current?.focus(); }
+  }, [editing]);
+
+  const end = (keepFocus) => {
+    finished.current = true;
+    refocus.current = keepFocus;
     setDraft(null);
+  };
+  const save = (keepFocus = false) => {
+    if (finished.current) return;
+    const next = draft?.trim();
+    if (site ? draft !== null && next !== name : next && next !== name) onRename(site ? draft : next);
+    end(keepFocus);
   };
 
   if (editing) {
@@ -37,24 +59,27 @@ function LayoutName({ name, onRename }) {
       <input
         ref={inputRef}
         className="ui-input studio-header__name-input"
-        aria-label="Layout name"
+        aria-label={site ? 'Workplace name' : 'Layout name'}
         value={draft}
+        maxLength={site ? MAX_SITE_NAME : undefined}
         autoFocus
         onFocus={(e) => e.target.select()}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={save}
+        onBlur={() => save(false)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') save();
-          if (e.key === 'Escape') { e.stopPropagation(); setDraft(null); }
+          if (e.key === 'Enter') { e.preventDefault(); save(true); }
+          if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); end(true); }
         }}
       />
     );
   }
   return (
     <button
+      ref={buttonRef}
       className="studio-header__name"
-      onClick={() => setDraft(name)}
-      title="Rename this layout"
+      onClick={() => { finished.current = false; setDraft(name); }}
+      title={site ? 'Rename this workplace' : 'Rename this layout'}
+      aria-label={site ? `Rename workplace: ${name}` : undefined}
     >
       <span>{name}</span>
       <Pencil size={14} strokeWidth={1.75} aria-hidden />
@@ -62,21 +87,24 @@ function LayoutName({ name, onRename }) {
   );
 }
 
-/** Publish (AHDUS): onPublish returns a Promise; the button waits for it. */
-function PublishButton({ onPublish }) {
-  const [busy, setBusy] = useState(false);
+/** Publish (AHDUS): opens the Publish dialog; "Published ✓" (disabled) when employees see this draft. */
+function PublishButton({ state, busy, onPublish }) {
+  const { label, disabled, dot } = publishButton(state);
+  const published = state === 'published';
   return (
     <button
-      className="ui-btn is-primary"
-      aria-label="Publish"
-      title="Save and publish: employees see this version of the workplace"
-      disabled={busy}
-      onClick={async () => {
-        setBusy(true);
-        try { await onPublish(); } finally { setBusy(false); }
-      }}
+      className={`ui-btn publish-btn${published ? ' is-published' : ' is-primary'}`}
+      aria-label={busy ? 'Publishing' : published ? 'Published' : label}
+      data-publish={state}
+      title={published
+        ? 'Employees see this version of the workplace'
+        : 'Save and publish: employees see this version of the workplace'}
+      disabled={busy || disabled}
+      onClick={onPublish}
     >
-      <Send size={16} strokeWidth={1.75} aria-hidden /> {busy ? 'Publishing…' : 'Publish'}
+      {!published && <Send size={16} strokeWidth={1.75} aria-hidden />}
+      {busy ? 'Publishing…' : label}
+      {dot && !busy && <span className="publish-btn__dot" aria-hidden title="The draft is newer than what employees see" />}
     </button>
   );
 }
@@ -251,7 +279,10 @@ export default function StudioHeader({
   onRenameLayout,
   onAllLayouts,
   allLayoutsLabel = 'All layouts', // inside AHDUS: 'Back to AHDUS'
-  onPublish,           // inside AHDUS only: shows the Publish button
+  onPublish,           // inside AHDUS only: shows the Publish button (opens the dialog)
+  publishState,        // inside AHDUS: 'unknown' | 'never' | 'changes' | 'published' (ui/publishFlow.js)
+  publishing = false,  // a publish is running
+  siteName = false,    // inside AHDUS: the name is the site's (renamed on the server)
   saveStatus,          // 'saved' | 'saving' | 'unsaved' | 'offline' | 'syncing'
   saveError,           // why it is not saved (shown next to "Not saved")
   undoState,
@@ -284,7 +315,7 @@ export default function StudioHeader({
         <span className="studio-header__crumb ui-muted" aria-hidden>/</span>
         <span className="studio-header__crumb ui-muted">Workplace Studio</span>
         <span className="studio-header__crumb ui-muted" aria-hidden>/</span>
-        <LayoutName name={layoutName || 'Untitled layout'} onRename={onRenameLayout} />
+        <LayoutName name={layoutName || 'Untitled layout'} onRename={onRenameLayout} site={siteName} />
       </div>
 
       <div className="studio-header__right">
@@ -303,6 +334,11 @@ export default function StudioHeader({
           title={saveStatus === 'unsaved' && saveError ? saveError : undefined}
         >
           {statusText}{saveStatus === 'unsaved' && saveError ? `: ${saveError}` : ''}
+          {onPublish && saveStatus !== 'unsaved' && publishStatusText(publishState) && (
+            <span className="studio-header__publish-state" data-publish-state={publishState}>
+              {' '}{publishStatusText(publishState)}
+            </span>
+          )}
         </span>
         <button
           className="ui-icon-btn"
@@ -324,7 +360,7 @@ export default function StudioHeader({
         </button>
         <VersionHistory editor={editor} onMessage={onMessage} />
         <Settings {...settings} />
-        {onPublish && <PublishButton onPublish={onPublish} />}
+        {onPublish && <PublishButton state={publishState} busy={publishing} onPublish={onPublish} />}
       </div>
     </header>
   );

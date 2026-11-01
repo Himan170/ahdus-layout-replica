@@ -11,14 +11,17 @@ import {
   listVersions,
   restoreVersion,
   publishLayout,
+  refreshPublishInfo,
+  renameLayout,
   startAutoSave,
   stopAutoSave,
   _getRevision,
 } from '../apiService';
 import {
-  AHDUS_COMPANY, AHDUS_CHANGED, AHDUS_NOT_ALLOWED, AHDUS_LOGIN_EXPIRED, siteFromUrl,
-  hasLoginToken, loginUrl, goToLogin,
+  AHDUS_COMPANY, AHDUS_CHANGED, AHDUS_NOT_ALLOWED, AHDUS_LOGIN_EXPIRED, MAX_SITE_NAME, siteFromUrl,
+  hasLoginToken, loginUrl, goToLogin, renameSite, getSite,
 } from '../ahdusBackend';
+import { publishState } from '../../ui/publishFlow';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { createEditorHistory } from '../../store/editorHistory';
 import { loadLayout } from '../../engine/model';
@@ -46,7 +49,9 @@ function fakeServer() {
     revision: 7,
     versions: [],
     published: null,
-    answer: {},  // 'PUT /layout' → status
+    publishedRevision: null,
+    name: 'HQ',
+    answer: {},  // 'PUT /layout' → status ('PATCH ' = rename the site)
     calls: [],
   };
   server.fetch = vi.fn(async (url, init = {}) => {
@@ -84,7 +89,18 @@ function fakeServer() {
     if (route === 'POST /publish') {
       if (body.expectedRevision !== server.revision) return reply(409, { detail: 'conflict' });
       server.published = server.draft;
+      server.publishedRevision = server.revision;
       return reply(200, { publishedRevision: server.revision });
+    }
+    if (route === 'GET /api/workplace/sites') {
+      return reply(200, [
+        { id: 'other', name: 'Other', published: false, publishedRevision: null },
+        { id: SITE, name: server.name, published: server.publishedRevision !== null, publishedRevision: server.publishedRevision },
+      ]);
+    }
+    if (route === 'PATCH ') {
+      server.name = body.name;
+      return reply(200, { id: SITE, name: body.name, published: false, publishedRevision: server.publishedRevision });
     }
     return reply(404, { detail: 'Not found' });
   });
@@ -355,6 +371,76 @@ describe('apiService with VITE_LAYOUT_BACKEND=ahdus', () => {
     expect(siteFromUrl('?site=hq-2')).toBe('hq-2');
     expect(siteFromUrl('?other=1')).toBe(null);
     expect(siteFromUrl('?site=')).toBe(null);
+  });
+
+  it('renameSite: PATCH /sites/{site} with the trimmed name and the token; returns the site', async () => {
+    const res = await renameSite(SITE, '  North Wing  ');
+    expect(res).toMatchObject({ ok: true, site: { id: SITE, name: 'North Wing' } });
+    const call = server.calls.at(-1);
+    expect(call).toMatchObject({ method: 'PATCH', url: `/api/workplace/sites/${SITE}`, body: { name: 'North Wing' } });
+    expect(call.headers.Authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it('renameSite: empty, blank or too long names are refused without asking AHDUS', async () => {
+    expect(await renameSite(SITE, '')).toMatchObject({ ok: false, error: 'Enter a name for the workplace' });
+    expect(await renameSite(SITE, '   ')).toMatchObject({ ok: false, error: 'Enter a name for the workplace' });
+    expect((await renameSite(SITE, 'x'.repeat(MAX_SITE_NAME + 1))).ok).toBe(false);
+    expect(server.calls).toHaveLength(0);
+    expect((await renameSite(SITE, 'x'.repeat(MAX_SITE_NAME))).ok).toBe(true); // the limit itself is fine
+  });
+
+  it('renameSite: refusals come back in the usual shape', async () => {
+    server.answer['PATCH '] = 403;
+    expect(await renameSite(SITE, 'A')).toMatchObject({ ok: false, forbidden: true, error: AHDUS_NOT_ALLOWED });
+    server.answer['PATCH '] = 401;
+    expect(await renameSite(SITE, 'A')).toMatchObject({ ok: false, loginExpired: true, error: AHDUS_LOGIN_EXPIRED });
+    server.answer['PATCH '] = 404;
+    expect(await renameSite(SITE, 'A')).toMatchObject({ ok: false, notFound: true });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    expect(await renameSite(SITE, 'A')).toMatchObject({ ok: false, error: 'AHDUS could not be reached' });
+  });
+
+  it('renaming in Studio: the breadcrumb name changes at once, and goes back if AHDUS refuses', async () => {
+    await loadWorkspace(AHDUS_COMPANY, SITE);
+    expect(await renameLayout(' Annex ')).toEqual({ ok: true });
+    expect(useWorkspaceStore.getState().layoutName).toBe('Annex');
+    expect(server.name).toBe('Annex');
+    server.answer['PATCH '] = 403;
+    const refused = renameLayout('Secret');
+    expect(useWorkspaceStore.getState().layoutName).toBe('Secret');
+    expect(await refused).toMatchObject({ ok: false, forbidden: true });
+    expect(useWorkspaceStore.getState().layoutName).toBe('Annex');
+    expect(await renameLayout('  ')).toMatchObject({ ok: false, error: 'Enter a name for the workplace' });
+    expect(useWorkspaceStore.getState().layoutName).toBe('Annex');
+  });
+
+  it('getSite finds the site in GET /sites (publishedRevision null = never published)', async () => {
+    expect(await getSite(SITE)).toMatchObject({ ok: true, site: { id: SITE, publishedRevision: null } });
+    expect(await getSite('missing')).toMatchObject({ ok: false, notFound: true });
+  });
+
+  it('the store follows the draft and published revisions (load, save, publish)', async () => {
+    await loadWorkspace(AHDUS_COMPANY, SITE);
+    let s = useWorkspaceStore.getState();
+    expect(s.draftRevision).toBe(7);
+    expect(s.publishedRevision).toBe(undefined); // not asked yet
+    expect(await refreshPublishInfo()).toEqual({ ok: true });
+    expect(useWorkspaceStore.getState().publishedRevision).toBe(null);
+
+    createEditorHistory().addRoom(STORE);
+    await saveNow();
+    expect(useWorkspaceStore.getState().draftRevision).toBe(8);
+    expect(await publishLayout()).toEqual({ ok: true });
+    s = useWorkspaceStore.getState();
+    expect(s.publishedRevision).toBe(8);
+    expect(publishState(s)).toBe('published');
+
+    createEditorHistory().addRoom({ ...STORE, id: 'room_more', x: 20 });
+    expect(publishState(useWorkspaceStore.getState())).toBe('changes'); // not even saved yet
+    await saveNow();
+    expect(publishState(useWorkspaceStore.getState())).toBe('changes');
+    expect(await refreshPublishInfo()).toEqual({ ok: true });
+    expect(useWorkspaceStore.getState().publishedRevision).toBe(8);
   });
 });
 
