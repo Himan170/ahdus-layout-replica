@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (591, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (621, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -170,9 +170,12 @@ src/hooks/useStudioKeyboard.js     Studio's keyboard shortcuts (keydown: Tab, Es
                                    Ctrl+Z / Y / D; Preview: undo / redo only) + the wheel (placement ghost height)
 src/hooks/useStudioFileActions.js  Returns Studio's file / layout actions: All layouts, reload the other tab's save, export /
                                    import layout, save as copy, floor plan PNG / PDF, photo reconstruction (flag-checked)
+src/hooks/useAhdusPublish.js       AHDUS only: publish state, Publish dialog + toasts, leave dialog + beforeunload, save
+                                   errors as toasts, rename the site (rules: PURE ui/publishFlow.js, tested)
 src/ui/                            Workplace Studio: theme.css, tools.js, StudioShell, StudioHeader, BuildPanel (+ trays,
                                    CatalogPicker), CanvasCard, ExportMenu, MeasureMenu, RoomLabels (+ labelLayout.js),
-                                   RoomHoverCard, SelectionToolbar, Inspector, StudioFooter, EditorErrorBoundary, preview.css
+                                   RoomHoverCard, SelectionToolbar, Inspector, StudioFooter, EditorErrorBoundary, preview.css,
+                                   StudioSplash (loading screen; firstFrame.js), Toast, Dialog, PublishDialogs (overlays.css)
 src/utils/floorPlanExporter.js     2D floor plan of one floor on an offscreen canvas → PNG / PDF download (Anish, S2; tested
                                    in src/utils/__tests__/floorPlanExporter.test.js with jsdom)
 src/floorplan/                     Plan view (Anshu, S1): FloorPlanView.jsx (SVG) + planMath.js (PURE: bounds, world / plan /
@@ -395,6 +398,8 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
   `__ahdusCards`, `__ahdusEventLog` (demo modules), `__ahdusCrashOnOpen = true` (the editor throws: error card test),
   `__ahdusRoomSync` ({ rebuilt, ms } of the last room sync that built something: perf test),
   `__ahdusAssets` ({ whenLoaded(), setRealistic(on) }: wait for the realistic look's files; switch it).
+- **Loading screen:** right after opening a layout the full-screen `[data-splash]` covers Studio until the first
+  full frame; raw `page.mouse` clicks must wait until it is gone (Playwright's `page.click` waits by itself).
 - **Progressive loading:** after opening a layout (or a change with > 50 new rooms + items), meshes appear over
   several slices: `await __ahdusBuild.whenBuilt()` (Studio, dev) or `engine.whenBuilt()` before checking meshes.
 - Real assets load AFTER the scene is drawn: wait for `__ahdusAssets.whenLoaded()` before checking models or
@@ -430,7 +435,15 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
   `editor.restoreVersion(snapshot)`, one undo step; the layout name is left alone.
 - Loading goes through `normaliseLayout` (`src/store/layoutData.js`): old saves get floors, elevations,
   anchorData, opening sizes. The layout list is built from the saved data (name, rooms, floors, last edit).
-- The editor is wrapped in `EditorErrorBoundary`: a failure shows "This layout could not be opened" + Back to layouts.
+- The editor is wrapped in `EditorErrorBoundary`: a failure shows "This layout could not be opened" + Back to layouts
+  + Try again (a new editor on the same layout).
+- **Loading screen** (all modes, `ui/StudioSplash.jsx`, rendered by `App.jsx` over the editor): the Studio's name
+  ("AHDUS" above it in AHDUS mode), a spinner, "Opening Workplace Studio…". It stays until the layout is loaded AND
+  the editor calls `onFirstFrame`: the first frame after the current floor is built (`progress.currentFloorReady`)
+  whose shown meshes are ready (`ui/firstFrame.js`: shaders compiled; at most `MAX_WAIT_MS` 4 s more; downloads of
+  the realistic look don't count). Then a 300 ms fade (`FADE_MS`; none with prefers-reduced-motion). An editor crash
+  hides it (the error card shows). AHDUS: a failed load, or none after 45 s (`LOAD_TIMEOUT_MS`), is the error card
+  with Try again (loads again) + Back to AHDUS.
 - Decided: **Supabase** (PostgreSQL; must be self-hostable on the client company's server). Start from `db/schema.sql`.
 - **The browser-side Supabase path in `apiService.js` (Roshan, R2: CAS on `revision`, realtime) is a PROTOTYPE.**
   It is OFF unless `VITE_LAYOUT_BACKEND=supabase` is set as well as `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
@@ -450,8 +463,23 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
   same origin, `/api/workplace/sites/{site}/…`, token = localStorage `authToken` as `Authorization: Bearer <token>`.
   - **AHDUS mode** (`App.jsx`): the site in the address (`?site=<id>`) opens straight in Studio (no companies screen;
     no site or a refused load: "This workplace could not be opened" + Back to AHDUS). Store: companyId `ahdus`,
-    layoutId = the site id. "All layouts" is "Back to AHDUS" (`/3d-model.html`); a **Publish** button (header, AHDUS
-    only) saves, then `POST …/publish` with `expectedRevision`.
+    layoutId = the site id. "All layouts" is "Back to AHDUS" (`/3d-model.html`). Only editors get here (the draft
+    needs edit rights), so the rest is for editors. All of it: `hooks/useAhdusPublish.js` + `ui/publishFlow.js`.
+  - **Rename:** the site name in the breadcrumb is a button (aria-label `Rename workplace: <name>`): Enter or a click
+    away saves, Escape cancels. `ahdusBackend.renameSite` = `PATCH …/sites/{site}` `{ name }`: trimmed, 1 to 200
+    characters (`MAX_SITE_NAME` = the server's `MAX_NAME`); the name shows at once and goes back if AHDUS refuses.
+  - **Publish:** the button opens a dialog (`ui/PublishDialogs.jsx`): "Publish <site>?", "Everyone in your company will
+    see this version.", "Last published: <date>" (newest `published` version) or "Not published yet"; Publish saves,
+    then `POST …/publish` with `expectedRevision`, then a green toast (`ui/Toast.jsx`, ~6 s, aria-live) with "View on
+    the 3D Company page" (`/3d-model.html?site=<id>`). Button state from the store's `draftRevision` (as saved) and
+    `publishedRevision` (`GET /api/workplace/sites`, on open and after each publish; null = never, undefined = not
+    known yet): "Published ✓" (disabled) / "Publish changes" + dot / "Publish"; after "Saved": "· Published",
+    "· Unpublished changes", "· Not published yet". `ui/Dialog.jsx`: focus trapped, Escape = Cancel, no key reaches
+    Studio's shortcuts while open.
+  - **Leaving with unpublished changes** (`shouldWarnOnLeave`: a save waiting, a newer draft, or a never-published
+    site with a saved draft): Back to AHDUS asks Stay / Publish now / Leave; closing or reloading the tab gets the
+    browser's `beforeunload` prompt. Save and publish failures (409, 401 + a Log in link, 403, no connection) also
+    show a red toast.
   - **Not logged in** (no `authToken`, or the first load answers 401): the browser goes to
     `/login.html?redirect=<this /workplace-studio/ address, encoded>` (`ahdusBackend.goToLogin`; "Taking you to the
     AHDUS login…" meanwhile), so AHDUS-FRONTEND's `studio-login.js` patch is no longer needed. No site: the error card.
