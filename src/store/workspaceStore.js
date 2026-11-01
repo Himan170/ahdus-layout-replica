@@ -62,6 +62,9 @@ export const createWorkspaceStore = () => create(
     saveConflict: false,               // another tab saved this layout after we loaded it: saving stops
     openElsewhere: false,              // this layout is also open in another tab
     storageNearlyFull: false,          // the browser's storage for layouts is almost used up
+    // AHDUS only (apiService): the draft's revision as last loaded / saved, and the one employees see
+    draftRevision: 0,
+    publishedRevision: undefined,      // null: never published; undefined: not known yet
 
     // ━━ R7: Sync & Offline Status ━━
     syncStatus: 'online',              // 'online' | 'offline' | 'syncing' | 'conflict'
@@ -513,6 +516,9 @@ export const createWorkspaceStore = () => create(
     /** Set after each save (apiService.storageUse): Studio asks to export and delete old layouts. */
     setStorageNearlyFull: (flag) => { if (get().storageNearlyFull !== !!flag) set({ storageNearlyFull: !!flag }); },
 
+    /** AHDUS (apiService): { draftRevision?, publishedRevision? } after a load, save, restore or publish. */
+    setPublishInfo: (info) => set(info),
+
     /** R7: Sync status and pending offline queue count */
     setSyncStatus: (syncStatus) => set({ syncStatus }),
     setPendingSyncCount: (pendingSyncCount) => set({ pendingSyncCount }),
@@ -547,6 +553,8 @@ export const createWorkspaceStore = () => create(
         saveError: null,
         saveConflict: false,
         openElsewhere: false,
+        draftRevision: 0,
+        publishedRevision: undefined,
         syncStatus: 'online',
         pendingSyncCount: 0,
         proposedLayout: null,

@@ -5,7 +5,8 @@
  * between Workplace Studio (src/ui/, the planner tools) and Preview
  * (play/playController.js + PlayHUD). The Babylon scene and everything made
  * with it live in hooks/useStudioScene.js. The Studio's look lives in src/ui/;
- * this file wires it to the scene and to editorHistory.
+ * this file wires it to the scene and to editorHistory. onFirstFrame is called once,
+ * after the first frame of the built floor (App then hides its loading screen).
  */
 
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
@@ -29,7 +30,8 @@ import {
   useWorkspaceStore,
 } from '../store/workspaceStore';
 import { createEditorHistory } from '../store/editorHistory';
-import { startAutoSave, stopAutoSave, saveNow, renameLayout } from '../services/apiService';
+import { startAutoSave, stopAutoSave, saveNow, renameLayout, listVersions } from '../services/apiService';
+import { AHDUS_COMPANY } from '../services/ahdusBackend';
 
 // The scene lifecycle (scene, systems, builder, play controller, tools, pointer handlers)
 import { useStudioScene } from '../hooks/useStudioScene';
@@ -39,6 +41,8 @@ import { useStoreMeshSync } from '../hooks/useStoreMeshSync';
 import { useStudioKeyboard } from '../hooks/useStudioKeyboard';
 // File and layout actions (all layouts, export / import, copy, floor plan, photo)
 import { useStudioFileActions } from '../hooks/useStudioFileActions';
+// Inside AHDUS: the Publish dialog and button state, the leave warning, toasts
+import { useAhdusPublish } from '../hooks/useAhdusPublish';
 
 // Components
 import PlayHUD from './PlayHUD';
@@ -57,6 +61,9 @@ import Inspector from '../ui/Inspector';
 import StudioFooter from '../ui/StudioFooter';
 import TabNotice from '../ui/TabNotice';
 import ProposedLayoutBanner from '../ui/ProposedLayoutBanner';
+import Toast from '../ui/Toast';
+import { PublishDialog, LeaveDialog } from '../ui/PublishDialogs';
+import { watchFirstFrame } from '../ui/firstFrame';
 import { isPhotoReconstructionOn } from '../services/reconstructionService';
 import { isAhdusBackendOn } from '../services/backendFlags';
 import { activeTile, toolHint } from '../ui/tools';
@@ -86,7 +93,7 @@ const shallow = (a, b) => {
   return true;
 };
 
-export default function WorkplaceEditor({ onExit }) {
+export default function WorkplaceEditor({ onExit, onFirstFrame }) {
   // Development only: lets the e2e test check the "could not be opened" card (e2e/save-smoke.mjs)
   if (import.meta.env.DEV && typeof window !== 'undefined' && window.__ahdusCrashOnOpen) {
     throw new Error('Test crash (window.__ahdusCrashOnOpen is set)');
@@ -884,9 +891,29 @@ export default function WorkplaceEditor({ onExit }) {
 
   // ─── File and layout actions (hooks/useStudioFileActions.js) ───
   const {
-    handleAllLayouts, handleReloadTheirs, handleExportLayout, handleImportLayout, handleSaveCopy, handlePublish,
+    handleAllLayouts, handleReloadTheirs, handleExportLayout, handleImportLayout, handleSaveCopy,
     handleExportPng, handleExportPdf, handlePhotoReconstruct,
   } = useStudioFileActions({ onExit, editor, showStudioMessage, gizmoControllerRef, setExportLoading });
+
+  // ─── Inside AHDUS: publish, leave, rename (hooks/useAhdusPublish.js) ───
+  const ahdus = useAhdusPublish({ enabled: inAhdus && hasBackend, onLeave: handleAllLayouts });
+  const loadVersions = useCallback(
+    () => listVersions(AHDUS_COMPANY, useWorkspaceStore.getState().layoutId),
+    [],
+  );
+
+  // ─── Loading screen: tell App after the first frame of the built floor (ui/firstFrame.js) ───
+  const onFirstFrameRef = useRef(onFirstFrame);
+  onFirstFrameRef.current = onFirstFrame;
+  const firstFrameSeen = useRef(false);
+  useEffect(() => {
+    if (!sceneReady || firstFrameSeen.current) return undefined;
+    return watchFirstFrame(
+      sceneReady,
+      () => builderRef.current?.progress.currentFloorReady !== false,
+      () => { firstFrameSeen.current = true; onFirstFrameRef.current?.(); },
+    );
+  }, [sceneReady]);
 
   // ─── Render ───
   return (
@@ -894,6 +921,26 @@ export default function WorkplaceEditor({ onExit }) {
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {announceText}
       </div>
+      {inAhdus && <Toast toast={ahdus.toast} onClose={ahdus.closeToast} />}
+      {ahdus.dialog === 'publish' && (
+        <PublishDialog
+          siteName={layoutName}
+          state={ahdus.state}
+          busy={ahdus.publishing}
+          loadVersions={loadVersions}
+          onCancel={ahdus.cancelDialog}
+          onConfirm={ahdus.confirmPublish}
+        />
+      )}
+      {ahdus.dialog === 'leave' && (
+        <LeaveDialog
+          state={ahdus.state}
+          busy={ahdus.publishing}
+          onStay={ahdus.cancelDialog}
+          onPublish={ahdus.publishAndLeave}
+          onLeave={ahdus.leaveAnyway}
+        />
+      )}
       <StudioShell
         preview={isPlaying}
         inspectorOpen={!!inspectorMode}
@@ -901,10 +948,13 @@ export default function WorkplaceEditor({ onExit }) {
       header={(
         <StudioHeader
           layoutName={layoutName}
-          onRenameLayout={(name) => renameLayout(name)}
-          onAllLayouts={onExit ? handleAllLayouts : null}
+          onRenameLayout={inAhdus ? ahdus.renameSite : (name) => renameLayout(name)}
+          siteName={inAhdus}
+          onAllLayouts={onExit ? (inAhdus ? ahdus.requestLeave : handleAllLayouts) : null}
           allLayoutsLabel={inAhdus ? 'Back to AHDUS' : 'All layouts'}
-          onPublish={inAhdus && hasBackend ? handlePublish : null}
+          onPublish={inAhdus && hasBackend ? ahdus.openPublish : null}
+          publishState={ahdus.state}
+          publishing={ahdus.publishing}
           saveStatus={saveStatus}
           saveError={hasBackend ? saveError : 'This layout has no place to save to'}
           undoState={undoState}

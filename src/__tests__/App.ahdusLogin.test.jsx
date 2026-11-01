@@ -63,4 +63,20 @@ describe('App in AHDUS mode, not logged in', () => {
     expect(goToLogin).not.toHaveBeenCalled();
     expect(container.textContent).toContain('This workplace could not be opened');
   });
+
+  it('"Try again" loads once more (the loading screen, then the editor)', async () => {
+    localStorage.setItem('authToken', 'token');
+    const draft = { layout: null, revision: 0, name: 'HQ' };
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 0, json: async () => ({}) })
+      .mockResolvedValue({ ok: true, status: 200, json: async () => draft });
+    vi.stubGlobal('fetch', fetchSpy);
+    await act(async () => root.render(<App />));
+    const retry = [...container.querySelectorAll('button')].find((b) => b.textContent.includes('Try again'));
+    expect(retry).toBeTruthy();
+    await act(async () => retry.click());
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('Studio'); // the (mocked) editor
+    expect(container.querySelector('[data-splash="loading"]')).not.toBeNull(); // until its first frame
+  });
 });

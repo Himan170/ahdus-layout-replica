@@ -396,7 +396,7 @@ async function _saveToAhdusNow({ force = false } = {}) {
     now.markSaveFailed(res.error);
     return { ok: false, error: res.error };
   }
-  _revision = res.revision;
+  _setAhdusRevision(res.revision);
   // Changed while the request was on its way: still dirty (that change has its own save scheduled)
   const unchanged = now.rooms === state.rooms && now.objects === state.objects &&
     now.floors === state.floors && now.anchorData === state.anchorData;
@@ -423,9 +423,34 @@ async function _loadFromAhdus(site) {
   if (res.layout) store.loadWorkspace(res.layout);
   else store.resetWorkspace();
   store.setTenant(ahdus.AHDUS_COMPANY, site, res.name || res.layout?.layoutName || 'Workplace', 1);
-  _revision = res.revision;
+  store.setPublishInfo({ publishedRevision: undefined }); // refreshPublishInfo() asks AHDUS
+  _setAhdusRevision(res.revision);
   _ahdusLoaded = res.v2;
   return true;
+}
+
+/** AHDUS: the draft's revision on the server, kept in the store too (the Publish button compares it). */
+function _setAhdusRevision(revision) {
+  _revision = revision;
+  useWorkspaceStore.getState().setPublishInfo({ draftRevision: revision });
+}
+
+/**
+ * AHDUS: ask which revision employees see (GET /sites: the site's publishedRevision, null
+ * if never published) and keep it in the store. Called when Studio opens and after publishing.
+ * @returns {Promise<{ ok: boolean, error?: string }>}
+ */
+export async function refreshPublishInfo() {
+  if (!_ahdusOn()) return { ok: false, error: 'Publishing is only possible inside AHDUS' };
+  const { layoutId } = useWorkspaceStore.getState();
+  if (!layoutId) return { ok: false, error: 'No workplace open' };
+  const res = await ahdus.getSite(layoutId);
+  if (!res.ok) return { ok: false, error: res.error };
+  const store = useWorkspaceStore.getState();
+  if (store.layoutId !== layoutId) return { ok: true }; // left meanwhile
+  const published = res.site.publishedRevision;
+  store.setPublishInfo({ publishedRevision: Number.isFinite(published) ? published : null });
+  return { ok: true };
 }
 
 /**
@@ -438,9 +463,12 @@ export async function publishLayout() {
   if (!saved.ok) return saved;
   const { layoutId } = useWorkspaceStore.getState();
   if (!layoutId) return { ok: false, error: 'No workplace open' };
-  const res = await ahdus.publish(layoutId, _revision);
+  const revision = _revision;
+  const res = await ahdus.publish(layoutId, revision);
   if (res.conflict) return _conflict();
-  return res.ok ? { ok: true } : { ok: false, error: res.error };
+  if (!res.ok) return { ok: false, error: res.error };
+  useWorkspaceStore.getState().setPublishInfo({ publishedRevision: revision });
+  return { ok: true };
 }
 
 /**
@@ -744,11 +772,12 @@ export async function saveNow() {
 /**
  * Rename the open layout and save the new name straight away (also in the
  * company's layout list). Not an undoable layout change: the name is not part
- * of the layout's history.
+ * of the layout's history. AHDUS: renames the site there (it returns { ok, error }).
  * @param {string} name
  */
 export async function renameLayout(name) {
   const store = useWorkspaceStore.getState();
+  if (_ahdusOn()) return _renameAhdusSite(name);
   if (!name || name === store.layoutName) return;
   store.setTenant(store.companyId, store.layoutId, name, store.layoutVersion);
   if (_supabaseOn() && isOnline()) {
@@ -763,6 +792,31 @@ export async function renameLayout(name) {
     }
   }
   return _saveSync({ force: true });
+}
+
+/**
+ * AHDUS: rename the site on the server (PATCH /sites/{site}). The breadcrumb shows the new
+ * name at once and goes back to the old one if AHDUS refuses it.
+ * @returns {Promise<{ ok: boolean, error?: string, loginExpired?: boolean, forbidden?: boolean }>}
+ */
+async function _renameAhdusSite(name) {
+  const store = useWorkspaceStore.getState();
+  const { companyId, layoutId, layoutName: before, layoutVersion } = store;
+  if (!layoutId) return { ok: false, error: 'No workplace open' };
+  const problem = ahdus.siteNameProblem(name);
+  if (problem) return { ok: false, error: problem };
+  const next = name.trim();
+  if (next === before) return { ok: true };
+  store.setTenant(companyId, layoutId, next, layoutVersion);
+  const res = await ahdus.renameSite(layoutId, next);
+  const now = useWorkspaceStore.getState();
+  if (now.layoutId !== layoutId) return res; // left meanwhile
+  if (!res.ok) {
+    if (now.layoutName === next) now.setTenant(companyId, layoutId, before, layoutVersion);
+    return res;
+  }
+  if (now.layoutName === next) now.setTenant(companyId, layoutId, res.site.name, layoutVersion);
+  return { ok: true };
 }
 
 /**
@@ -1347,7 +1401,7 @@ export async function restoreVersion(companyId, layoutId, versionId, editor) {
     if (!saved.ok) return { ok: false, error: saved.error };
     const res = await ahdus.restoreVersion(layoutId, versionId);
     if (!res.ok) return { ok: false, error: res.error };
-    _revision = res.revision;
+    _setAhdusRevision(res.revision);
     _ahdusLoaded = res.v2;
     const done = editor.restoreVersion(res.layout);
     if (done?.problem) return { ok: false, error: done.problem };

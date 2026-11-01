@@ -3,11 +3,13 @@
  *
  * Wraps the editor. If it fails to render (a bad save, a bug in scene setup),
  * show a message with "Back to layouts" (backLabel: "Back to AHDUS" there)
- * instead of a blank page, and log the error to the console.
+ * instead of a blank page (and "Try again" with onRetry), log the error to the
+ * console and tell onError (App hides its loading screen).
  */
 
 import { Component } from 'react';
-import { AlertTriangle, ArrowLeft } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, RotateCcw } from 'lucide-react';
+import './overlays.css';
 
 export default class EditorErrorBoundary extends Component {
   constructor(props) {
@@ -21,6 +23,7 @@ export default class EditorErrorBoundary extends Component {
 
   componentDidCatch(error, info) {
     console.error('[AHDUS] The layout could not be opened:', error, info?.componentStack ?? '');
+    this.props.onError?.(error); // App hides its loading screen: this card shows instead
   }
 
   render() {
@@ -35,9 +38,16 @@ export default class EditorErrorBoundary extends Component {
             Something went wrong while opening it. Your saved layout has not been changed.
           </p>
           <p className="editor-error__detail ui-muted">{String(error?.message ?? error)}</p>
-          <button className="ui-btn is-primary" onClick={this.props.onBack}>
-            <ArrowLeft size={16} strokeWidth={1.75} aria-hidden /> {this.props.backLabel ?? 'Back to layouts'}
-          </button>
+          <div className="studio-splash__actions">
+            <button className="ui-btn is-primary" onClick={this.props.onBack}>
+              <ArrowLeft size={16} strokeWidth={1.75} aria-hidden /> {this.props.backLabel ?? 'Back to layouts'}
+            </button>
+            {this.props.onRetry && (
+              <button className="ui-btn" onClick={this.props.onRetry}>
+                <RotateCcw size={16} strokeWidth={1.75} aria-hidden /> Try again
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
