@@ -49,6 +49,12 @@ function loader() {
   return loaderModule;
 }
 
+/** Load a .glb file into an AssetContainer (the glTF loader is fetched on first use). Characters use it too. */
+export async function loadGlbContainer(url, scene) {
+  const { LoadAssetContainerAsync } = await loader();
+  return LoadAssetContainerAsync(url, scene, { pluginExtension: '.glb' });
+}
+
 const containers = new WeakMap(); // scene → Map(model → Promise<AssetContainer>)
 
 function loadModel(scene, model) {
