@@ -43,6 +43,7 @@ import { useStudioKeyboard } from '../hooks/useStudioKeyboard';
 import { useStudioFileActions } from '../hooks/useStudioFileActions';
 // Inside AHDUS: the Publish dialog and button state, the leave warning, toasts
 import { useAhdusPublish } from '../hooks/useAhdusPublish';
+import { useLibraryDrop } from '../hooks/useLibraryDrop';
 
 // Components
 import PlayHUD from './PlayHUD';
@@ -63,6 +64,10 @@ import TabNotice from '../ui/TabNotice';
 import ProposedLayoutBanner from '../ui/ProposedLayoutBanner';
 import Toast from '../ui/Toast';
 import { PublishDialog, LeaveDialog } from '../ui/PublishDialogs';
+import Dialog from '../ui/Dialog';
+import DropFootprint from '../ui/DropFootprint';
+import { isAhdusLook } from '../ui/look';
+import { normaliseLayout } from '../store/layoutData';
 import { watchFirstFrame } from '../ui/firstFrame';
 import { isPhotoReconstructionOn } from '../services/reconstructionService';
 import { isAhdusBackendOn } from '../services/backendFlags';
@@ -227,6 +232,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
   const layoutName = useWorkspaceStore((s) => s.layoutName);
   const hasBackend = useWorkspaceStore((s) => !!(s.companyId && s.layoutId));
   const inAhdus = isAhdusBackendOn(); // Studio inside AHDUS: Back to AHDUS, Publish, no copies
+  const ahdusLook = isAhdusLook();     // its look (ui/look.js): rail, library, camera controls
 
   // FPS is local — no need to put it in global store
   const fpsRef = useRef(0);
@@ -659,13 +665,31 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
       if (option.tool.kind === 'room') setRoomType(option.tool.roomType);
       handleSetPlannerTool(option.tool);
     }
-    setOpenTray(null);
-  }, [handleStartPlacement, handleSetPlannerTool]);
+    if (!ahdusLook) setOpenTray(null); // the AHDUS look's library stays open
+  }, [handleStartPlacement, handleSetPlannerTool, ahdusLook]);
 
   const handlePickFurniture = useCallback((assetType) => {
     handleStartPlacement(assetType);
     setOpenTray(null);
   }, [handleStartPlacement]);
+
+  // ─── The AHDUS look's library: drag a tile onto the floor, click = the middle (hooks/useLibraryDrop.js) ───
+  const libraryDrop = useLibraryDrop({
+    sceneRef, cameraRef, canvasRef, placementManagerRef, editor, placeObject, snapRef,
+    showStudioMessage, handleSetPlannerTool, handleStartPlacement,
+  });
+  const [templateAsk, setTemplateAsk] = useState(null); // a template whose "replace this layout?" is open
+  const handleUseTemplate = useCallback(() => {
+    const template = templateAsk;
+    setTemplateAsk(null);
+    if (!template) return;
+    const res = editor.restoreVersion(normaliseLayout(JSON.parse(JSON.stringify(template.layout))));
+    if (res?.problem) showStudioMessage(res.problem, true);
+    else {
+      showStudioMessage(`Started from the ${template.name} template. Ctrl+Z brings your layout back.`);
+      setOpenTray(null);
+    }
+  }, [templateAsk, editor, showStudioMessage]);
 
   // Dragging a furniture card onto the canvas arms placement; the drop (or the
   // next click) puts it down
@@ -861,6 +885,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
   // Footer hint: a short message after a change, else what the tool says
   // (problems in red, sizes while dragging), else the tool's own hint
   const footerHint = (() => {
+    if (libraryDrop.hint) return { text: libraryDrop.hint, tone: libraryDrop.hintBad ? 'bad' : 'message' };
     if (plannerMessage) return { text: plannerMessage.text, tone: plannerMessage.bad ? 'bad' : 'message' };
     if (!placementMode && plannerHint) {
       const line = [plannerHint.title, plannerHint.detail].filter(Boolean).join(' · ');
@@ -932,6 +957,21 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
           onConfirm={ahdus.confirmPublish}
         />
       )}
+      {templateAsk && (
+        <Dialog
+          title={`Start from the ${templateAsk.name} template?`}
+          label="Start from a template"
+          onCancel={() => setTemplateAsk(null)}
+          actions={(
+            <>
+              <button className="ui-btn" onClick={() => setTemplateAsk(null)} data-autofocus>Cancel</button>
+              <button className="ui-btn is-primary" onClick={handleUseTemplate}>Replace this layout</button>
+            </>
+          )}
+        >
+          <p>Everything in this layout is replaced by the template. Ctrl+Z brings it back.</p>
+        </Dialog>
+      )}
       {ahdus.dialog === 'leave' && (
         <LeaveDialog
           state={ahdus.state}
@@ -995,6 +1035,16 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
           onDragFurniture={handleDragFurniture}
           placementAsset={placementMode}
           layersOpen={inspectorMode === 'layers'}
+          library={ahdusLook ? {
+            activeOption: plannerTool.kind === 'room' ? (plannerTool.stamp ? plannerTool.roomType : null) : tile.option,
+            draggingId: libraryDrop.drag?.tile.id ?? null,
+            onTilePointerDown: libraryDrop.onTilePointerDown,
+            onPlaceTile: libraryDrop.onPlaceTile,
+            onPickOption: handlePickOption,
+            drawing: plannerTool.kind === 'room' && !plannerTool.stamp,
+            onDrawRoom: () => handlePickOption({ tool: { kind: 'room', roomType } }),
+            onTemplate: setTemplateAsk,
+          } : null}
           onToggleLayers={() => {
             if (selectedObject || selectedRoom || selectedOpening) {
               storeActions.selectObject(null);
@@ -1084,6 +1134,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
               }}
             />
           )}
+          <DropFootprint drag={libraryDrop.drag} />
           {/* Not in Plan view: the plan is drawn from the store, so nothing there waits for the build */}
           {buildProgress && !buildProgress.allBuilt && !(planView && !isPlaying) && (
             <div
@@ -1112,6 +1163,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
             showArea={showRoomAreas}
             showNames={roomLabels !== 'off'}
             selectedRoomId={selectedOpening ? null : selectedRoomId}
+            selectedAsPill={ahdusLook}
           />
           <RoomHoverCard
             scene={sceneReady}

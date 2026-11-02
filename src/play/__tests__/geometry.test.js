@@ -371,3 +371,23 @@ describe('roomsToRebuild: a change rebuilds the room and the rooms touching it',
     expect(sorted(roomsToRebuild(before, change('far', { floor: 1 })))).toEqual(['far']);
   });
 });
+
+import { planRoomAt } from '../geometry';
+
+describe('planRoomAt (a library room tile on the floor)', () => {
+  const office = (id, x, z) => ({ id, name: id, type: 'OFFICE', floor: 0, x, z, width: 6, depth: 5 });
+
+  it('a room of that size, centred on the point', () => {
+    const plan = planRoomAt({ x: 4, z: -2 }, 6, 5, []);
+    expect(plan).toEqual({ rect: { x: 4, z: -2, width: 6, depth: 5 }, blocker: null, overhang: false });
+  });
+
+  it('blocked by a room under it, like a drawn room', () => {
+    expect(planRoomAt({ x: 1, z: 0 }, 6, 5, [office('A', 0, 0)]).blocker?.id).toBe('A');
+  });
+
+  it('upper floor: says when part of it has nothing under it', () => {
+    const below = [{ ...office('B', 0, 0) }];
+    expect(planRoomAt({ x: 20, z: 0 }, 6, 5, [], below).overhang).toBe(true);
+  });
+});

@@ -13,6 +13,7 @@ import { STUDIO_TOOLS, FURNITURE_ITEMS, assetIcon } from './tools';
 import { usePopover } from './usePopover';
 import CatalogPicker from './CatalogPicker';
 import ShortcutsPopover from './ShortcutsPopover';
+import LibraryPanel from './LibraryPanel';
 import { isAhdusLook } from './look';
 
 function Tile({ tool, active, choice, open, onClick, rail = false }) {
@@ -72,10 +73,12 @@ export default function BuildPanel({
   placementAsset,      // asset being placed, or null
   layersOpen,
   onToggleLayers,
+  library,             // the AHDUS look: LibraryPanel props (a docked library instead of trays)
 }) {
   const panelRef = useRef(null);
+  const rail = isAhdusLook(); // the AHDUS look: a dark green rail, icon + word, Shortcuts at the bottom
   const closeTray = useMemo(() => () => onOpenTray(null), [onOpenTray]);
-  usePopover(!!openTray, closeTray, [panelRef]);
+  usePopover(!!openTray && !rail, closeTray, [panelRef]); // the docked library stays open
 
   const furnitureSections = useMemo(() => {
     const byCat = new Map();
@@ -87,13 +90,13 @@ export default function BuildPanel({
     return [...byCat].map(([title, items]) => ({ title, items }));
   }, []);
 
-  const trayTool = STUDIO_TOOLS.find((t) => t.id === openTray);
-  const rail = isAhdusLook(); // the AHDUS look: a dark green rail, icon + word, Shortcuts at the bottom
+  const trayTool = rail ? null : STUDIO_TOOLS.find((t) => t.id === openTray);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const shortcutsRef = useRef(null);
   const closeShortcuts = useMemo(() => () => setShortcutsOpen(false), []);
 
   return (
+    <>
     <aside className={`build-panel${rail ? ' tool-rail' : ''}`} ref={panelRef} aria-label="Build">
       {!rail && <h2 className="build-panel__title">Build</h2>}
       <div className="build-panel__tiles" role="toolbar" aria-orientation="vertical" aria-label="Build tools">
@@ -161,5 +164,7 @@ export default function BuildPanel({
         </div>
       )}
     </aside>
+    {rail && openTray && library && <LibraryPanel key={openTray} toolId={openTray} {...library} />}
+    </>
   );
 }

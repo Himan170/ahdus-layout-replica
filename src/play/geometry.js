@@ -1039,6 +1039,19 @@ export function planRoom(a, b, rooms, below = null) {
   };
 }
 
+/**
+ * A room of a given size centred on a point (a library tile dropped or tapped on the floor):
+ * planRoom with that rectangle's corners, so it snaps and is blocked exactly like a drawn room.
+ */
+export function planRoomAt(centre, width, depth, rooms, below = null) {
+  return planRoom(
+    { x: centre.x - width / 2, z: centre.z - depth / 2 },
+    { x: centre.x + width / 2, z: centre.z + depth / 2 },
+    rooms,
+    below,
+  );
+}
+
 /** Hint text for a room on an upper floor that sticks out past the floor below. */
 export const OVERHANG_WARNING = 'Part of it has nothing under it';
 

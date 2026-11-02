@@ -13,6 +13,10 @@ The files are made from the downloaded packs by `scripts/prepare-assets.mjs` (co
 textures to 1024 px colour / normal and 512 px roughness, JPG quality 80) and `scripts/make-env.mjs` (the sky).
 Poly Haven's asset pages name the photographer of each texture.
 
+The library's furniture pictures, `thumbs/<model>.webp` (one per model above, 160 px, WebP), are Kenney's own
+isometric previews from the same pack (`Isometric/<model>_SE.png`, CC0 1.0), trimmed and resized by
+`node scripts/prepare-assets.mjs <pack folder> thumbs`. They show Kenney's colours, not ours.
+
 Not used (and not in the repo): the Quaternius Furniture Pack, the Industrial Pack (needs FBX conversion), and
 the lift models (lifts come later).
 

@@ -30,7 +30,7 @@ import { ROOM_TYPES } from '../utils/roomStore';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import {
   snap, formatRoomSize, wallSegmentTransform, openingAt, roomOpenings,
-  planRoom, planRoomMove, planOpening, planRemoveOpening, wallSegmentData, stretchRoom,
+  planRoom, planRoomAt, planRoomMove, planOpening, planRemoveOpening, wallSegmentData, stretchRoom,
   openingData, wallLine, formatOpeningSize, resizeOpening, OPENING_STEP, wallThicknessOf, OVERHANG_WARNING,
 } from '../play/geometry';
 import {
@@ -357,6 +357,18 @@ export function createPlannerTools(scene, canvas, {
     const p = snappedGround();
     setCursor('crosshair');
     hover = null;
+    if (tool.kind === 'room' && tool.stamp) {
+      // A library tile picked on a touch screen: the next tap puts a room of its size there
+      const plan = p && planRoomAt(p, tool.stamp.width, tool.stamp.depth, floorRooms(), belowRooms());
+      if (plan) pv.room(plan.rect, elev(), 1.2, !plan.blocker);
+      else pv.hide('room');
+      return {
+        title: `Place room: ${roomLabel()}`,
+        detail: plan?.blocker ? `Overlaps ${plan.blocker.name}` : `Tap the floor where it goes · ${formatRoomSize(tool.stamp.width, tool.stamp.depth)}`,
+        bad: !!plan?.blocker,
+        keys: [['Tap', 'Place it'], ['Esc', 'Cancel']],
+      };
+    }
     if (tool.kind === 'room') {
       if (p) pv.room({ x: p.x, z: p.z, width: 0.3, depth: 0.3 }, elev(), 0.3, true);
       else pv.hide('room');
@@ -647,6 +659,14 @@ export function createPlannerTools(scene, canvas, {
       } else {
         return false;
       }
+    } else if (tool.kind === 'room' && tool.stamp) {
+      const p = snappedGround();
+      if (!p) return false;
+      const { rect, blocker } = planRoomAt(p, tool.stamp.width, tool.stamp.depth, floorRooms(), belowRooms());
+      if (blocker) { onMessage(`Overlaps ${blocker.name}. Tap somewhere else.`, true); return true; }
+      actions.addRoom({ type: tool.roomType, ...rect, floor: st().currentFloor });
+      onMessage(`Built ${roomLabel()} room, ${formatRoomSize(rect.width, rect.depth)}. Ctrl+Z to undo.`);
+      return true;
     } else if (tool.kind === 'room' || tool.kind === 'wall') {
       const p = snappedGround();
       if (!p) return false;
@@ -672,7 +692,10 @@ export function createPlannerTools(scene, canvas, {
     pointerDown,
     refresh,
 
-    /** tool: { kind: 'select' } | { kind: 'room', roomType } | { kind: 'wall' | 'door' | 'window' } */
+    /**
+     * tool: { kind: 'select' } | { kind: 'room', roomType, stamp? } | { kind: 'wall' | 'door' | 'window' }
+     * stamp { width, depth }: a tap puts a room of that size there (a library tile on a touch screen)
+     */
     setTool(next) {
       cancelDrag();
       tool = { ...next };
