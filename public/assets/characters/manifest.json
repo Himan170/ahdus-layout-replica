@@ -1,0 +1,17 @@
+{
+  "placeholder:mixamo-v1": {
+    "url": "placeholder-mixamo.glb",
+    "rig": "mixamo",
+    "height": 1.75
+  },
+  "placeholder:ue-v1": {
+    "url": "placeholder-ue.glb",
+    "rig": "ue",
+    "height": 1.68
+  },
+  "placeholder:tall-v1": {
+    "url": "placeholder-mixamo.glb",
+    "rig": "mixamo",
+    "height": 1.88
+  }
+}

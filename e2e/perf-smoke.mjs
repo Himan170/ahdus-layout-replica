@@ -4,7 +4,8 @@
 //   Checks mesh and draw-call counts (not fps: the test machine has no GPU),
 //   that changing one room rebuilds only that room and the rooms touching it
 //   (and how long that takes next to rebuilding two floors), and that single
-//   items can still be selected, locked and removed.
+//   items can still be selected, locked and removed. 100 people sit at the
+//   desks (__ahdusCharacters.setPeople, the placeholder figure) the whole time.
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run dev          (in one terminal)
@@ -96,13 +97,19 @@ const build = await p.evaluate(() => {
           const dx = x - 2.1 + k * 1.4;
           const dz = z - 0.8;
           objects.push({ id: `obj_${++n}`, assetType: 'DESK_STANDARD', floor: f, roomId: id, x: dx, y: 0, z: dz });
-          objects.push({ id: `obj_${++n}`, assetType: 'CHAIR_OFFICE', floor: f, roomId: id, x: dx, y: 0, z: dz + 0.8 });
+          objects.push({ id: `obj_${++n}`, assetType: 'CHAIR_OFFICE', floor: f, roomId: id, x: dx, y: 0, z: dz + 0.8, rotationY: Math.PI });
           objects.push({ id: `obj_${++n}`, assetType: 'PLANT_LARGE', floor: f, roomId: id, x: x - 2.6 + k * 1.7, y: 0, z: z + 2.1 });
         }
       }
     }
   }
   window.__ahdusStore.getState().loadWorkspace({ layoutName: 'Big Building', floors, rooms, objects });
+  // 100 people at the first 100 desks (every other one with the placeholder character file)
+  const desks = objects.filter((o) => o.assetType === 'DESK_STANDARD').slice(0, 100);
+  window.__ahdusCharacters.setPeople(desks.map((d, i) => ({
+    personId: `person_${i}`, deskId: d.id, name: `Person ${i}`, department: 'Engineering',
+    character: i % 2 ? null : { url: '/assets/characters/placeholder-mixamo.glb', rig: 'mixamo', height: 1.75 },
+  })));
   return { rooms: rooms.length, objects: objects.length, ms: Math.round(performance.now() - t0) };
 });
 await frames(3);
@@ -139,6 +146,14 @@ log(`probe building loaded: ${build.rooms} rooms, ${build.objects} items`, build
   `store load ${build.ms} ms`);
 if (realistic) log('realistic look: all 864 items are drawn by real models', real.items === 864 && real.models === 864, JSON.stringify(real));
 else log('realistic look off: all 864 items are the simple models', real.items === 864 && real.models === 0, JSON.stringify(real));
+const people = await p.evaluate(async () => {
+  const c = window.__ahdusCharacters;
+  await c.whenSettled();
+  const placed = c.getPlaced();
+  return { placed: placed.length, seated: placed.filter((x) => x.seated).length, full: c.fullCount };
+});
+log('100 people at their desks (seated), at most 12 as full characters', people.placed === 100 && people.seated === 100 &&
+  people.full <= 12, JSON.stringify(people));
 log(`Studio 3D, ground floor: ≤ ${MAX_DRAW_CALLS} draw calls and ≤ ${MAX_MESHES} meshes`,
   ground.drawCalls <= MAX_DRAW_CALLS && ground.meshes <= MAX_MESHES, JSON.stringify(ground));
 

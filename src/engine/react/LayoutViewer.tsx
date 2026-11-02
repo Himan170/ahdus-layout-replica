@@ -17,6 +17,11 @@
  * ("Building your workplace… 40 %" until it shows); onProgress follows it and
  * onReady comes when everything is built.
  *
+ * People: `people` ([{ personId, deskId, name, department, character }],
+ * LayoutEngine.setPeople) sit at their desks. Pointing at a desk with a
+ * person (view mode), or walking up to one, shows a small card with their
+ * name and department (text only).
+ *
  * Walking through, the keys are the page's until the view is engaged: clicked
  * (it captures the mouse) or focused (Tab; a focus ring shows). Esc gives
  * them back.
@@ -27,7 +32,7 @@ import type { CSSProperties } from 'react';
 
 import { LayoutEngine } from '../LayoutEngine';
 import type {
-  EngineMode, QualityLevel, InteractEvent, EnterRoomEvent, ExitRoomEvent, BuildProgress,
+  EngineMode, QualityLevel, InteractEvent, EnterRoomEvent, ExitRoomEvent, BuildProgress, Person, PlacedPerson,
 } from '../LayoutEngine';
 import { progressPercent } from '../../play/buildSchedule';
 import { connectEngine } from '../../integration/layoutBridge';
@@ -46,6 +51,11 @@ export interface LayoutViewerProps {
   quality?: QualityLevel;
   /** Where the real assets are (models/, textures/, env/). Default: the app's public/assets/. */
   assetBaseUrl?: string;
+  /**
+   * Who sits at which desk: [{ personId, deskId, name, department, character:
+   * { url, rig: 'mixamo' | 'ue', height } | null }]. Not drawn with quality 'low'.
+   */
+  people?: Person[];
   /** The engine is ready and the layout is fully built (focusOn, highlight, getAnchors, …). */
   onReady?: (engine: LayoutEngine) => void;
   /** Building the layout: { done, total, floor, currentFloorReady, allBuilt } (the last one has allBuilt). */
@@ -74,6 +84,10 @@ interface Hud {
   prompt?: { label: string; name: string } | null;
 }
 
+/** How often the person under the pointer (or next to the walker) is looked up (ms). */
+const PERSON_EVERY_MS = 50;
+const NEAR_EVERY_MS = 250;
+
 /** The layout to show, from the props (throws if it can't be found). */
 function layoutFrom({ layout, companyId, layoutId }: LayoutViewerProps): unknown {
   if (layout !== undefined && layout !== null) return layout;
@@ -96,6 +110,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [hud, setHud] = useState<Hud | null>(null);
   const [card, setCard] = useState<Card | null>(null);
   const [progress, setProgress] = useState<BuildProgress | null>(null);
+  // the person pointed at (view) or walked up to (walkthrough); at: the cursor in the box (px)
+  const [person, setPerson] = useState<{ who: PlacedPerson; at: { x: number; y: number } | null } | null>(null);
   // the latest callbacks, so the engine's handlers never call stale ones
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -184,6 +200,51 @@ export function LayoutViewer(props: LayoutViewerProps) {
     engine?.setMode(mode);
   }, [engine, mode]);
 
+  const { people } = props;
+  useEffect(() => {
+    engine?.setPeople(people ?? []);
+  }, [engine, people]);
+
+  // The person card: pointing at a desk (view mode), walking up to it (walkthrough)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!engine || !canvas || !people?.length) { setPerson(null); return undefined; }
+    const same = (a: PlacedPerson | null | undefined, b: PlacedPerson | null | undefined) => (a?.personId ?? null) === (b?.personId ?? null);
+    if (mode === 'walkthrough') {
+      const timer = setInterval(() => {
+        const who = engine.personNearWalker();
+        setPerson((was) => (same(was?.who, who) ? was : who ? { who, at: null } : null));
+      }, NEAR_EVERY_MS);
+      return () => { clearInterval(timer); setPerson(null); };
+    }
+    let last = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let pos: { x: number; y: number } | null = null;
+    const look = () => {
+      timer = undefined;
+      last = performance.now();
+      const who = pos ? engine.pickPerson(pos.x, pos.y) : null;
+      const at = pos;
+      setPerson((was) => (who && at ? (same(was?.who, who) && was?.at?.x === at.x && was?.at?.y === at.y ? was : { who, at }) : null));
+    };
+    const onMove = (e: PointerEvent) => {
+      if (e.buttons) { pos = null; setPerson(null); return; } // turning the view
+      const rect = canvas.getBoundingClientRect();
+      pos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      if (timer) return;
+      timer = setTimeout(look, Math.max(0, PERSON_EVERY_MS - (performance.now() - last)));
+    };
+    const onLeave = () => { pos = null; clearTimeout(timer); timer = undefined; setPerson(null); };
+    canvas.addEventListener('pointermove', onMove, { passive: true });
+    canvas.addEventListener('pointerleave', onLeave, { passive: true });
+    return () => {
+      clearTimeout(timer);
+      canvas.removeEventListener('pointermove', onMove);
+      canvas.removeEventListener('pointerleave', onLeave);
+      setPerson(null);
+    };
+  }, [engine, mode, people]);
+
   const walking = mode === 'walkthrough';
   const engaged = !!(hud?.engaged ?? hud?.locked);
   return (
@@ -233,6 +294,16 @@ export function LayoutViewer(props: LayoutViewerProps) {
         </>
       )}
       {walking && focused && <div aria-hidden data-focus-ring style={styles.focusRing} />}
+      {person && !error && (
+        // text only (React escapes it): name and department, nothing else
+        <div
+          data-person-card={person.who.personId}
+          style={person.at ? { ...styles.person, ...personSpot(person.at, boxRef.current) } : { ...styles.person, ...styles.personNear }}
+        >
+          <strong style={{ display: 'block' }}>{person.who.name || 'Someone'}</strong>
+          {person.who.department && <span>{person.who.department}</span>}
+        </div>
+      )}
       {card && (
         <div role="status" data-viewer-card style={styles.card}>
           <strong>{card.title}</strong>
@@ -241,6 +312,15 @@ export function LayoutViewer(props: LayoutViewerProps) {
       )}
     </div>
   );
+}
+
+/** Next to the cursor, kept inside the box. */
+function personSpot(at: { x: number; y: number }, box: HTMLElement | null): CSSProperties {
+  const w = box?.clientWidth ?? 0;
+  const h = box?.clientHeight ?? 0;
+  const left = at.x + 14 + 220 > w ? Math.max(4, at.x - 14 - 220) : at.x + 14;
+  const top = at.y + 14 + 56 > h ? Math.max(4, at.y - 14 - 56) : at.y + 14;
+  return { left, top };
 }
 
 // Inline styles: the viewer brings no stylesheet of its own (the app shell has its own look)
@@ -264,6 +344,9 @@ const styles: Record<string, CSSProperties> = {
   card: { ...panel, top: 12, right: 12, maxWidth: 320 },
   quiet: { ...panel, right: 12, bottom: 12, padding: '4px 10px', fontSize: 12, opacity: 0.8 },
   key: { border: '1px solid #fff8', borderRadius: 4, padding: '0 5px', marginRight: 4 },
+  person: { ...panel, maxWidth: 220, padding: '6px 10px', fontSize: 13, overflowWrap: 'anywhere' },
+  // walking up to a desk: above the HUD, in the middle
+  personNear: { left: '50%', bottom: 96, transform: 'translateX(-50%)', textAlign: 'center' },
 };
 
 export default LayoutViewer;

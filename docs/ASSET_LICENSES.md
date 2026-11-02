@@ -17,6 +17,15 @@ The library's furniture pictures, `thumbs/<model>.webp` (one per model above, 16
 isometric previews from the same pack (`Isometric/<model>_SE.png`, CC0 1.0), trimmed and resized by
 `node scripts/prepare-assets.mjs <pack folder> thumbs`. They show Kenney's colours, not ours.
 
+The **placeholder characters**, `characters/placeholder-mixamo.glb` and `characters/placeholder-ue.glb` (and
+`characters/manifest.json`), are **made by us**, CC0 1.0: `npm run characters:placeholder`
+(`scripts/make-placeholder-character.mjs`) writes them from code (boxes, one per bone, weight 1, vertex colours;
+no 3D program, nothing downloaded). Same skeleton as a Mixamo character, 1.75 m, T-pose, facing +Z: one with
+Mixamo bone names (`mixamorig:Hips`, …), one with Unreal-style names (`Root`, `pelvis`, `spine_01`, `thigh_l`, …).
+They are the test and demo figures for people
+at their desks. **No Mixamo or AHDUS character file may ever be put in this repo** (it is public; Mixamo's licence
+does not allow sharing the raw files).
+
 Not used (and not in the repo): the Quaternius Furniture Pack, the Industrial Pack (needs FBX conversion), and
 the lift models (lifts come later).
 
@@ -80,3 +89,5 @@ the lift models (lifts come later).
 | textures/office_ceiling/normal.jpg | ambientCG OfficeCeiling001 | https://ambientcg.com/view?id=OfficeCeiling001 | ambientCG (Lennart Demes) | CC0 1.0 | 2026-10-24 |
 | textures/office_ceiling/rough.jpg | ambientCG OfficeCeiling001 | https://ambientcg.com/view?id=OfficeCeiling001 | ambientCG (Lennart Demes) | CC0 1.0 | 2026-10-24 |
 | env/sky.env | Poly Haven citrus_orchard_road_puresky (prefiltered by scripts/make-env.mjs) | https://polyhaven.com/a/citrus_orchard_road_puresky | Poly Haven | CC0 1.0 | 2026-10-24 |
+| characters/placeholder-mixamo.glb | made by us (scripts/make-placeholder-character.mjs) | this repo | ahdus-layout-replica | CC0 1.0 | 2026-11-03 |
+| characters/placeholder-ue.glb | made by us (scripts/make-placeholder-character.mjs) | this repo | ahdus-layout-replica | CC0 1.0 | 2026-11-03 |

@@ -155,7 +155,7 @@ function StudioEditor(props: LayoutEditorProps) {
       {error && <div role="alert" style={{ padding: 16, font: '14px Inter, system-ui, sans-serif' }}>{error}</div>}
       {!error && loadCount > 0 && (
         <Suspense fallback={null}>
-          <StudioPanel key={loadCount} onExit={() => propsRef.current.onExit?.()} />
+          <StudioPanel key={loadCount} onExit={() => propsRef.current.onExit?.()} people={props.people} />
         </Suspense>
       )}
     </div>

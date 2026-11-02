@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (685, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (724, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -28,6 +28,7 @@ npm run schema:json  # dist-ahdus/layout.schema.json (or: node scripts/schema-js
 npm run assets:prepare  # public/assets/ from the downloaded packs (D:\assets-raw, outside the repo; sharp)
 node scripts/make-thumbs.mjs   # library pictures (public/assets/thumbs/*.webp), drawn by the app headless (needs npm run dev; ~10 s)
 npm run assets:env      # public/assets/env/sky.env from the HDRI (needs npm run dev)
+npm run characters:placeholder  # public/assets/characters/: the self-made rigged test figures (+ manifest.json)
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
 # One-time: npx playwright install chromium
@@ -62,6 +63,11 @@ npm run e2e:embed    # 27 checks   e2e/embed-smoke.mjs     (NO dev server needed
                      #                                       in it (no Supabase), serves embed-test.html itself; keys are the page's until the view is engaged, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
                      #                                       with cookies, destroy(), assets next to the script, quality low)
+npm run e2e:characters # 17     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
+                     #                                       on 2 floors: simple figures, full characters near the
+                     #                                       camera (each file once), seated poses, hover card (text,
+                     #                                       no email), per floor, walking up, quality low; with
+                     #                                       SHOTS=<dir> also 1440×900 + 390×844 screenshots)
 npm run e2e          # all of them (Himan's laptop once hung on this: run the scripts ONE AT A TIME)
 node e2e/real-assets-shots.mjs before|after   # screenshots of one sample layout: e2e/screens/real-assets-<tag>-*.png
 ```
@@ -188,6 +194,12 @@ src/ui/MeasurementOverlay.jsx      Distance / wall-length labels over the canvas
 src/play/playController.js         Preview: movement, camera, aiming, every hotbar tool, Stretch, Edit item, stairs, levels
 src/planner/plannerTools.js        Studio mouse tools: draw room / wall, door / window, drag a wall to resize
 src/utils/buildPreview.js          Blue/red build previews shared by both modes
+src/play/people.js                 PURE: people at desks: deskSeat / deskSeats (the chair of a desk), seatPose,
+                                   personNear, chooseFullCharacters (≤ 12 nearest), BONE_TABLE (Mixamo ↔ Unreal
+                                   names), normaliseBoneName, SEATED_POSE / STANDING_POSE (tests in play/__tests__)
+src/engine/systems/CharacterSystem.ts  People: simple figures (thin instances) + full characters (GLB per file, a copy
+                                   with its own skeleton per person, posed by bone names), per floor, not pickable
+src/embed/characterManifest.js     PURE: the character manifest (assetReference → { url, rig, height }), setPeople's list
 src/play/geometry.js               PURE maths: room corners, wall splitting, doors, neighbours, stretchRoom, resizeOpening,
                                    shared walls (roomWallSegments, wallPickTarget), nesting (roomContainedBy, containerOf,
                                    planRoomMove, roomRectBlocker), snapping (snapRoomRect),
@@ -363,6 +375,32 @@ new scene, else `request()`) and `LayoutEngine` (viewer, embed).
 - Measured by `e2e:perf` (72 rooms + 864 items, no GPU): the floor you are on shows after ~1.6 s instead of ~2.6 s, and
   the rest builds while you can already work. Numbers from SwiftShader; compare runs on the same machine only.
 
+## People at their desks (v0.11.0, how it works)
+
+Phase 1 step A of `private-docs/CHARACTERS_PLAN.md` (decisions in its §5). **Never put a character .glb from
+Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use our own placeholder figures
+(`public/assets/characters/placeholder-mixamo.glb` / `placeholder-ue.glb`, `npm run characters:placeholder`).
+- **Who sits where** is not in the layout (never saved here): `setPeople([{ personId, deskId, name, department,
+  character: { url, rig: 'mixamo' | 'ue', height } | null }])` on `LayoutEngine`, `<LayoutViewer people>`,
+  `<LayoutEditor people>` (Studio: only when given; dev hook `__ahdusCharacters`). The embed: `mount(el, {
+  characters: { manifestUrl } })` + `handle.setPeople([{ personId, deskId, name, department, assetReference }])`,
+  resolved through the manifest (`embed/characterManifest.js`; unknown / null = simple figure; other fields such as
+  email are dropped). AHDUS will send seats from `workplace_seats` (TEAM_INTEGRATION.md, Harsh).
+- **Where:** `people.deskSeats`: a `CHAIR*` within 1.2 m of a desk's edge (`DESK*`, `RECEPTION_DESK`), facing it
+  (≤ 60°); each chair goes to the desk it fits best. No chair: standing where a chair would be, facing it
+  (`people.DESK_WORK_SIDE`: the desk's local +Z, a reception desk's −Z behind the counter; turned with the desk).
+- **Look:** everyone starts as the neutral simple figure (one mesh per pose, a thin instance each: 2 draw calls for
+  any number). `chooseFullCharacters`: at most 12 on the current floor within 15 m of the camera (kept until 18 m)
+  become full characters when their file has loaded (each url once per scene, ≤ 3 downloads at once,
+  `modelLoader.loadGlbContainer`); each gets `instantiateModelsToScene` (own skeleton, shared geometry and
+  materials). Pose: bones found by name (`canonicalBoneName`), aimed in the parent's frame (`aimBone`, mirror-safe);
+  hips onto the seat; the nearest 3 breathe. A failed file = simple figure (a warning).
+- A person shows while their desk's mesh is built and enabled (so per floor, like FloorSystem). Character meshes are
+  not pickable; `pickPerson(x, y)` (desk / chair hit, else the nearest person within 0.6 m of the hit point) gives the
+  hover card: LayoutViewer (view: next to the cursor; walkthrough: within 1.8 m, `personNearWalker`) and Studio
+  (RoomHoverCard). Text only: name and department.
+- **None with quality 'low'** (`engine.characters` is null) or Studio's Realistic look off (`setEnabled`).
+
 ## Realistic look (how it works)
 
 On by default; Settings → "Realistic look" (Studio, per browser: localStorage `ahdus.realisticLook`), `quality: 'low'`
@@ -448,6 +486,9 @@ site on the server (local mode renames the layout), the leave check. Saving, und
 - embed-test.html's hooks (also in production: it's a plain page): `window.workplace` (the handle; `._engine` = its
   LayoutEngine, for tests only), `window.embedEvents` (every onEvent call). A viewer's walkthrough doesn't capture the
   mouse by itself: click its canvas first (Preview still does, and headless Chromium grants it without a click).
+- People: `__ahdusCharacters` (Studio, dev: the CharacterSystem: `setPeople`, `getPlaced()`, `whenSettled()`,
+  `fullCount`); viewer / embed: `engine.characters`. Simple figures are the meshes `people_seated` / `people_standing`
+  (`thinInstanceCount`), full characters `person_<id>` nodes (meshes with `metadata.personId`).
 - Dev-only hooks for tests/console: `window.__ahdusPlay`, `__ahdusScene`, `__ahdusStore`, `window.ahdus` (bridge),
   `__ahdusCards`, `__ahdusEventLog` (demo modules), `__ahdusCrashOnOpen = true` (the editor throws: error card test),
   `__ahdusRoomSync` ({ rebuilt, ms } of the last room sync that built something: perf test),
@@ -604,6 +645,10 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - "Also open in another tab" can stay shown a while if the other tab crashed instead of closing.
 - The storage warning is an estimate (~5 MB per site); browsers differ.
 - Skirting isn't pickable on its own (a click goes to the wall behind it).
+- People: the pose is procedural (no sit / type animation); twist of bones is not set (hands may turn oddly on real
+  characters); hands don't follow the keyboard. A desk with no chair has its person on its local +Z side (a
+  reception desk: −Z), turned with the desk; a corner desk's person stands outside its long side, not in the L. No
+  "Choose your character" hint yet. Full characters' skeletons are not frozen (≤ 12, cheap).
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).
 
@@ -668,6 +713,11 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 ## DONE: realistic look, real assets (25 Oct 2026, branch `feat/real-assets`)
 
 Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
+
+## DONE: people at their desks, step A (v0.11.0, 3 Nov 2026, branch `feature/characters-a`)
+
+See "People at their desks" above. Screenshots: private-docs/screenshots/v0.11/ (not in git). Next (phase 1, rest):
+AHDUS seats table + API, the manifest and light office copies, the desk Inspector "Who sits here" (AHDUS only).
 
 ## DONE: the AHDUS look everywhere + 3 fixes (v0.10.1, 2 Nov 2026, branch `fix/v0.10.1`)
 
