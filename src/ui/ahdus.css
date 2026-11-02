@@ -1,0 +1,75 @@
+/*
+ * The AHDUS look of Workplace Studio (ui/look.js puts data-look="ahdus" on <html>).
+ * Colours come from theme.css's :root[data-look="ahdus"] tokens; this file only has what
+ * looks different from the dark look (local mode), so every rule starts with [data-look="ahdus"].
+ */
+
+/* ── Shared controls ─────────────────────────────────────────────── */
+
+[data-look="ahdus"] .ui-btn { border-color: var(--border-strong); }
+[data-look="ahdus"] .ui-btn.is-primary { border-color: var(--accent); }
+[data-look="ahdus"] .ui-btn.is-danger { border-color: color-mix(in srgb, var(--danger) 35%, transparent); background: var(--danger-soft); }
+[data-look="ahdus"] .ui-btn.is-ghost { border-color: transparent; }
+[data-look="ahdus"] .ui-input,
+[data-look="ahdus"] .ui-select { border-color: var(--border-strong); background: var(--bg-panel); }
+[data-look="ahdus"] .ui-pop { border-color: var(--border); }
+[data-look="ahdus"] .ui-segmented { background: var(--bg-panel); border-color: var(--border); }
+[data-look="ahdus"] .ui-segmented button[aria-pressed="true"] { background: var(--accent-strong); color: var(--on-accent); }
+[data-look="ahdus"] .ui-switch { background: var(--border); border-color: var(--border-strong); }
+[data-look="ahdus"] .ui-switch::after { background: var(--bg-panel); box-shadow: 0 1px 2px rgba(25, 59, 47, 0.25); }
+[data-look="ahdus"] .ui-switch[aria-checked="true"]::after { background: var(--bg-panel); }
+[data-look="ahdus"] .ui-kbd { background: var(--bg-app); }
+[data-look="ahdus"] * { scrollbar-color: var(--border-strong) transparent; }
+[data-look="ahdus"] *::-webkit-scrollbar-thumb { background: var(--border-strong); }
+
+/* The logo: a dark green square with the building (top bar, loading screen) */
+.ahdus-logo {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--accent-strong);
+  color: var(--on-accent);
+}
+.ahdus-logo--big { width: 56px; height: 56px; border-radius: 14px; }
+
+/* ── Loading screen, toast, dialog ───────────────────────────────── */
+
+[data-look="ahdus"] .studio-splash__ahdus { color: var(--text-muted); }
+[data-look="ahdus"] .ui-toast__link { color: var(--accent); }
+[data-look="ahdus"] .ui-toast__link:hover { color: var(--accent-hover); }
+[data-look="ahdus"] .ui-dialog { box-shadow: var(--shadow-pop); }
+
+/* ── On the canvas ───────────────────────────────────────────────── */
+
+/* Room names: dark green pills, white text */
+[data-look="ahdus"] .room-label:not(.room-card) {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+[data-look="ahdus"] .room-label:not(.room-card) .room-label__area { color: var(--on-accent); }
+[data-look="ahdus"] .room-card { border-radius: var(--radius); }
+/* Measurement labels: the dark look draws them on a fixed dark background */
+[data-look="ahdus"] .measurement-label {
+  border-color: transparent;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-card), 0 0 0 1px var(--border-strong);
+  color: var(--text);
+}
+[data-look="ahdus"] .measurement-label--distance { background: var(--accent-strong); color: var(--on-accent); box-shadow: none; }
+[data-look="ahdus"] .measurement-lines line { stroke: var(--accent); }
+[data-look="ahdus"] .measurement-lines circle { stroke: var(--accent); }
+[data-look="ahdus"] .measurement-lines .measurement-lines__start { fill: var(--accent); stroke: var(--bg-panel); }
+[data-look="ahdus"] .canvas-card__controls { box-shadow: var(--shadow-card); }
+[data-look="ahdus"] .build-progress { box-shadow: var(--shadow-card); }
+
+/* ── Top bar status (classic layout) ─────────────────────────────── */
+
+[data-look="ahdus"] .studio-header__status.is-warning,
+[data-look="ahdus"] .studio-header__status.is-syncing { color: var(--warning-text); }

@@ -30,6 +30,58 @@
   --danger-soft: rgba(239, 107, 107, 0.12);
   --success-soft: rgba(79, 209, 139, 0.14);
   --backdrop: rgba(11, 15, 26, 0.6);    /* --bg-canvas behind a dialog */
+
+  /* Used by the AHDUS look (below); here so shared rules work in both looks */
+  --on-accent: #fff;                     /* text on --accent */
+  --accent-strong: var(--bg-active);     /* the chosen part of a segmented control, the selection bar */
+  --border-strong: var(--border);
+  --warning-bg: rgba(245, 158, 11, 0.14);
+  --warning-text: #f59e0b;
+  --warning-dot: #f59e0b;
+  --rail-bg: var(--bg-panel);
+  --rail-text: var(--text-muted);
+  --rail-hover: var(--bg-hover);
+  --rail-active: var(--bg-active);
+  --shadow-card: none;
+}
+
+/*
+ * The AHDUS look (Workplace Studio inside AHDUS, VITE_LAYOUT_BACKEND=ahdus; ui/look.js puts
+ * data-look="ahdus" on <html>). Light page, white panels, AHDUS green. Every text colour
+ * here is at least 4.5:1 on the backgrounds it is used on (ui/__tests__/themeContrast.test.js).
+ * The dark look above stays for local mode.
+ */
+:root[data-look="ahdus"] {
+  --bg-app: #f6f7f3;
+  --bg-panel: #ffffff;
+  --bg-canvas: #edf1ea;
+  --bg-hover: #f0f3ed;
+  --bg-active: #eaf2e6;
+  --border: #e3e8e0;
+  --border-strong: #cfd8cb;
+  --text: #25382f;
+  --text-muted: #55625a;
+  --accent: #28664f;
+  --accent-hover: #1c503d;
+  --accent-soft: #eaf2e6;
+  --accent-strong: #193b2f;
+  --on-accent: #ffffff;
+  --danger: #b3261e;
+  --danger-soft: #fdeceb;
+  --success: #28664f;
+  --success-soft: #eaf2e6;
+  --warning-bg: #fbf2e3;
+  --warning-text: #7a4e0e;
+  --warning-dot: #c27c12;
+  --rail-bg: #193b2f;
+  --rail-text: #dfe9e2;
+  --rail-hover: #234a3b;
+  --rail-active: #2c5d49;
+  --bg-glass: rgba(255, 255, 255, 0.94);
+  --backdrop: rgba(25, 59, 47, 0.35);
+  --shadow-pop: 0 8px 24px rgba(25, 59, 47, 0.14);
+  --shadow-card: 0 1px 3px rgba(25, 59, 47, 0.08);
+  color-scheme: light;
 }
 
 html, body, #root {
@@ -100,7 +152,7 @@ select:focus-visible {
 }
 .ui-btn:hover:not(:disabled) { background: var(--bg-hover); }
 .ui-btn:disabled { opacity: 0.4; cursor: default; }
-.ui-btn.is-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ui-btn.is-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .ui-btn.is-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 .ui-btn.is-danger { color: var(--danger); border-color: rgba(239, 107, 107, 0.4); }
 .ui-btn.is-danger:hover:not(:disabled) { background: var(--danger-soft); }

@@ -10,6 +10,9 @@
 import WorkplaceEditor from '../../components/WorkplaceEditor';
 import EditorErrorBoundary from '../../ui/EditorErrorBoundary';
 import '../../ui/theme.css';
+import { applyStudioLook } from '../../ui/look';
+
+applyStudioLook();
 
 export default function StudioPanel({ onExit }) {
   return (
