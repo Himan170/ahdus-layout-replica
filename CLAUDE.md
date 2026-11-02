@@ -393,8 +393,10 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
   any number). `chooseFullCharacters`: at most 12 on the current floor within 15 m of the camera (kept until 18 m)
   become full characters when their file has loaded (each url once per scene, ≤ 3 downloads at once,
   `modelLoader.loadGlbContainer`); each gets `instantiateModelsToScene` (own skeleton, shared geometry and
-  materials). Pose: bones found by name (`canonicalBoneName`), aimed in the parent's frame (`aimBone`, mirror-safe);
-  hips onto the seat; the nearest 3 breathe. A failed file = simple figure (a warning).
+  materials; glTF extensions loaded: `EXT_texture_webp`, `KHR_materials_specular`, `KHR_materials_unlit`, imported
+  next to the lazy loader in `utils/modelLoader.js`: a file that REQUIRES another one fails). Pose: bones found by
+  name (`canonicalBoneName`), aimed in the parent's frame (`aimBone`, mirror-safe); hips onto the seat; the nearest
+  3 breathe. A failed file = simple figure (a warning).
 - A person shows while their desk's mesh is built and enabled (so per floor, like FloorSystem). Character meshes are
   not pickable; `pickPerson(x, y)` (desk / chair hit, else the nearest person within 0.6 m of the hit point) gives the
   hover card: LayoutViewer (view: next to the cursor; walkthrough: within 1.8 m, `personNearWalker`) and Studio
@@ -713,6 +715,14 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 ## DONE: realistic look, real assets (25 Oct 2026, branch `feat/real-assets`)
 
 Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
+
+## DONE: glTF extensions for the characters (v0.11.1, 3 Nov 2026, branch `fix/gltf-extensions`)
+
+`modelLoader` loaded Babylon's glTF loader without any extension, so the AHDUS office characters (WebP textures,
+EXT_texture_webp required) failed and stayed simple figures, and KHR_materials_specular was ignored. Now the three
+extensions our files use are registered (see "People at their desks"). The placeholder figures REQUIRE
+EXT_texture_webp and KHR_materials_specular (a 4 × 4 white WebP, `scripts/make-placeholder-character.mjs`), so
+e2e:characters fails if one goes missing.
 
 ## DONE: people at their desks, step A (v0.11.0, 3 Nov 2026, branch `feature/characters-a`)
 

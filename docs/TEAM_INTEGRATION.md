@@ -189,8 +189,10 @@ each character is:
 - **The light office copies** (the manifest points at these; the full files stay for the companion). Each one:
   - glTF binary (`.glb`), **one skinned mesh** (or very few), the character's own skeleton, facing **+Z**, feet at
     y = 0, metres (or a scale node: we measure the height and scale to `height` anyway);
-  - **10 to 15 k triangles**, textures **512 to 1024 px** (WebP or KTX2), **1 to 3 MB** per file, about 5 MB of GPU
-    memory;
+  - **10 to 15 k triangles**, textures **512 to 1024 px** (WebP, PNG or JPEG; **not** KTX2, and no Draco or meshopt
+    compression: those need decoders we don't load), **1 to 3 MB** per file, about 5 MB of GPU memory. glTF
+    extensions we load: `EXT_texture_webp`, `KHR_materials_specular`, `KHR_materials_unlit` (a file that requires
+    another one fails: the person stays a simple figure). AHDUS makes them with `scripts/make-office-characters.mjs`;
   - bone names as now: Mixamo (any `mixamorigd*:` prefix) or, for Victoria, the Unreal-style names (`pelvis`,
     `spine_01…03`, `neck_01`, `head`, `clavicle_l`, `upperarm_l`, `lowerarm_l`, `hand_l`, `thigh_l`, `calf_l`,
     `foot_l`, `ball_l`, and `_r`): our table is `BONE_TABLE` in `src/play/people.js`;

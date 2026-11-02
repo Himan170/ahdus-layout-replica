@@ -7,6 +7,9 @@
 // Same skeleton as a Mixamo character (Hips → Spine → Spine1 → Spine2 → Neck → Head, shoulders, arms,
 // legs, feet), 1.75 m tall, in a T-pose, facing +Z: so CharacterSystem's pose code is tested on real
 // skinned meshes. Each box follows one bone (weight 1). docs/ASSET_LICENSES.md.
+// The material REQUIRES two glTF extensions, like the AHDUS office characters: a tiny white WebP texture
+// (EXT_texture_webp) and KHR_materials_specular. If the loader ever lacks one, the file fails to load and
+// e2e:characters fails (people stay simple figures), instead of real characters silently not showing.
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 const OUT = 'public/assets/characters';
@@ -39,6 +42,8 @@ const JOINTS = [
 ];
 
 // ── The body: boxes [bone, min xyz, max xyz, colour] in world space (bind pose) ──
+/** 4 × 4 white pixels, lossless WebP (made with sharp): multiplies the vertex colours by 1. */
+const WHITE_WEBP = Buffer.from('UklGRh4AAABXRUJQVlA4TBEAAAAvA8AAAAfQ//73v/+BiOh/AAA=', 'base64');
 const C = {
   skin: [0.85, 0.66, 0.51], hair: [0.18, 0.13, 0.1], trousers: [0.17, 0.19, 0.25], shoes: [0.08, 0.08, 0.09],
   eyes: [0.05, 0.05, 0.06],
@@ -85,6 +90,7 @@ function makeGlb({ rig, shirt }) {
 
   const positions = [];
   const normals = [];
+  const uvs = [];
   const colors = [];
   const jointIds = [];
   const weights = [];
@@ -105,6 +111,7 @@ function makeGlb({ rig, shirt }) {
       for (const c of corners) {
         positions.push(...c.map((k, i) => (k ? max[i] : min[i])));
         normals.push(...n);
+        uvs.push(0.5, 0.5);
         colors.push(...color, 1);
         jointIds.push(j, 0, 0, 0);
         weights.push(1, 0, 0, 0);
@@ -119,13 +126,16 @@ function makeGlb({ rig, shirt }) {
   const accessors = [];
   const chunks = [];
   let offset = 0;
-  const add = (typed, accessor, target) => {
+  const view = (typed, target) => {
     const bytes = Buffer.from(typed.buffer, typed.byteOffset, typed.byteLength);
     const padded = Buffer.concat([bytes, Buffer.alloc((4 - (bytes.length % 4)) % 4)]);
     views.push({ buffer: 0, byteOffset: offset, byteLength: bytes.length, ...(target ? { target } : {}) });
     chunks.push(padded);
     offset += padded.length;
-    accessors.push({ bufferView: views.length - 1, ...accessor });
+    return views.length - 1;
+  };
+  const add = (typed, accessor, target) => {
+    accessors.push({ bufferView: view(typed, target), ...accessor });
     return accessors.length - 1;
   };
   const vec3Bounds = (a) => {
@@ -141,12 +151,14 @@ function makeGlb({ rig, shirt }) {
   const attributes = {
     POSITION: add(new Float32Array(positions), { componentType: FLOAT, count, type: 'VEC3', ...vec3Bounds(positions) }, ARRAY),
     NORMAL: add(new Float32Array(normals), { componentType: FLOAT, count, type: 'VEC3' }, ARRAY),
+    TEXCOORD_0: add(new Float32Array(uvs), { componentType: FLOAT, count, type: 'VEC2' }, ARRAY),
     COLOR_0: add(new Float32Array(colors), { componentType: FLOAT, count, type: 'VEC4' }, ARRAY),
     JOINTS_0: add(new Uint16Array(jointIds), { componentType: 5123, count, type: 'VEC4' }, ARRAY),
     WEIGHTS_0: add(new Float32Array(weights), { componentType: FLOAT, count, type: 'VEC4' }, ARRAY),
   };
   const indexAccessor = add(new Uint16Array(indices), { componentType: 5123, count: indices.length, type: 'SCALAR' }, ELEMENTS);
   const ibmAccessor = add(new Float32Array(ibm), { componentType: FLOAT, count: joints.length, type: 'MAT4' });
+  const imageView = view(WHITE_WEBP);
 
   // nodes: 0 = the mesh, then the joints (translations relative to their parent)
   const nodes = [{ name: 'Body', mesh: 0, skin: 0 }];
@@ -172,7 +184,17 @@ function makeGlb({ rig, shirt }) {
     scenes: [{ name: 'Placeholder', nodes: [0, ...roots] }],
     nodes,
     meshes: [{ name: 'Body', primitives: [{ attributes, indices: indexAccessor, material: 0 }] }],
-    materials: [{ name: 'Placeholder', pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 0.85 } }],
+    materials: [{
+      name: 'Placeholder',
+      pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], baseColorTexture: { index: 0 }, metallicFactor: 0, roughnessFactor: 0.85 },
+      extensions: { KHR_materials_specular: { specularFactor: 0.5 } },
+    }],
+    // only the WebP source, no PNG / JPEG fallback: so EXT_texture_webp is required
+    textures: [{ sampler: 0, extensions: { EXT_texture_webp: { source: 0 } } }],
+    samplers: [{ magFilter: 9729, minFilter: 9729 }],
+    images: [{ bufferView: imageView, mimeType: 'image/webp' }],
+    extensionsUsed: ['EXT_texture_webp', 'KHR_materials_specular'],
+    extensionsRequired: ['EXT_texture_webp', 'KHR_materials_specular'],
     skins: [{ name: 'Armature', inverseBindMatrices: ibmAccessor, joints: joints.map((_, i) => i + 1), skeleton: roots[0] }],
     accessors,
     bufferViews: views,
