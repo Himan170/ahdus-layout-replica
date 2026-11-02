@@ -3,7 +3,7 @@
  *
  * Workplace Studio's scene lifecycle, moved as one piece out of WorkplaceEditor.jsx:
  * creates the Babylon scene (createLayoutScene), RoomSystem, ObjectSystem, FloorSystem,
- * SceneBuilder, the performance monitor, the play controller, the bridge context,
+ * CharacterSystem (people, only when WorkplaceEditor is given some), SceneBuilder, the performance monitor, the play controller, the bridge context,
  * the placement manager, planner tools, floor outline, gizmo controller, the pointer
  * handlers (installed by studioPointer.js) and the FPS counter, and disposes them all
  * in one cleanup (same order).
@@ -16,10 +16,11 @@
 import { useEffect } from 'react';
 
 import { createLayoutScene } from '../engine/systems/SceneSetup';
-import { storedRealisticLook, whenLoaded, setRealistic } from '../utils/realLook';
+import { storedRealisticLook, whenLoaded, setRealistic, isRealistic, onLookChange } from '../utils/realLook';
 import { RoomSystem } from '../engine/systems/RoomSystem';
 import { ObjectSystem } from '../engine/systems/ObjectSystem';
 import { FloorSystem } from '../engine/systems/FloorSystem';
+import { CharacterSystem } from '../engine/systems/CharacterSystem';
 import { SceneBuilder } from '../engine/systems/SceneBuilder';
 import { progressPercent } from '../play/buildSchedule';
 import { elevationOf } from '../play/building';
@@ -34,7 +35,7 @@ import { layoutBridge } from '../integration/layoutBridge';
 import { installStudioPointer } from './studioPointer';
 
 export function useStudioScene({
-  canvasRef, sceneRef, cameraRef, lightsRef, siteEnvRef, roomSystemRef, objectSystemRef, floorSystemRef,
+  canvasRef, sceneRef, cameraRef, lightsRef, siteEnvRef, roomSystemRef, objectSystemRef, floorSystemRef, characterSystemRef,
   builderRef, perfMonitorRef, playRef, placementManagerRef, plannerToolsRef, floorOutlineRef,
   gizmoControllerRef, cardTimerRef, exitPlayRef, playBuildToolRef, updateFloorOutlineRef, snapRef,
   isPlayingRef, measureModeRef, measureStartRef, measurementIdRef, fpsRef, fpsDisplayRef, plannerMessageTimer,
@@ -62,6 +63,14 @@ export function useStudioScene({
     objectSystemRef.current = objectSystem;
     const floorSystem = new FloorSystem(roomSystem, objectSystem, () => useWorkspaceStore.getState());
     floorSystemRef.current = floorSystem;
+    // People at their desks: nothing is drawn until WorkplaceEditor gets `people`; none with the simple look
+    const characters = new CharacterSystem(scene, {
+      getLayout: () => useWorkspaceStore.getState(),
+      getObjectMesh: (id) => objectSystem.getObjectMesh(id),
+    });
+    characters.setEnabled(isRealistic(scene));
+    const offLook = onLookChange(scene, (on) => characters.setEnabled(on));
+    characterSystemRef.current = characters;
     let shownProgress = '';
     const builder = new SceneBuilder({
       rooms: roomSystem,
@@ -195,6 +204,7 @@ export function useStudioScene({
       window.__ahdusStore = useWorkspaceStore;
       // the realistic look: whenLoaded() waits for the models / textures being loaded
       window.__ahdusAssets = { whenLoaded: () => whenLoaded(scene), setRealistic: (on) => setRealistic(scene, on) };
+      window.__ahdusCharacters = characters; // e2e: setPeople(list), whenSettled(), fullCount
     }
 
     // ── Phase 3: Create managers ──
@@ -281,6 +291,9 @@ export function useStudioScene({
       gizmoCtrl.dispose();
       builder.dispose();
       builderRef.current = null;
+      offLook();
+      characters.dispose();
+      characterSystemRef.current = null;
       layoutScene.dispose();
       // The scene took every room/item mesh with it. Forget them, or the next
       // scene (React StrictMode mounts twice; Vite hot reload) would reuse

@@ -101,7 +101,7 @@ const shallow = (a, b) => {
   return true;
 };
 
-export default function WorkplaceEditor({ onExit, onFirstFrame }) {
+export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
   // Development only: lets the e2e test check the "could not be opened" card (e2e/save-smoke.mjs)
   if (import.meta.env.DEV && typeof window !== 'undefined' && window.__ahdusCrashOnOpen) {
     throw new Error('Test crash (window.__ahdusCrashOnOpen is set)');
@@ -116,6 +116,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
 
   // Item meshes of every floor (engine/systems/ObjectSystem), made with the scene
   const objectSystemRef = useRef(null);
+  const characterSystemRef = useRef(null); // people at their desks (only when `people` is given)
 
   // Progressive loading (engine/systems/SceneBuilder): builds the rooms and items
   // in ~10 ms slices, the floor you are on first, so opening a big layout never
@@ -322,13 +323,18 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
   // ─── Initialise Babylon Engine & Scene (hooks/useStudioScene.js) ───
   useStudioScene({
     canvasRef, sceneRef, cameraRef, lightsRef, siteEnvRef, roomSystemRef, objectSystemRef, floorSystemRef,
-    builderRef, perfMonitorRef, playRef, placementManagerRef, plannerToolsRef, floorOutlineRef,
+    characterSystemRef, builderRef, perfMonitorRef, playRef, placementManagerRef, plannerToolsRef, floorOutlineRef,
     gizmoControllerRef, cardTimerRef, exitPlayRef, playBuildToolRef, updateFloorOutlineRef, snapRef,
     isPlayingRef, measureModeRef, measureStartRef, measurementIdRef, fpsRef, fpsDisplayRef,
     plannerMessageTimer, setBuildProgress, setPlayHud, setSelectedSlot, setCatalogOpen, setNewFloorAsk,
     setInteraction, setPositionsVersion, setPlannerHint, setMeasurePreview, setMeasureStart, setMeasurements,
     setSceneReady, editor, showStudioMessage, placeObject, DEMO_MODULES,
   });
+
+  // People at their desks: drawn only when some are passed in (LayoutEditor's `people`)
+  useEffect(() => {
+    if (sceneReady) characterSystemRef.current?.setPeople(people ?? []);
+  }, [sceneReady, people]);
 
   // ─── Store → scene: meshes, the floor being edited, the gizmo (hooks/useStoreMeshSync.js) ───
   useStoreMeshSync({
@@ -1252,6 +1258,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
             selectedRoomId={selectedOpening ? null : selectedRoomId}
             isBusy={() => measureModeRef.current || !!plannerToolsRef.current?.isDragging() ||
               !!placementManagerRef.current?.isActive()}
+            pickPerson={people?.length ? (x, y) => characterSystemRef.current?.pickPerson(x, y) ?? null : null}
           />
           <MeasurementOverlay
             scene={sceneReady}

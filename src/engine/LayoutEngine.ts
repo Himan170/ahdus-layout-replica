@@ -26,7 +26,9 @@
  *          loadLayout (saves, export files, v2) draws the layout; getLayout
  *          returns it as v2; setFloor, setView, focusOn, fitView, highlight, clearHighlights;
  *          modes (setMode); `editor` (store/editorHistory.js on this engine's
- *          store) refuses every edit outside edit mode.
+ *          store) refuses every edit outside edit mode;
+ *          people at their desks (setPeople: systems/CharacterSystem; none
+ *          with quality 'low').
  *   Stubs (TODO):  systems/PlacementSystem, SelectionSystem.
  *
  * Modes:
@@ -55,6 +57,8 @@ import { FloorSystem } from './systems/FloorSystem';
 import { setCameraView, flyTo, boundsOf } from './systems/CameraSystem';
 import type { GroundBox } from './systems/CameraSystem';
 import { HighlightSystem } from './systems/HighlightSystem';
+import { CharacterSystem } from './systems/CharacterSystem';
+import type { Person, PlacedPerson } from './systems/CharacterSystem';
 import { SceneBuilder } from './systems/SceneBuilder';
 import type { BuildProgress } from './systems/SceneBuilder';
 import { elevationOf } from '../play/building';
@@ -141,6 +145,7 @@ type EventMap = {
 };
 
 export type { BuildProgress };
+export type { Person, PlacedPerson };
 
 /** What every edit answers outside edit mode. */
 export const READ_ONLY = 'This layout is view-only here';
@@ -182,6 +187,8 @@ export class LayoutEngine {
   readonly objects: ObjectSystem;
   readonly floors: FloorSystem;
   readonly highlights: HighlightSystem;
+  /** People at their desks (null with quality 'low': no people at all). */
+  readonly characters: CharacterSystem | null;
   /** Builds the layout in slices (progressive loading). */
   private _builder: SceneBuilder;
 
@@ -246,6 +253,10 @@ export class LayoutEngine {
     // Until a floor is chosen, the whole building shows, with roofs
     this.floors.setView({ mode: 'outside', level: 0 });
     this.highlights = new HighlightSystem(this.rooms, this.objects);
+    this.characters = this._quality === 'low' ? null : new CharacterSystem(this.scene, {
+      getLayout: () => this._store.getState(),
+      getObjectMesh: (id) => this.objects.getObjectMesh(id),
+    });
     this._builder = new SceneBuilder({
       rooms: this.rooms,
       objects: this.objects,
@@ -414,6 +425,30 @@ export class LayoutEngine {
     this._draw();
   }
 
+  // ── People ─────────────────────────────────────────────────────────────
+
+  /**
+   * Who sits at which desk (replaces the list before): [{ personId, deskId,
+   * name, department, character: { url, rig, height } | null }]. Seated on
+   * the desk's chair, else standing at it; no character = the simple figure.
+   * Nothing is drawn with quality 'low'. Not part of the layout (never saved).
+   */
+  setPeople(people: Person[]): void {
+    this.characters?.setPeople(people);
+  }
+
+  /** The person under a screen point (CSS px in the canvas: their desk, chair or them), or null. */
+  pickPerson(x: number, y: number): PlacedPerson | null {
+    return this.characters?.pickPerson(x, y) ?? null;
+  }
+
+  /** Walking through: the person the character stands next to (within `radius` m on its floor), or null. */
+  personNearWalker(radius = 1.8): PlacedPerson | null {
+    const walk = this._walkthrough;
+    if (!this.characters || !walk?.isActive()) return null;
+    return this.characters.personAt(walk.getPosition(), walk.getLevel(), radius);
+  }
+
   // ── Querying ───────────────────────────────────────────────────────────
 
   /** Get all anchors, optionally filtered by kind */
@@ -545,6 +580,7 @@ export class LayoutEngine {
     this._builder.dispose();
     this._walkthrough?.dispose();
     this._walkthrough = null;
+    this.characters?.dispose();
     this._unsubscribe();
     this._listeners.clear();
     // The scene takes every room and item mesh with it; forget them

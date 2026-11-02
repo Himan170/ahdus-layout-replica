@@ -7,6 +7,8 @@
  * renders only when the hovered room changes. No card while a mouse button is
  * down (a drag of a build tool, the gizmo or the camera) or while `isBusy()`;
  * the selected room shows its details on its own label instead.
+ * With people at their desks (`pickPerson`): pointing at a desk with a person
+ * (or at them) shows their name and department instead.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -18,13 +20,14 @@ const OFFSET = 14; // px from the cursor
 const PARTS = new Set(['floor', 'wall', 'door', 'window', 'band', 'skirting']);
 const WALL_PARTS = new Set(['wall', 'door', 'window', 'band']);
 
-export default function RoomHoverCard({ scene, rooms, floorId, is3D, hidden, selectedRoomId, isBusy }) {
+export default function RoomHoverCard({ scene, rooms, floorId, is3D, hidden, selectedRoomId, isBusy, pickPerson }) {
   const [roomId, setRoomId] = useState(null);
+  const [person, setPerson] = useState(null); // { personId, name, department } pointed at
   const cardRef = useRef(null);
   const size = useRef({ w: 0, h: 0 });
   const placeRef = useRef(null); // positions the card at the cursor
   const live = useRef({});
-  live.current = { floorId, is3D, isBusy };
+  live.current = { floorId, is3D, isBusy, pickPerson };
 
   const room = rooms.find((r) => r.id === roomId && r.id !== selectedRoomId) ?? null;
 
@@ -36,7 +39,7 @@ export default function RoomHoverCard({ scene, rooms, floorId, is3D, hidden, sel
 
   useEffect(() => {
     const canvas = scene?.getEngine().getRenderingCanvas();
-    if (!canvas || hidden) { setRoomId(null); return undefined; }
+    if (!canvas || hidden) { setRoomId(null); setPerson(null); return undefined; }
     let last = 0;
     let timer = null;
     let pos = null; // the latest cursor, in CSS px inside the canvas
@@ -58,8 +61,11 @@ export default function RoomHoverCard({ scene, rooms, floorId, is3D, hidden, sel
       timer = null;
       last = performance.now();
       if (!pos) return;
-      const { floorId: floor, is3D: threeD, isBusy: busy } = live.current;
-      if (busy?.()) { setRoomId(null); return; }
+      const { floorId: floor, is3D: threeD, isBusy: busy, pickPerson: whoIsThere } = live.current;
+      if (busy?.()) { setRoomId(null); setPerson(null); return; }
+      const who = whoIsThere?.(pos.x, pos.y) ?? null;
+      setPerson((was) => (was?.personId === who?.personId ? was
+        : who ? { personId: who.personId, name: who.name, department: who.department } : null));
       const hit = scene.pick(pos.x, pos.y, (m) => {
         const meta = m.metadata;
         return !!meta?.roomId && PARTS.has(meta.part) && Number(meta.floorId) === Number(floor) &&
@@ -72,7 +78,7 @@ export default function RoomHoverCard({ scene, rooms, floorId, is3D, hidden, sel
     };
 
     const onMove = (e) => {
-      if (e.buttons) { pos = null; setRoomId(null); return; }
+      if (e.buttons) { pos = null; setRoomId(null); setPerson(null); return; }
       const rect = canvas.getBoundingClientRect();
       pos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       place();
@@ -81,7 +87,7 @@ export default function RoomHoverCard({ scene, rooms, floorId, is3D, hidden, sel
       if (wait <= 0) pick();
       else timer = setTimeout(pick, wait);
     };
-    const onLeave = () => { pos = null; clearTimeout(timer); timer = null; setRoomId(null); };
+    const onLeave = () => { pos = null; clearTimeout(timer); timer = null; setRoomId(null); setPerson(null); };
 
     canvas.addEventListener('pointermove', onMove, { passive: true });
     canvas.addEventListener('pointerdown', onLeave, { passive: true });
@@ -95,7 +101,18 @@ export default function RoomHoverCard({ scene, rooms, floorId, is3D, hidden, sel
     };
   }, [scene, hidden]);
 
-  if (hidden || !room) return null;
+  if (hidden) return null;
+  if (person) {
+    return (
+      <div className="room-hover" aria-hidden>
+        <div className="room-card room-hover__card" ref={cardRef} data-person-card={person.personId}>
+          <strong>{person.name || 'Someone'}</strong>
+          {person.department && <div>{person.department}</div>}
+        </div>
+      </div>
+    );
+  }
+  if (!room) return null;
   return (
     <div className="room-hover" aria-hidden>
       <div className="room-card room-hover__card" ref={cardRef} data-room-id={room.id}>

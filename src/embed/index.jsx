@@ -8,6 +8,7 @@
  *     onEvent: (name, data) => { … }, onError: (err) => { … },
  *   });
  *   workplace.registerAction('CNC_MACHINE', { label: 'Watch CNC training video', run: (target) => { … } });
+ *   workplace.setPeople([{ personId, deskId, name, department, assetReference }]);  // option characters: { manifestUrl }
  *
  * `npm run build:embed` (vite.embed.config.js) makes one IIFE file with React
  * and Babylon inside. It shows <LayoutViewer /> and works through layoutBridge
@@ -22,6 +23,7 @@ import { LayoutViewer } from '../engine/react/LayoutViewer';
 import { layoutBridge } from '../integration/layoutBridge';
 import { anchorsFromStore } from '../integration/anchorsFromStore';
 import { readLayout, modeProblem, actionMatcher, filterAnchors } from './embedLayout';
+import { readManifest, resolvePeople } from './characterManifest';
 import css from './embed.css?inline';
 
 /** layoutBridge, for modules on the page (docs/TEAM_INTEGRATION.md): the same object our modules use. */
@@ -84,6 +86,7 @@ function call(fn, ...args) {
  *   mode?: 'view' | 'walkthrough',    // default 'view'; 'edit' is refused
  *   quality?: 'high' | 'low',         // 'low': simple models and materials, no downloads (slow PCs)
  *   assetBaseUrl?: string,            // where models/, textures/, env/ are; default: assets/ next to this script
+ *   characters?: { manifestUrl?: string, manifest?: object }, // assetReference → { url, rig, height } (setPeople)
  *   onEvent?: (name: string, data: object) => void,
  *   onError?: (error: Error) => void,
  * }} [options]
@@ -106,6 +109,8 @@ export function mount(element, options = {}) {
   const offs = []; // engine / store subscriptions
   const actions = new Set(); // removers of this viewer's "Press E" actions
   const abort = new AbortController();
+  let people = []; // who sits where (setPeople), resolved through the manifest
+  let manifest = null; // Promise of the character manifest, read on the first setPeople
 
   let resolveReady;
   let rejectReady;
@@ -160,7 +165,7 @@ export function mount(element, options = {}) {
   function render() {
     root?.render(
       <LayoutViewer
-        layout={layout} mode={mode} quality={quality} assetBaseUrl={assetBaseUrl}
+        layout={layout} mode={mode} quality={quality} assetBaseUrl={assetBaseUrl} people={people}
         onReady={onReady} onError={fail} onProgress={onProgress}
         onCard={(card) => emit('card', { title: card.title, body: card.body ?? card.text ?? '' })}
         style={{ width: '100%', height: '100%' }}
@@ -306,6 +311,32 @@ export function mount(element, options = {}) {
       if (closed) off();
       else actions.add(off);
       return off;
+    },
+
+    /**
+     * Who sits at which desk: [{ personId, deskId, name, department, assetReference }]
+     * (replaces the list before; [] = nobody). A person's character comes from the
+     * manifest (option characters) by assetReference; unknown or null = the
+     * neutral simple figure. Only name and department are ever shown. Nothing is
+     * drawn with quality 'low'.
+     * @returns {Promise<number>} how many people were given (after the manifest is read)
+     */
+    async setPeople(list) {
+      if (closed) return 0;
+      manifest ??= readManifest(options.characters, { headers: options.headers, signal: abort.signal, pageUrl: document.baseURI })
+        .then((m) => {
+          if (m.problems.length) console.warn(`[AHDUSWorkplace] character manifest: ${m.problems.join('; ')}`);
+          return m.characters;
+        }, (err) => {
+          if (err?.name !== 'AbortError') console.warn(`[AHDUSWorkplace] ${err.message}: everyone is a simple figure`);
+          return new Map();
+        });
+      const given = resolvePeople(list, new Map()).length; // a bad list is refused before waiting
+      const characters = await manifest;
+      if (closed) return 0;
+      people = resolvePeople(list, characters);
+      render();
+      return given;
     },
 
     /** Remove the viewer: the element, the 3D engine, its actions and listeners. */
