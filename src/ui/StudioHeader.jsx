@@ -9,10 +9,11 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload, Camera, Send } from 'lucide-react';
+import { Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload, Camera, Send, Play } from 'lucide-react';
 import { usePopover } from './usePopover';
 import VersionHistory from './VersionHistory';
-import { publishButton, publishStatusText } from './publishFlow';
+import { publishButton, publishStatusText, statusPill } from './publishFlow';
+import { isAhdusLook } from './look';
 import { MAX_SITE_NAME } from '../services/ahdusBackend';
 import './overlays.css';
 
@@ -116,6 +117,7 @@ function Settings({
   roomLabels, onRoomLabelsChange, // 'names' | 'off': the room names on the canvas
   onExportLayout, onImportLayout, onPhotoReconstruct, // backup & photo reconstruction
   importTitle = 'Add a layout from a file to your layouts',
+  label = null, // a word under the icon (the AHDUS look)
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -127,7 +129,7 @@ function Settings({
   return (
     <div className="studio-header__settings" ref={wrapRef}>
       <button
-        className="ui-icon-btn"
+        className={`ui-icon-btn${label ? ' ui-labeled-btn' : ''}`}
         aria-label="Settings"
         title="Settings"
         aria-expanded={open}
@@ -135,6 +137,7 @@ function Settings({
         onClick={() => setOpen((v) => !v)}
       >
         <SlidersHorizontal {...ICON} />
+        {label && <span className="ui-labeled-btn__label">{label}</span>}
       </button>
       {open && (
         <div className="ui-pop settings-pop" role="dialog" aria-label="Settings">
@@ -274,7 +277,71 @@ function Settings({
   );
 }
 
-export default function StudioHeader({
+/** An icon with a small word under it (the AHDUS look's Undo / Redo). */
+function LabeledButton({ label, title, icon: Icon, disabled, onClick }) {
+  return (
+    <button className="ui-icon-btn ui-labeled-btn" aria-label={label} title={title}
+      aria-disabled={disabled || undefined} onClick={() => { if (!disabled) onClick(); }}>
+      <Icon {...ICON} aria-hidden />
+      <span className="ui-labeled-btn__label">{label}</span>
+    </button>
+  );
+}
+
+/**
+ * The AHDUS look's top bar (ui/look.js): logo square + AHDUS / Workplace Studio / name ✎,
+ * the status pill (saving + publishing, ui/publishFlow.statusPill), Undo / Redo / Versions /
+ * Settings with a word under each, Walk through (Preview), Publish.
+ */
+function AhdusHeader({
+  layoutName, onRenameLayout, onAllLayouts, allLayoutsLabel, onPublish, publishState, publishing, siteName,
+  saveStatus, saveError, undoState, onUndo, onRedo, editor, onMessage, settings, onPreview,
+}) {
+  const pill = statusPill(saveStatus, onPublish ? publishState : 'unknown', saveError);
+  return (
+    <header className="studio-header ahdus-header">
+      <div className="studio-header__left">
+        <button className="studio-header__brand" aria-label={allLayoutsLabel} title={allLayoutsLabel}
+          onClick={onAllLayouts} disabled={!onAllLayouts}>
+          <span className="ahdus-logo" aria-hidden><Building2 size={18} strokeWidth={1.75} /></span>
+          <span className="ahdus-header__brand-text">AHDUS</span>
+        </button>
+        <span className="studio-header__crumb ahdus-header__crumb" aria-hidden>/</span>
+        <span className="studio-header__crumb ahdus-header__crumb">Workplace Studio</span>
+        <span className="studio-header__crumb ahdus-header__crumb" aria-hidden>/</span>
+        <LayoutName name={layoutName || 'Untitled layout'} onRename={onRenameLayout} site={siteName} />
+      </div>
+
+      <div className="studio-header__right">
+        <span className={`status-pill is-${pill.tone}`} role="status" data-status={saveStatus}
+          data-publish-state={onPublish ? publishState : undefined} title={pill.text}>
+          <span className="status-pill__dot" aria-hidden />
+          <span className="status-pill__text">{pill.text}</span>
+        </span>
+        <div className="ahdus-header__tools">
+          <LabeledButton label="Undo" icon={Undo2} disabled={!undoState.canUndo} onClick={onUndo}
+            title={undoState.canUndo ? `Undo: ${undoState.undoLabel ?? 'last change'} (Ctrl+Z)` : 'Nothing to undo'} />
+          <LabeledButton label="Redo" icon={Redo2} disabled={!undoState.canRedo} onClick={onRedo}
+            title={undoState.canRedo ? `Redo: ${undoState.redoLabel ?? 'last change'} (Ctrl+Y)` : 'Nothing to redo'} />
+          <VersionHistory editor={editor} onMessage={onMessage} label="Versions" />
+          <Settings {...settings} label="Settings" />
+        </div>
+        {onPreview && (
+          <button className="ui-btn ahdus-header__walk" title="Walk through your workplace (Tab)" onClick={onPreview}>
+            <Play size={16} strokeWidth={1.75} aria-hidden /> Walk through
+          </button>
+        )}
+        {onPublish && <PublishButton state={publishState} busy={publishing} onPublish={onPublish} />}
+      </div>
+    </header>
+  );
+}
+
+export default function StudioHeader(props) {
+  return isAhdusLook() ? <AhdusHeader {...props} /> : <ClassicHeader {...props} />;
+}
+
+function ClassicHeader({
   layoutName,
   onRenameLayout,
   onAllLayouts,

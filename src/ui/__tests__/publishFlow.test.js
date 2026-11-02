@@ -1,7 +1,7 @@
 // Inside AHDUS: what Studio says about publishing (ui/publishFlow.js, pure).
 import { describe, it, expect } from 'vitest';
 import {
-  publishState, publishButton, publishStatusText, shouldWarnOnLeave, lastPublishedAt, lastPublishedText, sentence,
+  publishState, publishButton, publishStatusText, shouldWarnOnLeave, lastPublishedAt, lastPublishedText, sentence, statusPill,
 } from '../publishFlow';
 
 describe('publishState', () => {
@@ -88,5 +88,24 @@ describe('last published', () => {
   it('errors read as sentences', () => {
     expect(sentence('you are not allowed to edit this workplace')).toBe('You are not allowed to edit this workplace');
     expect(sentence('')).toBe('');
+  });
+});
+
+describe('statusPill (the AHDUS look top bar)', () => {
+  it('says saving and publishing together', () => {
+    expect(statusPill('saved', 'changes')).toEqual({ tone: 'warn', text: 'Saved · Unpublished changes', short: 'Saved · Unpublished' });
+    expect(statusPill('saved', 'published')).toEqual({ tone: 'ok', text: 'Saved · Published', short: 'Saved · Published' });
+    expect(statusPill('saved', 'never')).toMatchObject({ tone: 'warn', text: 'Saved · Not published yet' });
+  });
+
+  it('while saving, or before AHDUS has said, it is neutral', () => {
+    expect(statusPill('saving', 'changes')).toMatchObject({ tone: 'neutral', text: 'Saving… · Unpublished changes' });
+    expect(statusPill('saved', 'unknown')).toEqual({ tone: 'neutral', text: 'Saved', short: 'Saved' });
+  });
+
+  it('not saved: red, with the reason', () => {
+    expect(statusPill('unsaved', 'changes', 'you are not allowed to edit this workplace'))
+      .toEqual({ tone: 'bad', text: 'Not saved: you are not allowed to edit this workplace', short: 'Not saved' });
+    expect(statusPill('offline', 'published')).toMatchObject({ tone: 'warn', text: 'Offline (changes queued)' });
   });
 });

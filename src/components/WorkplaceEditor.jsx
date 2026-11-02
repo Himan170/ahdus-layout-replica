@@ -962,6 +962,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
           onRedo={() => editor.redo()}
           editor={editor}
           onMessage={showStudioMessage}
+          onPreview={handleEnterPlay}
           settings={{
             snapEnabled,
             onSnapToggle: handleSnapToggle,

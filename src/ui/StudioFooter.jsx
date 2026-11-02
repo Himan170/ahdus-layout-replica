@@ -10,6 +10,7 @@ import { useRef, useState } from 'react';
 import { ChevronDown, Layers, Plus, Pencil, Trash2, CirclePlay, Check, Copy, Square } from 'lucide-react';
 import { MIN_FLOOR_HEIGHT, MAX_FLOOR_HEIGHT, STOREY_HEIGHT, GROUND_FLOOR_STAYS } from '../play/building';
 import { usePopover } from './usePopover';
+import { isAhdusLook } from './look';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 const rooms = (n) => `${n} room${n === 1 ? '' : 's'}`;
@@ -216,11 +217,14 @@ export default function StudioFooter({
         {hint?.text ?? ''}
       </p>
 
-      <button className="ui-btn is-ghost studio-footer__preview" aria-label="Preview Workplace"
-        title="Walk through your workplace (Tab)" onClick={onPreview}>
-        <CirclePlay size={18} strokeWidth={1.75} aria-hidden />
-        Preview Workplace
-      </button>
+      {/* The AHDUS look has "Walk through" in the top bar instead */}
+      {!isAhdusLook() && (
+        <button className="ui-btn is-ghost studio-footer__preview" aria-label="Preview Workplace"
+          title="Walk through your workplace (Tab)" onClick={onPreview}>
+          <CirclePlay size={18} strokeWidth={1.75} aria-hidden />
+          Preview Workplace
+        </button>
+      )}
     </footer>
   );
 }

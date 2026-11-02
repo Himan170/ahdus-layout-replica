@@ -33,6 +33,33 @@ export function publishStatusText(state) {
   }[state] ?? '';
 }
 
+const SAVE_TEXT = {
+  saved: 'Saved', saving: 'Saving…', unsaved: 'Not saved', offline: 'Offline (changes queued)', syncing: 'Syncing…',
+};
+const PUBLISH_PART = {
+  published: { text: 'Published', short: 'Published', tone: 'ok' },
+  changes: { text: 'Unpublished changes', short: 'Unpublished', tone: 'warn' },
+  never: { text: 'Not published yet', short: 'Not published', tone: 'warn' },
+};
+
+/**
+ * The status pill of the AHDUS look's top bar: saving and publishing in one.
+ * @param {string} saveStatus  'saved' | 'saving' | 'unsaved' | 'offline' | 'syncing'
+ * @param {string} state       publishState(): 'unknown' | 'never' | 'changes' | 'published'
+ * @returns {{ tone: 'ok'|'warn'|'bad'|'neutral', text: string, short: string }}  short: for a phone
+ */
+export function statusPill(saveStatus, state, saveError = null) {
+  if (saveStatus === 'unsaved') {
+    const text = saveError ? `Not saved: ${saveError}` : 'Not saved';
+    return { tone: 'bad', text, short: 'Not saved' };
+  }
+  const save = SAVE_TEXT[saveStatus] ?? '';
+  if (saveStatus === 'offline' || saveStatus === 'syncing') return { tone: 'warn', text: save, short: save };
+  const pub = PUBLISH_PART[state];
+  if (!pub) return { tone: 'neutral', text: save, short: save };
+  return { tone: saveStatus === 'saving' ? 'neutral' : pub.tone, text: `${save} · ${pub.text}`, short: `${save} · ${pub.short}` };
+}
+
 /**
  * Whether leaving now should be confirmed: a save is still waiting or running (isDirty),
  * or the saved draft is not what employees see (a never-published site counts once it

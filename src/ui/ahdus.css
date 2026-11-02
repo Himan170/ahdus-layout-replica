@@ -73,3 +73,78 @@
 
 [data-look="ahdus"] .studio-header__status.is-warning,
 [data-look="ahdus"] .studio-header__status.is-syncing { color: var(--warning-text); }
+
+/* ── Top bar (ui/StudioHeader.jsx: AhdusHeader) ──────────────────── */
+
+[data-look="ahdus"] .studio { background: var(--bg-app); }
+.ahdus-header {
+  height: 64px;
+  padding: 0 var(--space-4) 0 var(--space-4);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.ahdus-header::after { display: none; }
+.ahdus-header .studio-header__brand { gap: 10px; margin-left: 0; padding: 4px 6px 4px 0; font-size: 18px; font-weight: 700; }
+.ahdus-header .studio-header__brand:hover:not(:disabled) { background: transparent; }
+.ahdus-header .studio-header__brand:hover:not(:disabled) .ahdus-header__brand-text { color: var(--accent); }
+.ahdus-header .studio-header__brand svg { color: var(--on-accent); }
+.ahdus-header__crumb { color: var(--text-muted); font-size: 15px; }
+.ahdus-header .studio-header__name {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ahdus-header .studio-header__name svg { opacity: 1; color: var(--accent-strong); }
+.ahdus-header .studio-header__name:hover { background: color-mix(in srgb, var(--accent-soft) 70%, var(--border-strong)); }
+.ahdus-header .studio-header__right { gap: var(--space-3); }
+.ahdus-header__tools { display: flex; align-items: center; gap: 2px; }
+
+/* An icon with a word under it (Undo, Redo, Versions, Settings) */
+.ui-labeled-btn {
+  width: auto;
+  min-width: 52px;
+  height: 48px;
+  padding: 4px 6px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--text);
+}
+.ui-labeled-btn__label { font-size: 11px; font-weight: 500; line-height: 1; color: var(--text-muted); white-space: nowrap; }
+.ui-labeled-btn:hover:not(:disabled) .ui-labeled-btn__label { color: var(--text); }
+.ui-labeled-btn[aria-disabled="true"] { opacity: 0.45; }
+
+/* Saving + publishing in one pill */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 360px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.status-pill__text { overflow: hidden; text-overflow: ellipsis; }
+.status-pill__dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.status-pill.is-warn { background: var(--warning-bg); color: var(--warning-text); }
+.status-pill.is-warn .status-pill__dot { background: var(--warning-dot); }
+.status-pill.is-ok { background: var(--success-soft); color: var(--accent); }
+.status-pill.is-bad { background: var(--danger-soft); color: var(--danger); }
+
+.ahdus-header__walk,
+.ahdus-header .publish-btn { height: 40px; padding: 0 var(--space-4); font-size: 14px; font-weight: 600; border-radius: var(--radius); }
+.ahdus-header__walk { background: var(--bg-panel); color: var(--text); }
+.ahdus-header .publish-btn__dot { background: var(--warning-dot); width: 8px; height: 8px; }
+[data-look="ahdus"] .ui-toast-region { top: calc(64px + var(--space-2)); }
