@@ -450,12 +450,15 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
   right: var(--space-4);
   bottom: var(--space-4);
   z-index: 6;
-  display: flex;
-  align-items: flex-end;
+  display: grid;
+  /* the hint is centred while there is room, else it moves right of the floor buttons */
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(0, 1fr);
+  align-items: end;
+  column-gap: var(--space-3);
   pointer-events: none;
 }
 .canvas-footer > * { pointer-events: auto; }
-.canvas-footer__floors { position: relative; display: flex; align-items: center; gap: 8px; }
+.canvas-footer__floors { position: relative; display: flex; align-items: center; gap: 8px; justify-self: start; }
 [data-look="ahdus"] .canvas-footer .studio-footer__floor-btn,
 [data-look="ahdus"] .canvas-footer__add {
   height: 44px;
@@ -471,12 +474,10 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 [data-look="ahdus"] .canvas-footer__add { gap: 6px; font-weight: 500; color: var(--accent); }
 [data-look="ahdus"] .canvas-footer__add:hover, [data-look="ahdus"] .canvas-footer .studio-footer__floor-btn:hover { background: var(--bg-hover); }
 .canvas-footer .studio-footer__hint {
-  position: absolute;
-  left: 50%;
-  bottom: 6px;
-  transform: translateX(-50%);
-  max-width: min(560px, calc(100% - 520px));
-  margin: 0;
+  grid-column: 2;
+  min-width: 0;
+  max-width: 560px;
+  margin: 0 0 6px;
   padding: 6px 14px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
@@ -488,10 +489,92 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
   text-overflow: ellipsis;
   pointer-events: none;
 }
-.canvas-footer .studio-footer__hint:empty { display: none; }
-/* Narrow canvas: the hint goes above the floor switcher */
-@media (max-width: 1279px) {
-  .canvas-footer .studio-footer__hint { bottom: 56px; max-width: calc(100% - 16px); }
-}
+.canvas-footer .studio-footer__hint:empty { visibility: hidden; padding: 0; }
 /* "Building the other floors…": bottom right (the camera card is top left) */
 [data-look="ahdus"] .build-progress.is-rest:not(.in-preview) { left: auto; top: auto; right: var(--space-4); bottom: var(--space-4); }
+
+/* ── Selection bar, labelled (ui/SelectionToolbar.jsx) ───────────── */
+
+.selection-toolbar.is-labelled {
+  gap: 2px;
+  padding: 6px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent-strong);
+  box-shadow: 0 6px 18px rgba(25, 59, 47, 0.28);
+}
+.selection-toolbar.is-labelled .ui-icon-btn.has-text {
+  width: auto;
+  height: 36px;
+  gap: 8px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  color: var(--on-accent);
+  font-size: 14px;
+  font-weight: 500;
+}
+.selection-toolbar.is-labelled .ui-icon-btn:hover:not([aria-disabled="true"]) { background: var(--rail-hover); }
+.selection-toolbar.is-labelled .ui-icon-btn[aria-pressed="true"] { background: var(--rail-active); }
+.selection-toolbar.is-labelled .ui-icon-btn[aria-disabled="true"] { opacity: 0.45; cursor: default; }
+.selection-toolbar.is-labelled .ui-icon-btn.is-danger { color: #ffd2cc; }
+.selection-toolbar.is-labelled .selection-toolbar__sep { height: 24px; background: rgba(255, 255, 255, 0.22); }
+.selection-toolbar.is-labelled .ui-icon-btn:focus-visible { outline: 2px solid var(--on-accent); outline-offset: -2px; }
+
+/* ── Properties panel (ui/Inspector.jsx, ahdus) ──────────────────── */
+
+[data-look="ahdus"] .studio-inspector-col > * { margin-left: 0; }
+[data-look="ahdus"] .studio-inspector-col.is-open { width: 320px; }
+[data-look="ahdus"] .inspector { border-radius: 0; border-width: 0 0 0 1px; box-shadow: none; }
+.inspector.is-ahdus[data-mode="room"] .inspector__icon { display: none; }
+.inspector__eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.inspector.is-ahdus[data-mode="room"] .inspector__header { align-items: flex-start; padding-top: var(--space-5, 20px); }
+.inspector.is-ahdus[data-mode="room"] .insp-name {
+  margin: 4px 0 0;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 18px;
+  font-weight: 700;
+}
+.insp-room { padding: var(--space-3) var(--space-4) var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+.insp-room .insp-field--wide { margin-bottom: 0; }
+.insp-room .insp-field__label { font-size: 13px; color: var(--text); font-weight: 500; }
+.insp-room__group { display: flex; flex-direction: column; gap: 8px; }
+.insp-room__title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+.insp-room__group .insp-field__label { color: var(--text-muted); font-weight: 400; }
+.insp-room__note { margin: 0; font-size: 13px; color: var(--text-muted); }
+.insp-swatches { display: flex; gap: 10px; }
+.insp-swatch {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--swatch);
+  cursor: pointer;
+}
+.insp-swatch:hover { border-color: var(--accent); }
+.insp-swatch[aria-checked="true"] { border: 2px solid var(--accent-strong); box-shadow: inset 0 0 0 2px var(--bg-panel); }
+.insp-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.insp-openings { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.insp-openings li + li { border-top: 1px solid var(--border); }
+.insp-opening {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 10px 12px;
+  border: 0;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.insp-opening:hover { background: var(--bg-hover); }
+.insp-opening__where { color: var(--text-muted); font-size: 13px; }
+.insp-room__add { align-self: flex-start; color: var(--accent); font-weight: 600; padding: 0 var(--space-2); }
+.inspector.is-ahdus .inspector__footer .ui-btn { height: 44px; border-radius: 10px; }

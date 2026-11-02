@@ -4,6 +4,8 @@
  * A small pill floating above the selected item or room.
  *   Item: Move, Rotate, Scale, Duplicate, Lock, Delete
  *   Room: Rename, Change type, Delete
+ * The AHDUS look (`labelled`): a dark green bar, icon + name: Move, Rotate, Duplicate | Delete,
+ * for an item and for a room (a room's Move says how; Rotate turns it a quarter turn).
  * Follows its target every frame, stays inside the canvas card, and hides
  * while the camera moves fast.
  */
@@ -21,10 +23,10 @@ const GAP = 10;          // px between the target and the pill
 const FAST = 14;         // px per frame: the view is moving fast → hide
 const SETTLE_MS = 160;   // shown again once the view has been still this long
 
-function ToolButton({ label, title, icon: Icon, pressed, disabled, danger, onClick }) {
+function ToolButton({ label, title, icon: Icon, pressed, disabled, danger, onClick, text }) {
   return (
     <button
-      className={`ui-icon-btn${danger ? ' is-danger' : ''}`}
+      className={`ui-icon-btn${danger ? ' is-danger' : ''}${text ? ' has-text' : ''}`}
       aria-label={label}
       title={title ?? label}
       aria-pressed={pressed}
@@ -32,6 +34,7 @@ function ToolButton({ label, title, icon: Icon, pressed, disabled, danger, onCli
       onClick={() => { if (!disabled) onClick(); }}
     >
       <Icon {...ICON} />
+      {text && <span className="selection-toolbar__text">{text}</span>}
     </button>
   );
 }
@@ -67,6 +70,10 @@ export default function SelectionToolbar({
   onDelete,
   onRename,
   onChangeType,
+  labelled = false,  // the AHDUS look (see above)
+  onMoveRoom,        // labelled: says how to move a room
+  onTurnRoom,        // labelled: a quarter turn
+  onDuplicateRoom,   // labelled: a copy next to it
 }) {
   const ref = useRef(null);
   const typeBtnRef = useRef(null);
@@ -108,6 +115,30 @@ export default function SelectionToolbar({
   }, [scene, getBounds, targetKey]);
 
   const locked = !!object?.isLocked;
+
+  if (labelled) {
+    const isRoom = kind === 'room';
+    return (
+      <div className="selection-toolbar is-labelled" ref={ref} data-hidden="true" role="toolbar"
+        aria-label={isRoom ? 'Room actions' : 'Item actions'}>
+        <ToolButton label="Move" text="Move" icon={Move}
+          title={isRoom ? "Move: drag the room's floor" : (locked ? 'Unlock it first to move it' : 'Move (W)')}
+          pressed={!isRoom && gizmoMode === 'position'} disabled={!isRoom && locked}
+          onClick={() => (isRoom ? onMoveRoom() : onGizmoMode('position'))} />
+        <ToolButton label="Rotate" text="Rotate" icon={RotateCw}
+          title={isRoom ? 'Turn the room a quarter turn' : (locked ? 'Unlock it first to turn it' : 'Rotate (E)')}
+          pressed={!isRoom && gizmoMode === 'rotation'} disabled={!isRoom && locked}
+          onClick={() => (isRoom ? onTurnRoom() : onGizmoMode('rotation'))} />
+        <ToolButton label="Duplicate" text="Duplicate" icon={Copy}
+          title={isRoom ? 'A copy of this room next to it' : 'Duplicate (Ctrl+D)'}
+          onClick={isRoom ? onDuplicateRoom : onDuplicate} />
+        <span className="selection-toolbar__sep" aria-hidden />
+        <ToolButton label="Delete" text="Delete" icon={Trash2} danger
+          title={isRoom ? 'Delete room (Del)' : (locked ? 'Unlock it first to delete it' : 'Delete (Del)')}
+          disabled={!isRoom && locked} onClick={onDelete} />
+      </div>
+    );
+  }
 
   return (
     <div className="selection-toolbar" ref={ref} data-hidden="true" role="toolbar"

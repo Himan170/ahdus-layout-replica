@@ -264,6 +264,16 @@ export const FLOOR_BY_ROOM_TYPE = {
   RESTROOM: 'smallTile',
 };
 
+/** Floors a room can be given instead of its type's (room field `floorFinish`; 'default' = the type's). */
+export const FLOOR_FINISHES = ['wood', 'carpet', 'tile', 'concrete'];
+const FLOOR_KINDS = new Set(['wood', 'carpet', 'tile', 'corridor', 'smallTile', 'concrete', 'raised']);
+
+/** The floor a room is built with: its `floorFinish` when it names a floor, else its type's. */
+export function floorKindOf(room) {
+  if (FLOOR_KINDS.has(room?.floorFinish)) return room.floorFinish;
+  return FLOOR_BY_ROOM_TYPE[room?.type] ?? 'wood';
+}
+
 const libraries = new WeakMap();
 
 // Painted tiles, kept for the next scene (React StrictMode, reopening a layout,

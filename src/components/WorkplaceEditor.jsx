@@ -77,8 +77,9 @@ import { activeTile, toolHint } from '../ui/tools';
 
 import {
   openingData, openingPartner, openingCentre, resizeOpening, planRemoveOpening,
-  planRoomResize, planWallThickness,
+  planRoomResize, planWallThickness, planRoomTurn, planRoomCopy,
 } from '../play/geometry';
+import { FLOOR_BY_ROOM_TYPE } from '../utils/materialLibrary';
 import { DEFAULT_HOTBAR } from '../play/hotbarItems';
 
 // Team integration: how other modules connect to the layout (docs/TEAM_INTEGRATION.md)
@@ -632,6 +633,42 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
     }
     editor.updateRoom(id, patch, { mergeKey });
   }, [editor, showStudioMessage]);
+
+  // ─── AHDUS look: a room's Rotate, Duplicate and floor (selection bar, properties panel) ───
+  const handleTurnRoom = useCallback((id) => {
+    const st = useWorkspaceStore.getState();
+    const room = st.rooms[id];
+    if (!room) return;
+    const plan = planRoomTurn(room, Object.values(st.rooms).filter((r) => r.floor === room.floor));
+    if (plan.problem) { showStudioMessage(plan.problem, true); return; }
+    editor.updateRoom(id, plan.patch, { label: 'Turn room' });
+    showStudioMessage(`Turned ${room.name}. Its furniture stays where it is. Ctrl+Z to undo.`);
+  }, [editor, showStudioMessage]);
+
+  const handleDuplicateRoom = useCallback((id) => {
+    const st = useWorkspaceStore.getState();
+    const room = st.rooms[id];
+    if (!room) return;
+    const below = floorBelow(st.floors, room.floor);
+    const rect = planRoomCopy(room, Object.values(st.rooms).filter((r) => r.floor === room.floor),
+      below ? Object.values(st.rooms).filter((r) => r.floor === below.id) : null);
+    if (!rect) { showStudioMessage('No free space next to it for a copy', true); return; }
+    // Same type, size, walls and floor; no doors or windows (it may stand back to back with this one)
+    editor.addRoom({
+      type: room.type, color: room.color, wallHeight: room.wallHeight, wallThickness: room.wallThickness,
+      ...(room.floorFinish ? { floorFinish: room.floorFinish } : {}), ...rect, floor: room.floor,
+    });
+    showStudioMessage(`Copied ${room.name}, without its doors and windows. Ctrl+Z to undo.`);
+  }, [editor, showStudioMessage]);
+
+  const handleSetFloorFinish = useCallback((id, kind) => {
+    const room = useWorkspaceStore.getState().rooms[id];
+    if (!room) return;
+    // The room type's own floor is stored as 'default', so a new type brings its floor
+    const floorFinish = kind === (FLOOR_BY_ROOM_TYPE[room.type] ?? 'wood') ? 'default' : kind;
+    if ((room.floorFinish ?? 'default') === floorFinish) return;
+    editor.updateRoom(id, { floorFinish }, { label: 'Change floor' });
+  }, [editor]);
 
   const handleChangeRoomType = useCallback((id, type) => {
     editor.updateRoom(id, { type, color: ROOM_TYPES[type]?.color }, { label: 'Change room type' });
@@ -1266,6 +1303,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
               onDelete={() => (selectedObject ? editor.deleteObject(selectedObjectId) : editor.deleteRoom(selectedRoomId))}
               onRename={() => setNameFocusToken((t) => t + 1)}
               onChangeType={(type) => handleChangeRoomType(selectedRoomId, type)}
+              labelled={ahdusLook}
+              onMoveRoom={() => showStudioMessage("Drag the room's floor to move it. Its furniture stays where it is.")}
+              onTurnRoom={() => handleTurnRoom(selectedRoomId)}
+              onDuplicateRoom={() => handleDuplicateRoom(selectedRoomId)}
             />
           )}
           {isPlaying && (
@@ -1324,6 +1365,11 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
             })}
           onPickLayer={handlePickLayer}
           nameFocusToken={nameFocusToken}
+          ahdus={ahdusLook}
+          onSetFloorFinish={handleSetFloorFinish}
+          onSelectOpening={(o) => useWorkspaceStore.getState().selectOpening(o)}
+          onAddOpening={() => { setOpenTray('doors'); handlePickOption({ tool: { kind: 'door' } }); }}
+          onDuplicateRoom={handleDuplicateRoom}
         />
       )}
       footer={ahdusLook ? null : (
