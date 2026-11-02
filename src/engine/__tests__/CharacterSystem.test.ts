@@ -10,6 +10,10 @@ import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { LoadAssetContainerAsync } from '@babylonjs/core/Loading/sceneLoader';
 import '@babylonjs/loaders/glTF/glTFFileLoader';
 import '@babylonjs/loaders/glTF/2.0/glTFLoader';
+// the placeholder figures REQUIRE these two, like the office characters (utils/modelLoader.js registers them for the
+// app; e2e:characters checks that path)
+import '@babylonjs/loaders/glTF/2.0/Extensions/EXT_texture_webp';
+import '@babylonjs/loaders/glTF/2.0/Extensions/KHR_materials_specular';
 
 import { CharacterSystem } from '../systems/CharacterSystem';
 import type { Person } from '../systems/CharacterSystem';

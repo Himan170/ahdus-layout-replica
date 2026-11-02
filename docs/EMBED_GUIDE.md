@@ -178,7 +178,9 @@ workplace.setPeople([
 | `height` | The person's height in metres (1 to 2.3; default 1.75): the model is scaled to it. |
 
 The file must be a skinned glTF binary facing +Z with its feet at 0 (as Mixamo exports). Office copies should be
-light (`docs/TEAM_INTEGRATION.md` section 4, "Harsh"). Entries that can't be used are left out (a warning).
+light (`docs/TEAM_INTEGRATION.md` section 4, "Harsh"). glTF extensions it may use: `EXT_texture_webp`,
+`KHR_materials_specular`, `KHR_materials_unlit` (no Draco, meshopt or KTX2 compression). A file that requires any
+other extension can't be loaded: that person stays a simple figure (a warning in the console). Entries that can't be used are left out (a warning).
 Test files: `assets/characters/manifest.json` next to `ahdus-workplace.js` (self-made placeholder figures).
 
 ---

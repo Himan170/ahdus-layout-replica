@@ -45,6 +45,12 @@ function loader() {
     import('@babylonjs/core/Loading/sceneLoader'),
     import('@babylonjs/loaders/glTF/glTFFileLoader'),
     import('@babylonjs/loaders/glTF/2.0/glTFLoader'),
+    // The glTF extensions our files use (each import registers one; a file that REQUIRES a missing one fails to
+    // load): the AHDUS office characters (WebP textures, specular), the full characters (specular), the Kenney
+    // models (unlit; their materials are replaced by ours anyway). Not the whole Extensions index: it is big.
+    import('@babylonjs/loaders/glTF/2.0/Extensions/EXT_texture_webp'),
+    import('@babylonjs/loaders/glTF/2.0/Extensions/KHR_materials_specular'),
+    import('@babylonjs/loaders/glTF/2.0/Extensions/KHR_materials_unlit'),
   ]).then(([sceneLoader]) => sceneLoader);
   return loaderModule;
 }
