@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (684, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (685, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -26,7 +26,7 @@ npm run build:ahdus  # dist-ahdus/ (git-ignored) for AHDUS-FRONTEND (scripts/bui
 npm run schema:json  # dist-ahdus/layout.schema.json (or: node scripts/schema-json.mjs <file>): JSON Schema (draft-07) of
                      # the v2 layout from the Zod LayoutSchema (engine/model/jsonSchema.ts); the AHDUS server checks saves
 npm run assets:prepare  # public/assets/ from the downloaded packs (D:\assets-raw, outside the repo; sharp)
-node scripts/prepare-assets.mjs <packs folder> thumbs  # only the library pictures (public/assets/thumbs/*.webp)
+node scripts/make-thumbs.mjs   # library pictures (public/assets/thumbs/*.webp), drawn by the app headless (needs npm run dev; ~10 s)
 npm run assets:env      # public/assets/env/sky.env from the HDRI (needs npm run dev)
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
@@ -375,7 +375,7 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
   maps Kenney's material names to our shared `getAssetMaterial`s. `assetInstances` merges that into a second template
   per type and switches the type's items to it (and back when the look is off); lock / outline looks carry over.
   Failure or loading = the primitive template. A type not in the registry keeps its primitive model.
-  Adding a model: put it in the registry, run `npm run assets:prepare` (copies only registry models), add its row to
+  Adding a model: put it in the registry, run `npm run assets:prepare` (copies only registry models), then `node scripts/make-thumbs.mjs`, add its row to
   `docs/ASSET_LICENSES.md`. New catalogue items need a primitive model too (the fallback).
 - **Rooms:** every procedural room material (`floor:<kind>`, `plaster` = walls, `structure` = slab / roof / parapet /
   band, `ceiling`) has a PBR twin (`REALISTIC_SURFACES` → `TEXTURE_SETS`, tile size in metres). When its 3 textures
@@ -401,8 +401,8 @@ site on the server (local mode renames the layout), the leave check. Saving, und
   `tools.SHORTCUT_GROUPS`) at the bottom.
 - **Library** (`ui/LibraryPanel.jsx`, pure parts in `ui/library.js` + tests), one page per tool (Rooms: tiles,
   "Draw your own size" (draws the last picked room type, an Office at first), templates; Walls, Doors & windows: tool
-  tiles; Stairs; Furniture): picture tiles (rooms: `RoomPicture`; furniture: `public/assets/thumbs/*.webp`, from Kenney's previews,
-  `modelRegistry.thumbnailFor`), search, category chips, templates. `hooks/useLibraryDrop.js`: drag a tile onto the
+  tiles; Stairs; Furniture): picture tiles (rooms: `RoomPicture`; furniture: `public/assets/thumbs/*.webp`, drawn by
+  `scripts/make-thumbs.mjs`; `modelRegistry.thumbnailFor`, `PRIMITIVE_THUMBS` for types with no model), search, category chips, templates. `hooks/useLibraryDrop.js`: drag a tile onto the
   floor (a dashed footprint with name and size, red with "Overlaps …"; Shift = square room), click = placed in the
   middle of the view, Esc cancels, touch = tap the tile then the floor. Rooms via `geometry.planRoomAt` +
   `editor.addRoom`, items via the placement manager: one undo step each.

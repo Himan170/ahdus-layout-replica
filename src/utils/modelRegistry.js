@@ -22,7 +22,7 @@
 export const MODEL_DIR = 'models/kenney/';
 export const TEXTURE_DIR = 'textures/';
 export const ENV_FILE = 'env/sky.env';
-/** Library tile pictures: the Kenney Furniture Kit's isometric preview of each model (scripts/prepare-assets.mjs). */
+/** Library tile pictures, drawn by the app itself (scripts/make-thumbs.mjs): thumbs/<model>.webp. */
 export const THUMB_DIR = 'thumbs/';
 
 const one = (model, opts = {}) => ({ parts: [{ model, ...opts }] });
@@ -69,10 +69,28 @@ export function modelPartsFor(assetType) {
   return MODEL_REGISTRY[assetType]?.parts ?? null;
 }
 
-/** The picture of an asset type's real model ('thumbs/<model>.webp', under the assets folder), or null. */
+/** Types with no real model that still get a library picture (of their primitive model): type → file name. */
+export const PRIMITIVE_THUMBS = {
+  RECEPTION_DESK: 'receptionDesk',
+};
+
+/** The file name of an asset type's library picture (its first model's name), or null. */
+function thumbName(assetType) {
+  return MODEL_REGISTRY[assetType]?.parts[0]?.model ?? PRIMITIVE_THUMBS[assetType] ?? null;
+}
+
+/** The library picture of an asset type ('thumbs/<name>.webp', under the assets folder), or null. */
 export function thumbnailFor(assetType) {
-  const model = MODEL_REGISTRY[assetType]?.parts[0]?.model;
-  return model ? `${THUMB_DIR}${model}.webp` : null;
+  const name = thumbName(assetType);
+  return name ? `${THUMB_DIR}${name}.webp` : null;
+}
+
+/** Every library picture: [{ assetType, name }], one per file (scripts/make-thumbs.mjs draws them). */
+export function thumbnailList() {
+  const seen = new Set();
+  return [...Object.keys(MODEL_REGISTRY), ...Object.keys(PRIMITIVE_THUMBS)]
+    .map((assetType) => ({ assetType, name: thumbName(assetType) }))
+    .filter(({ name }) => !seen.has(name) && seen.add(name));
 }
 
 /** Every model file used (each is loaded once per scene). */

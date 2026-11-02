@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { fitTransform, applyFit, regionBox } from '../modelFit';
-import { MODEL_REGISTRY, modelPartsFor, usedModels, REALISTIC_SURFACES, TEXTURE_SETS } from '../../utils/modelRegistry';
+import {
+  MODEL_REGISTRY, modelPartsFor, usedModels, REALISTIC_SURFACES, TEXTURE_SETS,
+  PRIMITIVE_THUMBS, thumbnailFor, thumbnailList, THUMB_DIR,
+} from '../../utils/modelRegistry';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 
 const box = (min, max) => ({ min, max });
@@ -86,6 +91,20 @@ describe('modelRegistry', () => {
     const list = usedModels();
     expect(new Set(list).size).toBe(list.length);
     expect(list).toContain('desk');
+  });
+  it('library pictures: one per file, for every model and PRIMITIVE_THUMBS, and each file exists', () => {
+    const list = thumbnailList();
+    expect(new Set(list.map((t) => t.name)).size).toBe(list.length);
+    expect(thumbnailFor('DESK_STANDARD')).toBe('thumbs/desk.webp');
+    expect(thumbnailFor('MONITOR_DUAL')).toBe('thumbs/computerScreen.webp'); // its first model
+    expect(thumbnailFor('RECEPTION_DESK')).toBe('thumbs/receptionDesk.webp'); // no model: its primitive one
+    expect(thumbnailFor('CNC_MACHINE')).toBeNull();
+    for (const type of Object.keys(PRIMITIVE_THUMBS)) {
+      expect(ASSET_TYPES[type], type).toBeTruthy();
+      expect(modelPartsFor(type), type).toBeNull();
+    }
+    const dir = join(process.cwd(), 'public', 'assets', THUMB_DIR);
+    for (const { name } of list) expect(existsSync(join(dir, `${name}.webp`)), name).toBe(true);
   });
   it('every realistic surface has a texture set', () => {
     for (const set of Object.values(REALISTIC_SURFACES)) expect(TEXTURE_SETS[set], set).toBeTruthy();

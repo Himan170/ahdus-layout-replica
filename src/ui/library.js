@@ -88,7 +88,7 @@ export function filterFurniture(query, chip, tiles = FURNITURE_TILES) {
   return [...shown].sort((a, b) => Number(!a.thumb) - Number(!b.thumb));
 }
 
-/** How many items have a real 3D model ("Search 27 models"). */
+/** How many items have a picture ("Search 28 models"; Reception Desk: of its primitive model). */
 export const MODEL_COUNT = FURNITURE_TILES.filter((t) => t.thumb).length;
 
 // ── Templates ──────────────────────────────────────────────────────────
