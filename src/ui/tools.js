@@ -145,6 +145,8 @@ export const STUDIO_TOOLS = [
   {
     id: 'doors',
     label: 'Doors & Windows',
+    railLabel: 'Doors & windows', // the AHDUS look's tool rail
+    phoneLabel: 'Doors',
     icon: DoorOpen,
     shortcut: '4',
     hint: 'Click a wall to add a door',
@@ -174,6 +176,49 @@ export const STUDIO_TOOLS = [
   },
 ];
 
+/**
+ * Every keyboard shortcut of Workplace Studio, for the Shortcuts list (AHDUS look's tool rail).
+ * The keys themselves are handled in hooks/useStudioKeyboard.js.
+ */
+/** The AHDUS look's camera keys (ui/CameraControls.jsx, useStudioKeyboard). */
+export const CAMERA_KEYS = {
+  top: '7', front: '8', side: '9', reset: 'H', fit: 'F', zoomIn: '+', zoomOut: '−', orbit: 'O', pan: 'P',
+};
+
+export const SHORTCUT_GROUPS = [
+  {
+    title: 'Tools',
+    keys: toolKeys(),
+  },
+  {
+    title: 'Selected item',
+    keys: [
+      [['W'], 'Move'], [['E'], 'Rotate'], [['R'], 'Resize'], [['L'], 'Lock or unlock'],
+      [['Ctrl', 'D'], 'Duplicate'], [['Delete'], 'Delete'],
+    ],
+  },
+  {
+    title: 'General',
+    keys: [
+      [['Ctrl', 'Z'], 'Undo'], [['Ctrl', 'Y'], 'Redo'], [['Esc'], 'Cancel, then deselect'],
+      [['Tab'], 'Walk through'], [['R'], 'Turn what you are placing'],
+    ],
+  },
+  {
+    title: 'Camera',
+    keys: [
+      [[CAMERA_KEYS.top], 'Top view'], [[CAMERA_KEYS.front], 'Front view'], [[CAMERA_KEYS.side], 'Side view'],
+      [[CAMERA_KEYS.reset], 'Reset view'], [[CAMERA_KEYS.fit], 'Fit building'],
+      [[CAMERA_KEYS.zoomIn], 'Zoom in'], [[CAMERA_KEYS.zoomOut], 'Zoom out'],
+      [[CAMERA_KEYS.orbit], 'Orbit: drag turns the view'], [[CAMERA_KEYS.pan], 'Pan: drag slides the view'],
+    ],
+  },
+];
+
+function toolKeys() {
+  return STUDIO_TOOLS.map((t) => [[t.shortcut], t.railLabel ?? t.label]);
+}
+
 export const toolById = (id) => STUDIO_TOOLS.find((t) => t.id === id);
 
 /**
@@ -197,5 +242,6 @@ export function activeTile(plannerTool, placementAsset, assetLabel) {
 export function toolHint(plannerTool, placementAsset) {
   const { id } = activeTile(plannerTool, placementAsset);
   if (plannerTool?.kind === 'window' && !placementAsset) return 'Click a wall to add a window';
+  if (plannerTool?.kind === 'room' && plannerTool.stamp && !placementAsset) return 'Tap the floor where the room goes';
   return toolById(id)?.hint ?? '';
 }

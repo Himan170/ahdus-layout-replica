@@ -5,6 +5,7 @@ import { Scene } from '@babylonjs/core/scene';
 vi.mock('../../utils/materialLibrary', () => ({
   TILE_SIZE: { wood: 1, carpet: 1, tile: 1, smallTile: 1, concrete: 1, raised: 1, plaster: 2, ceiling: 1.2 },
   FLOOR_BY_ROOM_TYPE: {},
+  floorKindOf: () => 'wood',
   getMaterials: () => Object.fromEntries([
     'floor', 'plaster', 'structure', 'skirting', 'doorFrame', 'windowFrame',
     'glass', 'roofTop', 'ceiling', 'lightPanel',

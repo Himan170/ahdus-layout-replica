@@ -1,0 +1,754 @@
+/*
+ * The AHDUS look of Workplace Studio (ui/look.js puts data-look="ahdus" on <html>).
+ * Colours come from theme.css's :root[data-look="ahdus"] tokens; this file only has what
+ * looks different from the dark look (local mode), so every rule starts with [data-look="ahdus"].
+ */
+
+/* ── Shared controls ─────────────────────────────────────────────── */
+
+[data-look="ahdus"] .ui-btn { border-color: var(--border-strong); }
+[data-look="ahdus"] .ui-btn.is-primary { border-color: var(--accent); }
+[data-look="ahdus"] .ui-btn.is-danger { border-color: color-mix(in srgb, var(--danger) 35%, transparent); background: var(--danger-soft); }
+[data-look="ahdus"] .ui-btn.is-ghost { border-color: transparent; }
+[data-look="ahdus"] .ui-input,
+[data-look="ahdus"] .ui-select { border-color: var(--border-strong); background: var(--bg-panel); }
+[data-look="ahdus"] .ui-pop { border-color: var(--border); }
+[data-look="ahdus"] .ui-segmented { background: var(--bg-panel); border-color: var(--border); }
+[data-look="ahdus"] .ui-segmented button[aria-pressed="true"] { background: var(--accent-strong); color: var(--on-accent); }
+[data-look="ahdus"] .ui-switch { background: var(--border); border-color: var(--border-strong); }
+[data-look="ahdus"] .ui-switch::after { background: var(--bg-panel); box-shadow: 0 1px 2px rgba(25, 59, 47, 0.25); }
+[data-look="ahdus"] .ui-switch[aria-checked="true"]::after { background: var(--bg-panel); }
+[data-look="ahdus"] .ui-kbd { background: var(--bg-app); }
+[data-look="ahdus"] * { scrollbar-color: var(--border-strong) transparent; }
+[data-look="ahdus"] *::-webkit-scrollbar-thumb { background: var(--border-strong); }
+
+/* The logo: a dark green square with the building (top bar, loading screen) */
+.ahdus-logo {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--accent-strong);
+  color: var(--on-accent);
+}
+.ahdus-logo--big { width: 56px; height: 56px; border-radius: 14px; }
+
+/* ── Loading screen, toast, dialog ───────────────────────────────── */
+
+[data-look="ahdus"] .studio-splash__ahdus { color: var(--text-muted); }
+[data-look="ahdus"] .ui-toast__link { color: var(--accent); }
+[data-look="ahdus"] .ui-toast__link:hover { color: var(--accent-hover); }
+[data-look="ahdus"] .ui-dialog { box-shadow: var(--shadow-pop); }
+
+/* ── On the canvas ───────────────────────────────────────────────── */
+
+/* Room names: dark green pills, white text */
+[data-look="ahdus"] .room-label:not(.room-card) {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+[data-look="ahdus"] .room-label.is-selected:not(.room-card) { background: var(--accent); box-shadow: 0 0 0 2px var(--bg-panel); }
+[data-look="ahdus"] .room-label:not(.room-card) .room-label__area { color: var(--on-accent); }
+[data-look="ahdus"] .room-card { border-radius: var(--radius); }
+/* Measurement labels: the dark look draws them on a fixed dark background */
+[data-look="ahdus"] .measurement-label {
+  border-color: transparent;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-card), 0 0 0 1px var(--border-strong);
+  color: var(--text);
+}
+[data-look="ahdus"] .measurement-label--distance { background: var(--accent-strong); color: var(--on-accent); box-shadow: none; }
+[data-look="ahdus"] .measurement-lines line { stroke: var(--accent); }
+[data-look="ahdus"] .measurement-lines circle { stroke: var(--accent); }
+[data-look="ahdus"] .measurement-lines .measurement-lines__start { fill: var(--accent); stroke: var(--bg-panel); }
+[data-look="ahdus"] .canvas-card__controls { box-shadow: var(--shadow-card); }
+[data-look="ahdus"] .build-progress { box-shadow: var(--shadow-card); }
+
+/* ── Top bar status (classic layout) ─────────────────────────────── */
+
+[data-look="ahdus"] .studio-header__status.is-warning,
+[data-look="ahdus"] .studio-header__status.is-syncing { color: var(--warning-text); }
+
+/* ── Top bar (ui/StudioHeader.jsx: AhdusHeader) ──────────────────── */
+
+[data-look="ahdus"] .studio { background: var(--bg-app); }
+.ahdus-header {
+  height: 64px;
+  padding: 0 var(--space-4) 0 var(--space-4);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.ahdus-header::after { display: none; }
+.ahdus-header .studio-header__brand { gap: 10px; margin-left: 0; padding: 4px 6px 4px 0; font-size: 18px; font-weight: 700; }
+.ahdus-header .studio-header__brand:hover:not(:disabled) { background: transparent; }
+.ahdus-header .studio-header__brand:hover:not(:disabled) .ahdus-header__brand-text { color: var(--accent); }
+.ahdus-header .studio-header__brand svg { color: var(--on-accent); }
+.ahdus-header__crumb { color: var(--text-muted); font-size: 15px; }
+.ahdus-header .studio-header__name {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ahdus-header .studio-header__name svg { opacity: 1; color: var(--accent-strong); }
+.ahdus-header .studio-header__name:hover { background: color-mix(in srgb, var(--accent-soft) 70%, var(--border-strong)); }
+.ahdus-header .studio-header__right { gap: var(--space-3); }
+.ahdus-header__tools { display: flex; align-items: center; gap: 2px; }
+
+/* An icon with a word under it (Undo, Redo, Versions, Settings) */
+.ui-labeled-btn {
+  width: auto;
+  min-width: 52px;
+  height: 48px;
+  padding: 4px 6px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--text);
+}
+.ui-labeled-btn__label { font-size: 11px; font-weight: 500; line-height: 1; color: var(--text-muted); white-space: nowrap; }
+.ui-labeled-btn:hover:not(:disabled) .ui-labeled-btn__label { color: var(--text); }
+.ui-labeled-btn[aria-disabled="true"] { opacity: 0.45; }
+
+/* Saving + publishing in one pill */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 360px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.status-pill__text { overflow: hidden; text-overflow: ellipsis; }
+.status-pill__dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.status-pill.is-warn { background: var(--warning-bg); color: var(--warning-text); }
+.status-pill.is-warn .status-pill__dot { background: var(--warning-dot); }
+.status-pill.is-ok { background: var(--success-soft); color: var(--accent); }
+.status-pill.is-bad { background: var(--danger-soft); color: var(--danger); }
+
+.ahdus-header__walk,
+.ahdus-header .publish-btn { height: 40px; padding: 0 var(--space-4); font-size: 14px; font-weight: 600; border-radius: var(--radius); }
+.ahdus-header__walk { background: var(--bg-panel); color: var(--text); }
+.ahdus-header .publish-btn__dot { background: var(--warning-dot); width: 8px; height: 8px; }
+[data-look="ahdus"] .ui-toast-region { top: calc(64px + var(--space-2)); }
+
+/* ── Shell: panels edge to edge, the canvas fills the rest ───────── */
+
+[data-look="ahdus"] .studio-main { padding: 0; }
+[data-look="ahdus"] .studio-build-col { width: auto; margin-right: 0; display: flex; position: relative; z-index: 20; } /* its pop-ups over the canvas controls */
+[data-look="ahdus"] .canvas-card { border: 0; border-radius: 0; }
+
+/* ── Tool rail (ui/BuildPanel.jsx, rail) ─────────────────────────── */
+
+.tool-rail.build-panel {
+  width: 92px;
+  padding: var(--space-3) 10px;
+  gap: 4px;
+  border: 0;
+  border-radius: 0;
+  background: var(--rail-bg);
+  color: var(--rail-text);
+}
+.tool-rail .build-panel__tiles { gap: 4px; }
+.tool-rail .build-tile {
+  height: auto;
+  min-height: 60px;
+  padding: 8px 4px;
+  gap: 6px;
+  border-radius: var(--radius);
+  color: var(--rail-text);
+}
+.tool-rail .build-tile__label { font-size: 12px; font-weight: 500; line-height: 1.25; white-space: normal; text-align: center; }
+.tool-rail .build-tile:hover { background: var(--rail-hover); color: var(--on-accent); }
+.tool-rail .build-tile[aria-pressed="true"],
+.tool-rail .build-tile[aria-expanded="true"] { background: var(--rail-active); color: var(--on-accent); box-shadow: none; }
+.tool-rail .build-tile[aria-pressed="true"] .build-tile__label { font-weight: 600; }
+.tool-rail .build-tile--row { flex-direction: column; height: auto; min-height: 56px; gap: 6px; }
+.tool-rail .build-tile--row + .build-tile--row { margin-top: 0; }
+.tool-rail .build-tile:focus-visible { outline-color: var(--on-accent); outline-offset: -2px; }
+.tool-rail .tray { left: calc(100% + var(--space-2)); top: var(--space-3); max-height: calc(100% - 2 * var(--space-3)); }
+
+/* Keyboard shortcuts (ui/ShortcutsPopover.jsx), next to the rail's bottom */
+.shortcuts-pop {
+  position: absolute;
+  left: calc(100% + var(--space-2));
+  bottom: var(--space-3);
+  width: 560px;
+  max-height: calc(100% - 2 * var(--space-3));
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  overflow: hidden;
+  z-index: 40;
+  color: var(--text);
+}
+.shortcuts-pop__head { display: flex; align-items: center; justify-content: space-between; }
+.shortcuts-pop__title { margin: 0; font-size: 15px; font-weight: 600; }
+.shortcuts-pop__groups { overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3) var(--space-6); align-items: start; padding-top: var(--space-2); }
+.shortcuts-pop__list { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.shortcuts-pop__row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); font-size: 13px; }
+.shortcuts-pop__row dt { white-space: nowrap; color: var(--text-muted); }
+.shortcuts-pop__row dd { margin: 0; text-align: right; }
+
+@media (max-width: 1279px) {
+  /* the dark look turns tiles into icons here; the rail keeps its words */
+  .tool-rail .build-tile__label { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+}
+/* A library is open: that tile is the active one (the armed tool stays pressed for screen readers) */
+.tool-rail:has(.build-tile[aria-expanded="true"]) .build-tile[aria-pressed="true"]:not([aria-expanded="true"]) {
+  background: transparent;
+  color: var(--rail-text);
+}
+
+/* ── Library (ui/LibraryPanel.jsx) ───────────────────────────────── */
+
+.library {
+  width: 300px;
+  height: 100%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  color: var(--text);
+  position: relative;
+  z-index: 5;
+}
+.library__head { padding: var(--space-6) var(--space-4) var(--space-3) 22px; }
+.library__title { margin: 0; font-size: 20px; font-weight: 700; }
+.library__text { margin: 6px 0 0; color: var(--text-muted); font-size: 14px; line-height: 1.45; }
+.library__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--space-4) var(--space-6) 22px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.lib__search { height: 40px; border-radius: var(--radius); background: var(--bg-app); border-color: var(--border); }
+.lib__search input { font-size: 14px; }
+.lib__heading { margin: var(--space-2) 0 0; letter-spacing: 0.08em; }
+.lib__chips { gap: 6px; }
+.lib__chips .catalog__chip { height: 30px; padding: 0 11px; font-size: 13px; color: var(--text); background: var(--bg-panel); border-color: var(--border-strong); }
+.lib__chips .catalog__chip[aria-pressed="true"] { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--on-accent); font-weight: 600; }
+.lib__empty { margin: 0; color: var(--text-muted); font-size: 13px; }
+.lib__note { margin: var(--space-1) 0 0; padding: var(--space-3); border-radius: var(--radius); background: var(--accent-soft); color: var(--text); font-size: 13px; line-height: 1.45; }
+.lib__draw { align-self: flex-start; color: var(--accent); padding: 0 var(--space-2); }
+.lib__draw[aria-pressed="true"] { background: var(--accent-soft); }
+
+.lib-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.lib-tile {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 8px 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  color: var(--text);
+  text-align: left;
+  cursor: grab;
+  touch-action: manipulation;
+  user-select: none;
+}
+.lib-tile:hover:not(:disabled) { border-color: var(--border-strong); box-shadow: var(--shadow-card); }
+.lib-tile[aria-pressed="true"], .lib-tile[data-dragging] { border: 2px solid var(--accent); padding: 7px 7px 9px; background: var(--accent-soft); }
+.lib-tile:disabled { opacity: 0.5; cursor: default; }
+.lib-tile__pic {
+  height: 64px;
+  margin-bottom: 6px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.lib-tile[aria-pressed="true"] .lib-tile__pic, .lib-tile[data-dragging] .lib-tile__pic { background: var(--bg-panel); }
+.lib-tile__pic img { max-width: 82%; max-height: 56px; object-fit: contain; }
+.lib-tile__name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-tile__size { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-tile[data-dragging] .lib-tile__size { color: var(--accent); font-weight: 600; }
+body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
+
+/* Room plans on the tiles (ui/RoomPicture.jsx) */
+.room-pic { width: 64px; height: 44px; }
+.room-pic__wall { fill: var(--bg-panel); stroke: var(--accent-strong); stroke-width: 2.4; }
+.room-pic__wall-inner { stroke: var(--accent-strong); stroke-width: 2; }
+.room-pic__item { fill: #cfdcc9; }
+.room-pic__wood { fill: #c9a27a; }
+.room-pic__dot { fill: var(--accent-strong); }
+.room-pic__line { stroke: #9fb39a; stroke-width: 2; }
+.room-pic__dash { stroke: #9fb39a; stroke-width: 2; stroke-dasharray: 4 3; }
+
+.lib-templates { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.lib-template {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: var(--space-3);
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.lib-template:hover { border-color: var(--border-strong); box-shadow: var(--shadow-card); }
+.lib-template__pic { grid-row: 1 / span 2; display: grid; place-items: center; width: 44px; height: 36px; border-radius: 8px; background: var(--accent-soft); color: var(--accent-strong); }
+.lib-template__name { font-size: 14px; font-weight: 600; }
+.lib-template__detail { font-size: 12px; color: var(--text-muted); }
+
+/* Where a dragged tile would land (ui/DropFootprint.jsx) */
+.drop-footprint { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
+.drop-footprint__svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.drop-footprint__svg polygon { fill: color-mix(in srgb, var(--accent) 14%, transparent); stroke: var(--accent-strong); stroke-width: 2; stroke-dasharray: 7 5; }
+.drop-footprint.is-bad .drop-footprint__svg polygon { fill: color-mix(in srgb, var(--danger) 14%, transparent); stroke: var(--danger); }
+.drop-footprint__label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 14px;
+  border: 1.5px solid var(--accent-strong);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  white-space: nowrap;
+}
+.drop-footprint.is-bad .drop-footprint__label { border-color: var(--danger); }
+.drop-footprint__name { font-size: 13px; font-weight: 600; color: var(--text); }
+.drop-footprint__size { font-size: 11px; color: var(--text-muted); }
+
+/* ── Canvas controls (ui/CanvasCard.jsx, ui/CameraControls.jsx, StudioFooter floating) ─────── */
+
+[data-look="ahdus"] .canvas-card__controls {
+  top: var(--space-4);
+  right: var(--space-4);
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--bg-panel);
+  backdrop-filter: none;
+}
+[data-look="ahdus"] .canvas-card__controls .has-label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  width: auto;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+[data-look="ahdus"] .canvas-card__controls .ui-icon-btn { height: 32px; }
+.canvas-card__full { width: 32px; }
+
+/* Camera card, top left */
+.camera-controls {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-card);
+}
+.camera-controls__grid { display: grid; grid-template-columns: repeat(2, 34px); gap: 4px; }
+.view-cube { width: 68px; height: 68px; overflow: visible; }
+.view-cube__face { cursor: pointer; outline: none; }
+.view-cube__face polygon { stroke: var(--accent-strong); stroke-width: 1.4; stroke-linejoin: round; transition: fill 120ms; }
+.view-cube__face.is-top polygon { fill: var(--accent-soft); }
+.view-cube__face.is-front polygon { fill: #d6e3d1; }
+.view-cube__face.is-side polygon { fill: #c3d4bd; }
+.view-cube__face text { fill: var(--accent-strong); font: 600 8.5px var(--font, Inter, sans-serif); pointer-events: none; }
+.view-cube__face:hover polygon, .view-cube__face:focus-visible polygon { fill: var(--accent); }
+.view-cube__face:hover text, .view-cube__face:focus-visible text { fill: var(--on-accent); }
+.view-cube__face:focus-visible polygon { stroke-width: 2.4; }
+
+.cam-btn {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.cam-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.cam-btn[aria-pressed="true"] { background: var(--accent-strong); color: var(--on-accent); }
+.cam-btn:disabled { opacity: 0.4; cursor: default; }
+.cam-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The tooltip: name + key, to the right of the card */
+.cam-tip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--accent-strong);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+}
+.camera-controls__grid .cam-btn:nth-child(odd) .cam-tip { left: calc(100% + 48px); }
+.cam-tip kbd {
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  font: 600 11px/18px var(--font, Inter, sans-serif);
+  text-align: center;
+}
+.cam-btn:hover .cam-tip, .cam-btn:focus-visible .cam-tip { display: inline-flex; }
+
+/* Floor switcher + Add floor bottom left, hint bottom centre */
+.canvas-footer {
+  position: absolute;
+  left: var(--space-4);
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 6;
+  display: grid;
+  /* the hint is centred while there is room, else it moves right of the floor buttons */
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(0, 1fr);
+  align-items: end;
+  column-gap: var(--space-3);
+  pointer-events: none;
+}
+.canvas-footer > * { pointer-events: auto; }
+.canvas-footer__floors { position: relative; display: flex; align-items: center; gap: 8px; justify-self: start; }
+[data-look="ahdus"] .canvas-footer .studio-footer__floor-btn,
+[data-look="ahdus"] .canvas-footer__add {
+  height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-card);
+  color: var(--text);
+  font-size: 14px;
+}
+.canvas-footer .studio-footer__floor-name { font-weight: 600; }
+[data-look="ahdus"] .canvas-footer__add { gap: 6px; font-weight: 500; color: var(--accent); }
+[data-look="ahdus"] .canvas-footer__add:hover, [data-look="ahdus"] .canvas-footer .studio-footer__floor-btn:hover { background: var(--bg-hover); }
+.canvas-footer .studio-footer__hint {
+  grid-column: 2;
+  min-width: 0;
+  max-width: 560px;
+  margin: 0 0 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+  box-shadow: var(--shadow-card);
+  font-size: 13px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.canvas-footer .studio-footer__hint:empty { visibility: hidden; padding: 0; }
+/* "Building the other floors…": bottom right (the camera card is top left) */
+[data-look="ahdus"] .build-progress.is-rest:not(.in-preview) { left: auto; top: auto; right: var(--space-4); bottom: var(--space-4); }
+
+/* ── Selection bar, labelled (ui/SelectionToolbar.jsx) ───────────── */
+
+.selection-toolbar.is-labelled {
+  gap: 2px;
+  padding: 6px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent-strong);
+  box-shadow: 0 6px 18px rgba(25, 59, 47, 0.28);
+}
+.selection-toolbar.is-labelled .ui-icon-btn.has-text {
+  width: auto;
+  height: 36px;
+  gap: 8px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  color: var(--on-accent);
+  font-size: 14px;
+  font-weight: 500;
+}
+.selection-toolbar.is-labelled .ui-icon-btn:hover:not([aria-disabled="true"]) { background: var(--rail-hover); }
+.selection-toolbar.is-labelled .ui-icon-btn[aria-pressed="true"] { background: var(--rail-active); }
+.selection-toolbar.is-labelled .ui-icon-btn[aria-disabled="true"] { opacity: 0.45; cursor: default; }
+.selection-toolbar.is-labelled .ui-icon-btn.is-danger { color: #ffd2cc; }
+.selection-toolbar.is-labelled .selection-toolbar__sep { height: 24px; background: rgba(255, 255, 255, 0.22); }
+.selection-toolbar.is-labelled .ui-icon-btn:focus-visible { outline: 2px solid var(--on-accent); outline-offset: -2px; }
+
+/* ── Properties panel (ui/Inspector.jsx, ahdus) ──────────────────── */
+
+[data-look="ahdus"] .studio-inspector-col > * { margin-left: 0; }
+[data-look="ahdus"] .studio-inspector-col.is-open { width: 320px; }
+[data-look="ahdus"] .inspector { border-radius: 0; border-width: 0 0 0 1px; box-shadow: none; }
+.inspector.is-ahdus[data-mode="room"] .inspector__icon { display: none; }
+.inspector__eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.inspector.is-ahdus[data-mode="room"] .inspector__header { align-items: flex-start; padding-top: var(--space-5, 20px); }
+.inspector.is-ahdus[data-mode="room"] .insp-name {
+  margin: 4px 0 0;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 18px;
+  font-weight: 700;
+}
+.insp-room { padding: var(--space-3) var(--space-4) var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+.insp-room .insp-field--wide { margin-bottom: 0; }
+.insp-room .insp-field__label { font-size: 13px; color: var(--text); font-weight: 500; }
+.insp-room__group { display: flex; flex-direction: column; gap: 8px; }
+.insp-room__title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+.insp-room__group .insp-field__label { color: var(--text-muted); font-weight: 400; }
+.insp-room__note { margin: 0; font-size: 13px; color: var(--text-muted); }
+.insp-swatches { display: flex; gap: 10px; }
+.insp-swatch {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--swatch);
+  cursor: pointer;
+}
+.insp-swatch:hover { border-color: var(--accent); }
+.insp-swatch[aria-checked="true"] { border: 2px solid var(--accent-strong); box-shadow: inset 0 0 0 2px var(--bg-panel); }
+.insp-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.insp-openings { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.insp-openings li + li { border-top: 1px solid var(--border); }
+.insp-opening {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 10px 12px;
+  border: 0;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.insp-opening:hover { background: var(--bg-hover); }
+.insp-opening__where { color: var(--text-muted); font-size: 13px; }
+.insp-room__add { align-self: flex-start; color: var(--accent); font-weight: 600; padding: 0 var(--space-2); }
+.inspector.is-ahdus .inspector__footer .ui-btn { height: 44px; border-radius: 10px; }
+
+/* ── Phone (600 px and below): ui/look.js PHONE_QUERY ──────────────────────────────────
+   Top bar: back, the name, Undo, ⋯, Publish (StudioHeader AhdusPhoneHeader); under it the
+   status and 2D | 3D | Plan (PhoneBar); the canvas; the library as a sheet over the tool
+   bar, which runs along the bottom; the properties panel as a sheet over the canvas. */
+
+.ahdus-header.is-phone {
+  height: 60px;
+  gap: 2px;
+  padding: 0 10px 0 2px;
+  justify-content: flex-start;
+}
+.ahdus-header__icon { width: 44px; height: 44px; flex-shrink: 0; color: var(--text); }
+.ahdus-header__icon[aria-disabled="true"] { opacity: 0.4; }
+.ahdus-header__name { flex: 1; min-width: 0; display: flex; }
+.ahdus-header.is-phone .studio-header__name {
+  max-width: 100%;
+  padding: 6px 6px;
+  background: transparent;
+  font-size: 17px;
+  font-weight: 700;
+}
+.ahdus-header.is-phone .studio-header__name-input { width: 100%; min-width: 0; }
+.ahdus-header.is-phone .publish-btn { height: 44px; padding: 0 14px; margin-left: 4px; flex-shrink: 0; font-size: 15px; font-weight: 600; border-radius: 12px; }
+.ahdus-header.is-phone .publish-btn > svg { display: none; }
+.ahdus-header.is-phone .publish-btn__dot { background: var(--warning-dot); width: 8px; height: 8px; }
+
+.ahdus-more { position: relative; flex-shrink: 0; }
+.ahdus-more__pop {
+  position: fixed;
+  top: 64px;
+  right: 8px;
+  width: min(260px, calc(100vw - 16px));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  z-index: 60;
+}
+.ahdus-more__pop > * { width: 100%; }
+.ahdus-more__pop .ui-labeled-btn {
+  display: flex;
+  width: 100%;
+  height: 48px;
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.ahdus-more__pop .ui-labeled-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.ahdus-more__pop .ui-labeled-btn__label { font-size: 15px; color: var(--text); }
+/* Versions and Settings open over the whole width */
+.ahdus-more__pop .ui-pop {
+  position: fixed;
+  top: 64px;
+  left: 8px;
+  right: 8px;
+  width: auto;
+  max-width: none;
+  max-height: calc(100dvh - 80px);
+  overflow-y: auto;
+  z-index: 61;
+}
+
+.phone-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.phone-bar .status-pill { min-width: 0; height: 36px; font-size: 14px; }
+.phone-bar__views { flex-shrink: 0; }
+.phone-bar__views button { height: 40px; min-width: 52px; font-size: 15px; }
+
+@media (max-width: 600px) {
+  [data-look="ahdus"] .studio-main { flex-direction: column; }
+  [data-look="ahdus"] .studio-main > .canvas-card { order: 1; }
+  [data-look="ahdus"] .studio-build-col { order: 2; width: 100%; flex-direction: column; }
+
+  /* The tool bar along the bottom */
+  .tool-rail.build-panel {
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+  }
+  .tool-rail .build-panel__tiles { flex: 1; flex-direction: row; justify-content: space-between; gap: 2px; }
+  .tool-rail .build-tile { flex: 1; min-width: 0; min-height: 56px; padding: 6px 2px; gap: 4px; }
+  .tool-rail .build-tile__label { font-size: 12px; white-space: nowrap; }
+  .tool-rail .build-tile--row { display: none; } /* Layers, Shortcuts: not on a phone */
+
+  /* The library: a sheet over the tool bar */
+  .library.is-sheet {
+    order: -1;
+    width: 100%;
+    height: auto;
+    max-height: 42dvh;
+    border-right: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -8px 20px rgba(25, 59, 47, 0.1);
+  }
+  .library__grab {
+    display: grid;
+    place-items: center;
+    width: 64px;
+    height: 24px;
+    margin: 4px auto 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .library.is-sheet .library__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 2px 16px 8px; }
+  .library.is-sheet .library__title { font-size: 18px; }
+  .library.is-sheet .library__text { margin: 0; font-size: 13px; text-align: right; }
+  .library.is-sheet .library__body { padding: 0 16px 12px; }
+  .library.is-sheet .lib-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .library.is-sheet .lib-tile__pic { height: 52px; }
+  .library.is-sheet .lib__heading { display: none; }
+
+  /* The properties panel: a sheet over the canvas */
+  [data-look="ahdus"] .studio-inspector-col {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 25;
+    width: auto;
+    height: min(60%, 520px);
+    transition: none;
+  }
+  [data-look="ahdus"] .studio-inspector-col:not(.is-open) { display: none; }
+  [data-look="ahdus"] .studio-inspector-col.is-open { width: auto; }
+  [data-look="ahdus"] .studio-inspector-col > * { width: 100%; margin: 0; }
+  [data-look="ahdus"] .inspector { border-width: 1px 0 0; border-radius: 18px 18px 0 0; box-shadow: 0 -8px 20px rgba(25, 59, 47, 0.12); }
+
+  /* On the canvas: the floor top left, Reset / Fit on the right, the hint at the bottom */
+  .camera-controls.is-compact { left: auto; right: 12px; top: 12px; padding: 4px; gap: 4px; }
+  .camera-controls.is-compact .cam-btn { width: 44px; height: 44px; }
+  .cam-tip { display: none !important; }
+  .canvas-footer { inset: 12px; display: block; }
+  .canvas-footer__floors { position: absolute; top: 0; left: 0; max-width: calc(100% - 64px); }
+  .canvas-footer__add { display: none !important; }
+  [data-look="ahdus"] .canvas-footer .studio-footer__floor-btn { max-width: 100%; }
+  .canvas-footer .studio-footer__floor-name { overflow: hidden; text-overflow: ellipsis; }
+  .canvas-footer .floor-menu { top: calc(100% + 8px); bottom: auto; width: min(280px, calc(100vw - 24px)); }
+  .canvas-footer .studio-footer__hint {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-width: none;
+    margin: 0;
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: var(--accent-strong);
+    color: var(--on-accent);
+    font-size: 14px;
+    white-space: normal;
+  }
+  .canvas-footer .studio-footer__hint.is-bad { background: var(--danger); color: var(--on-accent); }
+
+  /* The selection bar: still icon + word, a little smaller */
+  .selection-toolbar.is-labelled .ui-icon-btn.has-text { height: 40px; padding: 0 8px; gap: 5px; font-size: 13px; }
+}

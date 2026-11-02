@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (621, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (677, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -26,6 +26,7 @@ npm run build:ahdus  # dist-ahdus/ (git-ignored) for AHDUS-FRONTEND (scripts/bui
 npm run schema:json  # dist-ahdus/layout.schema.json (or: node scripts/schema-json.mjs <file>): JSON Schema (draft-07) of
                      # the v2 layout from the Zod LayoutSchema (engine/model/jsonSchema.ts); the AHDUS server checks saves
 npm run assets:prepare  # public/assets/ from the downloaded packs (D:\assets-raw, outside the repo; sharp)
+node scripts/prepare-assets.mjs <packs folder> thumbs  # only the library pictures (public/assets/thumbs/*.webp)
 npm run assets:env      # public/assets/env/sky.env from the HDRI (needs npm run dev)
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
@@ -172,7 +173,7 @@ src/hooks/useStudioFileActions.js  Returns Studio's file / layout actions: All l
                                    import layout, save as copy, floor plan PNG / PDF, photo reconstruction (flag-checked)
 src/hooks/useAhdusPublish.js       AHDUS only: publish state, Publish dialog + toasts, leave dialog + beforeunload, save
                                    errors as toasts, rename the site (rules: PURE ui/publishFlow.js, tested)
-src/ui/                            Workplace Studio: theme.css, tools.js, StudioShell, StudioHeader, BuildPanel (+ trays,
+src/ui/                            Workplace Studio: theme.css, look.js + ahdus.css (the AHDUS look), tools.js, StudioShell, StudioHeader, BuildPanel (+ trays,
                                    CatalogPicker), CanvasCard, ExportMenu, MeasureMenu, RoomLabels (+ labelLayout.js),
                                    RoomHoverCard, SelectionToolbar, Inspector, StudioFooter, EditorErrorBoundary, preview.css,
                                    StudioSplash (loading screen; firstFrame.js), Toast, Dialog, PublishDialogs (overlays.css)
@@ -381,6 +382,45 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
 - **Sky:** `env/sky.env` (prefiltered HDRI) is `scene.environmentTexture` (lights the PBR rooms) and a skybox on the
   Day preset (`siteEnvironment`); grass, paving and fog are unchanged.
 
+## The AHDUS look (v0.10.0, how it works)
+
+Inside AHDUS (`VITE_LAYOUT_BACKEND=ahdus`) Workplace Studio has the AHDUS look: light page (#f6f7f3), white panels,
+AHDUS green (#28664f), a dark green tool rail, Inter. Everywhere else it keeps the dark look of v0.9 ("classic").
+**Look and layout only: saving, publishing, undo and the scene work the same in both.**
+- **Switch:** `ui/look.js` (`studioLook`, `isAhdusLook`, `applyStudioLook` sets `data-look` on `<html>`; `theme.css`
+  swaps its tokens with it). Styles: `ui/ahdus.css` (under `[data-look="ahdus"]`, or on classes only the AHDUS markup uses). Components take an
+  `ahdus` / `labelled` / `rail` prop; the classic markup is unchanged.
+- **Top bar:** AHDUS / Workplace Studio / the site name (rename), the status pill (`StatusPill`: "Saved · Unpublished
+  changes"), Undo, Redo, Versions, Settings, Walk through (= Preview), Publish.
+- **Tool rail** (`BuildPanel rail`): the six tools with labels, Layers and Shortcuts (`ShortcutsPopover`, from
+  `tools.SHORTCUT_GROUPS`) at the bottom.
+- **Library** (`ui/LibraryPanel.jsx`, pure parts in `ui/library.js` + tests) in place of the trays for Rooms and
+  Furniture: picture tiles (rooms: `RoomPicture`; furniture: `public/assets/thumbs/*.webp`, from Kenney's previews,
+  `modelRegistry.thumbnailFor`), search, category chips, templates. `hooks/useLibraryDrop.js`: drag a tile onto the
+  floor (a dashed footprint with name and size, red with "Overlaps …"; Shift = square room), click = placed in the
+  middle of the view, Esc cancels, touch = tap the tile then the floor. Rooms via `geometry.planRoomAt` +
+  `editor.addRoom`, items via the placement manager: one undo step each.
+- **Camera controls** (`ui/CameraControls.jsx`, maths in `utils/cameraControls.js` + tests) top left of the canvas:
+  view cube (Top / Front / Side), Reset view, Fit building, Zoom in / out, Orbit / Pan (Pan = left-drag pans;
+  `setPanMode` survives the planner re-attaching the camera). Keys (`tools.CAMERA_KEYS`, through `cameraKeyRef` in
+  `useStudioKeyboard`): 7 / 8 / 9, H, F, + / −, O, P; not in Plan view. Top right: Export, Measure, 2D | 3D | Plan,
+  Full screen. Bottom left: floor switcher + "Add floor" (`StudioFooter floating`); bottom centre: the hint.
+- **Selection:** a dark green bar with Move, Rotate, Duplicate, Delete (`SelectionToolbar labelled`; rooms too:
+  Rotate = `geometry.planRoomTurn` (a quarter turn about its centre, doors and windows go round with it; refused with
+  rooms inside, a shared door / window or an overlap), Duplicate = `geometry.planRoomCopy` (first free spot beside it;
+  type, colour, heights, thickness, floor; no doors / windows)). The selected room keeps its small name pill
+  (`RoomLabels selectedAsPill`). Inspector (`AhdusRoomBody`): room type, Width / Length / Ceiling, floor swatches
+  (Wood / Carpet / Tiles / Concrete = room field `floorFinish`, `materialLibrary.floorKindOf`; 'default' = the type's
+  floor; in `roomBuildInput`, so only that room rebuilds), wall thickness, the doors and windows (a click selects one),
+  "Add a door or window", Duplicate, Delete room. Walls finishes: not yet.
+- **Phone** (≤ 600 px, `look.usePhone` / `PHONE_QUERY`): top bar = back, name (cut with …), Undo, ⋯ (`More`: Redo,
+  Versions, Settings, Walk through), Publish; `ui/PhoneBar.jsx` under it (status + 2D | 3D | Plan); the rail is a
+  bottom bar, the library a pull-up sheet (tap a tile, then the floor: "Tap the floor where the room goes"), the
+  Inspector a bottom sheet, Reset / Fit on the right. Nothing may go off-screen at 390 px.
+- **Leaving:** `publishFlow.leaveCheck` = 'leave' | 'ask' | 'check'. Back to AHDUS before the publish state is known
+  ('check', e.g. while Studio is still loading) asks AHDUS first (up to `LEAVE_CHECK_MS` 3 s), then decides; still
+  unknown = the Stay / Publish now / Leave dialog.
+
 ## Testing gotchas
 
 - Studio controls have fixed `aria-label`s and e2e scripts select by them; keep these exact labels: `Undo`, `Redo`,
@@ -388,6 +428,11 @@ its script, copied there by `build:embed`). Saves, sizes and behaviour never cha
   `Add floor above`, `Preview Workplace`, `Back to Studio`, `Add your first room`, `2D view`, `3D view`, `Plan view`,
   `Fit view`, `Close inspector`, `Measurements` (and its panel `Measurement tools`: `Measure Distance`,
   `Show Wall Lengths`, `Show Room Areas`, `Clear Measurements`), `Room labels`. Studio at 1280×720 and 1920×1080: no page / Build panel scroll, canvas ≥ 75 % wide. While Preview has the mouse captured, clicks go to the canvas: release it first.
+  The AHDUS look adds (keep them too): `Walk through`, `Versions`, `Shortcuts`, `Search rooms`, `Search furniture`,
+  `Add floor`, `Full screen` / `Exit full screen`, `Reset view`, `Zoom in`, `Zoom out`, `Orbit`, `Pan`, `Top view`,
+  `Front view`, `Side view`, `Room type`; on a phone `More` (menu `More actions`) and `Close the library`.
+  `Export floor plan` and `Measurements` keep their labels (the visible text is "Export" / "Measure").
+  Try the look in dev with `?look=ahdus` (or `?look=classic`) in the address; it never changes while the page is open.
 - viewer.html's dev hooks: `__ahdusViewer` (the LayoutEngine; `.walkthrough.setPose`), `__ahdusScene`, `ahdus`,
   `__viewerEvents` (bridge events), `__ahdusCards`. A viewer captures the mouse on pointerdown (Babylon prevents
   the default of pointerdown, so the browser sends no mousedown; Studio captures it from its button).
@@ -614,6 +659,11 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 ## DONE: realistic look, real assets (25 Oct 2026, branch `feat/real-assets`)
 
 Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
+
+## DONE: Studio in the AHDUS look, a trial (v0.10.0, 2 Nov 2026, branch `feature/studio-ahdus-look`)
+
+Approved mockups (outside the repo: "Workplace Studio v0.10 mockups-png"); one commit per part, A theme to G phone.
+See "The AHDUS look" above. Screenshots: private-docs/screenshots/v0.10/ (not in git).
 
 Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): lifts; free-form walls,
 L-shaped rooms; measure tool + dimensions; industrial machine models (Industrial Pack: FBX → GLB first); SVG 2D

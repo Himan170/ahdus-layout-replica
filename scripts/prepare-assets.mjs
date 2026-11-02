@@ -2,9 +2,11 @@
 // resized and re-compressed. Safe to run again (it overwrites what it made).
 //
 //   node scripts/prepare-assets.mjs [source folder]      (default D:\assets-raw, or $AHDUS_ASSETS_RAW)
+//   node scripts/prepare-assets.mjs [source folder] thumbs   (only the library pictures)
 //
 // Source layout (docs/ASSET_LICENSES.md has the links and licences, all CC0):
 //   kenney_furniture-kit/Models/GLTF format/<model>.glb       Kenney Furniture Kit
+//   kenney_furniture-kit/Isometric/<model>_SE.png             its preview pictures (library tiles: thumbs/)
 //   textures/<name>_1k.gltf/textures/<name>_{diff,nor_gl,rough|arm}_1k.jpg   Poly Haven
 //   textures/<Name>_1K-JPG/<Name>_1K-JPG_{Color,NormalGL,Roughness}.jpg      ambientCG
 //   textures/citrus_orchard_road_puresky_1k.hdr              Poly Haven (sky; scripts/make-env.mjs makes sky.env)
@@ -13,10 +15,11 @@ import sharp from 'sharp';
 import { copyFileSync, mkdirSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { usedModels, TEXTURE_SETS } from '../src/utils/modelRegistry.js';
+import { usedModels, TEXTURE_SETS, THUMB_DIR } from '../src/utils/modelRegistry.js';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = process.argv[2] ?? process.env.AHDUS_ASSETS_RAW ?? 'D:\\assets-raw';
+const onlyThumbs = process.argv[3] === 'thumbs';
 const out = join(repo, 'public', 'assets');
 
 const COLOR_PX = 1024;
@@ -62,6 +65,23 @@ const report = (file) => {
   total += kb;
   console.log(`${kb.toFixed(0).padStart(6)} KB  ${file.slice(repo.length + 1)}`);
 };
+
+// ── Library pictures: the isometric preview of each model, seen from the front right ──
+const thumbOut = join(out, THUMB_DIR);
+mkdirSync(thumbOut, { recursive: true });
+for (const model of usedModels()) {
+  const to = join(thumbOut, `${model}.webp`);
+  await sharp(join(src, 'kenney_furniture-kit', 'Isometric', `${model}_SE.png`))
+    .trim()
+    .resize(160, 160, { fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 90, alphaQuality: 100 })
+    .toFile(to);
+  report(to);
+}
+if (onlyThumbs) {
+  console.log(`${total.toFixed(0).padStart(6)} KB  library pictures`);
+  process.exit(0);
+}
 
 // ── Models ──
 const modelDir = join(src, 'kenney_furniture-kit', 'Models', 'GLTF format');

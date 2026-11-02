@@ -9,10 +9,13 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload, Camera, Send } from 'lucide-react';
+import {
+  Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload, Camera, Send, Play, ChevronLeft, MoreHorizontal,
+} from 'lucide-react';
 import { usePopover } from './usePopover';
 import VersionHistory from './VersionHistory';
-import { publishButton, publishStatusText } from './publishFlow';
+import { publishButton, publishStatusText, statusPill } from './publishFlow';
+import { isAhdusLook, usePhone } from './look';
 import { MAX_SITE_NAME } from '../services/ahdusBackend';
 import './overlays.css';
 
@@ -88,8 +91,9 @@ function LayoutName({ name, onRename, site = false }) {
 }
 
 /** Publish (AHDUS): opens the Publish dialog; "Published ✓" (disabled) when employees see this draft. */
-function PublishButton({ state, busy, onPublish }) {
+function PublishButton({ state, busy, onPublish, short = false }) {
   const { label, disabled, dot } = publishButton(state);
+  const text = short && state === 'changes' ? 'Publish' : label; // a phone: the dot says "changes"
   const published = state === 'published';
   return (
     <button
@@ -103,7 +107,7 @@ function PublishButton({ state, busy, onPublish }) {
       onClick={onPublish}
     >
       {!published && <Send size={16} strokeWidth={1.75} aria-hidden />}
-      {busy ? 'Publishing…' : label}
+      {busy ? 'Publishing…' : text}
       {dot && !busy && <span className="publish-btn__dot" aria-hidden title="The draft is newer than what employees see" />}
     </button>
   );
@@ -116,6 +120,7 @@ function Settings({
   roomLabels, onRoomLabelsChange, // 'names' | 'off': the room names on the canvas
   onExportLayout, onImportLayout, onPhotoReconstruct, // backup & photo reconstruction
   importTitle = 'Add a layout from a file to your layouts',
+  label = null, // a word under the icon (the AHDUS look)
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -127,7 +132,7 @@ function Settings({
   return (
     <div className="studio-header__settings" ref={wrapRef}>
       <button
-        className="ui-icon-btn"
+        className={`ui-icon-btn${label ? ' ui-labeled-btn' : ''}`}
         aria-label="Settings"
         title="Settings"
         aria-expanded={open}
@@ -135,6 +140,7 @@ function Settings({
         onClick={() => setOpen((v) => !v)}
       >
         <SlidersHorizontal {...ICON} />
+        {label && <span className="ui-labeled-btn__label">{label}</span>}
       </button>
       {open && (
         <div className="ui-pop settings-pop" role="dialog" aria-label="Settings">
@@ -274,7 +280,136 @@ function Settings({
   );
 }
 
-export default function StudioHeader({
+/** An icon with a small word under it (the AHDUS look's Undo / Redo). */
+function LabeledButton({ label, title, icon: Icon, disabled, onClick }) {
+  return (
+    <button className="ui-icon-btn ui-labeled-btn" aria-label={label} title={title}
+      aria-disabled={disabled || undefined} onClick={() => { if (!disabled) onClick(); }}>
+      <Icon {...ICON} aria-hidden />
+      <span className="ui-labeled-btn__label">{label}</span>
+    </button>
+  );
+}
+
+/**
+ * The AHDUS look's top bar (ui/look.js): logo square + AHDUS / Workplace Studio / name ✎,
+ * the status pill (saving + publishing, ui/publishFlow.statusPill), Undo / Redo / Versions /
+ * Settings with a word under each, Walk through (Preview), Publish.
+ */
+/** Saved / Unpublished changes / Not published yet (the AHDUS look's top bar; a phone: the row under it). */
+export function StatusPill({ saveStatus, saveError, publishState, onPublish, short = false }) {
+  const pill = statusPill(saveStatus, onPublish ? publishState : 'unknown', saveError);
+  return (
+    <span className={`status-pill is-${pill.tone}`} role="status" data-status={saveStatus}
+      data-publish-state={onPublish ? publishState : undefined} title={pill.text}>
+      <span className="status-pill__dot" aria-hidden />
+      <span className="status-pill__text">{short ? pill.short : pill.text}</span>
+    </span>
+  );
+}
+
+/** A phone's "⋯": Redo, Versions, Settings and Walk through. */
+function MoreMenu({ undoState, onRedo, editor, onMessage, settings, onPreview }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  usePopover(open, () => setOpen(false), [ref]);
+  return (
+    <div className="ahdus-more" ref={ref}>
+      <button className="ui-icon-btn ahdus-header__icon" aria-label="More" title="More" aria-haspopup="menu"
+        aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <MoreHorizontal size={22} strokeWidth={1.75} aria-hidden />
+      </button>
+      {open && (
+        <div className="ui-pop ahdus-more__pop" role="menu" aria-label="More actions">
+          <LabeledButton label="Redo" icon={Redo2} disabled={!undoState.canRedo} onClick={onRedo}
+            title={undoState.canRedo ? `Redo: ${undoState.redoLabel ?? 'last change'}` : 'Nothing to redo'} />
+          <VersionHistory editor={editor} onMessage={onMessage} label="Versions" />
+          <Settings {...settings} label="Settings" />
+          {onPreview && (
+            <button className="ui-labeled-btn ahdus-more__walk" aria-label="Walk through"
+              onClick={() => { setOpen(false); onPreview(); }}>
+              <Play size={20} strokeWidth={1.75} aria-hidden />
+              <span className="ui-labeled-btn__label">Walk through</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A phone: back, the name, Undo, ⋯, Publish (the status and the views are in PhoneBar under it). */
+function AhdusPhoneHeader({
+  layoutName, onRenameLayout, onAllLayouts, allLayoutsLabel, onPublish, publishState, publishing, siteName,
+  undoState, onUndo, ...more
+}) {
+  return (
+    <header className="studio-header ahdus-header is-phone">
+      <button className="ui-icon-btn ahdus-header__icon ahdus-header__back" aria-label={allLayoutsLabel} title={allLayoutsLabel}
+        onClick={onAllLayouts} disabled={!onAllLayouts}>
+        <ChevronLeft size={24} strokeWidth={1.75} aria-hidden />
+      </button>
+      <div className="ahdus-header__name">
+        <LayoutName name={layoutName || 'Untitled layout'} onRename={onRenameLayout} site={siteName} />
+      </div>
+      <button className="ui-icon-btn ahdus-header__icon" aria-label="Undo" aria-disabled={!undoState.canUndo}
+        title={undoState.canUndo ? `Undo: ${undoState.undoLabel ?? 'last change'}` : 'Nothing to undo'}
+        onClick={() => undoState.canUndo && onUndo()}>
+        <Undo2 size={22} strokeWidth={1.75} aria-hidden />
+      </button>
+      <MoreMenu undoState={undoState} {...more} />
+      {onPublish && <PublishButton state={publishState} busy={publishing} onPublish={onPublish} short />}
+    </header>
+  );
+}
+
+function AhdusHeader(props) {
+  const phone = usePhone();
+  if (phone) return <AhdusPhoneHeader {...props} />;
+  const {
+    layoutName, onRenameLayout, onAllLayouts, allLayoutsLabel, onPublish, publishState, publishing, siteName,
+    saveStatus, saveError, undoState, onUndo, onRedo, editor, onMessage, settings, onPreview,
+  } = props;
+  return (
+    <header className="studio-header ahdus-header">
+      <div className="studio-header__left">
+        <button className="studio-header__brand" aria-label={allLayoutsLabel} title={allLayoutsLabel}
+          onClick={onAllLayouts} disabled={!onAllLayouts}>
+          <span className="ahdus-logo" aria-hidden><Building2 size={18} strokeWidth={1.75} /></span>
+          <span className="ahdus-header__brand-text">AHDUS</span>
+        </button>
+        <span className="studio-header__crumb ahdus-header__crumb" aria-hidden>/</span>
+        <span className="studio-header__crumb ahdus-header__crumb">Workplace Studio</span>
+        <span className="studio-header__crumb ahdus-header__crumb" aria-hidden>/</span>
+        <LayoutName name={layoutName || 'Untitled layout'} onRename={onRenameLayout} site={siteName} />
+      </div>
+
+      <div className="studio-header__right">
+        <StatusPill saveStatus={saveStatus} saveError={saveError} publishState={publishState} onPublish={onPublish} />
+        <div className="ahdus-header__tools">
+          <LabeledButton label="Undo" icon={Undo2} disabled={!undoState.canUndo} onClick={onUndo}
+            title={undoState.canUndo ? `Undo: ${undoState.undoLabel ?? 'last change'} (Ctrl+Z)` : 'Nothing to undo'} />
+          <LabeledButton label="Redo" icon={Redo2} disabled={!undoState.canRedo} onClick={onRedo}
+            title={undoState.canRedo ? `Redo: ${undoState.redoLabel ?? 'last change'} (Ctrl+Y)` : 'Nothing to redo'} />
+          <VersionHistory editor={editor} onMessage={onMessage} label="Versions" />
+          <Settings {...settings} label="Settings" />
+        </div>
+        {onPreview && (
+          <button className="ui-btn ahdus-header__walk" title="Walk through your workplace (Tab)" onClick={onPreview}>
+            <Play size={16} strokeWidth={1.75} aria-hidden /> Walk through
+          </button>
+        )}
+        {onPublish && <PublishButton state={publishState} busy={publishing} onPublish={onPublish} />}
+      </div>
+    </header>
+  );
+}
+
+export default function StudioHeader(props) {
+  return isAhdusLook() ? <AhdusHeader {...props} /> : <ClassicHeader {...props} />;
+}
+
+function ClassicHeader({
   layoutName,
   onRenameLayout,
   onAllLayouts,

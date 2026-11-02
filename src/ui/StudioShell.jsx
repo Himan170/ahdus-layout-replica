@@ -10,6 +10,7 @@
  */
 
 import './studio.css';
+import './ahdus.css';
 
 export default function StudioShell({ preview, header, banner, buildPanel, canvas, inspector, inspectorOpen, footer }) {
   return (

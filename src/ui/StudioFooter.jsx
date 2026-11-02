@@ -3,13 +3,15 @@
  *
  * Bottom bar of Workplace Studio: the floor switcher (switch, floor height,
  * add above (empty or with the rooms below), rename, delete), the hint for
- * the active tool, and "Preview Workplace".
+ * the active tool, and "Preview Workplace". The AHDUS look (`floating`): the floor switcher and
+ * "Add floor" bottom left on the canvas, the hint bottom centre ("Walk through" is in the top bar).
  */
 
 import { useRef, useState } from 'react';
 import { ChevronDown, Layers, Plus, Pencil, Trash2, CirclePlay, Check, Copy, Square } from 'lucide-react';
 import { MIN_FLOOR_HEIGHT, MAX_FLOOR_HEIGHT, STOREY_HEIGHT, GROUND_FLOOR_STAYS } from '../play/building';
 import { usePopover } from './usePopover';
+import { isAhdusLook } from './look';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 const rooms = (n) => `${n} room${n === 1 ? '' : 's'}`;
@@ -57,9 +59,10 @@ function FloorHeightField({ floor, onSetHeight }) {
 }
 
 function FloorMenu({
+  startMode = null, // 'add': open on "New floor above" (the AHDUS look's Add floor button)
   floors, currentFloor, roomCounts, onSelectFloor, onAddFloor, onSetFloorHeight, onRenameFloor, onRemoveFloor, onClose,
 }) {
-  const [mode, setMode] = useState(null);       // null | 'add' | 'rename' | 'delete'
+  const [mode, setMode] = useState(startMode);  // null | 'add' | 'rename' | 'delete'
   const current = floors.find((f) => f.id === currentFloor);
   const top = floors[floors.length - 1];         // a new floor goes on top of this one
   const [name, setName] = useState(current?.name ?? '');
@@ -174,53 +177,81 @@ export default function StudioFooter({
   onRenameFloor, onRemoveFloor,
   hint,          // { text, tone: 'hint' | 'message' | 'bad' } | null
   onPreview,
+  floating = false, // AHDUS look: on the canvas (see above)
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(false); // false | 'menu' | 'add'
   const wrapRef = useRef(null);
   const close = () => setOpen(false);
   usePopover(open, close, [wrapRef]);
   const current = floors.find((f) => f.id === currentFloor);
 
+  const hintText = (
+    <p className={`studio-footer__hint is-${hint?.tone ?? 'hint'}`} role="status" aria-live="polite" data-studio="hint">
+      {hint?.text ?? ''}
+    </p>
+  );
+
+  const floorsBox = (
+    <div className={`studio-footer__floors${floating ? ' canvas-footer__floors' : ''}`} ref={wrapRef}>
+      <button
+        className="studio-footer__floor-btn"
+        aria-label="Floor switcher"
+        title="Switch, add, rename or delete floors"
+        aria-haspopup="menu"
+        aria-expanded={open === 'menu'}
+        onClick={() => setOpen((v) => (v === 'menu' ? false : 'menu'))}
+      >
+        <Layers {...ICON} />
+        <span className="studio-footer__floor-name">{current?.name ?? 'Floor'}</span>
+        <span className="ui-muted">· {rooms(roomCounts[currentFloor] ?? 0)}</span>
+        <ChevronDown {...ICON} />
+      </button>
+      {open && (
+        <FloorMenu
+          key={open}
+          startMode={open === 'add' ? 'add' : null}
+          floors={floors}
+          currentFloor={currentFloor}
+          roomCounts={roomCounts}
+          onSelectFloor={onSelectFloor}
+          onAddFloor={onAddFloor}
+          onSetFloorHeight={onSetFloorHeight}
+          onRenameFloor={onRenameFloor}
+          onRemoveFloor={onRemoveFloor}
+          onClose={close}
+        />
+      )}
+      {floating && (
+        <button className="ui-btn canvas-footer__add" aria-label="Add floor" title="Add a floor above the top one"
+          aria-expanded={open === 'add'} onClick={() => setOpen((v) => (v === 'add' ? false : 'add'))}>
+          <Plus {...ICON} /> Add floor
+        </button>
+      )}
+    </div>
+  );
+
+  if (floating) {
+    return (
+      <div className="canvas-footer">
+        {floorsBox}
+        {hintText}
+      </div>
+    );
+  }
+
   return (
     <footer className="studio-footer">
-      <div className="studio-footer__floors" ref={wrapRef}>
-        <button
-          className="studio-footer__floor-btn"
-          aria-label="Floor switcher"
-          title="Switch, add, rename or delete floors"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <Layers {...ICON} />
-          <span className="studio-footer__floor-name">{current?.name ?? 'Floor'}</span>
-          <span className="ui-muted">· {rooms(roomCounts[currentFloor] ?? 0)}</span>
-          <ChevronDown {...ICON} />
+      {floorsBox}
+      {hintText}
+
+      {/* The AHDUS look has "Walk through" in the top bar instead */}
+      {!isAhdusLook() && (
+        <button className="ui-btn is-ghost studio-footer__preview" aria-label="Preview Workplace"
+          title="Walk through your workplace (Tab)" onClick={onPreview}>
+          <CirclePlay size={18} strokeWidth={1.75} aria-hidden />
+          Preview Workplace
         </button>
-        {open && (
-          <FloorMenu
-            floors={floors}
-            currentFloor={currentFloor}
-            roomCounts={roomCounts}
-            onSelectFloor={onSelectFloor}
-            onAddFloor={onAddFloor}
-            onSetFloorHeight={onSetFloorHeight}
-            onRenameFloor={onRenameFloor}
-            onRemoveFloor={onRemoveFloor}
-            onClose={close}
-          />
-        )}
-      </div>
-
-      <p className={`studio-footer__hint is-${hint?.tone ?? 'hint'}`} role="status" aria-live="polite" data-studio="hint">
-        {hint?.text ?? ''}
-      </p>
-
-      <button className="ui-btn is-ghost studio-footer__preview" aria-label="Preview Workplace"
-        title="Walk through your workplace (Tab)" onClick={onPreview}>
-        <CirclePlay size={18} strokeWidth={1.75} aria-hidden />
-        Preview Workplace
-      </button>
+      )}
     </footer>
   );
 }

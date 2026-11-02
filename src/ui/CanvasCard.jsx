@@ -2,19 +2,44 @@
  * ui/CanvasCard.jsx
  *
  * The rounded card that holds the 3D view. Top-right: Export, Measure (not in Plan), 2D | 3D | Plan
- * and Fit view.
+ * and Fit view. The AHDUS look (`ahdus`): Export and Measure with their names, 2D | 3D | Plan and
+ * Full screen top right; the camera card (`camera`, ui/CameraControls) top left; the floor switcher
+ * and the hint (`footer`) along the bottom.
  * Plan = the floor plan (floorplan/FloorPlanView) in place of the 3D canvas.
  * Shows the empty state ("Build your workplace") while the layout has no rooms.
  * The <canvas> and the overlays are passed in as children so the canvas
  * element is never re-created (Babylon is bound to it).
  */
 
-import { Boxes, Maximize2, Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Boxes, Maximize2, Plus, Expand, Shrink } from 'lucide-react';
 import ExportMenu from './ExportMenu';
 import MeasureMenu, { MeasureHint } from './MeasureMenu';
 
+/** Full screen for the whole page (the browser's Esc leaves it too). */
+function FullScreenButton() {
+  const [on, setOn] = useState(() => typeof document !== 'undefined' && !!document.fullscreenElement);
+  useEffect(() => {
+    const sync = () => setOn(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', sync);
+    return () => document.removeEventListener('fullscreenchange', sync);
+  }, []);
+  if (typeof document === 'undefined' || !document.fullscreenEnabled) return null;
+  const label = on ? 'Exit full screen' : 'Full screen';
+  return (
+    <button className="ui-icon-btn canvas-card__full" aria-label={label} title={label}
+      onClick={() => (on ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {})}>
+      {on ? <Shrink size={18} strokeWidth={1.75} aria-hidden /> : <Expand size={18} strokeWidth={1.75} aria-hidden />}
+    </button>
+  );
+}
+
 export default function CanvasCard({
   children,
+  ahdus = false,    // the AHDUS look's layout (see above)
+  camera = null,    // AHDUS look: the camera card, top left (not in Plan view)
+  footer = null,    // AHDUS look: floor switcher + hint, along the bottom
+  phone = false,    // AHDUS look on a phone: no controls top right (PhoneBar has 2D | 3D | Plan)
   preview,          // true in Preview: the card fills the window, no Studio controls
   is3D,
   onSetView,        // (want3D: boolean) => void
@@ -39,16 +64,17 @@ export default function CanvasCard({
   onToggleRoomAreas,
 }) {
   return (
-    <section className={`canvas-card${preview ? ' is-preview' : ''}`} aria-label="Workplace view">
+    <section className={`canvas-card${preview ? ' is-preview' : ''}${planView ? ' is-plan' : ''}`} aria-label="Workplace view">
       {children}
 
-      {!preview && (
+      {!preview && !phone && (
         <div className="canvas-card__controls">
           <ExportMenu
             onExportPng={onExportPng}
             onExportPdf={onExportPdf}
             disabled={exportDisabled}
             loading={exportLoading}
+            label={ahdus ? 'Export' : undefined}
           />
           {!planView && (
             <MeasureMenu
@@ -60,6 +86,7 @@ export default function CanvasCard({
               onToggleWallLengths={onToggleWallLengths}
               showRoomAreas={showRoomAreas}
               onToggleRoomAreas={onToggleRoomAreas}
+              label={ahdus ? 'Measure' : undefined}
             />
           )}
           <div className="ui-segmented" role="group" aria-label="View">
@@ -67,11 +94,16 @@ export default function CanvasCard({
             <button aria-label="3D view" title="3D view" aria-pressed={!planView && is3D} onClick={() => onSetView(true)}>3D</button>
             <button aria-label="Plan view" title="Floor plan: rooms, walls, doors and items of this floor" aria-pressed={!!planView} onClick={onSetPlan}>Plan</button>
           </div>
-          <button className="ui-icon-btn canvas-card__fit" aria-label="Fit view" title="Fit view: show the whole floor" disabled={planView} onClick={onFitView}>
-            <Maximize2 size={18} strokeWidth={1.75} />
-          </button>
+          {ahdus ? <FullScreenButton /> : (
+            <button className="ui-icon-btn canvas-card__fit" aria-label="Fit view" title="Fit view: show the whole floor" disabled={planView} onClick={onFitView}>
+              <Maximize2 size={18} strokeWidth={1.75} />
+            </button>
+          )}
         </div>
       )}
+
+      {!preview && !planView && camera}
+      {!preview && footer}
 
       {!preview && !planView && measureMode && <MeasureHint onExit={onExitMeasure} />}
 

@@ -8,6 +8,7 @@
  * Props:
  *   onExportPng  () => Promise<void>
  *   onExportPdf  () => Promise<void>
+ *   label        text shown next to the icon (AHDUS look), optional
  *   disabled     boolean   — true when there are no rooms to export
  *   loading      boolean   — true while an export is in progress
  */
@@ -18,7 +19,7 @@ import { usePopover } from './usePopover';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 
-export default function ExportMenu({ onExportPng, onExportPdf, disabled, loading }) {
+export default function ExportMenu({ onExportPng, onExportPdf, disabled, loading, label }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const close   = () => setOpen(false);
@@ -38,7 +39,7 @@ export default function ExportMenu({ onExportPng, onExportPdf, disabled, loading
     <div className="export-menu" ref={wrapRef}>
       <button
         id="export-menu-trigger"
-        className="ui-icon-btn export-menu__trigger"
+        className={`ui-icon-btn export-menu__trigger${label ? ' has-label' : ''}`}
         aria-label="Export floor plan"
         title={disabled ? 'Add rooms before exporting' : 'Export floor plan (PNG or PDF)'}
         aria-haspopup="menu"
@@ -50,6 +51,7 @@ export default function ExportMenu({ onExportPng, onExportPdf, disabled, loading
           ? <Loader2 size={16} strokeWidth={1.75} className="export-menu__spinner" aria-hidden />
           : <FileDown size={16} strokeWidth={1.75} aria-hidden />
         }
+        {label && <span className="canvas-btn__label">{label}</span>}
       </button>
 
       {open && (

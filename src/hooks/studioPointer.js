@@ -89,6 +89,8 @@ export function installStudioPointer({
 
     // If in placement mode, try to confirm placement
     if (placementMgr.isActive()) {
+      // A tap on a touch screen has no pointer move before it: aim the ghost at the tap first
+      placementMgr.updatePointer(scene.pointerX, scene.pointerY);
       const result = placementMgr.confirmPlacement();
       if (result) {
         placeObject(result);

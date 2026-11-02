@@ -371,3 +371,89 @@ describe('roomsToRebuild: a change rebuilds the room and the rooms touching it',
     expect(sorted(roomsToRebuild(before, change('far', { floor: 1 })))).toEqual(['far']);
   });
 });
+
+import { planRoomAt } from '../geometry';
+
+describe('planRoomAt (a library room tile on the floor)', () => {
+  const office = (id, x, z) => ({ id, name: id, type: 'OFFICE', floor: 0, x, z, width: 6, depth: 5 });
+
+  it('a room of that size, centred on the point', () => {
+    const plan = planRoomAt({ x: 4, z: -2 }, 6, 5, []);
+    expect(plan).toEqual({ rect: { x: 4, z: -2, width: 6, depth: 5 }, blocker: null, overhang: false });
+  });
+
+  it('blocked by a room under it, like a drawn room', () => {
+    expect(planRoomAt({ x: 1, z: 0 }, 6, 5, [office('A', 0, 0)]).blocker?.id).toBe('A');
+  });
+
+  it('upper floor: says when part of it has nothing under it', () => {
+    const below = [{ ...office('B', 0, 0) }];
+    expect(planRoomAt({ x: 20, z: 0 }, 6, 5, [], below).overhang).toBe(true);
+  });
+});
+
+import { planRoomTurn, planRoomCopy } from '../geometry';
+
+describe('planRoomTurn (Rotate on a room)', () => {
+  const room = (id, x, z, width, depth, more = {}) => ({ id, name: id, type: 'OFFICE', floor: 0, x, z, width, depth, doors: [], windows: [], ...more });
+
+  it('swaps width and depth, and turns the doors and windows with their walls', () => {
+    const r = room('A', 0, 0, 6, 4, {
+      doors: [{ wall: 'north', offset: 1, width: 1, height: 2.1 }, { wall: 'east', offset: 0.5, width: 1, height: 2.1 }],
+      windows: [{ wall: 'south', offset: -1.5, width: 1.4, height: 1.2 }, { wall: 'west', offset: 1, width: 1.4, height: 1.2 }],
+    });
+    const plan = planRoomTurn(r, [r]);
+    expect(plan.problem).toBe(null);
+    expect(plan.patch.width).toBe(4);
+    expect(plan.patch.depth).toBe(6);
+    expect(plan.patch.doors.map((d) => [d.wall, d.offset])).toEqual([['east', -1], ['south', 0.5]]);
+    expect(plan.patch.windows.map((w) => [w.wall, w.offset])).toEqual([['west', 1.5], ['north', 1]]);
+  });
+
+  it('four turns bring it back', () => {
+    let r = room('A', 0, 0, 6, 4, { doors: [{ wall: 'north', offset: 1.2, width: 1, height: 2.1 }] });
+    for (let i = 0; i < 4; i++) r = { ...r, ...planRoomTurn(r, [r]).patch };
+    expect([r.width, r.depth]).toEqual([6, 4]);
+    expect(r.doors[0]).toMatchObject({ wall: 'north', offset: 1.2 });
+  });
+
+  it('refused when the turned room would overlap a neighbour', () => {
+    const a = room('A', 0, 0, 8, 2);
+    const b = room('B', 0, 3, 8, 2);
+    expect(planRoomTurn(a, [a, b]).problem).toMatch(/overlap B/);
+  });
+
+  it('refused with a room inside it', () => {
+    const a = room('A', 0, 0, 10, 8);
+    const inner = room('Inner', 0, 0, 3, 3);
+    expect(planRoomTurn(a, [a, inner]).problem).toMatch(/Inner is inside it/);
+  });
+});
+
+describe('planRoomCopy (Duplicate on a room)', () => {
+  const room = (id, x, z, width, depth) => ({ id, name: id, type: 'OFFICE', floor: 0, x, z, width, depth });
+
+  it('goes back to back on its east side when that is free', () => {
+    const a = room('A', 0, 0, 6, 4);
+    const rect = planRoomCopy(a, [a]);
+    expect(rect).toMatchObject({ width: 6, depth: 4, z: 0 });
+    expect(rect.x).toBeCloseTo(6.15);
+  });
+
+  it('takes the next free side', () => {
+    const a = room('A', 0, 0, 6, 4);
+    const east = room('E', 6.15, 0, 6, 4);
+    const rect = planRoomCopy(a, [a, east]);
+    expect(rect.x).toBeCloseTo(0);
+    expect(rect.z).toBeCloseTo(-4.15);
+  });
+});
+
+describe('floorFinish (a room\'s floor)', () => {
+  const room = (id, x, more = {}) => ({ id, name: id, type: 'OFFICE', floor: 0, x, z: 0, width: 6, depth: 4, wallHeight: 3.2, ...more });
+  it('a new floor rebuilds only that room, even next to a neighbour', () => {
+    const before = [room('A', 0), room('B', 6.15), room('C', 20)];
+    const after = before.map((r) => (r.id === 'A' ? { ...r, floorFinish: 'carpet' } : r));
+    expect([...roomsToRebuild(before, after)]).toEqual(['A']);
+  });
+});

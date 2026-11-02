@@ -41,7 +41,7 @@ import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
-import { getMaterials, TILE_SIZE, FLOOR_BY_ROOM_TYPE } from './materialLibrary';
+import { getMaterials, TILE_SIZE, floorKindOf } from './materialLibrary';
 import {
   roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, wallThicknessOf, OPPOSITE, roomBuildInput,
 } from '../play/geometry';
@@ -148,7 +148,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
   const ceilingSurfaceHoles = toLocal(options.ceilingSurfaceHoles, roomData);
 
   // ── Floor (in pieces around any stairwell opening) ──
-  const floorKind = FLOOR_BY_ROOM_TYPE[type] ?? 'wood';
+  const floorKind = floorKindOf(roomData);
   subtractRects(inner, [...floorHoles, ...floorSurfaceHoles]).forEach((p, i) => {
     const w = p.x1 - p.x0;
     const d = p.z1 - p.z0;
@@ -409,7 +409,7 @@ export function buildRoomMesh(roomData, scene, options = {}) {
 export function roomMaterialSteps(scene, rooms) {
   if (!rooms.length) return [];
   const mats = getMaterials(scene);
-  const floorKinds = [...new Set(rooms.map((r) => FLOOR_BY_ROOM_TYPE[r.type] ?? 'wood'))];
+  const floorKinds = [...new Set(rooms.map(floorKindOf))];
   return [
     ...floorKinds.map((kind) => () => mats.floor(kind)),
     () => mats.plaster(),

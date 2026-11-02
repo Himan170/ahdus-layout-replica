@@ -29,7 +29,8 @@ function formatDate(isoString) {
   }
 }
 
-export default function VersionHistory({ editor, onMessage }) {
+/** label: a word shown under the icon (the AHDUS look's top bar: "Versions"). */
+export default function VersionHistory({ editor, onMessage, label = null }) {
   const [open, setOpen] = useState(false);
   const [versions, setVersions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -104,14 +105,15 @@ export default function VersionHistory({ editor, onMessage }) {
   return (
     <div className="studio-header__version-history" ref={wrapRef}>
       <button
-        className="ui-icon-btn"
-        aria-label="Version history"
+        className={`ui-icon-btn${label ? ' ui-labeled-btn' : ''}`}
+        aria-label={label ?? 'Version history'}
         title="Version history"
         aria-expanded={open}
         aria-pressed={open}
         onClick={() => setOpen((v) => !v)}
       >
         <History {...ICON} />
+        {label && <span className="ui-labeled-btn__label">{label}</span>}
       </button>
 
       {open && (

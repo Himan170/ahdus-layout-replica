@@ -4,7 +4,8 @@
  * The room's name on the floor of every room on the floor being edited
  * ("Show Room Areas" adds its area). A label that would overlap one already
  * drawn is hidden (bigger rooms win), so names never pile up. The selected
- * room's label is its details card (RoomDetails). HTML labels positioned over
+ * room's label is its details card (RoomDetails); in the AHDUS look (`selectedAsPill`) it stays
+ * the name, marked as selected (the properties panel shows the details). HTML labels positioned over
  * the 3D view after every frame (no React re-render per frame).
  *
  * Settings → "Room labels: Names / Off" (per browser). Off hides the names;
@@ -54,6 +55,7 @@ export function RoomDetails({ room, withArea = true }) {
 
 export default function RoomLabels({
   scene, rooms, elevation, hidden, showArea = false, showNames = true, selectedRoomId = null,
+  selectedAsPill = false,
 }) {
   const refs = useRef(new Map());
   const sizes = useRef(new Map()); // roomId → { w, h } of its label (measured after each render, not per frame)
@@ -100,13 +102,14 @@ export default function RoomLabels({
   return (
     <div className="room-labels" aria-hidden>
       {rooms.map((room) => {
-        const detail = room.id === selectedRoomId;
-        if (!detail && !showLabels) return null;
+        const selected = room.id === selectedRoomId;
+        const detail = selected && !selectedAsPill;
+        if (!selected && !showLabels) return null;
         const area = roomArea(room);
         return (
           <span
             key={room.id}
-            className={detail ? 'room-label room-card is-selected' : 'room-label'}
+            className={detail ? 'room-label room-card is-selected' : selected ? 'room-label is-selected' : 'room-label'}
             data-room-id={room.id}
             ref={(el) => { if (el) refs.current.set(room.id, el); else refs.current.delete(room.id); }}
           >

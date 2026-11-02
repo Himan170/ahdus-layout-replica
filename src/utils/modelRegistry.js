@@ -22,6 +22,8 @@
 export const MODEL_DIR = 'models/kenney/';
 export const TEXTURE_DIR = 'textures/';
 export const ENV_FILE = 'env/sky.env';
+/** Library tile pictures: the Kenney Furniture Kit's isometric preview of each model (scripts/prepare-assets.mjs). */
+export const THUMB_DIR = 'thumbs/';
 
 const one = (model, opts = {}) => ({ parts: [{ model, ...opts }] });
 
@@ -65,6 +67,12 @@ export const MODEL_REGISTRY = {
 /** The model parts of an asset type, or null (it keeps its primitive model). */
 export function modelPartsFor(assetType) {
   return MODEL_REGISTRY[assetType]?.parts ?? null;
+}
+
+/** The picture of an asset type's real model ('thumbs/<model>.webp', under the assets folder), or null. */
+export function thumbnailFor(assetType) {
+  const model = MODEL_REGISTRY[assetType]?.parts[0]?.model;
+  return model ? `${THUMB_DIR}${model}.webp` : null;
 }
 
 /** Every model file used (each is loaded once per scene). */

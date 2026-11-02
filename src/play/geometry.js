@@ -467,6 +467,7 @@ export function touchingRooms(room, rooms) {
 export function roomBuildInput(room, rooms) {
   return [
     floorOf(room), room.x, room.z, room.width, room.depth, room.wallHeight, wallThicknessOf(room), room.type, room.color,
+    room.floorFinish ?? 'default',
     room.doors ?? [], room.windows ?? [],
     touchingRooms(room, rooms).map((r) => [r.id, r.x, r.z, r.width, r.depth, r.wallHeight, wallThicknessOf(r),
       r.doors ?? [], r.windows ?? []]),
@@ -1039,6 +1040,19 @@ export function planRoom(a, b, rooms, below = null) {
   };
 }
 
+/**
+ * A room of a given size centred on a point (a library tile dropped or tapped on the floor):
+ * planRoom with that rectangle's corners, so it snaps and is blocked exactly like a drawn room.
+ */
+export function planRoomAt(centre, width, depth, rooms, below = null) {
+  return planRoom(
+    { x: centre.x - width / 2, z: centre.z - depth / 2 },
+    { x: centre.x + width / 2, z: centre.z + depth / 2 },
+    rooms,
+    below,
+  );
+}
+
 /** Hint text for a room on an upper floor that sticks out past the floor below. */
 export const OVERHANG_WARNING = 'Part of it has nothing under it';
 
@@ -1273,4 +1287,57 @@ export function resizeOpening(rooms, room, kind, index, change = {}, { stairs = 
 export function resetOpeningSize(rooms, room, kind, index, context) {
   const d = kind === 'door' ? DOOR_DEFAULTS : WINDOW_DEFAULTS;
   return resizeOpening(rooms, room, kind, index, { width: d.width, height: d.height }, context);
+}
+
+// ── The AHDUS look's selection bar on a room: Rotate and Duplicate ──────
+
+/** A quarter turn clockwise on the plan (north up, east right): where each wall goes, and the offset's sign. */
+const QUARTER_TURN = { north: ['east', -1], east: ['south', 1], south: ['west', -1], west: ['north', 1] };
+
+/**
+ * Turn a room a quarter turn about its centre: width and depth swap, its doors and windows go
+ * round with their walls. Refused when rooms stand inside it, when a door or window is shared
+ * with another room, or when the turned room would overlap one. Its items stay where they are
+ * (as when a room is moved).
+ * @returns {{ problem: string } | { problem: null, patch: { width, depth, doors, windows } }}
+ */
+export function planRoomTurn(room, rooms) {
+  const others = rooms.filter((r) => r.id !== room.id && floorOf(r) === floorOf(room));
+  const inside = others.find((r) => roomContainedBy(room, r));
+  if (inside) return { problem: `${inside.name} is inside it: it can't turn with it` };
+  for (const kind of ['door', 'window']) {
+    const list = (kind === 'door' ? room.doors : room.windows) ?? [];
+    for (let i = 0; i < list.length; i++) {
+      const partner = openingPartner(rooms, room, kind, i);
+      if (partner) return { problem: `A ${kind} is shared with ${partner.room.name}. Remove it first.` };
+    }
+  }
+  const rect = { x: room.x, z: room.z, width: room.depth, depth: room.width };
+  const blocker = roomRectBlocker(room, rect, rooms);
+  if (blocker) return { problem: `Turned, it would overlap ${blocker.name}` };
+  const turn = (list = []) => list.map((o) => {
+    const [wall, sign] = QUARTER_TURN[o.wall] ?? [o.wall, 1];
+    return { ...o, wall, offset: (o.offset ?? 0) * sign };
+  });
+  return { problem: null, patch: { width: rect.width, depth: rect.depth, doors: turn(room.doors), windows: turn(room.windows) } };
+}
+
+/**
+ * Where a copy of a room goes: the first free place next to it (east, south, west, north),
+ * back to back with it, snapped like a drawn room. Null when none is free.
+ * @param {object[]} rooms  rooms on the room's floor
+ * @param {object[]|null} below  rooms on the floor below (null on the lowest floor)
+ * @returns {{ x, z, width, depth } | null}
+ */
+export function planRoomCopy(room, rooms, below = null) {
+  const gap = wallThicknessOf(room);
+  const dx = room.width + gap;
+  const dz = room.depth + gap;
+  const spots = [[dx, 0], [0, -dz], [-dx, 0], [0, dz], [dx, -dz], [-dx, -dz], [-dx, dz], [dx, dz]];
+  const floorRooms = rooms.filter((r) => floorOf(r) === floorOf(room));
+  for (const [ox, oz] of spots) {
+    const plan = planRoomAt({ x: room.x + ox, z: room.z + oz }, room.width, room.depth, floorRooms, below);
+    if (!plan.blocker) return plan.rect;
+  }
+  return null;
 }
