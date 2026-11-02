@@ -123,7 +123,12 @@ export function useStudioFileActions({ onExit, editor, showStudioMessage, gizmoC
     }
 
     showStudioMessage('Analyzing photo with AI reconstruction…');
-    const analysisRes = await requestPhotoAnalysis(uploadRes.storagePath, { companyId, layoutId });
+    const analysisRes = await requestPhotoAnalysis(uploadRes.storagePath, {
+      companyId,
+      layoutId,
+      base64Data: uploadRes.base64Data,
+      mimeType: file.type,
+    });
     if (!analysisRes.ok) {
       setReconstructing(false, analysisRes.error);
       showStudioMessage(`AI reconstruction failed: ${analysisRes.error}`, true);
