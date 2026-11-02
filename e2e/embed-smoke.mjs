@@ -30,7 +30,7 @@ process.on('exit', () => {
 // ── 0. Build the embed; no Studio code in it ──
 execSync('npx vite build --config vite.embed.config.js --logLevel error', { stdio: 'inherit' });
 const bundle = readFileSync('dist-embed/ahdus-workplace.js', 'utf8');
-const STUDIO = /Preview Workplace|Floor switcher|All layouts|WorkplaceEditor|StudioPanel/;
+const STUDIO = /Add your first room|Floor switcher|All layouts|WorkplaceEditor|StudioPanel/;
 const css = statSync('dist-embed/ahdus-workplace.css', { throwIfNoEntry: false });
 log('build:embed makes one IIFE file (global AHDUSWorkplace) + its .css, with no Studio code and no process.env',
   bundle.includes('var AHDUSWorkplace=') && !STUDIO.test(bundle) && !/process\.env/.test(bundle) && !!css?.size,

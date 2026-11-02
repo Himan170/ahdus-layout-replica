@@ -7,13 +7,12 @@
  *
  *   item:   name, Position, Rotation, Size, Details (department, hook points,
  *           linked position); Duplicate / Lock / Delete
- *   room:   name, Room (type, width, depth, wall height, doors/windows); Delete. The AHDUS look
- *           (`ahdus`): name, room type, Width / Length / Ceiling, floor swatches, wall thickness,
+ *   room:   name, room type, Width / Length / Ceiling, floor swatches, wall thickness,
  *           the doors and windows (a click selects one) + "Add a door or window"; Duplicate, Delete room
  *   layers: outline of rooms and items on this floor
  */
 
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   X, Copy, Lock, LockOpen, Trash2, Link2, Unlink2, LayoutGrid, DoorOpen, AppWindow, RotateCcw, Volume2, VolumeX, Plus,
 } from 'lucide-react';
@@ -80,14 +79,9 @@ function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2,
 }
 
 /** Name in the header: edits merge into one undo step (the caller's merge key). */
-function NameInput({ value, placeholder, onChange, focusToken }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (focusToken) { ref.current?.focus(); ref.current?.select(); }
-  }, [focusToken]);
+function NameInput({ value, placeholder, onChange }) {
   return (
     <input
-      ref={ref}
       className="insp-name"
       aria-label="Name"
       value={value}
@@ -240,47 +234,7 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
 
 // ── Room ────────────────────────────────────────────────────────────────
 
-function RoomBody({ room, floorName, onUpdate }) {
-  const doors = room.doors?.length ?? 0;
-  const windows = room.windows?.length ?? 0;
-  return (
-    <Section title="Room">
-      <label className="insp-field insp-field--wide">
-        <span className="insp-field__label">Type</span>
-        <select
-          className="ui-select"
-          aria-label="Room type"
-          value={room.type}
-          onChange={(e) => {
-            const t = e.target.value;
-            onUpdate(room.id, { type: t, color: ROOM_TYPES[t]?.color ?? room.color });
-          }}
-        >
-          {Object.entries(ROOM_TYPES).map(([key, def]) => <option key={key} value={key}>{def.label}</option>)}
-        </select>
-      </label>
-      <div className="insp-grid">
-        <NumberField label="Width" value={room.width} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m"
-          onCommit={(v) => onUpdate(room.id, { width: v })} />
-        <NumberField label="Depth" value={room.depth} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m"
-          onCommit={(v) => onUpdate(room.id, { depth: v })} />
-        <NumberField label="Wall height" value={room.wallHeight ?? 3} step={0.1} min={MIN_WALL_HEIGHT} max={MAX_WALL_HEIGHT} digits={1} suffix="m"
-          onCommit={(v) => onUpdate(room.id, { wallHeight: v })} />
-        <NumberField label="Wall thickness" value={wallThicknessOf(room)} step={WALL_THICKNESS_STEP}
-          min={MIN_WALL_THICKNESS} max={MAX_WALL_THICKNESS} digits={2} suffix="m"
-          onCommit={(v) => onUpdate(room.id, { wallThickness: v })} />
-      </div>
-      <dl className="insp-facts">
-        <div><dt>Floor</dt><dd>{floorName}</dd></div>
-        <div><dt>Doors</dt><dd>{doors}</dd></div>
-        <div><dt>Windows</dt><dd>{windows}</dd></div>
-        <div><dt>Area</dt><dd>{Math.round(room.width * room.depth)} m²</dd></div>
-      </dl>
-    </Section>
-  );
-}
-
-/** The AHDUS look's floor swatches: name and colour of each floor. */
+/** The floor swatches: name and colour of each floor. */
 const FLOOR_SWATCH = {
   wood: { label: 'Wood', color: '#d8b98f' },
   carpet: { label: 'Carpet', color: '#c8d4de' },
@@ -289,7 +243,7 @@ const FLOOR_SWATCH = {
 };
 const SIDE = { north: 'North wall', south: 'South wall', east: 'East wall', west: 'West wall' };
 
-function AhdusRoomBody({ room, onUpdate, onSetFloor, onSelectOpening, onAddOpening }) {
+function RoomBody({ room, onUpdate, onSetFloor, onSelectOpening, onAddOpening }) {
   const area = room.width * room.depth;
   const floor = floorKindOf(room);
   const openings = roomOpenings(room);
@@ -478,8 +432,6 @@ export default function Inspector({
   onUpdateRoom, onRenameRoom, onDeleteRoom,
   hookPoints = [], positions = [], onSetPositionRef,
   onPickLayer,
-  nameFocusToken,
-  ahdus = false,        // the AHDUS look's room panel (see above)
   onSetFloorFinish,     // (roomId, kind) => void
   onSelectOpening,      // ({ roomId, kind, index }) => void
   onAddOpening,         // () => void: the Doors & windows tool
@@ -539,7 +491,7 @@ export default function Inspector({
   const ObjIcon = object ? assetIcon(object.assetType) : null;
 
   return (
-    <aside className={`inspector${ahdus ? ' is-ahdus' : ''}`} aria-label="Inspector" data-mode={mode}>
+    <aside className="inspector is-ahdus" aria-label="Inspector" data-mode={mode}>
       <header className="inspector__header">
         <span className="inspector__icon" aria-hidden>
           {mode === 'object' && ObjIcon && <ObjIcon size={20} strokeWidth={1.75} />}
@@ -555,21 +507,15 @@ export default function Inspector({
                 value={object.label ?? ''}
                 placeholder={def?.label ?? 'Name this item'}
                 onChange={(v) => onUpdateObject(object.id, { label: v })}
-                focusToken={nameFocusToken}
+               
               />
               <span className="inspector__type">{def?.label ?? object.assetType}{object.isLocked ? ' · Locked' : ''}</span>
             </>
           )}
-          {mode === 'room' && ahdus && (
+          {mode === 'room' && (
             <>
               <span className="inspector__eyebrow">Room</span>
-              <NameInput value={room.name} placeholder="Room name" onChange={(v) => onRenameRoom(room.id, v)} focusToken={nameFocusToken} />
-            </>
-          )}
-          {mode === 'room' && !ahdus && (
-            <>
-              <NameInput value={room.name} placeholder="Room name" onChange={(v) => onRenameRoom(room.id, v)} focusToken={nameFocusToken} />
-              <span className="inspector__type">Room · {ROOM_TYPES[room.type]?.label ?? room.type}</span>
+              <NameInput value={room.name} placeholder="Room name" onChange={(v) => onRenameRoom(room.id, v)} />
             </>
           )}
           {mode === 'opening' && (
@@ -611,9 +557,8 @@ export default function Inspector({
           <ObjectBody object={object} floorName={floorName} onUpdate={onUpdateObject}
             hookPoints={hookPoints} positions={positions} onSetPositionRef={onSetPositionRef} />
         )}
-        {mode === 'room' && !ahdus && <RoomBody room={room} floorName={floorName} onUpdate={onUpdateRoom} />}
-        {mode === 'room' && ahdus && (
-          <AhdusRoomBody room={room} onUpdate={onUpdateRoom} onSetFloor={onSetFloorFinish}
+        {mode === 'room' && (
+          <RoomBody room={room} onUpdate={onUpdateRoom} onSetFloor={onSetFloorFinish}
             onSelectOpening={onSelectOpening} onAddOpening={onAddOpening} />
         )}
         {mode === 'opening' && <OpeningBody opening={opening} floorName={floorName} onResize={onResizeOpening} />}
@@ -648,11 +593,9 @@ export default function Inspector({
       )}
       {mode === 'room' && (
         <footer className="inspector__footer">
-          {ahdus && (
-            <button className="ui-btn" onClick={() => onDuplicateRoom(room.id)} title="A copy of this room next to it">
-              <Copy {...ICON} /> Duplicate
-            </button>
-          )}
+          <button className="ui-btn" onClick={() => onDuplicateRoom(room.id)} title="A copy of this room next to it">
+            <Copy {...ICON} /> Duplicate
+          </button>
           <button className="ui-btn is-danger" onClick={() => onDeleteRoom(room.id)} title="Delete room (Del)">
             <Trash2 {...ICON} /> Delete room
           </button>

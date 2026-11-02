@@ -2,7 +2,7 @@
  * ui/tools.js
  *
  * The build tools, defined once and shown the same way in Workplace Studio
- * (Build panel tiles, options trays, footer hints) and in Preview (hotbar and
+ * (tool rail tiles, their libraries, hints) and in Preview (hotbar and
  * catalog icons). Icons are lucide-react components.
  */
 
@@ -98,7 +98,7 @@ export function sizeLabel(width, depth) {
   return `${n(width)} × ${n(depth)} m`;
 }
 
-// ── Options shown in each tile's tray ────────────────────────────────────
+// ── Options shown in each tile's library ─────────────────────────────────
 
 export const ROOM_OPTIONS = Object.entries(ROOM_TYPES).map(([roomType, def]) => ({
   id: roomType,
@@ -108,11 +108,11 @@ export const ROOM_OPTIONS = Object.entries(ROOM_TYPES).map(([roomType, def]) => 
   tool: { kind: 'room', roomType },
 }));
 
-/** Furniture tray: every catalog item except building parts (they have their own tiles). */
+/** The Furniture library: every catalog item except building parts (they have their own tiles). */
 export const FURNITURE_ITEMS = OBJECT_ITEMS.filter((i) => i.assetType !== 'STAIRCASE');
 
 // ── The tiles ────────────────────────────────────────────────────────────
-// id, label, icon, shortcut, hint (footer text), options (tray), and how a
+// id, label, icon, shortcut, hint (canvas hint), options (library), and how a
 // pick is applied: `tool` = planner tool (plannerTools.js), `place` = start
 // placing a catalog asset (placementManager.js).
 
@@ -172,7 +172,7 @@ export const STUDIO_TOOLS = [
     icon: Armchair,
     shortcut: '6',
     hint: 'Click the floor or a table top to place it. R turns it, the wheel changes its height.',
-    // options: the furniture tray lists FURNITURE_ITEMS with search and categories
+    // options: the Furniture library lists FURNITURE_ITEMS with search and categories
   },
 ];
 
@@ -244,4 +244,15 @@ export function toolHint(plannerTool, placementAsset) {
   if (plannerTool?.kind === 'window' && !placementAsset) return 'Click a wall to add a window';
   if (plannerTool?.kind === 'room' && plannerTool.stamp && !placementAsset) return 'Tap the floor where the room goes';
   return toolById(id)?.hint ?? '';
+}
+
+/** A phone with nothing going on: how to move the view with fingers. */
+export const PHONE_HINT = 'Drag to turn · pinch to zoom · tap a room to select it';
+
+/**
+ * The phone's idle hint, or '' (no hint): hidden while a bottom sheet (the library, the
+ * Inspector) covers the bottom of the view, and for good once the canvas has been touched.
+ */
+export function phoneIdleHint({ sheetOpen = false, touched = false } = {}) {
+  return sheetOpen || touched ? '' : PHONE_HINT;
 }

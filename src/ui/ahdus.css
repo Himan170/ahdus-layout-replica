@@ -1,26 +1,26 @@
 /*
- * The AHDUS look of Workplace Studio (ui/look.js puts data-look="ahdus" on <html>).
- * Colours come from theme.css's :root[data-look="ahdus"] tokens; this file only has what
- * looks different from the dark look (local mode), so every rule starts with [data-look="ahdus"].
+ * The AHDUS look of Workplace Studio (every mode since v0.10.1). Colours come from theme.css's
+ * tokens. Rules that override studio.css's base rules start with :root, so they win whichever
+ * of the two files the bundle puts first (the specificity the old [data-look] prefix gave them).
  */
 
 /* ── Shared controls ─────────────────────────────────────────────── */
 
-[data-look="ahdus"] .ui-btn { border-color: var(--border-strong); }
-[data-look="ahdus"] .ui-btn.is-primary { border-color: var(--accent); }
-[data-look="ahdus"] .ui-btn.is-danger { border-color: color-mix(in srgb, var(--danger) 35%, transparent); background: var(--danger-soft); }
-[data-look="ahdus"] .ui-btn.is-ghost { border-color: transparent; }
-[data-look="ahdus"] .ui-input,
-[data-look="ahdus"] .ui-select { border-color: var(--border-strong); background: var(--bg-panel); }
-[data-look="ahdus"] .ui-pop { border-color: var(--border); }
-[data-look="ahdus"] .ui-segmented { background: var(--bg-panel); border-color: var(--border); }
-[data-look="ahdus"] .ui-segmented button[aria-pressed="true"] { background: var(--accent-strong); color: var(--on-accent); }
-[data-look="ahdus"] .ui-switch { background: var(--border); border-color: var(--border-strong); }
-[data-look="ahdus"] .ui-switch::after { background: var(--bg-panel); box-shadow: 0 1px 2px rgba(25, 59, 47, 0.25); }
-[data-look="ahdus"] .ui-switch[aria-checked="true"]::after { background: var(--bg-panel); }
-[data-look="ahdus"] .ui-kbd { background: var(--bg-app); }
-[data-look="ahdus"] * { scrollbar-color: var(--border-strong) transparent; }
-[data-look="ahdus"] *::-webkit-scrollbar-thumb { background: var(--border-strong); }
+:root .ui-btn { border-color: var(--border-strong); }
+:root .ui-btn.is-primary { border-color: var(--accent); }
+:root .ui-btn.is-danger { border-color: color-mix(in srgb, var(--danger) 35%, transparent); background: var(--danger-soft); }
+:root .ui-btn.is-ghost { border-color: transparent; }
+:root .ui-input,
+:root .ui-select { border-color: var(--border-strong); background: var(--bg-panel); }
+:root .ui-pop { border-color: var(--border); }
+:root .ui-segmented { background: var(--bg-panel); border-color: var(--border); }
+:root .ui-segmented button[aria-pressed="true"] { background: var(--accent-strong); color: var(--on-accent); }
+:root .ui-switch { background: var(--border); border-color: var(--border-strong); }
+:root .ui-switch::after { background: var(--bg-panel); box-shadow: 0 1px 2px rgba(25, 59, 47, 0.25); }
+:root .ui-switch[aria-checked="true"]::after { background: var(--bg-panel); }
+:root .ui-kbd { background: var(--bg-app); }
+:root * { scrollbar-color: var(--border-strong) transparent; }
+:root *::-webkit-scrollbar-thumb { background: var(--border-strong); }
 
 /* The logo: a dark green square with the building (top bar, loading screen) */
 .ahdus-logo {
@@ -37,15 +37,15 @@
 
 /* ── Loading screen, toast, dialog ───────────────────────────────── */
 
-[data-look="ahdus"] .studio-splash__ahdus { color: var(--text-muted); }
-[data-look="ahdus"] .ui-toast__link { color: var(--accent); }
-[data-look="ahdus"] .ui-toast__link:hover { color: var(--accent-hover); }
-[data-look="ahdus"] .ui-dialog { box-shadow: var(--shadow-pop); }
+:root .studio-splash__ahdus { color: var(--text-muted); }
+:root .ui-toast__link { color: var(--accent); }
+:root .ui-toast__link:hover { color: var(--accent-hover); }
+:root .ui-dialog { box-shadow: var(--shadow-pop); }
 
 /* ── On the canvas ───────────────────────────────────────────────── */
 
 /* Room names: dark green pills, white text */
-[data-look="ahdus"] .room-label:not(.room-card) {
+:root .room-label:not(.room-card) {
   padding: 3px 10px;
   border: 0;
   border-radius: 999px;
@@ -53,31 +53,26 @@
   color: var(--on-accent);
   font-weight: 600;
 }
-[data-look="ahdus"] .room-label.is-selected:not(.room-card) { background: var(--accent); box-shadow: 0 0 0 2px var(--bg-panel); }
-[data-look="ahdus"] .room-label:not(.room-card) .room-label__area { color: var(--on-accent); }
-[data-look="ahdus"] .room-card { border-radius: var(--radius); }
+:root .room-label.is-selected:not(.room-card) { background: var(--accent); box-shadow: 0 0 0 2px var(--bg-panel); }
+:root .room-label:not(.room-card) .room-label__area { color: var(--on-accent); }
+:root .room-card { border-radius: var(--radius); }
 /* Measurement labels: the dark look draws them on a fixed dark background */
-[data-look="ahdus"] .measurement-label {
+:root .measurement-label {
   border-color: transparent;
   background: var(--bg-panel);
   box-shadow: var(--shadow-card), 0 0 0 1px var(--border-strong);
   color: var(--text);
 }
-[data-look="ahdus"] .measurement-label--distance { background: var(--accent-strong); color: var(--on-accent); box-shadow: none; }
-[data-look="ahdus"] .measurement-lines line { stroke: var(--accent); }
-[data-look="ahdus"] .measurement-lines circle { stroke: var(--accent); }
-[data-look="ahdus"] .measurement-lines .measurement-lines__start { fill: var(--accent); stroke: var(--bg-panel); }
-[data-look="ahdus"] .canvas-card__controls { box-shadow: var(--shadow-card); }
-[data-look="ahdus"] .build-progress { box-shadow: var(--shadow-card); }
+:root .measurement-label--distance { background: var(--accent-strong); color: var(--on-accent); box-shadow: none; }
+:root .measurement-lines line { stroke: var(--accent); }
+:root .measurement-lines circle { stroke: var(--accent); }
+:root .measurement-lines .measurement-lines__start { fill: var(--accent); stroke: var(--bg-panel); }
+:root .canvas-card__controls { box-shadow: var(--shadow-card); }
+:root .build-progress { box-shadow: var(--shadow-card); }
 
-/* ── Top bar status (classic layout) ─────────────────────────────── */
+/* ── Top bar (ui/StudioHeader.jsx) ───────────────────────────────── */
 
-[data-look="ahdus"] .studio-header__status.is-warning,
-[data-look="ahdus"] .studio-header__status.is-syncing { color: var(--warning-text); }
-
-/* ── Top bar (ui/StudioHeader.jsx: AhdusHeader) ──────────────────── */
-
-[data-look="ahdus"] .studio { background: var(--bg-app); }
+:root .studio { background: var(--bg-app); }
 .ahdus-header {
   height: 64px;
   padding: 0 var(--space-4) 0 var(--space-4);
@@ -148,13 +143,13 @@
 .ahdus-header .publish-btn { height: 40px; padding: 0 var(--space-4); font-size: 14px; font-weight: 600; border-radius: var(--radius); }
 .ahdus-header__walk { background: var(--bg-panel); color: var(--text); }
 .ahdus-header .publish-btn__dot { background: var(--warning-dot); width: 8px; height: 8px; }
-[data-look="ahdus"] .ui-toast-region { top: calc(64px + var(--space-2)); }
+:root .ui-toast-region { top: calc(64px + var(--space-2)); }
 
 /* ── Shell: panels edge to edge, the canvas fills the rest ───────── */
 
-[data-look="ahdus"] .studio-main { padding: 0; }
-[data-look="ahdus"] .studio-build-col { width: auto; margin-right: 0; display: flex; position: relative; z-index: 20; } /* its pop-ups over the canvas controls */
-[data-look="ahdus"] .canvas-card { border: 0; border-radius: 0; }
+:root .studio-main { padding: 0; }
+:root .studio-build-col { width: auto; margin-right: 0; display: flex; position: relative; z-index: 20; } /* its pop-ups over the canvas controls */
+:root .canvas-card { border: 0; border-radius: 0; }
 
 /* ── Tool rail (ui/BuildPanel.jsx, rail) ─────────────────────────── */
 
@@ -184,7 +179,6 @@
 .tool-rail .build-tile--row { flex-direction: column; height: auto; min-height: 56px; gap: 6px; }
 .tool-rail .build-tile--row + .build-tile--row { margin-top: 0; }
 .tool-rail .build-tile:focus-visible { outline-color: var(--on-accent); outline-offset: -2px; }
-.tool-rail .tray { left: calc(100% + var(--space-2)); top: var(--space-3); max-height: calc(100% - 2 * var(--space-3)); }
 
 /* Keyboard shortcuts (ui/ShortcutsPopover.jsx), next to the rail's bottom */
 .shortcuts-pop {
@@ -346,7 +340,7 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 
 /* ── Canvas controls (ui/CanvasCard.jsx, ui/CameraControls.jsx, StudioFooter floating) ─────── */
 
-[data-look="ahdus"] .canvas-card__controls {
+:root .canvas-card__controls {
   top: var(--space-4);
   right: var(--space-4);
   gap: 4px;
@@ -355,7 +349,7 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
   background: var(--bg-panel);
   backdrop-filter: none;
 }
-[data-look="ahdus"] .canvas-card__controls .has-label {
+:root .canvas-card__controls .has-label {
   display: inline-flex;
   flex-direction: row;
   align-items: center;
@@ -366,7 +360,7 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
   font-size: 13px;
   font-weight: 500;
 }
-[data-look="ahdus"] .canvas-card__controls .ui-icon-btn { height: 32px; }
+:root .canvas-card__controls .ui-icon-btn { height: 32px; }
 .canvas-card__full { width: 32px; }
 
 /* Camera card, top left */
@@ -459,8 +453,8 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 }
 .canvas-footer > * { pointer-events: auto; }
 .canvas-footer__floors { position: relative; display: flex; align-items: center; gap: 8px; justify-self: start; }
-[data-look="ahdus"] .canvas-footer .studio-footer__floor-btn,
-[data-look="ahdus"] .canvas-footer__add {
+:root .canvas-footer .studio-footer__floor-btn,
+:root .canvas-footer__add {
   height: 44px;
   padding: 0 16px;
   border: 1px solid var(--border);
@@ -471,8 +465,8 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
   font-size: 14px;
 }
 .canvas-footer .studio-footer__floor-name { font-weight: 600; }
-[data-look="ahdus"] .canvas-footer__add { gap: 6px; font-weight: 500; color: var(--accent); }
-[data-look="ahdus"] .canvas-footer__add:hover, [data-look="ahdus"] .canvas-footer .studio-footer__floor-btn:hover { background: var(--bg-hover); }
+:root .canvas-footer__add { gap: 6px; font-weight: 500; color: var(--accent); }
+:root .canvas-footer__add:hover, :root .canvas-footer .studio-footer__floor-btn:hover { background: var(--bg-hover); }
 .canvas-footer .studio-footer__hint {
   grid-column: 2;
   min-width: 0;
@@ -491,7 +485,7 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 }
 .canvas-footer .studio-footer__hint:empty { visibility: hidden; padding: 0; }
 /* "Building the other floors…": bottom right (the camera card is top left) */
-[data-look="ahdus"] .build-progress.is-rest:not(.in-preview) { left: auto; top: auto; right: var(--space-4); bottom: var(--space-4); }
+:root .build-progress.is-rest:not(.in-preview) { left: auto; top: auto; right: var(--space-4); bottom: var(--space-4); }
 
 /* ── Selection bar, labelled (ui/SelectionToolbar.jsx) ───────────── */
 
@@ -524,9 +518,9 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 
 /* ── Properties panel (ui/Inspector.jsx, ahdus) ──────────────────── */
 
-[data-look="ahdus"] .studio-inspector-col > * { margin-left: 0; }
-[data-look="ahdus"] .studio-inspector-col.is-open { width: 320px; }
-[data-look="ahdus"] .inspector { border-radius: 0; border-width: 0 0 0 1px; box-shadow: none; }
+:root .studio-inspector-col > * { margin-left: 0; }
+:root .studio-inspector-col.is-open { width: 320px; }
+:root .inspector { border-radius: 0; border-width: 0 0 0 1px; box-shadow: none; }
 .inspector.is-ahdus[data-mode="room"] .inspector__icon { display: none; }
 .inspector__eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
 .inspector.is-ahdus[data-mode="room"] .inspector__header { align-items: flex-start; padding-top: var(--space-5, 20px); }
@@ -661,9 +655,9 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 .phone-bar__views button { height: 40px; min-width: 52px; font-size: 15px; }
 
 @media (max-width: 600px) {
-  [data-look="ahdus"] .studio-main { flex-direction: column; }
-  [data-look="ahdus"] .studio-main > .canvas-card { order: 1; }
-  [data-look="ahdus"] .studio-build-col { order: 2; width: 100%; flex-direction: column; }
+  :root .studio-main { flex-direction: column; }
+  :root .studio-main > .canvas-card { order: 1; }
+  :root .studio-build-col { order: 2; width: 100%; flex-direction: column; }
 
   /* The tool bar along the bottom */
   .tool-rail.build-panel {
@@ -708,7 +702,7 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
   .library.is-sheet .lib__heading { display: none; }
 
   /* The properties panel: a sheet over the canvas */
-  [data-look="ahdus"] .studio-inspector-col {
+  :root .studio-inspector-col {
     position: absolute;
     left: 0;
     right: 0;
@@ -718,10 +712,10 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
     height: min(60%, 520px);
     transition: none;
   }
-  [data-look="ahdus"] .studio-inspector-col:not(.is-open) { display: none; }
-  [data-look="ahdus"] .studio-inspector-col.is-open { width: auto; }
-  [data-look="ahdus"] .studio-inspector-col > * { width: 100%; margin: 0; }
-  [data-look="ahdus"] .inspector { border-width: 1px 0 0; border-radius: 18px 18px 0 0; box-shadow: 0 -8px 20px rgba(25, 59, 47, 0.12); }
+  :root .studio-inspector-col:not(.is-open) { display: none; }
+  :root .studio-inspector-col.is-open { width: auto; }
+  :root .studio-inspector-col > * { width: 100%; margin: 0; }
+  :root .inspector { border-width: 1px 0 0; border-radius: 18px 18px 0 0; box-shadow: 0 -8px 20px rgba(25, 59, 47, 0.12); }
 
   /* On the canvas: the floor top left, Reset / Fit on the right, the hint at the bottom */
   .camera-controls.is-compact { left: auto; right: 12px; top: 12px; padding: 4px; gap: 4px; }
@@ -730,7 +724,7 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
   .canvas-footer { inset: 12px; display: block; }
   .canvas-footer__floors { position: absolute; top: 0; left: 0; max-width: calc(100% - 64px); }
   .canvas-footer__add { display: none !important; }
-  [data-look="ahdus"] .canvas-footer .studio-footer__floor-btn { max-width: 100%; }
+  :root .canvas-footer .studio-footer__floor-btn { max-width: 100%; }
   .canvas-footer .studio-footer__floor-name { overflow: hidden; text-overflow: ellipsis; }
   .canvas-footer .floor-menu { top: calc(100% + 8px); bottom: auto; width: min(280px, calc(100vw - 24px)); }
   .canvas-footer .studio-footer__hint {

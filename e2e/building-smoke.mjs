@@ -127,7 +127,7 @@ await p.waitForSelector('canvas', { timeout: 90000 }); await wait(2500);
 await p.evaluate(() => window.__ahdusScene.getEngine().setHardwareScalingLevel(2));
 await p.mouse.move(640, 360);
 // The editor opens in Workplace Studio; this test covers Preview
-await p.click('[aria-label="Preview Workplace"]'); await wait(800);
+await p.click('[aria-label="Walk through"]'); await wait(800);
 await ensureLocked();
 
 // ── Ground floor: an office with a staircase inside (set up directly; building rooms is covered by play-smoke) ──
@@ -300,8 +300,8 @@ log('Studio on Floor 1: both storeys shown, Floor 1 without its roof',
   (await roomShown(copy.id)) && (await roomShown(ids.ground)) && !(await partShown(copy.id, 'roof')));
 
 // ── Studio on Floor 1: the outline of the floor below shows while building ──
-await p.click('[aria-label="Rooms"]'); await frames(1);
-await p.click('[aria-label="Rooms options"] button:has-text("Office")'); await frames(3);
+if (!(await p.locator('[aria-label="Rooms library"]').isVisible())) { await p.click('[aria-label="Rooms"]'); await frames(1); }
+await p.click('[aria-label="Rooms library"] button:has-text("Draw your own size")'); await frames(3);
 const outline = await p.evaluate(() => !!window.__ahdusScene.getMeshByName('floorBelowOutline')?.isEnabled());
 await shot('b5-planner-floor1-outline.png');
 await p.keyboard.press('Escape'); await frames(2);
@@ -310,7 +310,7 @@ log('Studio, Rooms tool on Floor 1: the outline of the ground floor is drawn on 
 // ── Studio: Inspector wall height past the floor raises it; the floor menu sets floor heights ──
 await p.evaluate((id) => { const s = window.__ahdusStore.getState(); s.selectFloor(0); s.selectRoom(id); }, ids.ground);
 await frames(3);
-await p.fill('aside[aria-label="Inspector"] input[aria-label="Wall height"]', '4.5'); await frames(3);
+await p.fill('aside[aria-label="Inspector"] input[aria-label="Ceiling"]', '4.5'); await frames(3);
 await p.evaluate(() => document.activeElement?.blur());
 st = await store();
 log('Inspector: 4.5 m walls raise the ground floor to 4.8 m and Floor 1 with it',
@@ -344,8 +344,8 @@ await shot('b8-studio-copied-floor.png');
 await p.click('[aria-label="Floor switcher"]'); await frames(1);
 await p.click('[aria-label="Add floor above"]'); await frames(1);
 await p.click('[aria-label="Empty floor"]'); await frames(3);
-await p.click('[aria-label="Rooms"]'); await frames(1);
-await p.click('[aria-label="Rooms options"] button:has-text("Office")'); await frames(3);
+if (!(await p.locator('[aria-label="Rooms library"]').isVisible())) { await p.click('[aria-label="Rooms"]'); await frames(1); }
+await p.click('[aria-label="Rooms library"] button:has-text("Draw your own size")'); await frames(3);
 st = await store();
 const emptyOutline = await p.evaluate(() => !!window.__ahdusScene.getMeshByName('floorBelowOutline')?.isEnabled());
 log('"Empty floor" adds Floor 3 with no rooms; the Rooms tool shows the outline of Floor 2 on it',

@@ -168,10 +168,18 @@ try {
     await frames(3);
   };
   const tile = async (label) => { await page.click(`[aria-label="${label}"]`); await frames(2); };
+  // The tool rail: a tile opens its library; a library tile arms the tool. Then the tile closes the
+  // library again (the tool stays armed), so the view is as wide as before.
+  // Rooms: "Draw your own size" draws an Office (the default room type).
+  const LIBRARY = { Rooms: 'rooms', Walls: 'walls', 'Doors & Windows': 'doors', Stairs: 'stairs', Furniture: 'furniture' };
   const pick = async (tileLabel, option) => {
-    await tile(tileLabel);
-    await page.click(`[aria-label="${tileLabel} options"] button:has-text("${option}")`);
+    const lib = `[data-library="${LIBRARY[tileLabel]}"]`;
+    if (!(await page.locator(lib).isVisible().catch(() => false))) await tile(tileLabel);
+    await page.click(tileLabel === 'Rooms' ? `${lib} button:has-text("Draw your own size")`
+      : `${lib} .lib-tile:has(.lib-tile__name:text-is("${option}"))`);
     await frames(2);
+    await tile(tileLabel);
+    await page.waitForTimeout(250); await frames(2); // the canvas widens again
   };
   // 2D: look at (x, z), half a view height of `half` metres
   const look2D = async (x, z, half) => {
@@ -338,7 +346,7 @@ try {
       u.nested.floor === 1 && u.nested.x === 4.35 && u.nested.doors === 1);
   };
 
-  await page.waitForFunction(({ up }) => document.querySelector('.studio-header__status')?.textContent === 'Saved' &&
+  await page.waitForFunction(({ up }) => document.querySelector('.status-pill')?.textContent === 'Saved' &&
     window.__nested.sharedWalls(up.office, up.neighbour).length > 0, { up }, { timeout: 60000 });
   check(await inspect(), 'before saving');
 
@@ -354,7 +362,7 @@ try {
 
   // ── Preview, next to the corner room where its walls meet the office's ──
   await page.mouse.move(640, 380);
-  await page.click('[aria-label="Preview Workplace"]'); await page.waitForTimeout(800);
+  await page.click('[aria-label="Walk through"]'); await page.waitForTimeout(800);
   if (!(await page.evaluate(() => !!document.pointerLockElement))) {
     await page.click('button:has-text("Start preview")'); await page.waitForTimeout(400);
   }

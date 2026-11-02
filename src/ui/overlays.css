@@ -21,7 +21,6 @@
 .studio-splash.is-leaving { opacity: 0; pointer-events: none; }
 .studio-splash.is-error { gap: 0; }
 .studio-splash__brand { display: flex; align-items: center; gap: var(--space-3); }
-.studio-splash__logo { color: var(--accent); }
 .studio-splash__name { display: flex; flex-direction: column; font-size: 22px; font-weight: 600; line-height: 1.2; }
 .studio-splash__ahdus { color: var(--text-muted); font-size: 13px; font-weight: 600; letter-spacing: 0.08em; }
 .studio-splash__spinner {

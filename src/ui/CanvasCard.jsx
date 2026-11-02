@@ -1,10 +1,9 @@
 /**
  * ui/CanvasCard.jsx
  *
- * The rounded card that holds the 3D view. Top-right: Export, Measure (not in Plan), 2D | 3D | Plan
- * and Fit view. The AHDUS look (`ahdus`): Export and Measure with their names, 2D | 3D | Plan and
- * Full screen top right; the camera card (`camera`, ui/CameraControls) top left; the floor switcher
- * and the hint (`footer`) along the bottom.
+ * The card that holds the 3D view. Top right: Export and Measure (not in Plan) with their names,
+ * 2D | 3D | Plan and Full screen; the camera card (`camera`, ui/CameraControls: Fit view, …) top
+ * left; the floor switcher and the hint (`footer`) along the bottom.
  * Plan = the floor plan (floorplan/FloorPlanView) in place of the 3D canvas.
  * Shows the empty state ("Build your workplace") while the layout has no rooms.
  * The <canvas> and the overlays are passed in as children so the canvas
@@ -12,7 +11,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Boxes, Maximize2, Plus, Expand, Shrink } from 'lucide-react';
+import { Boxes, Plus, Expand, Shrink } from 'lucide-react';
 import ExportMenu from './ExportMenu';
 import MeasureMenu, { MeasureHint } from './MeasureMenu';
 
@@ -36,16 +35,14 @@ function FullScreenButton() {
 
 export default function CanvasCard({
   children,
-  ahdus = false,    // the AHDUS look's layout (see above)
-  camera = null,    // AHDUS look: the camera card, top left (not in Plan view)
-  footer = null,    // AHDUS look: floor switcher + hint, along the bottom
-  phone = false,    // AHDUS look on a phone: no controls top right (PhoneBar has 2D | 3D | Plan)
+  camera = null,    // the camera card, top left (not in Plan view)
+  footer = null,    // floor switcher + hint, along the bottom
+  phone = false,    // a phone: no controls top right (PhoneBar has 2D | 3D | Plan)
   preview,          // true in Preview: the card fills the window, no Studio controls
   is3D,
   onSetView,        // (want3D: boolean) => void
   planView,         // true while the floor plan is shown
   onSetPlan,        // () => void: show the floor plan
-  onFitView,
   showEmpty,
   onAddFirstRoom,
   // Export
@@ -74,7 +71,7 @@ export default function CanvasCard({
             onExportPdf={onExportPdf}
             disabled={exportDisabled}
             loading={exportLoading}
-            label={ahdus ? 'Export' : undefined}
+            label="Export"
           />
           {!planView && (
             <MeasureMenu
@@ -86,7 +83,7 @@ export default function CanvasCard({
               onToggleWallLengths={onToggleWallLengths}
               showRoomAreas={showRoomAreas}
               onToggleRoomAreas={onToggleRoomAreas}
-              label={ahdus ? 'Measure' : undefined}
+              label="Measure"
             />
           )}
           <div className="ui-segmented" role="group" aria-label="View">
@@ -94,11 +91,7 @@ export default function CanvasCard({
             <button aria-label="3D view" title="3D view" aria-pressed={!planView && is3D} onClick={() => onSetView(true)}>3D</button>
             <button aria-label="Plan view" title="Floor plan: rooms, walls, doors and items of this floor" aria-pressed={!!planView} onClick={onSetPlan}>Plan</button>
           </div>
-          {ahdus ? <FullScreenButton /> : (
-            <button className="ui-icon-btn canvas-card__fit" aria-label="Fit view" title="Fit view: show the whole floor" disabled={planView} onClick={onFitView}>
-              <Maximize2 size={18} strokeWidth={1.75} />
-            </button>
-          )}
+          <FullScreenButton />
         </div>
       )}
 

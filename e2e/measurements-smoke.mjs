@@ -72,7 +72,7 @@ try {
   await page.waitForFunction(() => !!window.__ahdusScene, null, { timeout: 90000 });
   await page.getByRole('button', { name: '2D view' }).click();
   await page.getByRole('button', { name: 'Rooms' }).click();
-  await page.locator('[aria-label="Rooms options"] button:has-text("Office")').click();
+  await page.locator('[aria-label="Rooms library"] button:has-text("Draw your own size")').click();
   const from = await worldToScreen(-3, 0.02, -2);
   const to = await worldToScreen(3, 0.02, 2);
   await page.mouse.move(from.x, from.y);

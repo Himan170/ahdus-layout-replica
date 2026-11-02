@@ -1,4 +1,4 @@
-// The AHDUS look (theme.css, :root[data-look="ahdus"]): every text colour is at least 4.5:1
+// The AHDUS look (theme.css, :root): every text colour is at least 4.5:1
 // (WCAG AA) on the backgrounds it is used on. Reads the tokens from the CSS file itself.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -22,7 +22,7 @@ const contrast = (a, b) => {
   return (hi + 0.05) / (lo + 0.05);
 };
 
-const T = tokens(':root[data-look="ahdus"]');
+const T = tokens(':root');
 
 // [text token, background token]: every pair the AHDUS look draws text with
 const PAIRS = [

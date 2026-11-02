@@ -255,7 +255,7 @@ export default function PlayHUD({
         </div>
       )}
 
-      {/* ── Catalog (looks like Studio's Furniture tray) ── */}
+      {/* ── Catalog (search + category chips, like Studio's library) ── */}
       {catalogOpen && (
         <div className="hud-scrim" onClick={onCloseCatalog}>
           <div

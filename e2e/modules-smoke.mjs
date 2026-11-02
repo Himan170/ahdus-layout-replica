@@ -73,7 +73,7 @@ await p.waitForSelector('canvas', { timeout: 90000 }); await wait(2500);
 await p.evaluate(() => window.__ahdusScene.getEngine().setHardwareScalingLevel(2));
 await p.mouse.move(640, 360);
 // The editor opens in Workplace Studio; this test covers Preview
-await p.click('[aria-label="Preview Workplace"]'); await wait(800);
+await p.click('[aria-label="Walk through"]'); await wait(800);
 if (!(await p.evaluate(() => !!document.pointerLockElement))) {
   await p.click('button:has-text("Start preview")'); await wait(400);
 }

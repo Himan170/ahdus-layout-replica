@@ -45,7 +45,7 @@ describe('furniture tiles', () => {
     const desk = FURNITURE_TILES.find((t) => t.assetType === 'DESK_STANDARD');
     expect(desk).toMatchObject({ width: 1.6, depth: 0.8, sizeText: '1.6 × 0.8 m', thumb: 'thumbs/desk.webp' });
     expect(FURNITURE_TILES.find((t) => t.assetType === 'CNC_MACHINE')?.thumb ?? null).toBeNull();
-    expect(MODEL_COUNT).toBe(27);
+    expect(MODEL_COUNT).toBe(28); // the tiles with a picture (Reception Desk: of its primitive model)
   });
 
   it('sofas sit in Seating, unknown types in More', () => {
