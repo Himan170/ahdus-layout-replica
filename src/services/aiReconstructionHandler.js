@@ -1,3 +1,4 @@
+/* global Buffer, process */
 /**
  * aiReconstructionHandler.js
  *
@@ -181,10 +182,20 @@ async function fetchImageAsBase64(url) {
     throw new Error(`Failed to fetch photo from URL: ${res.status} ${res.statusText}`);
   }
   const arrayBuffer = await res.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+  let base64;
+  if (typeof Buffer !== 'undefined') {
+    base64 = Buffer.from(arrayBuffer).toString('base64');
+  } else {
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    base64 = btoa(binary);
+  }
   const mimeType = res.headers.get('content-type') || 'image/png';
   return {
-    base64: buffer.toString('base64'),
+    base64,
     mimeType: mimeType.split(';')[0].trim(),
   };
 }
