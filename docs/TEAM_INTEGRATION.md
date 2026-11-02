@@ -171,22 +171,40 @@ If your app serves the files from somewhere else (a CDN, another path), pass the
 
 ### Harsh: characters and voice
 
+**People at their desks are drawn by the layout engine now** (v0.11.0, `engine/systems/CharacterSystem`): you
+don't place sitting characters yourself any more. AHDUS passes who sits where, and a manifest that says which file
+each character is:
+
+- **Seats** (AHDUS, table `workplace_seats`: site, desk object id, user; set by Admin / HR only; fixed desks: one
+  person per desk, one desk per person per site). The 3D Company page fetches them (`GET
+  /api/workplace/sites/{site}/seats` → `[{ deskId, userId, name, department, assetReference }]`, no email) and
+  calls the embed's `workplace.setPeople(list.map((s) => ({ personId: s.userId, deskId: s.deskId, name: s.name,
+  department: s.department, assetReference: s.assetReference })))` (`docs/EMBED_GUIDE.md` section 4b). Studio:
+  `<LayoutEditor people={…} />` (resolved: `character: { url, rig, height } | null` instead of `assetReference`).
+  `assetReference` null (the person never chose) = the neutral simple figure.
+- **Manifest** (AHDUS, e.g. `/frontend/character/office/manifest.json`), passed as `characters: { manifestUrl }`:
+  `{ "<asset_reference>": { "url": "<file>.glb", "rig": "mixamo" | "ue", "height": 1.75 } }`. File names don't follow
+  the ids (`ch29` → `ch29_nonpbr-slit.glb`), hence a manifest. Moving the files behind a login later only changes
+  these urls.
+- **The light office copies** (the manifest points at these; the full files stay for the companion). Each one:
+  - glTF binary (`.glb`), **one skinned mesh** (or very few), the character's own skeleton, facing **+Z**, feet at
+    y = 0, metres (or a scale node: we measure the height and scale to `height` anyway);
+  - **10 to 15 k triangles**, textures **512 to 1024 px** (WebP or KTX2), **1 to 3 MB** per file, about 5 MB of GPU
+    memory;
+  - bone names as now: Mixamo (any `mixamorigd*:` prefix) or, for Victoria, the Unreal-style names (`pelvis`,
+    `spine_01…03`, `neck_01`, `head`, `clavicle_l`, `upperarm_l`, `lowerarm_l`, `hand_l`, `thigh_l`, `calf_l`,
+    `foot_l`, `ball_l`, and `_r`): our table is `BONE_TABLE` in `src/play/people.js`;
+  - no animation needed (we pose the bones: seated or standing); the 2-key pose clips may stay (we stop them);
+  - morph targets (visemes) may stay for phase 3; nothing else is required.
+- **Our test figure:** `public/assets/characters/placeholder-mixamo.glb` / `placeholder-ue.glb` (self-made,
+  CC0, `scripts/make-placeholder-character.mjs`) have the Mixamo / Unreal bone names. Never commit a Mixamo or
+  AHDUS character file to this repo (it is public).
+
+What stays yours: the reception (HR) character's voice and talking (phase 3), and the player character:
+
 ```js
-const scene = layoutBridge.getScene();
-
-function placeCharacters() {
-  // remove your old meshes first, then:
-  for (const seat of layoutBridge.getAnchors({ kind: 'seat' })) {
-    // put a sitting character at seat.position, rotated by seat.rotationY
-  }
-  for (const desk of layoutBridge.getAnchors({ kind: 'reception' })) {
-    // the anchor faces the desk: stand 2 m along that direction to be behind it,
-    // and turn around (rotationY + Math.PI) to face visitors
-  }
-}
-placeCharacters();
-layoutBridge.on('anchorsChange', placeCharacters); // desks moved / added / removed
-
+// The HR person is whoever is seated at the reception desk (a seat like any other, drawn by us).
+// Phase 3: "Talk to HR" only when someone sits there.
 layoutBridge.on('enterRoom', ({ room }) => {
   if (room.type === 'RECEPTION') { /* greet the user */ }
 });
