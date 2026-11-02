@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (719, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (724, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -387,7 +387,8 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
   resolved through the manifest (`embed/characterManifest.js`; unknown / null = simple figure; other fields such as
   email are dropped). AHDUS will send seats from `workplace_seats` (TEAM_INTEGRATION.md, Harsh).
 - **Where:** `people.deskSeats`: a `CHAIR*` within 1.2 m of a desk's edge (`DESK*`, `RECEPTION_DESK`), facing it
-  (≤ 60°); each chair goes to the desk it fits best. No chair: standing at the desk's −Z side, facing it.
+  (≤ 60°); each chair goes to the desk it fits best. No chair: standing where a chair would be, facing it
+  (`people.DESK_WORK_SIDE`: the desk's local +Z, a reception desk's −Z behind the counter; turned with the desk).
 - **Look:** everyone starts as the neutral simple figure (one mesh per pose, a thin instance each: 2 draw calls for
   any number). `chooseFullCharacters`: at most 12 on the current floor within 15 m of the camera (kept until 18 m)
   become full characters when their file has loaded (each url once per scene, ≤ 3 downloads at once,
@@ -645,7 +646,8 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - The storage warning is an estimate (~5 MB per site); browsers differ.
 - Skirting isn't pickable on its own (a click goes to the wall behind it).
 - People: the pose is procedural (no sit / type animation); twist of bones is not set (hands may turn oddly on real
-  characters); hands don't follow the keyboard. A desk with no chair always has its person on its −Z side. No
+  characters); hands don't follow the keyboard. A desk with no chair has its person on its local +Z side (a
+  reception desk: −Z), turned with the desk; a corner desk's person stands outside its long side, not in the L. No
   "Choose your character" hint yet. Full characters' skeletons are not frozen (≤ 12, cheap).
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).

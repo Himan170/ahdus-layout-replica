@@ -26,8 +26,15 @@ export const SEAT_REACH = 1.2;
 const FACING_MIN = Math.cos(Math.PI / 3);
 /** Seat height of an office chair (m above its floor). */
 export const SEAT_HEIGHT = 0.46;
-/** Standing at a desk with no chair: this far from its edge (m), on its −Z side. */
+/** Standing at a desk with no chair: this far from its edge (m), on its work side (DESK_WORK_SIDE). */
 export const STAND_GAP = 0.35;
+/**
+ * The side of a desk its person works at, in its own frame (+1 = local +Z,
+ * −1 = local −Z): where its chair would be. Desks: +Z (as the sample layouts
+ * put their chairs); the reception desk: −Z, behind the counter (visitors
+ * come to its +Z side, where its raised front and its reception anchor are).
+ */
+export const DESK_WORK_SIDE = { DESK_STANDARD: 1, DESK_CORNER: 1, RECEPTION_DESK: -1 };
 
 export const isDesk = (type) => Object.hasOwn(DESK_SIZES, type ?? '');
 export const isChair = (type) => typeof type === 'string' && type.startsWith('CHAIR');
@@ -113,7 +120,8 @@ export function deskSeat(desk, objects) {
 
 /**
  * Where a person at this desk is, in world space: seated on its chair, else
- * standing at its −Z side facing it. `seats` (deskSeats) saves the search
+ * standing on its work side (where a chair would be, turned with the desk),
+ * facing it. `seats` (deskSeats) saves the search
  * when there are many people.
  * @param {string} deskId
  * @param {object[] | Record<string, object>} objects
@@ -138,10 +146,13 @@ export function seatPose(deskId, objects, floors, seats = null) {
     };
   }
   const { d } = halfSize(desk);
-  const at = toWorld(desk, 0, -(d + STAND_GAP));
+  const side = DESK_WORK_SIDE[desk.assetType];
+  const at = toWorld(desk, 0, side * (d + STAND_GAP));
+  // facing the desk: its own −Z from the +Z side, its +Z from the −Z side
+  const yaw = (desk.rotationY ?? 0) + (side > 0 ? Math.PI : 0);
   return {
     deskId, chairId: null, seated: false, floor,
-    x: at.x, y: elevation + (desk.y ?? 0), z: at.z, yaw: desk.rotationY ?? 0, seatHeight: 0,
+    x: at.x, y: elevation + (desk.y ?? 0), z: at.z, yaw, seatHeight: 0,
   };
 }
 

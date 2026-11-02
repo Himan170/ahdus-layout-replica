@@ -147,7 +147,8 @@ workplace.setPeople([
   pass (an email, a user id) is dropped and never reaches the 3D view. A desk not in the layout is skipped; one desk
   shows one person (the first in the list).
 - **Where they are:** seated on the desk's chair: a `CHAIR_…` within 1.2 m of the desk, facing it (within 60°; each
-  chair belongs to the desk it fits best). A desk with no chair: standing at its −Z side, facing it. People follow
+  chair belongs to the desk it fits best). A desk with no chair: standing where its chair would be (the desk's own +Z side,
+  turned with the desk; a reception desk: behind the counter), facing it. People follow
   their desk: per floor (`setFloor`), and when the layout changes.
 - **What they look like:** their character comes from the manifest by `assetReference`. Unknown, missing or `null`
   = the **neutral simple figure** (no face, no clothes). Characters are drawn only for the people nearest the camera

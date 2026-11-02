@@ -71,13 +71,35 @@ describe('seatPose', () => {
     expect(pose.seatHeight).toBeCloseTo(0.46);
   });
 
-  it('stands at the -Z side of a desk with no chair, facing it', () => {
+  it('stands where the chair would be at a desk with no chair, facing it', () => {
+    const c = chair('c', 1, 2.7, Math.PI);
+    const seated = seatPose('d', [desk('d', 1, 2), c], floors);
     const pose = seatPose('d', [desk('d', 1, 2)], floors);
-    expect(pose).toMatchObject({ seated: false, chairId: null, x: 1, yaw: 0 });
-    expect(pose.z).toBeCloseTo(2 - 0.4 - 0.35);
-    const turned = seatPose('d', [desk('d', 0, 0, { rotationY: Math.PI / 2 })], floors);
-    expect(turned.x).toBeCloseTo(-0.75);
-    expect(turned.z).toBeCloseTo(0);
+    expect(pose).toMatchObject({ seated: false, chairId: null, x: 1, seatHeight: 0 });
+    expect(pose.z).toBeCloseTo(2 + 0.4 + 0.35); // the chair's side (+Z), not -Z
+    expect(Math.sign(pose.z - 2)).toBe(Math.sign(seated.z - 2));
+    expect(Math.cos(pose.yaw)).toBeCloseTo(Math.cos(seated.yaw)); // the way a seated person faces
+  });
+
+  it.each([0, 90, 180, 270])('turns the standing spot with a desk turned %i°', (deg) => {
+    const r = (deg * Math.PI) / 180;
+    const pose = seatPose('d', [desk('d', 3, -2, { rotationY: r })], floors);
+    // on the desk's local +Z: (sin r, cos r) from its centre, half its depth + the gap away
+    expect(pose.x).toBeCloseTo(3 + Math.sin(r) * 0.75);
+    expect(pose.z).toBeCloseTo(-2 + Math.cos(r) * 0.75);
+    // facing the desk: their forward (sin yaw, cos yaw) points back at its centre
+    expect(Math.sin(pose.yaw)).toBeCloseTo(-Math.sin(r));
+    expect(Math.cos(pose.yaw)).toBeCloseTo(-Math.cos(r));
+    // a chair there, facing the same way, would be the desk's seat
+    const c = chair('c', pose.x, pose.z, pose.yaw);
+    expect(deskSeat(desk('d', 3, -2, { rotationY: r }), [desk('d', 3, -2, { rotationY: r }), c])).toBe(c);
+  });
+
+  it('stands behind a reception desk (its -Z side), the visitors in front', () => {
+    const pose = seatPose('r', [{ id: 'r', assetType: 'RECEPTION_DESK', floor: 0, x: 0, y: 0, z: 0, rotationY: Math.PI / 2 }], floors);
+    expect(pose.x).toBeCloseTo(-(0.425 + 0.35));
+    expect(pose.z).toBeCloseTo(0);
+    expect(Math.sin(pose.yaw)).toBeCloseTo(1); // facing +X: over the counter
   });
 
   it('is null for an unknown id or something that is not a desk', () => {

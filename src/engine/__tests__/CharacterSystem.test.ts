@@ -27,7 +27,7 @@ const obj = (id: string, assetType: string, x: number, z: number, rotationY = 0,
 const objects = {
   d1: obj('d1', 'DESK_STANDARD', 0, 0),
   c1: obj('c1', 'CHAIR_OFFICE', 0, 0.7, Math.PI), // faces the desk (-Z)
-  d2: obj('d2', 'DESK_STANDARD', 4, 0), // no chair: they stand at its -Z side
+  d2: obj('d2', 'DESK_STANDARD', 4, 0), // no chair: they stand at its +Z side
   d3: obj('d3', 'DESK_STANDARD', 0, 3),
   c3: obj('c3', 'CHAIR_OFFICE', 0, 3.7, Math.PI),
   d4: obj('d4', 'DESK_STANDARD', 0, 0, 0, 1), // upstairs
@@ -152,9 +152,9 @@ describe('CharacterSystem', () => {
     const bb = body.getBoundingInfo().boundingBox;
     expect(bb.minimumWorld.y).toBeCloseTo(0, 1);
     expect(bb.maximumWorld.y).toBeCloseTo(1.75, 1);
-    expect(root.position.z).toBeCloseTo(-0.75, 1); // the desk's -Z side
-    // facing +Z (towards the desk): the eyes (on the head's +Z face) point at it
-    expect(bones.get('LeftUpLeg')!.getAbsolutePosition().x).toBeLessThan(4);
+    expect(root.position.z).toBeCloseTo(0.75, 1); // the desk's work side (+Z, where a chair would be)
+    // facing -Z (towards the desk): their left is +X
+    expect(bones.get('LeftUpLeg')!.getAbsolutePosition().x).toBeGreaterThan(4);
     cs.dispose();
   });
 
@@ -226,7 +226,9 @@ describe('CharacterSystem', () => {
     expect(cs.personForObject('c1')?.personId).toBe('p1');
     expect(cs.personForObject('d2')).toBeNull();
     expect(cs.personAt({ x: 0.2, z: 0.7 }, 0)?.name).toBe('Name p1');
-    expect(cs.personAt({ x: 0.2, z: 0.7 }, 1)).toBeNull();
+    // the same spot upstairs: the person standing at d4 (no chair there)
+    expect(cs.personAt({ x: 0.2, z: 0.7 }, 1)?.name).toBe('Name up');
+    expect(cs.personAt({ x: 0.2, z: -0.7 }, 1)).toBeNull();
     // one desk, one person
     cs.setPeople([person('a', 'd1', null), person('b', 'd1', null)]);
     expect(cs.getPlaced().map((p) => p.personId)).toEqual(['a']);
