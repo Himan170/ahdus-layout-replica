@@ -19,9 +19,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { publishLayout, refreshPublishInfo, renameLayout } from '../services/apiService';
 import { AHDUS_LOGIN_EXPIRED, companyPageUrl, loginUrl } from '../services/ahdusBackend';
-import { publishState as publishStateOf, sentence, shouldWarnOnLeave } from '../ui/publishFlow';
+import { publishState as publishStateOf, sentence, shouldWarnOnLeave, leaveCheck } from '../ui/publishFlow';
 
 let toastId = 0;
+/** Back to AHDUS while Studio is still opening: how long to wait for AHDUS to say what employees see. */
+const LEAVE_CHECK_MS = 3000;
 
 export function useAhdusPublish({ enabled, onLeave }) {
   const [dialog, setDialog] = useState(null); // null | 'publish' | 'leave'
@@ -102,14 +104,31 @@ export function useAhdusPublish({ enabled, onLeave }) {
     setDialog(null);
   }, [publish]);
 
-  /** Back to AHDUS: ask first when employees would still see an older version. */
-  const requestLeave = useCallback(() => {
-    const s = useWorkspaceStore.getState();
-    if (shouldWarnOnLeave({ ahdus: enabled, draftRevision: s.draftRevision, publishedRevision: s.publishedRevision, isDirty: s.isDirty })) {
-      setDialog('leave');
-    } else {
-      onLeave();
+  /**
+   * Back to AHDUS: ask first when employees would still see an older version. While Studio is
+   * still opening AHDUS may not have said yet what they see: ask it (at most LEAVE_CHECK_MS),
+   * then decide; still not known = ask (publishFlow.leaveCheck).
+   */
+  const checkingRef = useRef(false);
+  const requestLeave = useCallback(async () => {
+    if (checkingRef.current) return;
+    const decide = () => {
+      const s = useWorkspaceStore.getState();
+      return leaveCheck({ ahdus: enabled, draftRevision: s.draftRevision, publishedRevision: s.publishedRevision, isDirty: s.isDirty });
+    };
+    let next = decide();
+    if (next === 'check') {
+      checkingRef.current = true;
+      try {
+        await Promise.race([refreshPublishInfo(), new Promise((resolve) => { setTimeout(resolve, LEAVE_CHECK_MS); })]);
+      } catch { /* not known: ask */ } finally {
+        checkingRef.current = false;
+      }
+      next = decide();
+      if (next === 'check') next = 'ask';
     }
+    if (next === 'ask') setDialog('leave');
+    else onLeave();
   }, [enabled, onLeave]);
   const publishAndLeave = useCallback(async () => {
     if (await publish()) onLeave();

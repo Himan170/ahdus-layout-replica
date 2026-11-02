@@ -73,6 +73,18 @@ export function shouldWarnOnLeave({ ahdus, draftRevision, publishedRevision, isD
   return state === 'never' && draftRevision > 0;
 }
 
+/**
+ * What Back to AHDUS does: 'leave', 'ask' (the leave dialog), or 'check': AHDUS hasn't said yet
+ * what employees see (Studio is still opening), so ask it first, then decide again; still not
+ * known after that is 'ask' (never leave unasked with changes employees may not see).
+ */
+export function leaveCheck({ ahdus, draftRevision, publishedRevision, isDirty }) {
+  if (!ahdus) return 'leave';
+  if (isDirty) return 'ask';
+  if (publishedRevision === undefined) return 'check';
+  return shouldWarnOnLeave({ ahdus, draftRevision, publishedRevision, isDirty }) ? 'ask' : 'leave';
+}
+
 /** When the newest 'published' version was made (an ISO string), or null. Versions come newest first. */
 export function lastPublishedAt(versions) {
   const list = Array.isArray(versions) ? versions : [];

@@ -109,3 +109,22 @@ describe('statusPill (the AHDUS look top bar)', () => {
     expect(statusPill('offline', 'published')).toMatchObject({ tone: 'warn', text: 'Offline (changes queued)' });
   });
 });
+
+import { leaveCheck } from '../publishFlow';
+
+describe('leaveCheck (Back to AHDUS)', () => {
+  it('outside AHDUS: just leave', () => {
+    expect(leaveCheck({ ahdus: false, draftRevision: 3, publishedRevision: undefined, isDirty: true })).toBe('leave');
+  });
+  it('a save still on its way: ask', () => {
+    expect(leaveCheck({ ahdus: true, draftRevision: 3, publishedRevision: 3, isDirty: true })).toBe('ask');
+  });
+  it('AHDUS has not said what employees see yet (still opening): check first', () => {
+    expect(leaveCheck({ ahdus: true, draftRevision: 3, publishedRevision: undefined, isDirty: false })).toBe('check');
+  });
+  it('known: ask with unpublished changes or a never-published draft, else leave', () => {
+    expect(leaveCheck({ ahdus: true, draftRevision: 4, publishedRevision: 3, isDirty: false })).toBe('ask');
+    expect(leaveCheck({ ahdus: true, draftRevision: 2, publishedRevision: null, isDirty: false })).toBe('ask');
+    expect(leaveCheck({ ahdus: true, draftRevision: 3, publishedRevision: 3, isDirty: false })).toBe('leave');
+  });
+});

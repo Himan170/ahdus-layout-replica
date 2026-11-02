@@ -578,3 +578,177 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 .insp-opening__where { color: var(--text-muted); font-size: 13px; }
 .insp-room__add { align-self: flex-start; color: var(--accent); font-weight: 600; padding: 0 var(--space-2); }
 .inspector.is-ahdus .inspector__footer .ui-btn { height: 44px; border-radius: 10px; }
+
+/* ── Phone (600 px and below): ui/look.js PHONE_QUERY ──────────────────────────────────
+   Top bar: back, the name, Undo, ⋯, Publish (StudioHeader AhdusPhoneHeader); under it the
+   status and 2D | 3D | Plan (PhoneBar); the canvas; the library as a sheet over the tool
+   bar, which runs along the bottom; the properties panel as a sheet over the canvas. */
+
+.ahdus-header.is-phone {
+  height: 60px;
+  gap: 2px;
+  padding: 0 10px 0 2px;
+  justify-content: flex-start;
+}
+.ahdus-header__icon { width: 44px; height: 44px; flex-shrink: 0; color: var(--text); }
+.ahdus-header__icon[aria-disabled="true"] { opacity: 0.4; }
+.ahdus-header__name { flex: 1; min-width: 0; display: flex; }
+.ahdus-header.is-phone .studio-header__name {
+  max-width: 100%;
+  padding: 6px 6px;
+  background: transparent;
+  font-size: 17px;
+  font-weight: 700;
+}
+.ahdus-header.is-phone .studio-header__name-input { width: 100%; min-width: 0; }
+.ahdus-header.is-phone .publish-btn { height: 44px; padding: 0 14px; margin-left: 4px; flex-shrink: 0; font-size: 15px; font-weight: 600; border-radius: 12px; }
+.ahdus-header.is-phone .publish-btn > svg { display: none; }
+.ahdus-header.is-phone .publish-btn__dot { background: var(--warning-dot); width: 8px; height: 8px; }
+
+.ahdus-more { position: relative; flex-shrink: 0; }
+.ahdus-more__pop {
+  position: fixed;
+  top: 64px;
+  right: 8px;
+  width: min(260px, calc(100vw - 16px));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  z-index: 60;
+}
+.ahdus-more__pop > * { width: 100%; }
+.ahdus-more__pop .ui-labeled-btn {
+  display: flex;
+  width: 100%;
+  height: 48px;
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.ahdus-more__pop .ui-labeled-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.ahdus-more__pop .ui-labeled-btn__label { font-size: 15px; color: var(--text); }
+/* Versions and Settings open over the whole width */
+.ahdus-more__pop .ui-pop {
+  position: fixed;
+  top: 64px;
+  left: 8px;
+  right: 8px;
+  width: auto;
+  max-width: none;
+  max-height: calc(100dvh - 80px);
+  overflow-y: auto;
+  z-index: 61;
+}
+
+.phone-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.phone-bar .status-pill { min-width: 0; height: 36px; font-size: 14px; }
+.phone-bar__views { flex-shrink: 0; }
+.phone-bar__views button { height: 40px; min-width: 52px; font-size: 15px; }
+
+@media (max-width: 600px) {
+  [data-look="ahdus"] .studio-main { flex-direction: column; }
+  [data-look="ahdus"] .studio-main > .canvas-card { order: 1; }
+  [data-look="ahdus"] .studio-build-col { order: 2; width: 100%; flex-direction: column; }
+
+  /* The tool bar along the bottom */
+  .tool-rail.build-panel {
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+  }
+  .tool-rail .build-panel__tiles { flex: 1; flex-direction: row; justify-content: space-between; gap: 2px; }
+  .tool-rail .build-tile { flex: 1; min-width: 0; min-height: 56px; padding: 6px 2px; gap: 4px; }
+  .tool-rail .build-tile__label { font-size: 12px; white-space: nowrap; }
+  .tool-rail .build-tile--row { display: none; } /* Layers, Shortcuts: not on a phone */
+
+  /* The library: a sheet over the tool bar */
+  .library.is-sheet {
+    order: -1;
+    width: 100%;
+    height: auto;
+    max-height: 42dvh;
+    border-right: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -8px 20px rgba(25, 59, 47, 0.1);
+  }
+  .library__grab {
+    display: grid;
+    place-items: center;
+    width: 64px;
+    height: 24px;
+    margin: 4px auto 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .library.is-sheet .library__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 2px 16px 8px; }
+  .library.is-sheet .library__title { font-size: 18px; }
+  .library.is-sheet .library__text { margin: 0; font-size: 13px; text-align: right; }
+  .library.is-sheet .library__body { padding: 0 16px 12px; }
+  .library.is-sheet .lib-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .library.is-sheet .lib-tile__pic { height: 52px; }
+  .library.is-sheet .lib__heading { display: none; }
+
+  /* The properties panel: a sheet over the canvas */
+  [data-look="ahdus"] .studio-inspector-col {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 25;
+    width: auto;
+    height: min(60%, 520px);
+    transition: none;
+  }
+  [data-look="ahdus"] .studio-inspector-col:not(.is-open) { display: none; }
+  [data-look="ahdus"] .studio-inspector-col.is-open { width: auto; }
+  [data-look="ahdus"] .studio-inspector-col > * { width: 100%; margin: 0; }
+  [data-look="ahdus"] .inspector { border-width: 1px 0 0; border-radius: 18px 18px 0 0; box-shadow: 0 -8px 20px rgba(25, 59, 47, 0.12); }
+
+  /* On the canvas: the floor top left, Reset / Fit on the right, the hint at the bottom */
+  .camera-controls.is-compact { left: auto; right: 12px; top: 12px; padding: 4px; gap: 4px; }
+  .camera-controls.is-compact .cam-btn { width: 44px; height: 44px; }
+  .cam-tip { display: none !important; }
+  .canvas-footer { inset: 12px; display: block; }
+  .canvas-footer__floors { position: absolute; top: 0; left: 0; max-width: calc(100% - 64px); }
+  .canvas-footer__add { display: none !important; }
+  [data-look="ahdus"] .canvas-footer .studio-footer__floor-btn { max-width: 100%; }
+  .canvas-footer .studio-footer__floor-name { overflow: hidden; text-overflow: ellipsis; }
+  .canvas-footer .floor-menu { top: calc(100% + 8px); bottom: auto; width: min(280px, calc(100vw - 24px)); }
+  .canvas-footer .studio-footer__hint {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-width: none;
+    margin: 0;
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: var(--accent-strong);
+    color: var(--on-accent);
+    font-size: 14px;
+    white-space: normal;
+  }
+  .canvas-footer .studio-footer__hint.is-bad { background: var(--danger); color: var(--on-accent); }
+
+  /* The selection bar: still icon + word, a little smaller */
+  .selection-toolbar.is-labelled .ui-icon-btn.has-text { height: 40px; padding: 0 8px; gap: 5px; font-size: 13px; }
+}

@@ -39,6 +39,7 @@ export default function CanvasCard({
   ahdus = false,    // the AHDUS look's layout (see above)
   camera = null,    // AHDUS look: the camera card, top left (not in Plan view)
   footer = null,    // AHDUS look: floor switcher + hint, along the bottom
+  phone = false,    // AHDUS look on a phone: no controls top right (PhoneBar has 2D | 3D | Plan)
   preview,          // true in Preview: the card fills the window, no Studio controls
   is3D,
   onSetView,        // (want3D: boolean) => void
@@ -66,7 +67,7 @@ export default function CanvasCard({
     <section className={`canvas-card${preview ? ' is-preview' : ''}${planView ? ' is-plan' : ''}`} aria-label="Workplace view">
       {children}
 
-      {!preview && (
+      {!preview && !phone && (
         <div className="canvas-card__controls">
           <ExportMenu
             onExportPng={onExportPng}

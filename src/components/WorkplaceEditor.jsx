@@ -68,7 +68,8 @@ import Dialog from '../ui/Dialog';
 import DropFootprint from '../ui/DropFootprint';
 import CameraControls from '../ui/CameraControls';
 import { turnCameraTo, zoomCamera, setPanMode } from '../utils/cameraControls';
-import { isAhdusLook } from '../ui/look';
+import { isAhdusLook, usePhone } from '../ui/look';
+import PhoneBar from '../ui/PhoneBar';
 import { normaliseLayout } from '../store/layoutData';
 import { watchFirstFrame } from '../ui/firstFrame';
 import { isPhotoReconstructionOn } from '../services/reconstructionService';
@@ -100,6 +101,9 @@ const shallow = (a, b) => {
   }
   return true;
 };
+
+/** The AHDUS look on a phone, when nothing is going on: how to move the view with fingers. */
+const PHONE_HINT = 'Drag to turn · pinch to zoom · tap a room to select it';
 
 export default function WorkplaceEditor({ onExit, onFirstFrame }) {
   // Development only: lets the e2e test check the "could not be opened" card (e2e/save-smoke.mjs)
@@ -235,7 +239,9 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
   const layoutName = useWorkspaceStore((s) => s.layoutName);
   const hasBackend = useWorkspaceStore((s) => !!(s.companyId && s.layoutId));
   const inAhdus = isAhdusBackendOn(); // Studio inside AHDUS: Back to AHDUS, Publish, no copies
-  const ahdusLook = isAhdusLook();     // its look (ui/look.js): rail, library, camera controls
+  const ahdusLook = isAhdusLook();
+  const phoneWide = usePhone();
+  const phone = ahdusLook && phoneWide; // the AHDUS look on a phone: bottom tool bar, library sheet, PhoneBar     // its look (ui/look.js): rail, library, camera controls
 
   // FPS is local — no need to put it in global store
   const fpsRef = useRef(0);
@@ -967,6 +973,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
       if (plannerHint.bad) return { text: line, tone: 'bad' };
       if (plannerToolsRef.current?.isDragging() || plannerTool.kind === 'select') return { text: line, tone: 'hint' };
     }
+    // A phone with nothing going on: how to move the view with fingers
+    if (phone && plannerTool.kind === 'select' && !placementMode) return { text: PHONE_HINT, tone: 'hint' };
     return { text: toolHint(plannerTool, placementMode), tone: 'hint' };
   })();
 
@@ -1059,7 +1067,23 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
       <StudioShell
         preview={isPlaying}
         inspectorOpen={!!inspectorMode}
-        banner={<ProposedLayoutBanner editor={editor} onMessage={showStudioMessage} />}
+        banner={(
+          <>
+            {phone && (
+              <PhoneBar
+                saveStatus={saveStatus}
+                saveError={hasBackend ? saveError : 'This layout has no place to save to'}
+                publishState={ahdus.state}
+                onPublish={inAhdus && hasBackend ? ahdus.openPublish : null}
+                is3D={is3D}
+                planView={planView}
+                onSetView={handleSetView}
+                onSetPlan={handleSetPlan}
+              />
+            )}
+            <ProposedLayoutBanner editor={editor} onMessage={showStudioMessage} />
+          </>
+        )}
       header={(
         <StudioHeader
           layoutName={layoutName}
@@ -1119,6 +1143,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
             drawing: plannerTool.kind === 'room' && !plannerTool.stamp,
             onDrawRoom: () => handlePickOption({ tool: { kind: 'room', roomType } }),
             onTemplate: setTemplateAsk,
+            sheet: phone,
+            onClose: () => setOpenTray(null),
           } : null}
           onToggleLayers={() => {
             if (selectedObject || selectedRoom || selectedOpening) {
@@ -1142,8 +1168,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
           showEmpty={showEmpty}
           onAddFirstRoom={() => setOpenTray('rooms')}
           ahdus={ahdusLook}
+          phone={phone}
           camera={ahdusLook ? (
             <CameraControls
+              compact={phone}
               onView={cameraActions.view}
               onReset={cameraActions.reset}
               onFit={cameraActions.fit}
@@ -1307,6 +1335,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
               onMoveRoom={() => showStudioMessage("Drag the room's floor to move it. Its furniture stays where it is.")}
               onTurnRoom={() => handleTurnRoom(selectedRoomId)}
               onDuplicateRoom={() => handleDuplicateRoom(selectedRoomId)}
+              minTop={phone ? 120 : 8}
             />
           )}
           {isPlaying && (

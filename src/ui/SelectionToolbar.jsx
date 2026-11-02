@@ -74,6 +74,7 @@ export default function SelectionToolbar({
   onMoveRoom,        // labelled: says how to move a room
   onTurnRoom,        // labelled: a quarter turn
   onDuplicateRoom,   // labelled: a copy next to it
+  minTop = 8,        // px from the canvas top it keeps clear (a phone: the floor switcher, Reset / Fit)
 }) {
   const ref = useRef(null);
   const typeBtnRef = useRef(null);
@@ -99,9 +100,9 @@ export default function SelectionToolbar({
       const ch = card.clientHeight;
       let x = (box.left + box.right) / 2 - w / 2;
       let y = box.top - GAP - h;
-      if (y < 8) y = Math.min(box.bottom + GAP, ch - h - 8);   // no room above: put it below
+      if (y < minTop) y = Math.min(box.bottom + GAP, ch - h - 8); // no room above: put it below
       x = Math.max(8, Math.min(cw - w - 8, x));
-      y = Math.max(8, Math.min(ch - h - 8, y));
+      y = Math.max(minTop, Math.min(ch - h - 8, y));
 
       const now = performance.now();
       const moved = last ? Math.hypot(x - last.x, y - last.y) : 0;
@@ -112,7 +113,7 @@ export default function SelectionToolbar({
     };
     const obs = scene.onAfterRenderObservable.add(place);
     return () => scene.onAfterRenderObservable.remove(obs);
-  }, [scene, getBounds, targetKey]);
+  }, [scene, getBounds, targetKey, minTop]);
 
   const locked = !!object?.isLocked;
 

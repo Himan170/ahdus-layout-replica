@@ -16,9 +16,9 @@ import ShortcutsPopover from './ShortcutsPopover';
 import LibraryPanel from './LibraryPanel';
 import { isAhdusLook } from './look';
 
-function Tile({ tool, active, choice, open, onClick, rail = false }) {
+function Tile({ tool, active, choice, open, onClick, rail = false, phone = false }) {
   const Icon = tool.icon;
-  const label = rail ? tool.railLabel ?? tool.label : tool.label;
+  const label = phone ? tool.phoneLabel ?? tool.railLabel ?? tool.label : rail ? tool.railLabel ?? tool.label : tool.label;
   return (
     <button
       className="build-tile"
@@ -99,7 +99,7 @@ export default function BuildPanel({
     <>
     <aside className={`build-panel${rail ? ' tool-rail' : ''}`} ref={panelRef} aria-label="Build">
       {!rail && <h2 className="build-panel__title">Build</h2>}
-      <div className="build-panel__tiles" role="toolbar" aria-orientation="vertical" aria-label="Build tools">
+      <div className="build-panel__tiles" role="toolbar" aria-orientation={library?.sheet ? "horizontal" : "vertical"} aria-label="Build tools">
         {STUDIO_TOOLS.map((t) => (
           <Tile
             key={t.id}
@@ -108,6 +108,7 @@ export default function BuildPanel({
             choice={active.id === t.id ? active.choice : null}
             open={openTray === t.id}
             rail={rail}
+            phone={!!library?.sheet}
             onClick={() => {
               if (t.id === 'select') { onOpenTray(null); onSelectTool(); }
               else onOpenTray(openTray === t.id ? null : t.id);

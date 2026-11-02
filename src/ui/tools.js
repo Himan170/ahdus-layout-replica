@@ -242,5 +242,6 @@ export function activeTile(plannerTool, placementAsset, assetLabel) {
 export function toolHint(plannerTool, placementAsset) {
   const { id } = activeTile(plannerTool, placementAsset);
   if (plannerTool?.kind === 'window' && !placementAsset) return 'Click a wall to add a window';
+  if (plannerTool?.kind === 'room' && plannerTool.stamp && !placementAsset) return 'Tap the floor where the room goes';
   return toolById(id)?.hint ?? '';
 }
