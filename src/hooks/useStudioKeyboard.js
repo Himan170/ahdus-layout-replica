@@ -3,7 +3,8 @@
  *
  * Workplace Studio's keyboard shortcuts, moved as one piece out of WorkplaceEditor.jsx:
  * the keydown listener (Tab, Esc, 1–6, Delete, arrow keys, W / E / R, L, Ctrl+Z / Y / D;
- * in Preview only undo / redo) and the wheel listener (height of the placement ghost).
+ * in Preview only undo / redo; the AHDUS look's camera keys through cameraKeyRef) and the wheel
+ * listener (height of the placement ghost).
  *
  * WorkplaceEditor passes the refs, setters and callbacks in under the same names and
  * calls it where the effect was: effects run in declaration order.
@@ -19,6 +20,7 @@ export function useStudioKeyboard({
   handleDeleteOpening, showStudioMessage, isPlayingRef, plannerToolsRef, measureModeRef, measureStartRef,
   placementManagerRef, snapRef, setMeasureMode, setMeasureStart, setMeasurePreview, setLayersOpen,
   setOpenTray, setAnnounceText,
+  cameraKeyRef, // AHDUS look: (key) => true when it was a camera key (H, F, + / −, O, P, 7–9)
 }) {
   // ─── Keyboard shortcuts ───
   useEffect(() => {
@@ -36,6 +38,11 @@ export function useStudioKeyboard({
           if (k === 'y' || e.shiftKey) editor.redo();
           else editor.undo();
         }
+        return;
+      }
+
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && cameraKeyRef?.current?.(e.key)) {
+        e.preventDefault();
         return;
       }
 

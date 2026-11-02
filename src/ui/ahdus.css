@@ -153,7 +153,7 @@
 /* ── Shell: panels edge to edge, the canvas fills the rest ───────── */
 
 [data-look="ahdus"] .studio-main { padding: 0; }
-[data-look="ahdus"] .studio-build-col { width: auto; margin-right: 0; display: flex; }
+[data-look="ahdus"] .studio-build-col { width: auto; margin-right: 0; display: flex; position: relative; z-index: 20; } /* its pop-ups over the canvas controls */
 [data-look="ahdus"] .canvas-card { border: 0; border-radius: 0; }
 
 /* ── Tool rail (ui/BuildPanel.jsx, rail) ─────────────────────────── */
@@ -191,7 +191,7 @@
   position: absolute;
   left: calc(100% + var(--space-2));
   bottom: var(--space-3);
-  width: 320px;
+  width: 560px;
   max-height: calc(100% - 2 * var(--space-3));
   display: flex;
   flex-direction: column;
@@ -202,7 +202,7 @@
 }
 .shortcuts-pop__head { display: flex; align-items: center; justify-content: space-between; }
 .shortcuts-pop__title { margin: 0; font-size: 15px; font-weight: 600; }
-.shortcuts-pop__groups { overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-2); }
+.shortcuts-pop__groups { overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3) var(--space-6); align-items: start; padding-top: var(--space-2); }
 .shortcuts-pop__list { margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .shortcuts-pop__row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); font-size: 13px; }
 .shortcuts-pop__row dt { white-space: nowrap; color: var(--text-muted); }
@@ -343,3 +343,155 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 .drop-footprint.is-bad .drop-footprint__label { border-color: var(--danger); }
 .drop-footprint__name { font-size: 13px; font-weight: 600; color: var(--text); }
 .drop-footprint__size { font-size: 11px; color: var(--text-muted); }
+
+/* ── Canvas controls (ui/CanvasCard.jsx, ui/CameraControls.jsx, StudioFooter floating) ─────── */
+
+[data-look="ahdus"] .canvas-card__controls {
+  top: var(--space-4);
+  right: var(--space-4);
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--bg-panel);
+  backdrop-filter: none;
+}
+[data-look="ahdus"] .canvas-card__controls .has-label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  width: auto;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+[data-look="ahdus"] .canvas-card__controls .ui-icon-btn { height: 32px; }
+.canvas-card__full { width: 32px; }
+
+/* Camera card, top left */
+.camera-controls {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-card);
+}
+.camera-controls__grid { display: grid; grid-template-columns: repeat(2, 34px); gap: 4px; }
+.view-cube { width: 68px; height: 68px; overflow: visible; }
+.view-cube__face { cursor: pointer; outline: none; }
+.view-cube__face polygon { stroke: var(--accent-strong); stroke-width: 1.4; stroke-linejoin: round; transition: fill 120ms; }
+.view-cube__face.is-top polygon { fill: var(--accent-soft); }
+.view-cube__face.is-front polygon { fill: #d6e3d1; }
+.view-cube__face.is-side polygon { fill: #c3d4bd; }
+.view-cube__face text { fill: var(--accent-strong); font: 600 8.5px var(--font, Inter, sans-serif); pointer-events: none; }
+.view-cube__face:hover polygon, .view-cube__face:focus-visible polygon { fill: var(--accent); }
+.view-cube__face:hover text, .view-cube__face:focus-visible text { fill: var(--on-accent); }
+.view-cube__face:focus-visible polygon { stroke-width: 2.4; }
+
+.cam-btn {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.cam-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.cam-btn[aria-pressed="true"] { background: var(--accent-strong); color: var(--on-accent); }
+.cam-btn:disabled { opacity: 0.4; cursor: default; }
+.cam-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The tooltip: name + key, to the right of the card */
+.cam-tip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--accent-strong);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+}
+.camera-controls__grid .cam-btn:nth-child(odd) .cam-tip { left: calc(100% + 48px); }
+.cam-tip kbd {
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  font: 600 11px/18px var(--font, Inter, sans-serif);
+  text-align: center;
+}
+.cam-btn:hover .cam-tip, .cam-btn:focus-visible .cam-tip { display: inline-flex; }
+
+/* Floor switcher + Add floor bottom left, hint bottom centre */
+.canvas-footer {
+  position: absolute;
+  left: var(--space-4);
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 6;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: none;
+}
+.canvas-footer > * { pointer-events: auto; }
+.canvas-footer__floors { position: relative; display: flex; align-items: center; gap: 8px; }
+[data-look="ahdus"] .canvas-footer .studio-footer__floor-btn,
+[data-look="ahdus"] .canvas-footer__add {
+  height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-card);
+  color: var(--text);
+  font-size: 14px;
+}
+.canvas-footer .studio-footer__floor-name { font-weight: 600; }
+[data-look="ahdus"] .canvas-footer__add { gap: 6px; font-weight: 500; color: var(--accent); }
+[data-look="ahdus"] .canvas-footer__add:hover, [data-look="ahdus"] .canvas-footer .studio-footer__floor-btn:hover { background: var(--bg-hover); }
+.canvas-footer .studio-footer__hint {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100% - 520px));
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+  box-shadow: var(--shadow-card);
+  font-size: 13px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.canvas-footer .studio-footer__hint:empty { display: none; }
+/* Narrow canvas: the hint goes above the floor switcher */
+@media (max-width: 1279px) {
+  .canvas-footer .studio-footer__hint { bottom: 56px; max-width: calc(100% - 16px); }
+}
+/* "Building the other floors…": bottom right (the camera card is top left) */
+[data-look="ahdus"] .build-progress.is-rest:not(.in-preview) { left: auto; top: auto; right: var(--space-4); bottom: var(--space-4); }

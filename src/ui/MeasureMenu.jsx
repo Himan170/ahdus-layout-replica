@@ -23,6 +23,7 @@ export default function MeasureMenu({
   onToggleWallLengths,
   showRoomAreas,
   onToggleRoomAreas,
+  label,             // text next to the ruler (AHDUS look), optional
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -34,7 +35,7 @@ export default function MeasureMenu({
   return (
     <div className="measure-menu" ref={wrapRef}>
       <button
-        className={`ui-icon-btn measure-menu__trigger${active ? ' is-active' : ''}`}
+        className={`ui-icon-btn measure-menu__trigger${active ? ' is-active' : ''}${label ? ' has-label' : ''}`}
         aria-label="Measurements"
         title="Measure: distances, wall lengths, room areas"
         aria-haspopup="true"
@@ -43,6 +44,7 @@ export default function MeasureMenu({
         onClick={() => setOpen((v) => !v)}
       >
         <Ruler {...ICON} />
+        {label && <span className="canvas-btn__label">{label}</span>}
       </button>
 
       {open && (

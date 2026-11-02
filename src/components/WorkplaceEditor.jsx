@@ -66,6 +66,8 @@ import Toast from '../ui/Toast';
 import { PublishDialog, LeaveDialog } from '../ui/PublishDialogs';
 import Dialog from '../ui/Dialog';
 import DropFootprint from '../ui/DropFootprint';
+import CameraControls from '../ui/CameraControls';
+import { turnCameraTo, zoomCamera, setPanMode } from '../utils/cameraControls';
 import { isAhdusLook } from '../ui/look';
 import { normaliseLayout } from '../store/layoutData';
 import { watchFirstFrame } from '../ui/firstFrame';
@@ -739,6 +741,42 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
     setPlanView(true);
   }, [handleExitMeasureMode, handleCancelPlacement, handleSetPlannerTool]);
 
+  // ─── AHDUS look: the camera card (ui/CameraControls) and its keys. Only the camera moves. ───
+  const [panMode, setPanModeState] = useState(false);
+  const cameraActions = useMemo(() => ({
+    view: (which) => {
+      if (which === 'top' && !useWorkspaceStore.getState().is3D) return; // the 2D view is the top view
+      handleSetView(true); // Front and Side are 3D views
+      turnCameraTo(cameraRef.current, sceneRef.current, which);
+    },
+    reset: () => {
+      if (useWorkspaceStore.getState().is3D) turnCameraTo(cameraRef.current, sceneRef.current, 'home');
+      handleFitView();
+    },
+    fit: handleFitView,
+    zoom: (dir) => zoomCamera(cameraRef.current, sceneRef.current, dir),
+    setPan: (on) => {
+      setPanMode(cameraRef.current, on);
+      setPanModeState(on);
+      showStudioMessage(on ? 'Pan: drag to slide the view. Right-drag turns it.' : 'Orbit: drag to turn the view. Right-drag slides it.');
+    },
+  }), [handleSetView, handleFitView, showStudioMessage]);
+  // A new scene has a new camera: keep the choice
+  useEffect(() => { if (sceneReady) setPanMode(cameraRef.current, panMode); }, [sceneReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const cameraKeyRef = useRef(null);
+  cameraKeyRef.current = ahdusLook && !planView ? (key) => {
+    const act = {
+      7: () => cameraActions.view('top'), 8: () => cameraActions.view('front'), 9: () => cameraActions.view('side'),
+      h: cameraActions.reset, f: cameraActions.fit,
+      '+': () => cameraActions.zoom(1), '=': () => cameraActions.zoom(1), '-': () => cameraActions.zoom(-1),
+      o: () => cameraActions.setPan(false), p: () => cameraActions.setPan(true),
+    }[key.toLowerCase()];
+    if (!act) return false;
+    act();
+    return true;
+  } : null;
+
   // ─── Selection ───
   const handleSelectObject = useCallback((id) => {
     storeActions.selectObject(id);
@@ -852,7 +890,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
     editor, handleCancelPlacement, handleSetGizmoMode, handleEnterPlay, handleSetPlannerTool,
     handleDeleteOpening, showStudioMessage, isPlayingRef, plannerToolsRef, measureModeRef, measureStartRef,
     placementManagerRef, snapRef, setMeasureMode, setMeasureStart, setMeasurePreview, setLayersOpen,
-    setOpenTray, setAnnounceText,
+    setOpenTray, setAnnounceText, cameraKeyRef,
   });
 
   // ─── What the Studio shows ───
@@ -1066,6 +1104,32 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
           onFitView={handleFitView}
           showEmpty={showEmpty}
           onAddFirstRoom={() => setOpenTray('rooms')}
+          ahdus={ahdusLook}
+          camera={ahdusLook ? (
+            <CameraControls
+              onView={cameraActions.view}
+              onReset={cameraActions.reset}
+              onFit={cameraActions.fit}
+              onZoom={cameraActions.zoom}
+              pan={panMode}
+              onSetPan={cameraActions.setPan}
+            />
+          ) : null}
+          footer={ahdusLook ? (
+            <StudioFooter
+              floating
+              floors={floors}
+              currentFloor={currentFloor}
+              roomCounts={roomCounts}
+              onSelectFloor={storeActions.selectFloor}
+              onAddFloor={handleAddFloor}
+              onSetFloorHeight={handleSetFloorHeight}
+              onRenameFloor={(id, name) => editor.renameFloor(id, name)}
+              onRemoveFloor={(id) => editor.removeFloor(id)}
+              hint={footerHint}
+              onPreview={handleEnterPlay}
+            />
+          ) : null}
           onExportPng={!isPlaying ? handleExportPng : undefined}
           onExportPdf={!isPlaying ? handleExportPdf : undefined}
           exportDisabled={!hasAnyRoom || isPlaying}
@@ -1262,7 +1326,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
           nameFocusToken={nameFocusToken}
         />
       )}
-      footer={(
+      footer={ahdusLook ? null : (
         <StudioFooter
           floors={floors}
           currentFloor={currentFloor}
