@@ -44,7 +44,7 @@ const frames = (n = 3) => p.evaluate((n) => new Promise((res) => {
   t = setTimeout(done, 20000);
 }), n);
 const shot = (name) => p.screenshot({ path: `e2e/screens/${name}`, timeout: 120000 });
-const status = () => p.locator('.studio-header__status').textContent({ timeout: 5000 }).catch(() => '');
+const status = () => p.locator('.status-pill').textContent({ timeout: 5000 }).catch(() => '');
 const waitStatus = async (text, ms = 30000) => {
   const start = Date.now();
   while (Date.now() - start < ms) { if ((await status()).startsWith(text)) return true; await wait(250); }
@@ -92,14 +92,14 @@ log('a new layout says Saved', await waitStatus('Saved'), await status());
 
 // ── Build a room with the Studio tool: auto-saved ──
 await p.click('[aria-label="2D view"]'); await frames(4);
-await p.click('[aria-label="Rooms"]'); await frames(2);
-await p.click('[aria-label="Rooms options"] button:has-text("Office")'); await frames(2);
+await p.click('[aria-label="Rooms"]'); await frames(2); // the Rooms library
+await p.click('[aria-label="Rooms library"] button:has-text("Draw your own size")'); await frames(2); // an Office
 await dragWorld([-3, 0.02, -2], [3, 0.02, 2]);
 // right after a change (before the 1 s debounce) the header says Saving…
 const statusAfterChange = await p.evaluate(async () => {
   window.__ahdusStore.getState().renameFloor(0, 'Ground');
   await new Promise((r) => setTimeout(r, 50));
-  return document.querySelector('.studio-header__status').textContent;
+  return document.querySelector('.status-pill').textContent;
 });
 log('building shows Saving… then Saved', statusAfterChange === 'Saving…' && await waitStatus('Saved'), `${statusAfterChange} → ${await status()}`);
 let data = await saved(id);
@@ -121,7 +121,7 @@ await p.press('[aria-label="Layout name"]', 'Enter'); await frames(2);
 log('renaming saves the new name', (await saved(id))?.layoutName === 'HQ North');
 
 // ── Preview and back: still saved ──
-await p.click('[aria-label="Preview Workplace"]'); await wait(800);
+await p.click('[aria-label="Walk through"]'); await wait(800);
 await p.keyboard.press('Tab'); // back to Studio (clicks would go to the captured canvas)
 await frames(3);
 log('after Preview and back, the header says Saved', await waitStatus('Saved'), await status());
@@ -156,7 +156,7 @@ await shot('s1-reopened-layout.png');
 // ── Version history: save a named version, change something, restore it, undo the restore ──
 const roomCount = () => p.evaluate(() => Object.keys(window.__ahdusStore.getState().rooms).length);
 const versionPop = '[role="dialog"][aria-label="Version history"]';
-await p.click('button[aria-label="Version history"]');
+await p.click('button[aria-label="Versions"]');
 await p.fill('[aria-label="Version note"]', 'One room');
 await p.click(`${versionPop} button[type="submit"]`);
 const versionRow = p.locator(`${versionPop} [role="listitem"]:has-text("One room")`);
@@ -302,7 +302,7 @@ const savedIn = (t, id) => t.evaluate((id) => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('_' + id));
   return key ? JSON.parse(localStorage.getItem(key)) : null;
 }, id);
-const tabStatus = (t) => t.locator('.studio-header__status').textContent({ timeout: 5000 }).catch(() => '');
+const tabStatus = (t) => t.locator('.status-pill').textContent({ timeout: 5000 }).catch(() => '');
 
 const tA = await tab();
 await tA.fill('input[placeholder="Company name…"]', 'Tabs Co'); await tA.click('button:has-text("Create")'); await tA.waitForTimeout(400);

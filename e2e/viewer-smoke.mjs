@@ -31,7 +31,7 @@ process.on('exit', () => {
 execSync('npx vite build --logLevel error', { stdio: 'inherit' });
 const viewerHtml = readFileSync('dist/viewer.html', 'utf8');
 const chunks = [...viewerHtml.matchAll(/assets\/[^"]+\.(?:js|css)/g)].map((m) => m[0]);
-const STUDIO = /Preview Workplace|Floor switcher|All layouts/;
+const STUDIO = /Add your first room|Floor switcher|All layouts/;
 const withStudio = chunks.filter((c) => STUDIO.test(readFileSync(`dist/${c}`, 'utf8')));
 const appHasStudio = [...readFileSync('dist/index.html', 'utf8').matchAll(/assets\/[^"]+\.js/g)]
   .some((m) => STUDIO.test(readFileSync(`dist/${m[0]}`, 'utf8')));

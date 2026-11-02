@@ -16,7 +16,6 @@ import { progressPercent } from '../play/buildSchedule';
 import { setCameraView, flyTo as flyCamera } from '../engine/systems/CameraSystem';
 
 // Phase 2 utilities
-import { ROOM_TYPES } from '../utils/roomStore';
 import {
   elevationOf, floorBelow,
   stairNeedsRoomAbove, floorPosition, steepStairsText, floorHeight,
@@ -68,13 +67,13 @@ import Dialog from '../ui/Dialog';
 import DropFootprint from '../ui/DropFootprint';
 import CameraControls from '../ui/CameraControls';
 import { turnCameraTo, zoomCamera, setPanMode } from '../utils/cameraControls';
-import { isAhdusLook, usePhone } from '../ui/look';
+import { usePhone } from '../ui/look';
 import PhoneBar from '../ui/PhoneBar';
 import { normaliseLayout } from '../store/layoutData';
 import { watchFirstFrame } from '../ui/firstFrame';
 import { isPhotoReconstructionOn } from '../services/reconstructionService';
 import { isAhdusBackendOn } from '../services/backendFlags';
-import { activeTile, toolHint } from '../ui/tools';
+import { activeTile, toolHint, phoneIdleHint } from '../ui/tools';
 
 import {
   openingData, openingPartner, openingCentre, resizeOpening, planRemoveOpening,
@@ -101,9 +100,6 @@ const shallow = (a, b) => {
   }
   return true;
 };
-
-/** The AHDUS look on a phone, when nothing is going on: how to move the view with fingers. */
-const PHONE_HINT = 'Drag to turn · pinch to zoom · tap a room to select it';
 
 export default function WorkplaceEditor({ onExit, onFirstFrame }) {
   // Development only: lets the e2e test check the "could not be opened" card (e2e/save-smoke.mjs)
@@ -185,12 +181,11 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
   }, []);
 
   // Workplace Studio UI state
-  const [openTray, setOpenTray] = useState(null);       // Build tile whose options tray is open
+  const [openTray, setOpenTray] = useState(null);       // tool rail tile whose library is open
   const [layersOpen, setLayersOpen] = useState(false);  // Inspector shows the floor's outline
   const [showGrid, setShowGrid] = useState(false);      // off: grid only while a build tool is active
   const [realisticLook, setRealisticLook] = useState(storedRealisticLook); // Settings → Realistic look
   const [roomLabels, setRoomLabels] = useState(storedRoomLabels); // Settings → Room labels: 'names' | 'off'
-  const [nameFocusToken, setNameFocusToken] = useState(0); // "Rename" focuses the Inspector's name box
   const [planView, setPlanView] = useState(false); // the canvas card's view: Plan (floor plan) instead of the 3D canvas
   const [announceText, setAnnounceText] = useState(''); // Screen reader live feedback (Task S3)
   const [sceneReady, setSceneReady] = useState(null);   // the scene, once created (for overlays)
@@ -239,9 +234,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
   const layoutName = useWorkspaceStore((s) => s.layoutName);
   const hasBackend = useWorkspaceStore((s) => !!(s.companyId && s.layoutId));
   const inAhdus = isAhdusBackendOn(); // Studio inside AHDUS: Back to AHDUS, Publish, no copies
-  const ahdusLook = isAhdusLook();
-  const phoneWide = usePhone();
-  const phone = ahdusLook && phoneWide; // the AHDUS look on a phone: bottom tool bar, library sheet, PhoneBar     // its look (ui/look.js): rail, library, camera controls
+  const phone = usePhone(); // a phone: bottom tool bar, library sheet, PhoneBar
+  const [canvasTouched, setCanvasTouched] = useState(false); // a phone's "Drag to turn…" hint is gone for good
 
   // FPS is local — no need to put it in global store
   const fpsRef = useRef(0);
@@ -676,10 +670,6 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
     editor.updateRoom(id, { floorFinish }, { label: 'Change floor' });
   }, [editor]);
 
-  const handleChangeRoomType = useCallback((id, type) => {
-    editor.updateRoom(id, { type, color: ROOM_TYPES[type]?.color }, { label: 'Change room type' });
-  }, [editor]);
-
   // ─── Placing catalog items (furniture, stairs) ───
   const handleStartPlacement = useCallback((assetType) => {
     const mgr = placementManagerRef.current;
@@ -710,15 +700,9 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
       if (option.tool.kind === 'room') setRoomType(option.tool.roomType);
       handleSetPlannerTool(option.tool);
     }
-    if (!ahdusLook) setOpenTray(null); // the AHDUS look's library stays open
-  }, [handleStartPlacement, handleSetPlannerTool, ahdusLook]);
+  }, [handleStartPlacement, handleSetPlannerTool]); // the library stays open
 
-  const handlePickFurniture = useCallback((assetType) => {
-    handleStartPlacement(assetType);
-    setOpenTray(null);
-  }, [handleStartPlacement]);
-
-  // ─── The AHDUS look's library: drag a tile onto the floor, click = the middle (hooks/useLibraryDrop.js) ───
+  // ─── The library: drag a tile onto the floor, click = the middle (hooks/useLibraryDrop.js) ───
   const libraryDrop = useLibraryDrop({
     sceneRef, cameraRef, canvasRef, placementManagerRef, editor, placeObject, snapRef,
     showStudioMessage, handleSetPlannerTool, handleStartPlacement,
@@ -735,14 +719,6 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
       setOpenTray(null);
     }
   }, [templateAsk, editor, showStudioMessage]);
-
-  // Dragging a furniture card onto the canvas arms placement; the drop (or the
-  // next click) puts it down
-  const handleDragFurniture = useCallback((assetType, e) => {
-    e.dataTransfer.setData('assetType', assetType);
-    e.dataTransfer.effectAllowed = 'copy';
-    storeActions.setPlacementMode(assetType);
-  }, [storeActions]);
 
   // ─── Camera: fit the floor, or fly to one thing ───
   const flyTo = useCallback((min, max) => {
@@ -808,7 +784,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
   useEffect(() => { if (sceneReady) setPanMode(cameraRef.current, panMode); }, [sceneReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cameraKeyRef = useRef(null);
-  cameraKeyRef.current = ahdusLook && !planView ? (key) => {
+  cameraKeyRef.current = !planView ? (key) => {
     const act = {
       7: () => cameraActions.view('top'), 8: () => cameraActions.view('front'), 9: () => cameraActions.view('side'),
       h: cameraActions.reset, f: cameraActions.fit,
@@ -906,28 +882,6 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
     lights.directional.intensity = sun;
   }, []);
 
-  // Phase 6: canvas drag-over + drop for drag-from-sidebar placement
-  const handleCanvasDragOver = useCallback((e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-  }, []);
-
-  const handleCanvasDrop = useCallback((e) => {
-    e.preventDefault();
-    const assetType = e.dataTransfer.getData('assetType');
-    if (!assetType) return;
-    const mgr = placementManagerRef.current;
-    if (!mgr) return;
-    // Arm placement; the pointer-move handler positions the ghost and the
-    // next click confirms it (same path as clicking an asset card).
-    plannerToolsRef.current?.setTool({ kind: 'select' });
-    setPlannerTool({ kind: 'select' });
-    mgr.startPlacement(assetType);
-    storeActions.setPlacementMode(assetType);
-    storeActions.selectObject(null);
-    setOpenTray(null);
-  }, [storeActions]);
-
   // ─── Keyboard shortcuts (hooks/useStudioKeyboard.js) ───
   useStudioKeyboard({
     editor, handleCancelPlacement, handleSetGizmoMode, handleEnterPlay, handleSetPlannerTool,
@@ -973,8 +927,11 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
       if (plannerHint.bad) return { text: line, tone: 'bad' };
       if (plannerToolsRef.current?.isDragging() || plannerTool.kind === 'select') return { text: line, tone: 'hint' };
     }
-    // A phone with nothing going on: how to move the view with fingers
-    if (phone && plannerTool.kind === 'select' && !placementMode) return { text: PHONE_HINT, tone: 'hint' };
+    // A phone with nothing going on: how to move the view with fingers (not under a bottom sheet,
+    // not once you have touched the view)
+    if (phone && plannerTool.kind === 'select' && !placementMode) {
+      return { text: phoneIdleHint({ sheetOpen: !!openTray || !!inspectorMode, touched: canvasTouched }), tone: 'hint' };
+    }
     return { text: toolHint(plannerTool, placementMode), tone: 'hint' };
   })();
 
@@ -1130,11 +1087,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
           onOpenTray={setOpenTray}
           onSelectTool={handleSelectTool}
           onPickOption={handlePickOption}
-          onPickFurniture={handlePickFurniture}
-          onDragFurniture={handleDragFurniture}
-          placementAsset={placementMode}
           layersOpen={inspectorMode === 'layers'}
-          library={ahdusLook ? {
+          library={{
             activeOption: plannerTool.kind === 'room' ? (plannerTool.stamp ? plannerTool.roomType : null) : tile.option,
             draggingId: libraryDrop.drag?.tile.id ?? null,
             onTilePointerDown: libraryDrop.onTilePointerDown,
@@ -1145,7 +1099,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
             onTemplate: setTemplateAsk,
             sheet: phone,
             onClose: () => setOpenTray(null),
-          } : null}
+          }}
           onToggleLayers={() => {
             if (selectedObject || selectedRoom || selectedOpening) {
               storeActions.selectObject(null);
@@ -1164,12 +1118,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
           onSetView={handleSetView}
           planView={planView}
           onSetPlan={handleSetPlan}
-          onFitView={handleFitView}
           showEmpty={showEmpty}
           onAddFirstRoom={() => setOpenTray('rooms')}
-          ahdus={ahdusLook}
           phone={phone}
-          camera={ahdusLook ? (
+          camera={(
             <CameraControls
               compact={phone}
               onView={cameraActions.view}
@@ -1179,10 +1131,9 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
               pan={panMode}
               onSetPan={cameraActions.setPan}
             />
-          ) : null}
-          footer={ahdusLook ? (
+          )}
+          footer={(
             <StudioFooter
-              floating
               floors={floors}
               currentFloor={currentFloor}
               roomCounts={roomCounts}
@@ -1192,9 +1143,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
               onRenameFloor={(id, name) => editor.renameFloor(id, name)}
               onRemoveFloor={(id) => editor.removeFloor(id)}
               hint={footerHint}
-              onPreview={handleEnterPlay}
             />
-          ) : null}
+          )}
           onExportPng={!isPlaying ? handleExportPng : undefined}
           onExportPdf={!isPlaying ? handleExportPdf : undefined}
           exportDisabled={!hasAnyRoom || isPlaying}
@@ -1212,8 +1162,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
           <canvas
             ref={canvasRef}
             className={measureMode ? 'is-measuring' : ''}
-            onDragOver={handleCanvasDragOver}
-            onDrop={handleCanvasDrop}
+            onPointerDown={phone && !canvasTouched ? () => setCanvasTouched(true) : undefined}
             style={{
               visibility: planView && !isPlaying ? 'hidden' : 'visible',
               pointerEvents: planView && !isPlaying ? 'none' : 'auto',
@@ -1292,7 +1241,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
             showArea={showRoomAreas}
             showNames={roomLabels !== 'off'}
             selectedRoomId={selectedOpening ? null : selectedRoomId}
-            selectedAsPill={ahdusLook}
+            selectedAsPill
           />
           <RoomHoverCard
             scene={sceneReady}
@@ -1323,15 +1272,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
               targetKey={selectedObjectId ?? selectedRoomId}
               kind={selectedObject ? 'object' : 'room'}
               object={selectedObject}
-              room={selectedRoom}
               gizmoMode={gizmoMode}
               onGizmoMode={handleSetGizmoMode}
               onDuplicate={() => editor.duplicateObject(selectedObjectId)}
-              onToggleLock={() => editor.toggleLock(selectedObjectId)}
               onDelete={() => (selectedObject ? editor.deleteObject(selectedObjectId) : editor.deleteRoom(selectedRoomId))}
-              onRename={() => setNameFocusToken((t) => t + 1)}
-              onChangeType={(type) => handleChangeRoomType(selectedRoomId, type)}
-              labelled={ahdusLook}
               onMoveRoom={() => showStudioMessage("Drag the room's floor to move it. Its furniture stays where it is.")}
               onTurnRoom={() => handleTurnRoom(selectedRoomId)}
               onDuplicateRoom={() => handleDuplicateRoom(selectedRoomId)}
@@ -1393,26 +1337,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame }) {
               mergeKey: typing ? 'position-typing' : undefined,
             })}
           onPickLayer={handlePickLayer}
-          nameFocusToken={nameFocusToken}
-          ahdus={ahdusLook}
           onSetFloorFinish={handleSetFloorFinish}
           onSelectOpening={(o) => useWorkspaceStore.getState().selectOpening(o)}
           onAddOpening={() => { setOpenTray('doors'); handlePickOption({ tool: { kind: 'door' } }); }}
           onDuplicateRoom={handleDuplicateRoom}
-        />
-      )}
-      footer={ahdusLook ? null : (
-        <StudioFooter
-          floors={floors}
-          currentFloor={currentFloor}
-          roomCounts={roomCounts}
-          onSelectFloor={storeActions.selectFloor}
-          onAddFloor={handleAddFloor}
-          onSetFloorHeight={handleSetFloorHeight}
-          onRenameFloor={(id, name) => editor.renameFloor(id, name)}
-          onRemoveFloor={(id) => editor.removeFloor(id)}
-          hint={footerHint}
-          onPreview={handleEnterPlay}
         />
       )}
     />

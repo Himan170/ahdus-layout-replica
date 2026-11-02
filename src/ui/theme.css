@@ -1,86 +1,46 @@
 /*
- * Workplace Studio design tokens.
- * Every new UI colour, radius and space comes from these variables.
+ * Workplace Studio design tokens: the AHDUS look (light page, white panels, AHDUS green),
+ * in every mode since v0.10.1. Every new UI colour, radius and space comes from these variables.
+ * Every text colour is at least 4.5:1 on the backgrounds it is used on
+ * (ui/__tests__/themeContrast.test.js).
  */
 @import '@fontsource/inter/400.css';
 @import '@fontsource/inter/500.css';
 @import '@fontsource/inter/600.css';
 
 :root {
-  --bg-app: #121726;        /* behind the cards */
-  --bg-panel: #1c2335;      /* Build panel, Inspector, menus */
-  --bg-canvas: #0b0f1a;     /* canvas card (before the 3D world draws) */
-  --bg-hover: #26304a;
-  --bg-active: #34405f;     /* active tile */
-  --border: #2a3350;
-  --text: #e8ebf4;
-  --text-muted: #9aa3b8;
-  --accent: #6b7cff;        /* primary buttons, focus ring, selection */
-  --accent-hover: #7d8cff;
-  --danger: #ef6b6b;
-  --success: #4fd18b;       /* done (published), the green check */
-  --radius-sm: 6px; --radius: 10px; --radius-lg: 14px;
-  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px;
-  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --shadow-pop: 0 8px 24px rgba(0,0,0,.35);
-
-  /* Derived (still only from the palette above) */
-  --bg-glass: rgba(28, 35, 53, 0.86);   /* --bg-panel over the 3D view */
-  --accent-soft: rgba(107, 124, 255, 0.16);
-  --danger-soft: rgba(239, 107, 107, 0.12);
-  --success-soft: rgba(79, 209, 139, 0.14);
-  --backdrop: rgba(11, 15, 26, 0.6);    /* --bg-canvas behind a dialog */
-
-  /* Used by the AHDUS look (below); here so shared rules work in both looks */
-  --on-accent: #fff;                     /* text on --accent */
-  --accent-strong: var(--bg-active);     /* the chosen part of a segmented control, the selection bar */
-  --border-strong: var(--border);
-  --warning-bg: rgba(245, 158, 11, 0.14);
-  --warning-text: #f59e0b;
-  --warning-dot: #f59e0b;
-  --rail-bg: var(--bg-panel);
-  --rail-text: var(--text-muted);
-  --rail-hover: var(--bg-hover);
-  --rail-active: var(--bg-active);
-  --shadow-card: none;
-}
-
-/*
- * The AHDUS look (Workplace Studio inside AHDUS, VITE_LAYOUT_BACKEND=ahdus; ui/look.js puts
- * data-look="ahdus" on <html>). Light page, white panels, AHDUS green. Every text colour
- * here is at least 4.5:1 on the backgrounds it is used on (ui/__tests__/themeContrast.test.js).
- * The dark look above stays for local mode.
- */
-:root[data-look="ahdus"] {
-  --bg-app: #f6f7f3;
-  --bg-panel: #ffffff;
-  --bg-canvas: #edf1ea;
+  --bg-app: #f6f7f3;        /* behind the panels */
+  --bg-panel: #ffffff;      /* library, Inspector, menus */
+  --bg-canvas: #edf1ea;     /* canvas (before the 3D world draws) */
   --bg-hover: #f0f3ed;
-  --bg-active: #eaf2e6;
+  --bg-active: #eaf2e6;     /* active tile */
   --border: #e3e8e0;
   --border-strong: #cfd8cb;
   --text: #25382f;
   --text-muted: #55625a;
-  --accent: #28664f;
+  --accent: #28664f;        /* AHDUS green: primary buttons, focus ring, selection */
   --accent-hover: #1c503d;
   --accent-soft: #eaf2e6;
-  --accent-strong: #193b2f;
-  --on-accent: #ffffff;
+  --accent-strong: #193b2f; /* the chosen part of a segmented control, the selection bar */
+  --on-accent: #ffffff;     /* text on --accent */
   --danger: #b3261e;
   --danger-soft: #fdeceb;
-  --success: #28664f;
+  --success: #28664f;       /* done (published), the green check */
   --success-soft: #eaf2e6;
   --warning-bg: #fbf2e3;
   --warning-text: #7a4e0e;
   --warning-dot: #c27c12;
-  --rail-bg: #193b2f;
+  --rail-bg: #193b2f;       /* the dark green tool rail */
   --rail-text: #dfe9e2;
   --rail-hover: #234a3b;
   --rail-active: #2c5d49;
-  --bg-glass: rgba(255, 255, 255, 0.94);
-  --backdrop: rgba(25, 59, 47, 0.35);
+  --bg-glass: rgba(255, 255, 255, 0.94);  /* --bg-panel over the 3D view */
+  --backdrop: rgba(25, 59, 47, 0.35);     /* behind a dialog */
   --shadow-pop: 0 8px 24px rgba(25, 59, 47, 0.14);
   --shadow-card: 0 1px 3px rgba(25, 59, 47, 0.08);
+  --radius-sm: 6px; --radius: 10px; --radius-lg: 14px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px;
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   color-scheme: light;
 }
 
@@ -93,7 +53,7 @@ html, body, #root {
 
 button, input, select, textarea { font-family: inherit; }
 
-/* Thin dark scrollbars everywhere: no white browser scrollbars */
+/* Thin scrollbars everywhere: no white browser scrollbars */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;

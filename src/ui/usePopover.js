@@ -1,7 +1,7 @@
 /**
  * ui/usePopover.js
  *
- * Shared behaviour for trays, menus and popovers: Esc or a click outside
+ * Shared behaviour for menus and popovers: Esc or a click outside
  * closes them. Esc is caught before the editor's own shortcuts, so closing a
  * menu doesn't also leave the active tool.
  */

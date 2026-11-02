@@ -13,7 +13,6 @@
 
 import { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Building2, RotateCcw } from 'lucide-react';
-import { isAhdusLook } from './look';
 import './overlays.css';
 import './ahdus.css';
 
@@ -78,9 +77,7 @@ export default function StudioSplash({
       data-splash={leaving ? 'leaving' : 'loading'}
     >
       <div className="studio-splash__brand">
-        {isAhdusLook()
-          ? <span className="ahdus-logo ahdus-logo--big" aria-hidden><Building2 size={30} strokeWidth={1.75} /></span>
-          : <Building2 size={40} strokeWidth={1.5} aria-hidden className="studio-splash__logo" />}
+        <span className="ahdus-logo ahdus-logo--big" aria-hidden><Building2 size={30} strokeWidth={1.75} /></span>
         <div className="studio-splash__name">
           {ahdus && <span className="studio-splash__ahdus">AHDUS</span>}
           <span>Workplace Studio</span>

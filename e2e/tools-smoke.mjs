@@ -70,12 +70,32 @@ const dragWorld = async (from, to) => {
   await p.mouse.up();
   await frames(3);
 };
-// Build panel: Select, or a tile + an option from its tray
 const tile = async (label) => { await p.click(`[aria-label="${label}"]`); await frames(2); };
+// The tool rail: a tile opens its library; a library tile arms the tool. Then the tile closes the
+// library again (the tool stays armed), so the view is as wide as before.
+// Rooms: "Draw your own size" draws an Office (the default room type).
+const LIBRARY = { Rooms: 'rooms', Walls: 'walls', 'Doors & Windows': 'doors', Stairs: 'stairs', Furniture: 'furniture' };
 const pick = async (tileLabel, option) => {
-  await tile(tileLabel);
-  await p.click(`[aria-label="${tileLabel} options"] button:has-text("${option}")`);
+  const lib = `[data-library="${LIBRARY[tileLabel]}"]`;
+  if (!(await p.locator(lib).isVisible().catch(() => false))) await tile(tileLabel);
+  await p.click(tileLabel === 'Rooms' ? `${lib} button:has-text("Draw your own size")`
+    : `${lib} .lib-tile:has(.lib-tile__name:text-is("${option}"))`);
   await frames(2);
+  await tile(tileLabel);
+  await p.waitForTimeout(250); await frames(2); // the canvas widens again
+};
+/** Drags a furniture tile (found by searching its name) onto a world point */
+const dragTile = async (name, x, y, z) => {
+  if (!(await p.locator('[data-library="furniture"]').isVisible().catch(() => false))) await tile('Furniture');
+  await p.fill('[aria-label="Search furniture"]', name);
+  const b = await p.locator(`.lib-tile[title^="${name}"]`).first().boundingBox();
+  await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await p.mouse.down();
+  const to = await toScreen(x, y, z);
+  await p.mouse.move(to.x, to.y, { steps: 12 });
+  await frames(2);
+  await p.mouse.up();
+  await frames(3);
 };
 const floorMenu = async (item) => { await p.click('[aria-label="Floor switcher"]'); await frames(1); await p.click(item); await frames(3); };
 
@@ -94,7 +114,7 @@ const canvasBox = await p.locator('canvas').boundingBox();
 log('the Build panel is a vertical card left of the view', bar.height > bar.width * 2 && canvasBox.x >= bar.x + bar.width,
   `panel ${Math.round(bar.width)}×${Math.round(bar.height)} at x=${bar.x}, canvas at x=${canvasBox.x}`);
 const labels = ['Select', 'Rooms', 'Walls', 'Doors & Windows', 'Stairs', 'Furniture', 'Layers', 'Undo', 'Redo', 'Settings',
-  '2D view', '3D view', 'Fit view', 'Floor switcher', 'Preview Workplace'];
+  '2D view', '3D view', 'Fit view', 'Floor switcher', 'Walk through'];
 const missing = [];
 for (const l of labels) if (await p.locator(`[aria-label="${l}"]`).count() === 0) missing.push(l);
 log('Studio has the build tiles, view controls, undo, settings, floors and Preview', missing.length === 0, missing.join(', '));
@@ -186,15 +206,11 @@ await key('Escape');
 log('Esc goes back to Select', await p.locator('button[aria-label="Select"][aria-pressed="true"]').count() === 1);
 
 // ── Furniture on a table top ──
-await tile('Furniture');
-await p.locator('[title^="Standard Desk"]').first().click();
-await clickAt(-2.5, 0.02, -1);
+await dragTile('Standard Desk', -2.5, 0.02, -1);
 const desk = (await store()).objects.find((o) => o.assetType === 'DESK_STANDARD');
 log('a desk is placed in the room', !!desk && desk.roomId === room.id, desk ? `(${desk.x}, ${desk.z})` : 'none');
 await key('Escape'); // deselect the desk
-await tile('Furniture');
-await p.locator('[title^="Dual Monitor"]').first().click();
-await clickAt(desk.x, 0.8, desk.z);
+await dragTile('Dual Monitor', desk.x, 0.8, desk.z);
 const mon = (await store()).objects.find((o) => o.assetType === 'MONITOR_DUAL');
 log('a monitor clicked onto the desk stands on its top', !!mon && mon.y > 0.5, mon ? `monitor y=${mon.y.toFixed(2)}` : 'none');
 await key('Escape');

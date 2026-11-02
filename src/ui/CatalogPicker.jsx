@@ -1,8 +1,7 @@
 /**
  * ui/CatalogPicker.jsx
  *
- * Search box + category chips + a grid of items. Used by the Furniture tray in
- * Workplace Studio and by the catalog (B) in Preview, so both look the same.
+ * Search box + category chips + a grid of items: the catalog (B) in Preview.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -19,7 +18,7 @@ const ALL = '__all__';
  *   onPick: (item) => void,
  *   onDragStart?: (item, event) => void,   // set → items can be dragged onto the canvas
  *   autoFocus?: boolean,
- *   compact?: boolean,                      // tray size (2 columns)
+ *   compact?: boolean,                      // small size (2 columns)
  * }} props
  */
 export default function CatalogPicker({
@@ -60,7 +59,7 @@ export default function CatalogPicker({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            // Esc clears the search first (in a Studio tray, Esc closes the tray)
+            // Esc clears the search first
             if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); }
           }}
         />

@@ -133,7 +133,7 @@ const looksRight = (pair, g) => g.owner === pair.owner && g.wallCount === 1 && M
   Math.abs(g.thickness - 0.15) < 0.005 && g.doorPanes === 1 && g.roomDoors.every((count) => count === 1);
 const sharedWallOutlined = (pair) => p.evaluate((pair) => window.__sharedWalls(pair).every((m) => m.renderOutline), pair);
 
-await p.waitForFunction((pairs) => document.querySelector('.studio-header__status')?.textContent === 'Saved' &&
+await p.waitForFunction((pairs) => document.querySelector('.status-pill')?.textContent === 'Saved' &&
   pairs.every((pair) => window.__sharedWalls(pair).length > 0), pairs, { timeout: 60000 });
 for (const pair of pairs) {
   const g = await wallState(pair);
@@ -211,7 +211,7 @@ for (const pair of pairs) {
 }
 
 // ── Save, reopen: the same geometry is derived again ──
-await p.waitForFunction(() => document.querySelector('.studio-header__status')?.textContent === 'Saved', null, { timeout: 60000 });
+await p.waitForFunction(() => document.querySelector('.status-pill')?.textContent === 'Saved', null, { timeout: 60000 });
 await p.click('[aria-label="All layouts"]');
 await p.waitForSelector('button[aria-label="Open Shared Wall Layout"]', { timeout: 30000 });
 await p.click('button[aria-label="Open Shared Wall Layout"]');
@@ -226,7 +226,7 @@ for (const pair of pairs) {
 
 // ── Preview: Stretch's − on the shared wall lowers the room on your side ──
 await p.mouse.move(640, 380);
-await p.click('[aria-label="Preview Workplace"]'); await wait(800);
+await p.click('[aria-label="Walk through"]'); await wait(800);
 if (!(await p.evaluate(() => !!document.pointerLockElement))) {
   await p.click('button:has-text("Start preview")'); await wait(400);
 }

@@ -1,7 +1,7 @@
 // Workplace Studio smoke test: drives the real editor in Chromium and checks
-// the Studio layout (1280×720 and 1920×1080), the empty state and first room,
-// placing / deleting / undo, the selection toolbar and Inspector, the floor
-// switcher, and Preview ↔ Studio. Saves the Studio screenshots to e2e/screens/.
+// the Studio layout (1280×720 and 1920×1080; the AHDUS look in local mode), the empty state and
+// first room, the library, placing / deleting / undo, the selection toolbar and Inspector, the
+// floor switcher, Preview ↔ Studio, and a phone's hint (390 px). Screenshots go to e2e/screens/.
 //
 // One-time setup:   npm install && npx playwright install chromium
 // Run:              npm run dev            (in one terminal)
@@ -96,21 +96,33 @@ const dragWorld = async (from, to) => {
   await frames(3);
 };
 
-/** Studio layout rule: no page or Build panel scroll, canvas ≥ 75 % wide, nothing overlaps the footer */
+/** Studio layout rule: no page or tool rail scroll, canvas ≥ 75 % wide, the floor switcher + hint on the canvas */
 const layoutCheck = () => page.evaluate(() => {
   const r = (sel) => document.querySelector(sel)?.getBoundingClientRect();
   const doc = document.documentElement;
   const panel = document.querySelector('.build-panel');
   const canvas = r('.canvas-card');
-  const footer = r('.studio-footer');
-  const build = r('.build-panel');
+  const footer = r('.canvas-footer');
   return {
     pageScrolls: doc.scrollHeight > innerHeight + 1 || doc.scrollWidth > innerWidth + 1,
     panelScrolls: panel.scrollHeight > panel.clientHeight + 1,
     canvasShare: canvas.width / innerWidth,
-    overlapsFooter: canvas.bottom > footer.top + 0.5 || build.bottom > footer.top + 0.5,
+    overlapsFooter: !footer || footer.bottom > canvas.bottom + 0.5 || footer.left < canvas.left - 0.5,
   };
 });
+/** Drags a library tile (by its name) onto a world point, as a person would with the mouse */
+const dragTile = async (name, x, y, z) => {
+  const tile = page.locator(`.lib-tile[title^="${name}"]`).first();
+  await tile.scrollIntoViewIfNeeded();
+  const b = await tile.boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  const to = await toScreen(x, y, z);
+  await page.mouse.move(to.x, to.y, { steps: 12 });
+  await frames(2);
+  await page.mouse.up();
+  await frames(3);
+};
 
 // ── Open a new layout ──
 await page.goto(url);
@@ -131,13 +143,23 @@ await frames(3);
 
 // ── Layout at 1280×720 ──
 let L = await layoutCheck();
-log('1280×720: no page / Build panel scroll, canvas ≥ 75 % wide, footer clear',
+log('1280×720 (AHDUS look in local mode): no page / rail scroll, canvas ≥ 75 % wide, floor switcher on the canvas',
   !L.pageScrolls && !L.panelScrolls && L.canvasShare >= 0.75 && !L.overlapsFooter, JSON.stringify(L));
 const labels = ['Undo', 'Redo', 'Settings', 'Select', 'Rooms', 'Walls', 'Doors & Windows', 'Stairs', 'Furniture', 'Layers',
-  'Floor switcher', 'Preview Workplace', 'Add your first room', '2D view', '3D view', 'Fit view'];
+  'Floor switcher', 'Add floor', 'Walk through', 'All layouts', 'Versions', 'Shortcuts', 'Add your first room', '2D view',
+  '3D view', 'Plan view', 'Fit view', 'Reset view', 'Top view'];
 const missing = [];
 for (const l of labels) if (await page.locator(`[aria-label="${l}"]`).count() === 0) missing.push(l);
+const studioLook = await page.evaluate(() => ({
+  page: getComputedStyle(document.body).backgroundColor,
+  rail: !!document.querySelector('.build-panel.tool-rail'),
+  brand: document.querySelector('.ahdus-header__brand-text')?.textContent,
+  publish: !!document.querySelector('[data-publish]'),
+}));
 log('every Studio control is there with its label', missing.length === 0, missing.join(', '));
+log('local mode has the AHDUS look: light page, tool rail, "All layouts" (no AHDUS brand text, no Publish)',
+  studioLook.page === 'rgb(246, 247, 243)' && studioLook.rail && studioLook.brand === 'All layouts' && !studioLook.publish,
+  JSON.stringify(studioLook));
 
 // ── Empty state → Add your first room → Office → drag ──
 log('a new layout shows the empty state', await visible('text=Build your workplace'));
@@ -148,14 +170,17 @@ await page.click('[aria-label="Export floor plan"]', { force: true }); // (Playw
 await frames(2);
 const exportMenuWhenEmpty = await visible('[role="menu"][aria-label="Export options"]');
 await click('[aria-label="Add your first room"]');
-log('"Add your first room" opens the Rooms tray', await visible('[role="dialog"][aria-label="Rooms options"]'));
-await shot('studio-tray-rooms.png');
-await click('[aria-label="Rooms options"] button:has-text("Office")');
-log('picking Office closes the tray and arms Rooms · Office',
-  !(await visible('[aria-label="Rooms options"]')) && /Office/.test(await page.locator('[aria-label="Rooms"]').textContent()));
+log('"Add your first room" opens the Rooms library', await visible('[aria-label="Rooms library"]'));
+await shot('studio-library-rooms.png');
+await click('[aria-label="Rooms library"] button:has-text("Draw your own size")');
+log('"Draw your own size" arms drawing a room; the library stays open',
+  await visible('[aria-label="Rooms library"]') &&
+  await page.getAttribute('[aria-label="Rooms library"] button:has-text("Draw your own size")', 'aria-pressed') === 'true' &&
+  await page.getAttribute('[aria-label="Rooms"]', 'aria-pressed') === 'true');
 await dragWorld([-4, 0.02, -3], [2, 0.02, 1]);
 let c = await counts();
-log('dragging on the ground draws the first room', c.rooms === 1, JSON.stringify(c));
+const firstRoom = await page.evaluate(() => Object.values(window.__ahdusStore.getState().rooms)[0]?.type);
+log('dragging on the ground draws the first room (an Office)', c.rooms === 1 && firstRoom === 'OFFICE', JSON.stringify({ ...c, firstRoom }));
 log('the empty state is gone', !(await visible('text=Build your workplace')));
 // …with a room: Export floor plan → PNG downloads a .png, → PDF downloads a .pdf
 const exportAs = async (item) => {
@@ -212,35 +237,28 @@ await key('Escape');
 log('Settings → Room labels: Off hides the names, Names shows them (kept in this browser)',
   labelsOff === 0 && labelsOn === 1 && storedOff === 'off', JSON.stringify({ labelsOff, labelsOn, storedOff }));
 
-// ── Furniture: pick a card, click the floor ──
+// ── Furniture: drag a tile from the library onto the floor ──
 await click('[aria-label="Furniture"]');
-await page.locator('[title^="Standard Desk"]').first().click();
-await clickAt(-2.5, 0.02, -1);
+await page.fill('[aria-label="Search furniture"]', 'Standard Desk');
+await dragTile('Standard Desk', -2.5, 0.02, -1);
 c = await counts();
-log('Furniture tray: pick a desk, click the floor: 1 item', c.objects === 1, JSON.stringify(c));
-await key('Escape');
+const deskAt0 = await page.evaluate(() => Object.values(window.__ahdusStore.getState().objects)[0]);
+log('Furniture library: drag the desk onto the floor: 1 item where it was dropped',
+  c.objects === 1 && Math.abs(deskAt0.x + 2.5) < 0.6 && Math.abs(deskAt0.z + 1) < 0.6,
+  JSON.stringify({ ...c, x: deskAt0?.x, z: deskAt0?.z }));
 let look = await realLook();
 log('Realistic look: the desk is the real model, the floor a photo texture',
   look.model === 'desk' && look.floor.startsWith('real_'), JSON.stringify(look));
 
-// ── Drag a card onto the canvas, then click ──
-await click('[aria-label="Furniture"]');
+// ── Click a tile: it is placed in the middle of the view ──
 const before = (await counts()).objects;
-const target = await toScreen(0.5, 0.02, -1);
-await page.evaluate(({ x, y }) => {
-  const card = document.querySelector('[title^="Office Chair"]');
-  const canvas = document.querySelector('canvas');
-  const dt = new DataTransfer();
-  card.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
-  canvas.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: x, clientY: y }));
-  canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: x, clientY: y }));
-  card.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
-}, target);
-await frames(2);
-await clickAt(0.5, 0.02, -1);
-c = await counts();
-log('drag a card onto the canvas + click places exactly 1 item', c.objects - before === 1, `added ${c.objects - before}`);
+await page.fill('[aria-label="Search furniture"]', 'Office Chair');
+await page.locator('.lib-tile[title^="Office Chair:"]').first().click();
+await frames(3);
 await key('Escape');
+c = await counts();
+log('clicking a tile places exactly 1 item (in the middle of the view)', c.objects - before === 1, `added ${c.objects - before}`);
+await click('[aria-label="Select"]'); // closes the library
 
 // ── Undo placement ──
 const n = (await counts()).objects;
@@ -403,9 +421,9 @@ log('no missing asset files (models, textures, sky)', assetProblems.length === 0
 
 // ── Preview ↔ Studio, with the buttons and with Tab ──
 await page.mouse.move(640, 360);
-await click('[aria-label="Preview Workplace"]');
+await click('[aria-label="Walk through"]');
 await page.waitForTimeout(800);
-log('Preview Workplace opens Preview', await visible('[aria-label="Back to Studio"]') && !(await visible('[aria-label="Floor switcher"]')));
+log('Walk through opens Preview', await visible('[aria-label="Back to Studio"]') && !(await visible('[aria-label="Floor switcher"]')));
 await shot('preview-hud.png');
 await page.evaluate(() => document.exitPointerLock()); // what Esc does: get the mouse back
 await page.waitForTimeout(300);
@@ -420,8 +438,30 @@ log('Tab goes to Preview and back', inPreview && await visible('[aria-label="Flo
 await page.setViewportSize({ width: 1920, height: 1080 });
 await frames(3);
 L = await layoutCheck();
-log('1920×1080: no page / Build panel scroll, canvas ≥ 75 % wide, footer clear',
+log('1920×1080: no page / rail scroll, canvas ≥ 75 % wide, floor switcher on the canvas',
   !L.pageScrolls && !L.panelScrolls && L.canvasShare >= 0.75 && !L.overlapsFooter, JSON.stringify(L));
+
+// ── A phone (390 px): the "Drag to turn…" hint hides under a bottom sheet and after the first touch ──
+await page.setViewportSize({ width: 390, height: 844 });
+await page.waitForTimeout(400); await frames(3);
+const hintText = () => page.evaluate(() => document.querySelector('[data-studio="hint"]')?.textContent ?? null);
+const phoneHint = await hintText();
+await shot('studio-phone.png');
+await click('[aria-label="Rooms"]');
+const hintUnderSheet = await hintText();
+await click('[aria-label="Close the library"]');
+const hintSheetClosed = await hintText();
+const cv = await page.locator('canvas').boundingBox();
+await page.mouse.click(cv.x + cv.width / 2, cv.y + cv.height * 0.75); // the first touch on the view
+await frames(3);
+await key('Escape'); // whatever it selected: deselect (the Inspector sheet goes)
+const hintAfterTouch = await hintText();
+const offScreen = await page.evaluate(() => [...document.querySelectorAll('button, [role="status"]')]
+  .filter((e) => { const r = e.getBoundingClientRect(); return r.width && (r.right > innerWidth + 1 || r.left < -1); }).length);
+log('phone: "Drag to turn…" shows, hides under the library sheet, comes back, hides for good after a touch',
+  /^Drag to turn/.test(phoneHint ?? '') && hintUnderSheet === '' && /^Drag to turn/.test(hintSheetClosed ?? '') &&
+  hintAfterTouch === '' && offScreen === 0,
+  JSON.stringify({ phoneHint, hintUnderSheet, hintSheetClosed, hintAfterTouch, offScreen }));
 
 log('no page errors', errors.length === 0, errors.slice(0, 5).join(' | '));
 

@@ -1,17 +1,15 @@
 /**
  * ui/StudioFooter.jsx
  *
- * Bottom bar of Workplace Studio: the floor switcher (switch, floor height,
- * add above (empty or with the rooms below), rename, delete), the hint for
- * the active tool, and "Preview Workplace". The AHDUS look (`floating`): the floor switcher and
- * "Add floor" bottom left on the canvas, the hint bottom centre ("Walk through" is in the top bar).
+ * Along the bottom of the canvas: the floor switcher (switch, floor height, add above (empty or
+ * with the rooms below), rename, delete) and "Add floor" bottom left, the hint for the active
+ * tool bottom centre ("Walk through" is in the top bar).
  */
 
 import { useRef, useState } from 'react';
-import { ChevronDown, Layers, Plus, Pencil, Trash2, CirclePlay, Check, Copy, Square } from 'lucide-react';
+import { ChevronDown, Layers, Plus, Pencil, Trash2, Check, Copy, Square } from 'lucide-react';
 import { MIN_FLOOR_HEIGHT, MAX_FLOOR_HEIGHT, STOREY_HEIGHT, GROUND_FLOOR_STAYS } from '../play/building';
 import { usePopover } from './usePopover';
-import { isAhdusLook } from './look';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 const rooms = (n) => `${n} room${n === 1 ? '' : 's'}`;
@@ -176,8 +174,6 @@ export default function StudioFooter({
   onSetFloorHeight,  // (floorId, height) => problem | null
   onRenameFloor, onRemoveFloor,
   hint,          // { text, tone: 'hint' | 'message' | 'bad' } | null
-  onPreview,
-  floating = false, // AHDUS look: on the canvas (see above)
 }) {
   const [open, setOpen] = useState(false); // false | 'menu' | 'add'
   const wrapRef = useRef(null);
@@ -192,7 +188,7 @@ export default function StudioFooter({
   );
 
   const floorsBox = (
-    <div className={`studio-footer__floors${floating ? ' canvas-footer__floors' : ''}`} ref={wrapRef}>
+    <div className="studio-footer__floors canvas-footer__floors" ref={wrapRef}>
       <button
         className="studio-footer__floor-btn"
         aria-label="Floor switcher"
@@ -221,37 +217,17 @@ export default function StudioFooter({
           onClose={close}
         />
       )}
-      {floating && (
-        <button className="ui-btn canvas-footer__add" aria-label="Add floor" title="Add a floor above the top one"
-          aria-expanded={open === 'add'} onClick={() => setOpen((v) => (v === 'add' ? false : 'add'))}>
-          <Plus {...ICON} /> Add floor
-        </button>
-      )}
+      <button className="ui-btn canvas-footer__add" aria-label="Add floor" title="Add a floor above the top one"
+        aria-expanded={open === 'add'} onClick={() => setOpen((v) => (v === 'add' ? false : 'add'))}>
+        <Plus {...ICON} /> Add floor
+      </button>
     </div>
   );
 
-  if (floating) {
-    return (
-      <div className="canvas-footer">
-        {floorsBox}
-        {hintText}
-      </div>
-    );
-  }
-
   return (
-    <footer className="studio-footer">
+    <div className="canvas-footer">
       {floorsBox}
       {hintText}
-
-      {/* The AHDUS look has "Walk through" in the top bar instead */}
-      {!isAhdusLook() && (
-        <button className="ui-btn is-ghost studio-footer__preview" aria-label="Preview Workplace"
-          title="Walk through your workplace (Tab)" onClick={onPreview}>
-          <CirclePlay size={18} strokeWidth={1.75} aria-hidden />
-          Preview Workplace
-        </button>
-      )}
-    </footer>
+    </div>
   );
 }

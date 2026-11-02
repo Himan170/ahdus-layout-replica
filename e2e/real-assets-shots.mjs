@@ -98,7 +98,7 @@ await assetsLoaded(); await frames(3);
 await shot('studio');
 
 // Preview: stand in the office doorway, looking at the desks
-await p.click('[aria-label="Preview Workplace"]'); await wait(1000);
+await p.click('[aria-label="Walk through"]'); await wait(1000);
 if (!(await p.evaluate(() => !!document.pointerLockElement))) {
   await p.click('button:has-text("Start preview")').catch(() => {}); await wait(400);
 }
