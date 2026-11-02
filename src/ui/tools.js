@@ -145,6 +145,8 @@ export const STUDIO_TOOLS = [
   {
     id: 'doors',
     label: 'Doors & Windows',
+    railLabel: 'Doors & windows', // the AHDUS look's tool rail
+    phoneLabel: 'Doors',
     icon: DoorOpen,
     shortcut: '4',
     hint: 'Click a wall to add a door',
@@ -173,6 +175,35 @@ export const STUDIO_TOOLS = [
     // options: the furniture tray lists FURNITURE_ITEMS with search and categories
   },
 ];
+
+/**
+ * Every keyboard shortcut of Workplace Studio, for the Shortcuts list (AHDUS look's tool rail).
+ * The keys themselves are handled in hooks/useStudioKeyboard.js.
+ */
+export const SHORTCUT_GROUPS = [
+  {
+    title: 'Tools',
+    keys: toolKeys(),
+  },
+  {
+    title: 'Selected item',
+    keys: [
+      [['W'], 'Move'], [['E'], 'Rotate'], [['R'], 'Resize'], [['L'], 'Lock or unlock'],
+      [['Ctrl', 'D'], 'Duplicate'], [['Delete'], 'Delete'],
+    ],
+  },
+  {
+    title: 'General',
+    keys: [
+      [['Ctrl', 'Z'], 'Undo'], [['Ctrl', 'Y'], 'Redo'], [['Esc'], 'Cancel, then deselect'],
+      [['Tab'], 'Walk through'], [['R'], 'Turn what you are placing'],
+    ],
+  },
+];
+
+function toolKeys() {
+  return STUDIO_TOOLS.map((t) => [[t.shortcut], t.railLabel ?? t.label]);
+}
 
 export const toolById = (id) => STUDIO_TOOLS.find((t) => t.id === id);
 

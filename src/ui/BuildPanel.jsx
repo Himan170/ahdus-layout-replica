@@ -7,14 +7,17 @@
  * the tray. Layers (bottom) opens the outline of this floor in the Inspector.
  */
 
-import { useMemo, useRef } from 'react';
-import { Layers } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Layers, Keyboard } from 'lucide-react';
 import { STUDIO_TOOLS, FURNITURE_ITEMS, assetIcon } from './tools';
 import { usePopover } from './usePopover';
 import CatalogPicker from './CatalogPicker';
+import ShortcutsPopover from './ShortcutsPopover';
+import { isAhdusLook } from './look';
 
-function Tile({ tool, active, choice, open, onClick }) {
+function Tile({ tool, active, choice, open, onClick, rail = false }) {
   const Icon = tool.icon;
+  const label = rail ? tool.railLabel ?? tool.label : tool.label;
   return (
     <button
       className="build-tile"
@@ -25,8 +28,8 @@ function Tile({ tool, active, choice, open, onClick }) {
       onClick={onClick}
     >
       <Icon size={20} strokeWidth={1.75} aria-hidden />
-      <span className="build-tile__label">{tool.label}</span>
-      {active && choice && <span className="build-tile__choice">{choice}</span>}
+      <span className="build-tile__label">{label}</span>
+      {!rail && active && choice && <span className="build-tile__choice">{choice}</span>}
     </button>
   );
 }
@@ -85,10 +88,14 @@ export default function BuildPanel({
   }, []);
 
   const trayTool = STUDIO_TOOLS.find((t) => t.id === openTray);
+  const rail = isAhdusLook(); // the AHDUS look: a dark green rail, icon + word, Shortcuts at the bottom
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const shortcutsRef = useRef(null);
+  const closeShortcuts = useMemo(() => () => setShortcutsOpen(false), []);
 
   return (
-    <aside className="build-panel" ref={panelRef} aria-label="Build">
-      <h2 className="build-panel__title">Build</h2>
+    <aside className={`build-panel${rail ? ' tool-rail' : ''}`} ref={panelRef} aria-label="Build">
+      {!rail && <h2 className="build-panel__title">Build</h2>}
       <div className="build-panel__tiles" role="toolbar" aria-orientation="vertical" aria-label="Build tools">
         {STUDIO_TOOLS.map((t) => (
           <Tile
@@ -97,6 +104,7 @@ export default function BuildPanel({
             active={active.id === t.id}
             choice={active.id === t.id ? active.choice : null}
             open={openTray === t.id}
+            rail={rail}
             onClick={() => {
               if (t.id === 'select') { onOpenTray(null); onSelectTool(); }
               else onOpenTray(openTray === t.id ? null : t.id);
@@ -114,6 +122,20 @@ export default function BuildPanel({
         <Layers size={20} strokeWidth={1.75} aria-hidden />
         <span className="build-tile__label">Layers</span>
       </button>
+      {rail && (
+        <button
+          ref={shortcutsRef}
+          className="build-tile build-tile--row"
+          aria-label="Shortcuts"
+          title="Keyboard shortcuts"
+          aria-expanded={shortcutsOpen}
+          onClick={() => setShortcutsOpen((v) => !v)}
+        >
+          <Keyboard size={20} strokeWidth={1.75} aria-hidden />
+          <span className="build-tile__label">Shortcuts</span>
+        </button>
+      )}
+      {shortcutsOpen && <ShortcutsPopover onClose={closeShortcuts} anchorRef={shortcutsRef} />}
 
       {trayTool && (
         <div className="ui-pop tray" role="dialog" aria-label={`${trayTool.label} options`}>

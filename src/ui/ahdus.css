@@ -148,3 +148,71 @@
 .ahdus-header__walk { background: var(--bg-panel); color: var(--text); }
 .ahdus-header .publish-btn__dot { background: var(--warning-dot); width: 8px; height: 8px; }
 [data-look="ahdus"] .ui-toast-region { top: calc(64px + var(--space-2)); }
+
+/* ── Shell: panels edge to edge, the canvas fills the rest ───────── */
+
+[data-look="ahdus"] .studio-main { padding: 0; }
+[data-look="ahdus"] .studio-build-col { width: auto; margin-right: 0; display: flex; }
+[data-look="ahdus"] .canvas-card { border: 0; border-radius: 0; }
+
+/* ── Tool rail (ui/BuildPanel.jsx, rail) ─────────────────────────── */
+
+.tool-rail.build-panel {
+  width: 92px;
+  padding: var(--space-3) 10px;
+  gap: 4px;
+  border: 0;
+  border-radius: 0;
+  background: var(--rail-bg);
+  color: var(--rail-text);
+}
+.tool-rail .build-panel__tiles { gap: 4px; }
+.tool-rail .build-tile {
+  height: auto;
+  min-height: 60px;
+  padding: 8px 4px;
+  gap: 6px;
+  border-radius: var(--radius);
+  color: var(--rail-text);
+}
+.tool-rail .build-tile__label { font-size: 12px; font-weight: 500; line-height: 1.25; white-space: normal; text-align: center; }
+.tool-rail .build-tile:hover { background: var(--rail-hover); color: var(--on-accent); }
+.tool-rail .build-tile[aria-pressed="true"],
+.tool-rail .build-tile[aria-expanded="true"] { background: var(--rail-active); color: var(--on-accent); box-shadow: none; }
+.tool-rail .build-tile[aria-pressed="true"] .build-tile__label { font-weight: 600; }
+.tool-rail .build-tile--row { flex-direction: column; height: auto; min-height: 56px; gap: 6px; }
+.tool-rail .build-tile--row + .build-tile--row { margin-top: 0; }
+.tool-rail .build-tile:focus-visible { outline-color: var(--on-accent); outline-offset: -2px; }
+.tool-rail .tray { left: calc(100% + var(--space-2)); top: var(--space-3); max-height: calc(100% - 2 * var(--space-3)); }
+
+/* Keyboard shortcuts (ui/ShortcutsPopover.jsx), next to the rail's bottom */
+.shortcuts-pop {
+  position: absolute;
+  left: calc(100% + var(--space-2));
+  bottom: var(--space-3);
+  width: 320px;
+  max-height: calc(100% - 2 * var(--space-3));
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  overflow: hidden;
+  z-index: 40;
+  color: var(--text);
+}
+.shortcuts-pop__head { display: flex; align-items: center; justify-content: space-between; }
+.shortcuts-pop__title { margin: 0; font-size: 15px; font-weight: 600; }
+.shortcuts-pop__groups { overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-2); }
+.shortcuts-pop__list { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.shortcuts-pop__row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); font-size: 13px; }
+.shortcuts-pop__row dt { white-space: nowrap; color: var(--text-muted); }
+.shortcuts-pop__row dd { margin: 0; text-align: right; }
+
+@media (max-width: 1279px) {
+  /* the dark look turns tiles into icons here; the rail keeps its words */
+  .tool-rail .build-tile__label { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+}
+/* A library is open: that tile is the active one (the armed tool stays pressed for screen readers) */
+.tool-rail:has(.build-tile[aria-expanded="true"]) .build-tile[aria-pressed="true"]:not([aria-expanded="true"]) {
+  background: transparent;
+  color: var(--rail-text);
+}
