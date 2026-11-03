@@ -300,17 +300,28 @@ export async function requestPhotoAnalysis(storagePath, context = {}) {
       };
     }
 
-    // If external AI endpoint returned an error or is 404, fallback
-    console.warn(`[AHDUS] AI reconstruction endpoint (${endpoint}) responded with ${res.status}. Falling back to candidate generator.`);
-    const fallbackLayout = generateFallbackProposedLayout(layoutId);
+    // If 404 (endpoint not mounted in standalone/test mode), fallback to candidate sample
+    if (res.status === 404) {
+      console.warn(`[AHDUS] AI reconstruction endpoint (${endpoint}) responded with 404. Falling back to candidate generator.`);
+      const fallbackLayout = generateFallbackProposedLayout(layoutId);
+      return {
+        ok: true,
+        proposedLayout: fallbackLayout,
+        detectionStats: computeDetectionStats(fallbackLayout),
+        isFallback: true,
+        isSample: true,
+      };
+    }
+
+    // Endpoint returned an explicit failure: surface the error honestly
+    const errJson = await res.json().catch(() => null);
+    const errMsg = errJson?.error || `Reconstruction endpoint returned HTTP ${res.status}`;
     return {
-      ok: true,
-      proposedLayout: fallbackLayout,
-      detectionStats: computeDetectionStats(fallbackLayout),
-      isFallback: true,
+      ok: false,
+      error: errMsg,
     };
   } catch (err) {
-    // If endpoint could not be connected, fallback so the user can test the workflow
+    // If endpoint could not be reached, fallback to candidate generator labeled as sample
     console.warn(`[AHDUS] Could not connect to AI reconstruction endpoint (${endpoint}). Falling back to candidate generator.`, err);
     const fallbackLayout = generateFallbackProposedLayout(layoutId);
     return {
@@ -318,6 +329,7 @@ export async function requestPhotoAnalysis(storagePath, context = {}) {
       proposedLayout: fallbackLayout,
       detectionStats: computeDetectionStats(fallbackLayout),
       isFallback: true,
+      isSample: true,
     };
   }
 }

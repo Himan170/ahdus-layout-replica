@@ -83,15 +83,18 @@ export default function ProposedLayoutBanner({ editor, onMessage }) {
     onMessage?.('Proposed layout discarded');
   };
 
+  const isSample = Boolean(proposedLayout.isSample || proposedLayout.isFallback);
+
   return (
-    <aside className="proposed-layout-banner" role="region" aria-label="AI Proposed Layout">
+    <aside className="proposed-layout-banner" role="region" aria-label={isSample ? 'Sample Layout Preview' : 'AI Proposed Layout'}>
       <div className="proposed-layout-banner__content">
         <Sparkles size={18} className="proposed-layout-banner__icon" aria-hidden />
         <div className="proposed-layout-banner__text">
-          <strong>AI Proposed Layout:</strong>{' '}
+          <strong>{isSample ? 'Sample Layout Preview:' : 'AI Proposed Layout:'}</strong>{' '}
           <span>
-            {stats.roomCount} {stats.roomCount === 1 ? 'room' : 'rooms'} and {stats.objectCount}{' '}
-            {stats.objectCount === 1 ? 'item' : 'items'} detected from photo.
+            {isSample
+              ? `AI vision was unavailable. Displaying candidate sample layout (${stats.roomCount} rooms, ${stats.objectCount} items).`
+              : `${stats.roomCount} ${stats.roomCount === 1 ? 'room' : 'rooms'} and ${stats.objectCount} ${stats.objectCount === 1 ? 'item' : 'items'} detected from photo.`}
           </span>
         </div>
       </div>

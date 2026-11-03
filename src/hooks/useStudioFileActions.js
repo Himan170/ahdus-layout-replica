@@ -143,14 +143,20 @@ export function useStudioFileActions({ onExit, editor, showStudioMessage, gizmoC
       detectionStats: analysisRes.detectionStats,
     });
 
+    const isSample = Boolean(analysisRes.isFallback || analysisRes.isSample);
     setProposedLayout({
       proposalId: stageRes.proposalId || null,
       storagePath: uploadRes.storagePath,
       layout: analysisRes.proposedLayout,
       detectionStats: analysisRes.detectionStats,
       stagedAt: new Date().toISOString(),
+      isSample,
     });
-    showStudioMessage('AI Proposed layout ready for your review');
+    showStudioMessage(
+      isSample
+        ? 'AI unavailable — loaded candidate sample layout for preview'
+        : 'AI Proposed layout ready for your review'
+    );
   }, [showStudioMessage]);
 
   return {

@@ -31,7 +31,7 @@ export default defineConfig(({ mode }) => {
           req.on('end', async () => {
             try {
               const body = JSON.parse(raw || '{}');
-              const { handleReconstructionRequest } = await import('./src/services/aiReconstructionHandler.js');
+              const { handleReconstructionRequest } = await import('./server/aiReconstructionHandler.js');
               const result = await handleReconstructionRequest(body, apiConfig);
               res.setHeader('Content-Type', 'application/json');
               res.statusCode = result.ok ? 200 : (result.status || 500);

@@ -1,20 +1,29 @@
-/* global Buffer, process */
 /**
- * aiReconstructionHandler.js
+ * server/aiReconstructionHandler.js
  *
- * Real AI floor plan reconstruction supporting multiple Vision providers:
- * - Groq (Llama 3.2 11B Vision: ultra-fast, free tier at console.groq.com)
+ * Server-side AI floor plan reconstruction supporting multiple Vision providers:
+ * - Groq (Qwen 3.8 27B Multimodal Vision)
+ * - OpenRouter (Gemini 2.5 Flash via unified API)
  * - OpenAI (GPT-4o-mini Vision)
- * - Google Gemini (Gemini 3.8 Flash / 3.5 Flash-Lite)
+ * - Google Gemini (Gemini 2.5 Flash / 2.0 Flash / 1.5 Flash)
  *
  * Analyzes uploaded floorplan photos or blueprints, extracts architectural
  * room boundaries and furniture, and outputs validated Layout v2 JSON.
  */
 
-import { LayoutSchema } from '../engine/model/schema';
-import { generateFallbackProposedLayout } from './reconstructionService';
+import { LayoutSchema } from '../src/engine/model/schema';
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+/**
+ * Maximum allowed image payload: 10 Megabytes (binary).
+ */
+export const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Allowed image MIME types.
+ */
+export const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 /**
  * Valid room types matching RoomTypeSchema in src/engine/model/schema.ts
@@ -34,6 +43,7 @@ export const VALID_ASSET_TYPES = [
 
 /**
  * The system instruction for Vision models to extract structured CAD data.
+ * Crucially specifies that (x, z) is strictly the GEOMETRIC CENTRE of each room.
  */
 export const RECONSTRUCTION_PROMPT = `
 You are an expert architectural blueprint and office floorplan reconstruction AI for a 3D digital twin platform.
@@ -41,7 +51,9 @@ Analyze this floor plan image and detect all rooms, walls, doors, and furniture 
 
 COORDINATE SYSTEM:
 - Units are strictly in METERS.
-- Origin (0, 0) should be at or near the center of the building.
+- Origin (0, 0) is at the center of the building.
+- For each room, (x, z) is strictly the GEOMETRIC CENTRE of the room in meters (NOT a corner).
+- Room bounding box: X spans [x - width/2, x + width/2], and Z spans [z - depth/2, z + depth/2].
 - X is horizontal width (left to right).
 - Z is vertical depth (top to bottom).
 - Standard interior wall height is 3.0 meters.
@@ -57,12 +69,12 @@ ALLOWED FURNITURE ASSET TYPES (assetType must strictly be one of these):
 INSTRUCTIONS:
 1. Identify all distinct rooms. For each room provide:
    - name: clear descriptive name (e.g., "Conference Room", "Engineering Office", "Reception")
-   - type: one of the allowed room types above
-   - x, z: coordinates of the room center or corner in meters
+   - type: one of the allowed room types above (map any conference room to "MEETING")
+   - x, z: coordinates of the geometric room CENTRE in meters
    - width, depth: room width and depth in meters (must be >= 1.5m)
-2. Identify all detected furniture and place them inside the room bounds:
+2. Identify all detected furniture and place them inside their room bounds:
    - assetType: one of the allowed asset types above
-   - x, z: coordinate of the object (must be inside its room)
+   - x, z: coordinate of the object (must be inside its room bounds [x - width/2, x + width/2] and [z - depth/2, z + depth/2])
    - rotationY: rotation angle in radians (0, 1.57, 3.14, 4.71)
 3. Return ONLY a valid JSON object matching this structure:
 {
@@ -91,6 +103,7 @@ INSTRUCTIONS:
 
 /**
  * Normalizes raw model output to strictly conform to LayoutSchema (Layout v2).
+ * Enforces room (x, z) as geometric centre and validates object containment.
  */
 export function normalizeAiLayout(raw = {}) {
   const ts = Date.now();
@@ -107,13 +120,17 @@ export function normalizeAiLayout(raw = {}) {
     const depth = Math.max(1.5, Number(r.depth) || 4);
     const wallHeight = Number(r.wallHeight) || 3;
 
+    // (x, z) is strictly the room centre
+    const cx = Number(r.x) || 0;
+    const cz = Number(r.z) || 0;
+
     return {
       id,
       floorId: '0',
       name: r.name || `Room ${i + 1}`,
       type,
-      x: Number(r.x) || 0,
-      z: Number(r.z) || 0,
+      x: cx,
+      z: cz,
       width,
       depth,
       wallHeight,
@@ -129,7 +146,7 @@ export function normalizeAiLayout(raw = {}) {
     const assetType = validAssetTypes.has(rawAsset) ? rawAsset : 'DESK_STANDARD';
     const id = o.id || `obj_${ts}_${i + 1}`;
 
-    // Find parent room if object position is within room bounds
+    // Find parent room: object must fall within [centre.x - width/2, centre.x + width/2]
     const ox = Number(o.x ?? o.position?.x) || 0;
     const oz = Number(o.z ?? o.position?.z) || 0;
     const parentRoom = rooms.find((rm) => {
@@ -174,33 +191,6 @@ export function normalizeAiLayout(raw = {}) {
 }
 
 /**
- * Fetches an image from a URL and converts it to a base64 string.
- */
-async function fetchImageAsBase64(url) {
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch photo from URL: ${res.status} ${res.statusText}`);
-  }
-  const arrayBuffer = await res.arrayBuffer();
-  let base64;
-  if (typeof Buffer !== 'undefined') {
-    base64 = Buffer.from(arrayBuffer).toString('base64');
-  } else {
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    base64 = btoa(binary);
-  }
-  const mimeType = res.headers.get('content-type') || 'image/png';
-  return {
-    base64,
-    mimeType: mimeType.split(';')[0].trim(),
-  };
-}
-
-/**
  * Reliably extracts and parses JSON from model responses, handling markdown code fences.
  */
 export function parseJsonFromResponse(text) {
@@ -208,11 +198,9 @@ export function parseJsonFromResponse(text) {
     throw new Error('Empty or invalid response content from AI model');
   }
   let clean = text.trim();
-  // Strip markdown code block fences if present: ```json ... ```
   if (clean.startsWith('```')) {
     clean = clean.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
   }
-  // If wrapped in commentary text, extract from the first '{' to the last '}'
   const firstBrace = clean.indexOf('{');
   const lastBrace = clean.lastIndexOf('}');
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -222,16 +210,12 @@ export function parseJsonFromResponse(text) {
 }
 
 /**
- * Calls Groq Vision API, testing active multimodal models (Qwen 3.8 / Llama 3.2 Vision).
+ * Calls Groq Vision API using active multimodal model (Qwen 3.8 27B).
  */
 export async function callGroqVision(base64Data, mimeType, apiKey) {
   const url = 'https://api.groq.com/openai/v1/chat/completions';
   const dataUrl = `data:${mimeType};base64,${base64Data}`;
-  const models = [
-    'qwen/qwen3.8-27b',
-    'llama-3.2-90b-vision-preview',
-    'llama-3.2-11b-vision-preview',
-  ];
+  const models = ['qwen/qwen3.8-27b'];
   let lastError = null;
 
   for (const model of models) {
@@ -250,7 +234,6 @@ export async function callGroqVision(base64Data, mimeType, apiKey) {
         temperature: 0.1,
       };
 
-      // 1. Try with response_format json_object
       let res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -260,7 +243,6 @@ export async function callGroqVision(base64Data, mimeType, apiKey) {
         body: JSON.stringify({ ...payload, response_format: { type: 'json_object' } }),
       });
 
-      // 2. If rejected due to response_format not supported, retry freeform
       if (!res.ok) {
         const errJson = await res.json().catch(() => null);
         const errMsg = errJson?.error?.message || `HTTP ${res.status}`;
@@ -275,7 +257,6 @@ export async function callGroqVision(base64Data, mimeType, apiKey) {
           });
         } else {
           lastError = new Error(`Groq model ${model} error: ${errMsg}`);
-          console.warn(`[AHDUS] Groq model ${model} attempt failed: ${errMsg}`);
           continue;
         }
       }
@@ -284,7 +265,6 @@ export async function callGroqVision(base64Data, mimeType, apiKey) {
         const errJson = await res.json().catch(() => null);
         const errMsg = errJson?.error?.message || `HTTP ${res.status}`;
         lastError = new Error(`Groq model ${model} error: ${errMsg}`);
-        console.warn(`[AHDUS] Groq model ${model} attempt failed: ${errMsg}`);
         continue;
       }
 
@@ -296,7 +276,6 @@ export async function callGroqVision(base64Data, mimeType, apiKey) {
       return { data: parsed, modelUsed: `groq/${model}` };
     } catch (err) {
       lastError = err;
-      console.warn(`[AHDUS] Error calling Groq model ${model}:`, err.message);
     }
   }
 
@@ -304,7 +283,7 @@ export async function callGroqVision(base64Data, mimeType, apiKey) {
 }
 
 /**
- * Calls OpenRouter Vision API (Gemini 2.5 Flash / Claude / Llama via OpenRouter).
+ * Calls OpenRouter Vision API (Gemini 2.5 Flash via OpenRouter).
  */
 export async function callOpenRouterVision(base64Data, mimeType, apiKey) {
   const url = 'https://openrouter.ai/api/v1/chat/completions';
@@ -339,7 +318,8 @@ export async function callOpenRouterVision(base64Data, mimeType, apiKey) {
   const data = await res.json();
   const text = data.choices?.[0]?.message?.content;
   if (!text) throw new Error('OpenRouter returned empty response');
-  return { data: JSON.parse(text), modelUsed: 'openrouter/google/gemini-2.5-flash' };
+  const parsed = parseJsonFromResponse(text);
+  return { data: parsed, modelUsed: 'openrouter/google/gemini-2.5-flash' };
 }
 
 /**
@@ -379,18 +359,21 @@ export async function callOpenAIVision(base64Data, mimeType, apiKey) {
   const data = await res.json();
   const text = data.choices?.[0]?.message?.content;
   if (!text) throw new Error('OpenAI returned empty response');
-  return { data: JSON.parse(text), modelUsed: 'openai/gpt-4o-mini' };
+  const parsed = parseJsonFromResponse(text);
+  return { data: parsed, modelUsed: 'openai/gpt-4o-mini' };
 }
 
 /**
- * Executes a Gemini Vision API call with model fallback.
+ * Executes a Gemini Vision API call.
+ * SECURITY: The API key is sent ONLY in the x-goog-api-key header, never in the URL.
  */
 export async function callGeminiVision(base64Data, mimeType, apiKey) {
-  const models = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash', 'gemini-1.5-flash'];
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
   let lastError = null;
 
   for (const model of models) {
-    const url = `${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    // API key passed strictly in the header, never as a query parameter
+    const url = `${GEMINI_API_BASE}/${model}:generateContent`;
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -423,7 +406,6 @@ export async function callGeminiVision(base64Data, mimeType, apiKey) {
         const errJson = await res.json().catch(() => null);
         const errMsg = errJson?.error?.message || `HTTP ${res.status}`;
         lastError = new Error(`Model ${model} returned: ${errMsg}`);
-        console.warn(`[AHDUS] ${model} reconstruction attempt failed: ${errMsg}`);
         continue;
       }
 
@@ -433,11 +415,10 @@ export async function callGeminiVision(base64Data, mimeType, apiKey) {
         throw new Error('Gemini returned empty response content');
       }
 
-      const parsed = JSON.parse(text);
+      const parsed = parseJsonFromResponse(text);
       return { data: parsed, modelUsed: model };
     } catch (err) {
       lastError = err;
-      console.warn(`[AHDUS] Error calling ${model}:`, err.message);
     }
   }
 
@@ -445,43 +426,35 @@ export async function callGeminiVision(base64Data, mimeType, apiKey) {
 }
 
 /**
- * Dispatches the image analysis to available providers (Groq, OpenRouter, OpenAI, or Gemini).
+ * Dispatches the image analysis to configured providers.
  */
 export async function dispatchVisionAnalysis(base64Data, mimeType, keys = {}) {
   const { groqKey, openrouterKey, openaiKey, geminiKey } = keys;
 
-  // 1. Try Groq if configured
   if (groqKey) {
     try {
       return await callGroqVision(base64Data, mimeType, groqKey);
     } catch (err) {
-      console.warn('[AHDUS] Groq vision failed:', err.message);
-      // ONLY try other providers if the user explicitly provided them
       if (!openrouterKey && !openaiKey && !geminiKey) throw err;
     }
   }
 
-  // 2. Try OpenRouter if configured
   if (openrouterKey) {
     try {
       return await callOpenRouterVision(base64Data, mimeType, openrouterKey);
     } catch (err) {
-      console.warn('[AHDUS] OpenRouter vision failed, trying other providers:', err.message);
       if (!openaiKey && !geminiKey) throw err;
     }
   }
 
-  // 3. Try OpenAI if configured
   if (openaiKey) {
     try {
       return await callOpenAIVision(base64Data, mimeType, openaiKey);
     } catch (err) {
-      console.warn('[AHDUS] OpenAI vision failed, trying other providers:', err.message);
       if (!geminiKey) throw err;
     }
   }
 
-  // 4. Try Gemini if configured
   if (geminiKey) {
     return await callGeminiVision(base64Data, mimeType, geminiKey);
   }
@@ -493,14 +466,12 @@ export async function dispatchVisionAnalysis(base64Data, mimeType, keys = {}) {
  * Handles POST /api/ai/reconstruct requests.
  *
  * @param {object} params
- * @param {string} [params.photoUrl]
  * @param {string} [params.base64Image]
  * @param {string} [params.mimeType]
  * @param {string|object} [apiConfig]
  * @returns {Promise<{ ok: boolean, layout?: object, detectionStats?: object, modelUsed?: string, error?: string, status?: number }>}
  */
 export async function handleReconstructionRequest(params = {}, apiConfig = undefined) {
-  // Normalize configuration keys
   let openrouterKey = '';
   let groqKey = '';
   let openaiKey = '';
@@ -512,14 +483,11 @@ export async function handleReconstructionRequest(params = {}, apiConfig = undef
     else if (apiConfig.startsWith('sk-')) openaiKey = apiConfig;
     else geminiKey = apiConfig;
   } else if (typeof apiConfig === 'object' && apiConfig !== null) {
-    // When apiConfig is passed from Vite, strictly use configured values from .env.local.
-    // Do not fall back to process.env if a key was left empty in .env.local.
     openrouterKey = apiConfig.openrouterApiKey || '';
     groqKey = apiConfig.groqApiKey || '';
     openaiKey = apiConfig.openaiApiKey || '';
     geminiKey = apiConfig.geminiApiKey || '';
   } else {
-    // Only fall back to process.env if apiConfig was omitted entirely (e.g. in unit tests or CLI)
     openrouterKey = process.env.OPENROUTER_API_KEY || '';
     groqKey = process.env.GROQ_API_KEY || '';
     openaiKey = process.env.OPENAI_API_KEY || '';
@@ -536,29 +504,46 @@ export async function handleReconstructionRequest(params = {}, apiConfig = undef
 
   try {
     let base64Data = params.base64Image || '';
-    let mimeType = params.mimeType || 'image/png';
+    let rawMime = params.mimeType || 'image/png';
 
     if (base64Data.startsWith('data:')) {
       const commaIdx = base64Data.indexOf(',');
       const meta = base64Data.slice(0, commaIdx);
       const mimeMatch = meta.match(/data:([^;]+)/);
-      if (mimeMatch) mimeType = mimeMatch[1];
+      if (mimeMatch) rawMime = mimeMatch[1];
       base64Data = base64Data.slice(commaIdx + 1);
-    } else if (!base64Data && params.photoUrl) {
-      const fetched = await fetchImageAsBase64(params.photoUrl);
-      base64Data = fetched.base64;
-      mimeType = fetched.mimeType;
     }
 
     if (!base64Data) {
       return {
         ok: false,
         status: 400,
-        error: 'No image data provided (photoUrl or base64Image required)',
+        error: 'No image data provided (base64Image required)',
       };
     }
 
-    // Call vision provider with graceful candidate fallback so user is never blocked
+    // 1. Enforce allowed image format (PNG, JPEG, WebP)
+    let mimeType = rawMime.toLowerCase().trim();
+    if (mimeType === 'image/jpg') mimeType = 'image/jpeg';
+    if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+      return {
+        ok: false,
+        status: 400,
+        error: `Unsupported image format (${mimeType}). Only PNG, JPEG, and WebP images are allowed.`,
+      };
+    }
+
+    // 2. Enforce 10 MB payload size limit
+    const approxByteSize = Math.floor((base64Data.length * 3) / 4);
+    if (approxByteSize > MAX_IMAGE_SIZE_BYTES) {
+      return {
+        ok: false,
+        status: 413,
+        error: `Image exceeds maximum allowed size of 10 MB (${(approxByteSize / (1024 * 1024)).toFixed(1)} MB provided).`,
+      };
+    }
+
+    // 3. Dispatch to Vision provider
     let rawLayout;
     let modelUsed;
     try {
@@ -571,28 +556,18 @@ export async function handleReconstructionRequest(params = {}, apiConfig = undef
       rawLayout = visionRes.data;
       modelUsed = visionRes.modelUsed;
     } catch (err) {
-      console.warn('[AHDUS] AI Vision call failed, using candidate layout fallback:', err.message);
-      const rawFallback = generateFallbackProposedLayout();
-      const fallback = normalizeAiLayout(rawFallback);
+      // Return honest failure when AI fails
       return {
-        ok: true,
-        layout: fallback,
-        detectionStats: {
-          floorCount: fallback.floors.length,
-          roomCount: fallback.rooms.length,
-          objectCount: fallback.objects.length,
-          anchorCount: fallback.anchors.length,
-          routeCount: fallback.routes.length,
-        },
-        modelUsed: `Local Candidate Fallback (${err.message})`,
-        isFallback: true,
+        ok: false,
+        status: 502,
+        error: `AI vision reconstruction failed: ${err.message}`,
       };
     }
 
-    // Normalize to strict Layout v2 schema
+    // 4. Normalize to strict Layout v2 schema
     const normalized = normalizeAiLayout(rawLayout);
 
-    // Validate with Zod LayoutSchema
+    // 5. Validate with Zod LayoutSchema
     const parseResult = LayoutSchema.safeParse(normalized);
     if (!parseResult.success) {
       return {
@@ -622,3 +597,4 @@ export async function handleReconstructionRequest(params = {}, apiConfig = undef
     };
   }
 }
+
