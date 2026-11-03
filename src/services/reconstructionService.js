@@ -29,6 +29,19 @@ export const RECONSTRUCTION_OFF = 'Photo reconstruction is off';
 /** Lifetime of the signed photo URL sent to the analysis endpoint (seconds, at most 10 minutes). */
 export const SIGNED_URL_SECONDS = 10 * 60;
 
+/**
+ * Converts a browser File/Blob to a base64 data URL string.
+ */
+export async function fileToBase64(file) {
+  if (!file || typeof FileReader === 'undefined') return null;
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
+}
+
 /** Photo reconstruction uses the same off-by-default switch as layout saving. */
 export function isPhotoReconstructionOn() {
   return isSupabaseBackendOn();
@@ -109,8 +122,10 @@ export async function uploadReconstructionPhoto(file, { companyId, layoutId }) {
       return { ok: false, error: uploadError.message };
     }
 
+    const base64Data = await fileToBase64(file).catch(() => null);
+
     // No public URL: the bucket is private, the path is all we keep.
-    return { ok: true, storagePath };
+    return { ok: true, storagePath, base64Data };
   } catch (err) {
     return { ok: false, error: err?.message || 'Failed to upload photo' };
   }
@@ -145,7 +160,7 @@ export function generateFallbackProposedLayout(layoutId = 'layout') {
         id: `room_${ts}_1`,
         floorId: '0',
         name: 'Conference Room (AI)',
-        type: 'CONFERENCE',
+        type: 'MEETING',
         color: '#4a7dff',
         floorFinish: 'carpet',
         x: 0,
@@ -225,7 +240,8 @@ export function generateFallbackProposedLayout(layoutId = 'layout') {
  * @param {string} context.layoutId
  * @returns {Promise<{ ok: boolean, proposedLayout?: object, detectionStats?: object, isFallback?: boolean, off?: boolean, error?: string }>}
  */
-export async function requestPhotoAnalysis(storagePath, { companyId, layoutId }) {
+export async function requestPhotoAnalysis(storagePath, context = {}) {
+  const { companyId, layoutId, base64Data, mimeType } = context;
   if (!isPhotoReconstructionOn()) return { ...OFF_RESULT };
 
   if (!storagePath) {
@@ -254,6 +270,8 @@ export async function requestPhotoAnalysis(storagePath, { companyId, layoutId })
       body: JSON.stringify({
         photoUrl,
         storagePath,
+        base64Image: base64Data || null,
+        mimeType: mimeType || 'image/png',
         companyId,
         layoutId,
         requestedAt: new Date().toISOString(),
@@ -278,20 +296,32 @@ export async function requestPhotoAnalysis(storagePath, { companyId, layoutId })
         ok: true,
         proposedLayout,
         detectionStats: computeDetectionStats(proposedLayout),
+        modelUsed: json.modelUsed || null,
       };
     }
 
-    // If external AI endpoint returned an error or is 404, fallback
-    console.warn(`[AHDUS] AI reconstruction endpoint (${endpoint}) responded with ${res.status}. Falling back to candidate generator.`);
-    const fallbackLayout = generateFallbackProposedLayout(layoutId);
+    // If 404 (endpoint not mounted in standalone/test mode), fallback to candidate sample
+    if (res.status === 404) {
+      console.warn(`[AHDUS] AI reconstruction endpoint (${endpoint}) responded with 404. Falling back to candidate generator.`);
+      const fallbackLayout = generateFallbackProposedLayout(layoutId);
+      return {
+        ok: true,
+        proposedLayout: fallbackLayout,
+        detectionStats: computeDetectionStats(fallbackLayout),
+        isFallback: true,
+        isSample: true,
+      };
+    }
+
+    // Endpoint returned an explicit failure: surface the error honestly
+    const errJson = await res.json().catch(() => null);
+    const errMsg = errJson?.error || `Reconstruction endpoint returned HTTP ${res.status}`;
     return {
-      ok: true,
-      proposedLayout: fallbackLayout,
-      detectionStats: computeDetectionStats(fallbackLayout),
-      isFallback: true,
+      ok: false,
+      error: errMsg,
     };
   } catch (err) {
-    // If endpoint could not be connected, fallback so the user can test the workflow
+    // If endpoint could not be reached, fallback to candidate generator labeled as sample
     console.warn(`[AHDUS] Could not connect to AI reconstruction endpoint (${endpoint}). Falling back to candidate generator.`, err);
     const fallbackLayout = generateFallbackProposedLayout(layoutId);
     return {
@@ -299,6 +329,7 @@ export async function requestPhotoAnalysis(storagePath, { companyId, layoutId })
       proposedLayout: fallbackLayout,
       detectionStats: computeDetectionStats(fallbackLayout),
       isFallback: true,
+      isSample: true,
     };
   }
 }

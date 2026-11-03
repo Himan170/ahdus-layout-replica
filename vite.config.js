@@ -8,12 +8,49 @@ const AHDUS_API_DEFAULT = 'http://127.0.0.1:8000';
 export default defineConfig(({ mode }) => {
   // .env files and the shell's VITE_* variables
   const env = loadEnv(mode, __dirname, 'VITE_');
+  // Load server-side secrets (including OPENROUTER_API_KEY, GROQ_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY)
+  const serverEnv = loadEnv(mode, __dirname, '');
+  const apiConfig = {
+    openrouterApiKey: serverEnv.OPENROUTER_API_KEY || '',
+    geminiApiKey: serverEnv.GEMINI_API_KEY || '',
+    groqApiKey: serverEnv.GROQ_API_KEY || '',
+    openaiApiKey: serverEnv.OPENAI_API_KEY || '',
+  };
+
   // AHDUS mode (VITE_LAYOUT_BACKEND=ahdus) calls /api/workplace on its own origin, as it
   // does inside AHDUS: in dev that is the AHDUS backend (FastAPI), through this proxy
   const ahdusApi = env.VITE_LAYOUT_BACKEND === 'ahdus' ? env.VITE_AHDUS_API || AHDUS_API_DEFAULT : null;
 
+  const aiReconstructionPlugin = {
+    name: 'ai-reconstruction-endpoint',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (req.url === '/api/ai/reconstruct' && req.method === 'POST') {
+          let raw = '';
+          req.on('data', (chunk) => { raw += chunk; });
+          req.on('end', async () => {
+            try {
+              const body = JSON.parse(raw || '{}');
+              const { handleReconstructionRequest } = await import('./server/aiReconstructionHandler.js');
+              const result = await handleReconstructionRequest(body, apiConfig);
+              res.setHeader('Content-Type', 'application/json');
+              res.statusCode = result.ok ? 200 : (result.status || 500);
+              res.end(JSON.stringify(result));
+            } catch (err) {
+              res.setHeader('Content-Type', 'application/json');
+              res.statusCode = 500;
+              res.end(JSON.stringify({ ok: false, error: err.message || 'Internal reconstruction error' }));
+            }
+          });
+        } else {
+          next();
+        }
+      });
+    },
+  };
+
   return {
-    plugins: [react()],
+    plugins: [react(), aiReconstructionPlugin],
     resolve: {
       alias: {
         '@engine': resolve(__dirname, 'src/engine'),

@@ -29,9 +29,9 @@ export default [
     },
   },
 
-  // Node scripts, configs and the Playwright tests (their page.evaluate bodies run in the browser)
+  // Node scripts, configs, server handlers and the Playwright tests
   {
-    files: ['scripts/**', 'e2e/**', '*.config.js', 'vite.*.js'],
+    files: ['scripts/**', 'e2e/**', '*.config.js', 'vite.*.js', 'server/**'],
     languageOptions: { globals: { ...globals.node, ...globals.browser, AHDUSWorkplace: 'readonly' } },
   },
 
