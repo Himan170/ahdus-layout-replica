@@ -112,6 +112,7 @@ export function resolvePeople(list, characters) {
       name: text(p.name),
       department: text(p.department),
       character: (ref && characters.get(ref)) || null,
+      characterChosen: ref !== null,
     });
   }
   return out;

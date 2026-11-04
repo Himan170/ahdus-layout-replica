@@ -23,6 +23,14 @@
  *   POST /api/workplace/sites/{site}/versions             { name, kind: 'auto' | 'named', layout, revision } → the version
  *   POST /api/workplace/sites/{site}/versions/{v}/restore → { layout, revision } (the draft is now that version)
  *   POST /api/workplace/sites/{site}/publish              { expectedRevision } → the draft becomes the published layout
+ *   GET  /api/workplace/me                                → { canEdit, canAppoint } (canAppoint: Admin and HR)
+ *   GET  /api/workplace/sites/{site}/seats                → [{ deskId, userId, name, department, assetReference, hasDesk }]
+ *   PUT  /api/workplace/sites/{site}/seats/{deskId}       { userId } → the seat (Admin and HR; moves / replaces)
+ *   DELETE /api/workplace/sites/{site}/seats/{deskId}     → 204 (Admin and HR)
+ *   GET  /api/workplace/people?q=                         → [{ id, name, email, department }] (Admin and HR, ≤ 20)
+ *
+ * Seats (who sits at which desk) are not in the layout: they are saved at once, are not part of undo and need no
+ * publish (ui/seatFlow.js, hooks/useAhdusSeats.js).
  *
  * Every function returns { ok: true, … } or { ok: false, error, conflict?, loginExpired?, forbidden?, notFound? }; none throws.
  */
@@ -33,6 +41,8 @@ import { loadLayout as parseLayout, toV1, mergeV2Extras } from '../engine/model'
 export const AHDUS_COMPANY = 'ahdus';
 /** Where "Back to AHDUS" goes. */
 export const AHDUS_HOME = '/3d-model.html';
+/** AHDUS's character manifest (asset reference → office file), the one the 3D Company page uses. */
+export const AHDUS_CHARACTERS = '/frontend/workplace/characters.json';
 /** AHDUS's login page; ?redirect= is where it goes after logging in. */
 export const AHDUS_LOGIN = '/login.html';
 export const AHDUS_CHANGED = 'This workplace was changed by someone else';
@@ -85,9 +95,9 @@ export function goToLogin(location = window.location) {
 }
 
 /** One API call. @returns {{ ok, status, data?, error?, conflict?, loginExpired?, forbidden?, notFound? }} */
-async function request(method, path, body) {
+async function request(method, path, body, { signal } = {}) {
   const headers = { Accept: 'application/json', ...authHeaders() };
-  const init = { method, headers, credentials: 'same-origin' };
+  const init = { method, headers, credentials: 'same-origin', signal };
   if (body !== undefined) {
     init.body = JSON.stringify(body);
     headers['Content-Type'] = 'application/json';
@@ -96,7 +106,8 @@ async function request(method, path, body) {
   let res;
   try {
     res = await fetch(path, init);
-  } catch {
+  } catch (err) {
+    if (err?.name === 'AbortError') return { ok: false, status: 0, aborted: true, error: 'Cancelled' };
     return { ok: false, status: 0, error: NO_CONNECTION };
   }
   let data = null;
@@ -259,4 +270,65 @@ export async function renameSite(site, name) {
   const res = await request('PATCH', sitePath(site), { name: trimmed });
   if (!res.ok) return res;
   return { ok: true, site: { ...res.data, name: typeof res.data?.name === 'string' ? res.data.name : trimmed } };
+}
+
+// ---------------------------------------------------------------- seats: who sits at which desk
+
+/** What the signed-in person may do: { canEdit, canAppoint } (canAppoint = Admin and HR, who also assign seats). */
+export async function getMe() {
+  const res = await request('GET', '/api/workplace/me');
+  if (!res.ok) return res;
+  return { ok: true, me: { canEdit: !!res.data?.canEdit, canAppoint: !!res.data?.canAppoint } };
+}
+
+/** A seat as the server sends it, with only the fields Studio uses (never email). */
+function toSeat(s) {
+  return {
+    deskId: String(s.deskId),
+    userId: s.userId,
+    name: typeof s.name === 'string' ? s.name : '',
+    department: typeof s.department === 'string' ? s.department : '',
+    assetReference: typeof s.assetReference === 'string' ? s.assetReference : null,
+    hasDesk: s.hasDesk !== false,
+  };
+}
+
+/** @returns {Promise<{ ok: true, seats: object[] }|{ ok: false, error }>} */
+export async function listSeats(site) {
+  const res = await request('GET', sitePath(site, '/seats'));
+  if (!res.ok) return res;
+  const list = Array.isArray(res.data) ? res.data : [];
+  return { ok: true, seats: list.filter((s) => s && s.deskId != null && s.userId != null).map(toSeat) };
+}
+
+/** This person sits at this desk (whoever sat there loses the seat; they leave the desk they had). */
+export async function setSeat(site, deskId, userId) {
+  const res = await request('PUT', sitePath(site, `/seats/${encodeURIComponent(deskId)}`), { userId });
+  if (!res.ok) return res.notFound ? { ...res, error: 'This desk or person was not found' } : res;
+  return { ok: true, seat: toSeat({ deskId, userId, ...res.data }) };
+}
+
+/** Nobody sits at this desk any more. */
+export async function removeSeat(site, deskId) {
+  const res = await request('DELETE', sitePath(site, `/seats/${encodeURIComponent(deskId)}`));
+  if (!res.ok && !res.notFound) return res; // 404: nobody sat there already
+  return { ok: true };
+}
+
+/** Active people whose name or e-mail contains `q` (Admin and HR). @returns {Promise<{ ok: true, people }|{ ok: false, error }>} */
+export async function findPeople(q, { signal } = {}) {
+  const text = String(q ?? '').trim();
+  if (!text) return { ok: true, people: [] };
+  const res = await request('GET', `/api/workplace/people?q=${encodeURIComponent(text)}`, undefined, { signal });
+  if (!res.ok) return res;
+  const list = Array.isArray(res.data) ? res.data : [];
+  return {
+    ok: true,
+    people: list.filter((p) => p && p.id != null).map((p) => ({
+      id: p.id,
+      name: typeof p.name === 'string' ? p.name : '',
+      department: typeof p.department === 'string' ? p.department : '',
+      email: typeof p.email === 'string' ? p.email : '',
+    })),
+  };
 }

@@ -71,7 +71,8 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `mode` | `'view'` \| `'walkthrough'` | `view` (default): orbit and zoom around the building. `walkthrough`: walk through it as a character. **`'edit'` is refused**: admins edit in Workplace Studio (section 6). |
 | `quality` | `'high'` \| `'low'` | `high` (default): the realistic look: real furniture models, photo textures on floors and walls, a photographed sky. They load after the workplace is drawn (the simple look shows until then). `low`: the simple models and materials, nothing extra downloaded: for slow computers. |
 | `assetBaseUrl` | string | Where the realistic look's files are (the `assets/` folder: `models/`, `textures/`, `env/`). Default: `assets/` next to `ahdus-workplace.js`. Set it when you host them elsewhere, e.g. `'https://cdn.example.com/ahdus/assets/'`. A file that can't be loaded keeps the simple look for that item or surface (a warning in the console, never an error). |
-| `characters` | object | `{ manifestUrl }`: where the **character manifest** is (section 4b), fetched with `credentials: 'include'` and `headers` on the first `setPeople`. Or `{ manifest }`: the manifest itself. Without it everyone is the neutral simple figure. |
+| `characters` | object | `{ manifestUrl }`: where the **character manifest** is (section 4b), fetched with `credentials: 'include'` and `headers` on the first `setPeople`. Or `{ manifest }`: the manifest itself. Without it everyone is the neutral simple figure. Also `chooseUrl`: where people choose their character (http / https, or relative to the page), for the "Choose your character" link (section 4b). |
+| `player` | object | `{ personId }`: the person looking, i.e. the signed-in user (the same `personId` as in `setPeople`). Their own card offers "Choose your character" if they never chose one. Change it later with `setPlayer`. |
 | `onEvent(name, data)` | function | Everything that happens (section 5). |
 | `onError(error)` | function | The layout could not be shown (section 7). Without it, the message goes to the console. |
 
@@ -92,6 +93,7 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `anchors({ kind?, roomId?, floorId?, objectId? })` | Hook points, e.g. `anchors({ kind: 'machine' })` or every workstation on Floor 1: `anchors({ kind: 'workstation', floorId: 1 })`. `[]` until `ready`. |
 | `registerAction(match, { label, run, when? })` | A "Press E" action (below). Returns a function that removes it. |
 | `setPeople(list)` | Who sits at which desk (section 4b). Replaces the list before; `setPeople([])` = nobody. Returns a promise of how many people were given (after the manifest is read). Can be called before `ready`. |
+| `setPlayer({ personId } \| null)` | The person looking (the signed-in user), as the `player` option. |
 | `destroy()` | Removes the viewer: the element is as you gave it, the 3D engine, its keys and its actions are gone. Safe to call twice. |
 
 Calls made before `ready` (`setFloor`, `focusOn`, `highlight`) wait for it and return `undefined`. After `destroy()` every call returns `false` (or `[]`).
@@ -134,7 +136,8 @@ Ids never change once created: store `objectId` or `anchorId` in your tables to 
 ```js
 const workplace = AHDUSWorkplace.mount(el, {
   layoutUrl, mode: 'walkthrough',
-  characters: { manifestUrl: '/frontend/character/office/manifest.json' },
+  characters: { manifestUrl: '/frontend/workplace/characters.json', chooseUrl: '/frontend/character/selection/index.html' },
+  player: { personId: String(currentUser.id) },   // the signed-in user
 });
 workplace.setPeople([
   { personId: 'u_17', deskId: 'obj_3f…', name: 'Asha Rao', department: 'Engineering', assetReference: 'mixamo:aj-v1' },
@@ -158,6 +161,11 @@ workplace.setPeople([
   names: no animation file is needed.
 - **The card:** pointing at a desk with a person (`view`), or walking up to one (`walkthrough`, within 1.8 m),
   shows a small card with their **name and department**, as plain text. No labels float over the desks.
+  **A click or a tap** on a desk (or a person) keeps the card open until the next click or tap elsewhere (phones
+  have no pointing: a tap is how they see who sits there); dragging the view hides it.
+- **"Choose your character":** on the `player`'s own card, when their `assetReference` is `null` (they never chose
+  one), the card links to `characters.chooseUrl`. An asset reference the manifest doesn't know is a choice made (no
+  link), and so is any character, even while its file loads. No `chooseUrl` (or one that isn't http / https) = no link.
 - People are not pickable: a click, the crosshair and E go to the desk or chair as before.
 - `quality: 'low'`: no people at all, nothing downloaded.
 
@@ -283,5 +291,5 @@ If your Content-Security-Policy blocks added `<style>` elements, link the file i
 
 - `npm run build:embed`, then open `embed-test.html` through any web server, e.g. `npm run dev` → <http://localhost:3000/embed-test.html>. It loads only the embed file, shows a sample office (`embed-sample.ahdus.json`: reception, 2 offices, a training room with a CNC machine, 2 floors with stairs), lists every `onEvent` call, registers "E · Watch CNC training video", and has a text field, a button and content below the view to try the keys with. `?mode=view` orbits; `?layoutUrl=missing.json` shows the page's own fallback.
 - `npm run e2e:embed` (24 checks, `e2e/embed-smoke.mjs`) builds the file and tests all of the above from a plain static server, with no dev server needed.
-- `npm run e2e:characters` (`e2e/characters-smoke.mjs`): 21 people with the placeholder figures (section 4b): full characters near the camera, each file once, seated poses, the card (text only, no email), per floor, walking up to a desk, `quality: 'low'`. No dev server needed either.
+- `npm run e2e:characters` (`e2e/characters-smoke.mjs`): 21 people with the placeholder figures (section 4b): full characters near the camera, each file once, seated poses, the card (text only, no email), a click keeps it, a tap on a phone shows it, "Choose your character" on your own card, per floor, walking up to a desk, `quality: 'low'`. No dev server needed either.
 - Code: `src/embed/index.jsx` (`mount`), `src/embed/embedLayout.js` (loading, matching; unit tests in `src/embed/__tests__/`), `src/embed/characterManifest.js` (the manifest, `setPeople`'s list), `vite.embed.config.js`. People: `src/engine/systems/CharacterSystem.ts`, `src/play/people.js`.

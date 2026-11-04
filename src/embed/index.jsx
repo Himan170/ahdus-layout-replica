@@ -9,6 +9,7 @@
  *   });
  *   workplace.registerAction('CNC_MACHINE', { label: 'Watch CNC training video', run: (target) => { … } });
  *   workplace.setPeople([{ personId, deskId, name, department, assetReference }]);  // option characters: { manifestUrl }
+ *   workplace.setPlayer({ personId });  // the signed-in person: their card offers characters.chooseUrl
  *
  * `npm run build:embed` (vite.embed.config.js) makes one IIFE file with React
  * and Babylon inside. It shows <LayoutViewer /> and works through layoutBridge
@@ -62,6 +63,12 @@ function removeStyles() {
   if (mounted === 0) document.getElementById(STYLE_ID)?.remove();
 }
 
+/** The player option / setPlayer's argument as the viewer takes it: { personId } or null. */
+function playerOf(value) {
+  const id = value && typeof value === 'object' ? value.personId : null;
+  return id === null || id === undefined || id === '' ? null : { personId: String(id) };
+}
+
 /** Call a page's callback; its errors are logged, never thrown into the viewer. */
 function call(fn, ...args) {
   try {
@@ -86,7 +93,9 @@ function call(fn, ...args) {
  *   mode?: 'view' | 'walkthrough',    // default 'view'; 'edit' is refused
  *   quality?: 'high' | 'low',         // 'low': simple models and materials, no downloads (slow PCs)
  *   assetBaseUrl?: string,            // where models/, textures/, env/ are; default: assets/ next to this script
- *   characters?: { manifestUrl?: string, manifest?: object }, // assetReference → { url, rig, height } (setPeople)
+ *   characters?: { manifestUrl?: string, manifest?: object, chooseUrl?: string }, // assetReference → { url, rig, height }
+ *                                     // (setPeople); chooseUrl: where people choose their character
+ *   player?: { personId?: string },   // the signed-in person (setPlayer): "Choose your character" on their own card
  *   onEvent?: (name: string, data: object) => void,
  *   onError?: (error: Error) => void,
  * }} [options]
@@ -111,6 +120,7 @@ export function mount(element, options = {}) {
   const abort = new AbortController();
   let people = []; // who sits where (setPeople), resolved through the manifest
   let manifest = null; // Promise of the character manifest, read on the first setPeople
+  let player = playerOf(options.player); // the signed-in person (setPlayer)
 
   let resolveReady;
   let rejectReady;
@@ -166,6 +176,7 @@ export function mount(element, options = {}) {
     root?.render(
       <LayoutViewer
         layout={layout} mode={mode} quality={quality} assetBaseUrl={assetBaseUrl} people={people}
+        player={player} chooseCharacterUrl={options.characters?.chooseUrl}
         onReady={onReady} onError={fail} onProgress={onProgress}
         onCard={(card) => emit('card', { title: card.title, body: card.body ?? card.text ?? '' })}
         style={{ width: '100%', height: '100%' }}
@@ -337,6 +348,16 @@ export function mount(element, options = {}) {
       people = resolvePeople(list, characters);
       render();
       return given;
+    },
+
+    /**
+     * The person looking at the workplace (the signed-in user): { personId } (as in setPeople), or null.
+     * If they sit at a desk and never chose a character, their card links to characters.chooseUrl.
+     */
+    setPlayer(next) {
+      if (closed) return;
+      player = playerOf(next);
+      render();
     },
 
     /** Remove the viewer: the element, the 3D engine, its actions and listeners. */

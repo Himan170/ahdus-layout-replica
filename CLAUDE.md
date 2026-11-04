@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (724, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (744, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -63,11 +63,17 @@ npm run e2e:embed    # 27 checks   e2e/embed-smoke.mjs     (NO dev server needed
                      #                                       in it (no Supabase), serves embed-test.html itself; keys are the page's until the view is engaged, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
                      #                                       with cookies, destroy(), assets next to the script, quality low)
-npm run e2e:characters # 17     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
+npm run e2e:characters # 23     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
                      #                                       on 2 floors: simple figures, full characters near the
                      #                                       camera (each file once), seated poses, hover card (text,
-                     #                                       no email), per floor, walking up, quality low; with
-                     #                                       SHOTS=<dir> also 1440×900 + 390×844 screenshots)
+                     #                                       no email), a click keeps it, "Choose your character" on
+                     #                                       your own card, a phone's tap, per floor, walking up,
+                     #                                       quality low; SHOTS=<dir>: 1440×900 + 390×844 screenshots)
+npm run e2e:seats    # 24 checks   e2e/seats-smoke.mjs     (NO dev server: starts its own in AHDUS mode on port 3100,
+                     #                                       the AHDUS API faked by page.route: "Who sits here",
+                     #                                       search, move / replace questions, not in undo, People
+                     #                                       without a desk, the Publish warning, editors read-only,
+                     #                                       phone; SHOTS=<dir>: screenshots)
 npm run e2e          # all of them (Himan's laptop once hung on this: run the scripts ONE AT A TIME)
 node e2e/real-assets-shots.mjs before|after   # screenshots of one sample layout: e2e/screens/real-assets-<tag>-*.png
 ```
@@ -181,6 +187,9 @@ src/hooks/useStudioFileActions.js  Returns Studio's file / layout actions: All l
                                    import layout, save as copy, floor plan PNG / PDF, photo reconstruction (flag-checked)
 src/hooks/useAhdusPublish.js       AHDUS only: publish state, Publish dialog + toasts, leave dialog + beforeunload, save
                                    errors as toasts, rename the site (rules: PURE ui/publishFlow.js, tested)
+src/hooks/useAhdusSeats.js         AHDUS only: who sits at which desk (GET /me, seats, people; PUT / DELETE a seat), the
+                                   people Studio draws, the Move here / Replace question, "Assign a desk" (rules: PURE
+                                   ui/seatFlow.js, tested); UI: ui/SeatSection.jsx (Inspector), ui/SeatsBanner.jsx
 src/ui/                            Workplace Studio: theme.css + ahdus.css (the AHDUS look), look.js (usePhone), tools.js, StudioShell,
                                    StudioHeader, BuildPanel (the tool rail) + LibraryPanel, CatalogPicker (Preview's catalog), CanvasCard, ExportMenu, MeasureMenu, RoomLabels (+ labelLayout.js),
                                    RoomHoverCard, SelectionToolbar, Inspector, StudioFooter, EditorErrorBoundary, preview.css,
@@ -400,7 +409,11 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
 - A person shows while their desk's mesh is built and enabled (so per floor, like FloorSystem). Character meshes are
   not pickable; `pickPerson(x, y)` (desk / chair hit, else the nearest person within 0.6 m of the hit point) gives the
   hover card: LayoutViewer (view: next to the cursor; walkthrough: within 1.8 m, `personNearWalker`) and Studio
-  (RoomHoverCard). Text only: name and department.
+  (RoomHoverCard). Text only: name and department. In a viewer a click or tap (≤ 8 px, ≤ 600 ms) on a desk keeps
+  the card (`data-pinned`, clickable) until the next click / tap elsewhere; a drag hides it (phones: tap = the card).
+  `player: { personId }` (LayoutViewer prop; embed option + `setPlayer`) = the signed-in person: on their own card,
+  with `characterChosen` false (assetReference null; `resolvePeople` sets it), "Choose your character" links to
+  `chooseCharacterUrl` (embed: `characters.chooseUrl`; http(s) only, `safeLink`).
 - **None with quality 'low'** (`engine.characters` is null) or Studio's Realistic look off (`setEnabled`).
 
 ## Realistic look (how it works)
@@ -479,6 +492,7 @@ site on the server (local mode renames the layout), the leave check. Saving, und
   Also (keep them too): `All layouts` (AHDUS: `Back to AHDUS`), `Versions`, `Shortcuts`, `Search rooms`, `Search furniture`,
   the libraries (`Rooms library`, …; `data-library`), `Add floor`, `Full screen` / `Exit full screen`, `Reset view`, `Zoom in`, `Zoom out`, `Orbit`, `Pan`, `Top view`,
   `Front view`, `Side view`, `Room type`; on a phone `More` (menu `More actions`) and `Close the library`.
+  AHDUS seats: the section `Who sits here`, `Search people`, `People found`, the banner `People without a desk`.
   `Export floor plan` and `Measurements` keep their labels (the visible text is "Export" / "Measure").
   e2e scripts pick a tool with `pick(tile, option)`: it opens the tile's library unless it is open (a click on an open
   tile closes it), then clicks the option; Rooms = "Draw your own size". Furniture: drag the tile onto the floor.
@@ -581,6 +595,16 @@ site on the server (local mode renames the layout), the leave check. Saving, und
     `/login.html?redirect=<this /workplace-studio/ address, encoded>` (`ahdusBackend.goToLogin`; "Taking you to the
     AHDUS login…" meanwhile), so AHDUS-FRONTEND's `studio-login.js` patch is no longer needed. No site: the error card.
     Tests: `src/__tests__/App.ahdusLogin.test.jsx` (jsdom, editor mocked) + `loginUrl` with a mocked location.
+  - **Who sits here** (v0.11.2; `hooks/useAhdusSeats.js`, rules `ui/seatFlow.js`): seats live on the AHDUS server
+    (`workplace_seats`), never in the layout: saved at once, not in undo, no publish, no layout save. `GET /me`:
+    `canAppoint` (Admin / HR) = 'manage', else `canEdit` = 'view' (names only). A desk (DESK*, RECEPTION_DESK)
+    in the Inspector: `SeatSection` (person + Change / Remove, or "Assign someone": search `GET /people?q=`,
+    debounced 250 ms; e-mail only in its results). Moving someone from a desk of this layout asks "X already sits at
+    <desk>. Move them here?", a taken desk "This replaces Y." (`assignPlan`; desk names: own label, else
+    "Standard Desk 3", `deskLabel`). `SeatsBanner` (manage only): "People without a desk (N)" = seats whose desk is
+    not in the draft, with Assign a desk (the next desk selected; the hint says so; Esc cancels) / Remove. The
+    Publish dialog: "N people lose their desk: …" (desk gone from the draft, `hasDesk` on the server). Studio draws
+    the seated people with AHDUS's manifest (`AHDUS_CHARACTERS` = `/frontend/workplace/characters.json`).
   - Load = `GET …/layout?state=draft` (`{ layout (v2 | null), revision, name? }`); save = `PUT …/layout`
     `{ layout (v2), expectedRevision }` (v2 via the engine's model; routes / links / underlays of the loaded layout kept
     by `mergeV2Extras`). Saves run one at a time; nothing about the layout goes to localStorage (no offline queue: a
@@ -715,6 +739,12 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 ## DONE: realistic look, real assets (25 Oct 2026, branch `feat/real-assets`)
 
 Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
+
+## DONE: "Who sits here" (v0.11.2, 4 Nov 2026, branch `feature/seats-studio`)
+
+Task 1 of private-docs/TASKS_CHARACTERS.md: Admin / HR seat people from Studio inside AHDUS (see "Who sits here" in
+"Data and backend"), names on phones (a tap keeps the person card) and "Choose your character" on your own card
+(see "People at their desks"). No AHDUS backend changes. Screenshots: private-docs/screenshots/v0.11.2/ (not in git).
 
 ## DONE: glTF extensions for the characters (v0.11.1, 3 Nov 2026, branch `fix/gltf-extensions`)
 

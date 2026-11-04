@@ -66,13 +66,15 @@ describe('resolvePeople', () => {
     expect(people[0].character).toEqual({ url: 'https://ahdus.example/frontend/character/aj.glb', rig: 'mixamo', height: 1.8 });
     expect(people[1].character).toBeNull();
     expect(people[2].character).toBeNull();
+    // "Choose your character" is for people who never chose (not for a file the manifest lacks)
+    expect(people.map((p) => p.characterChosen)).toEqual([true, true, false]);
   });
 
   it('keeps only the fields the view needs, as plain text', () => {
     const [p] = resolvePeople([{
       personId: 7, deskId: 'obj_1', name: '<b>Asha</b>', department: 'x'.repeat(500), email: 'asha@example.com', userId: 99,
     }], characters);
-    expect(p).toEqual({ personId: '7', deskId: 'obj_1', name: '<b>Asha</b>', department: 'x'.repeat(MAX_TEXT), character: null });
+    expect(p).toEqual({ personId: '7', deskId: 'obj_1', name: '<b>Asha</b>', department: 'x'.repeat(MAX_TEXT), character: null, characterChosen: false });
     expect(JSON.stringify(p)).not.toContain('example.com');
   });
 

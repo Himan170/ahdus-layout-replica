@@ -142,7 +142,7 @@ export function useAhdusPublish({ enabled, onLeave }) {
   }, [errorToast]);
 
   return {
-    state, publishing, dialog, toast, closeToast,
+    state, publishing, dialog, toast, closeToast, showToast,
     openPublish, cancelDialog, confirmPublish, requestLeave, publishAndLeave, leaveAnyway, renameSite,
   };
 }
