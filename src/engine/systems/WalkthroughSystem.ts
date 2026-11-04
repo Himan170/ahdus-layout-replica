@@ -17,6 +17,7 @@ import type { Vector3 } from '@babylonjs/core/Maths/math.vector';
 
 import { createPlayController } from '../../play/playController';
 import type { LayoutRecords, V1Room } from './RoomSystem';
+import type { PlayCharacter } from './PlayerCharacter';
 
 /** What E was pressed on: an item, or a door / window of a room (playController's target). */
 export interface WalkthroughTarget {
@@ -204,6 +205,24 @@ export class WalkthroughSystem {
     return this.controller.getPosition();
   }
 
+  /**
+   * Walk as this character (systems/PlayerCharacter: your own), the camera at
+   * its eye height; null = Preview's built-in figure. The one before is disposed.
+   */
+  setCharacter(character: PlayCharacter | null): void {
+    this.controller.setCharacter(character, { eyeHeight: character?.eyeHeight });
+  }
+
+  /** The character walking now: a PlayCharacter, or the built-in figure (kind undefined). */
+  getCharacter(): (Partial<PlayCharacter> & { root: TransformNode }) | null {
+    return this.controller.getCharacter?.() ?? null;
+  }
+
+  /** The camera's height above the feet (m). */
+  getEyeHeight(): number {
+    return this.controller.getEyeHeight?.() ?? 1.62;
+  }
+
   /** Which way the character faces (radians, 0 = +Z / north). */
   getYaw(): number {
     return this.controller.getYaw();
@@ -217,6 +236,11 @@ export class WalkthroughSystem {
   /** The floor the character is on. */
   getLevel(): number {
     return this.controller.getLevel();
+  }
+
+  /** Flying (F, or arrived on a floor with no room there)? */
+  isFlying(): boolean {
+    return this.controller.isFlying();
   }
 
   /** The floor above (+1) or below (−1), at the same spot: Page Up / Page Down. */

@@ -180,8 +180,9 @@ each character is:
   /api/workplace/sites/{site}/seats` → `[{ deskId, userId, name, department, assetReference }]`, no email) and
   calls the embed's `workplace.setPeople(list.map((s) => ({ personId: s.userId, deskId: s.deskId, name: s.name,
   department: s.department, assetReference: s.assetReference })))` (`docs/EMBED_GUIDE.md` section 4b), with
-  `player: { personId: <the signed-in user's id> }` and `characters.chooseUrl` (the character picker) so a person
-  who never chose sees "Choose your character" on their own card. `<LayoutEditor people={…} />` (resolved:
+  `player: { personId: <the signed-in user's id>, assetReference }` and `characters.chooseUrl` (the character
+  picker) so a person who never chose sees "Choose your character" on their own card. In walkthrough the player
+  walks as their own character with the clip at `characters.walkClipUrl` (v0.12.0, `docs/EMBED_GUIDE.md` 4c). `<LayoutEditor people={…} />` (resolved:
   `character: { url, rig, height } | null` instead of `assetReference`). `assetReference` null (the person never
   chose) = the neutral simple figure.
 - **Assigning seats** (v0.11.2): in Workplace Studio inside AHDUS, a desk's Inspector has "Who sits here". Admin and
@@ -206,9 +207,14 @@ each character is:
     `spine_01…03`, `neck_01`, `head`, `clavicle_l`, `upperarm_l`, `lowerarm_l`, `hand_l`, `thigh_l`, `calf_l`,
     `foot_l`, `ball_l`, and `_r`): our table is `BONE_TABLE` in `src/play/people.js`;
   - no animation needed (we pose the bones: seated or standing); the 2-key pose clips may stay (we stop them);
+  - walking (v0.12.0): ONE walk clip for everyone, an animation-only `.glb` (the Mixamo-named skeleton and the
+    walk, no mesh, no textures: `frontend/character/office/walk.glb`, made from your walking clip by
+    `scripts/make-office-characters.mjs`); we retarget it onto each character by bone names. A character whose
+    skeleton it doesn't fit gets `"walk": false` in the manifest (it stands and slides);
   - morph targets (visemes) may stay for phase 3; nothing else is required.
 - **Our test figure:** `public/assets/characters/placeholder-mixamo.glb` / `placeholder-ue.glb` (self-made,
-  CC0, `scripts/make-placeholder-character.mjs`) have the Mixamo / Unreal bone names. Never commit a Mixamo or
+  CC0, `scripts/make-placeholder-character.mjs`) have the Mixamo / Unreal bone names; `placeholder-walk.glb` is
+  our own walk clip (made by the same script, never from Mixamo). Never commit a Mixamo or
   AHDUS character file to this repo (it is public).
 
 What stays yours: the reception (HR) character's voice and talking (phase 3), and the player character:
@@ -227,7 +233,9 @@ layoutBridge.addInteraction({
 
 Rules: add your own meshes to the scene, set `isPickable = false` on them unless you want them under the crosshair, and **never dispose or change the layout's meshes or materials** (materials are shared between objects).
 
-The player character is a placeholder in `src/play/character.js`. Yours can replace it as long as it provides `{ root, update(dt, speed, flying), setVisible(bool), dispose() }`.
+The player character: in a viewer's walkthrough it is the signed-in person's own character
+(`src/engine/systems/PlayerCharacter.ts`, v0.12.0); without one, the placeholder in `src/play/character.js`. Any
+replacement provides `{ root, update(dt, speed, flying), setVisible(bool), dispose() }` (`playController.setCharacter`).
 
 ### Karthik: machine videos and files
 

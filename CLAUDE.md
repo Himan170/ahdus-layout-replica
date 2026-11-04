@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (744, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (762, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -63,11 +63,14 @@ npm run e2e:embed    # 27 checks   e2e/embed-smoke.mjs     (NO dev server needed
                      #                                       in it (no Supabase), serves embed-test.html itself; keys are the page's until the view is engaged, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
                      #                                       with cookies, destroy(), assets next to the script, quality low)
-npm run e2e:characters # 23     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
-                     #                                       on 2 floors: simple figures, full characters near the
+npm run e2e:characters # 36     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
+                     #                                       on 2 floors: the view from above (no roof: at the start,
+                     #                                       after setFloor, after walking), simple figures, full characters near the
                      #                                       camera (each file once), seated poses, hover card (text,
                      #                                       no email), a click keeps it, "Choose your character" on
                      #                                       your own card, a phone's tap, per floor, walking up,
+                     #                                       walking as yourself (Mixamo + UE rigs, walk / stand,
+                     #                                       eye height, V, your desk figure hidden, fallbacks),
                      #                                       quality low; SHOTS=<dir>: 1440×900 + 390×844 screenshots)
 npm run e2e:seats    # 24 checks   e2e/seats-smoke.mjs     (NO dev server: starts its own in AHDUS mode on port 3100,
                      #                                       the AHDUS API faked by page.route: "Who sits here",
@@ -208,6 +211,8 @@ src/play/people.js                 PURE: people at desks: deskSeat / deskSeats (
                                    names), normaliseBoneName, SEATED_POSE / STANDING_POSE (tests in play/__tests__)
 src/engine/systems/CharacterSystem.ts  People: simple figures (thin instances) + full characters (GLB per file, a copy
                                    with its own skeleton per person, posed by bone names), per floor, not pickable
+src/engine/systems/PlayerCharacter.ts  Walking as yourself: your character (copyCharacter) + the walk clip baked onto
+                                   its bones (retargeted by name, rest-pose corrected), playController's character
 src/embed/characterManifest.js     PURE: the character manifest (assetReference → { url, rig, height }), setPeople's list
 src/play/geometry.js               PURE maths: room corners, wall splitting, doors, neighbours, stretchRoom, resizeOpening,
                                    shared walls (roomWallSegments, wallPickTarget), nesting (roomContainedBy, containerOf,
@@ -292,6 +297,9 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 - `WorkplaceEditor` builds **all** floors at once (`engine/systems/RoomSystem`, `ObjectSystem`). `FloorSystem` uses a view `{ mode, level }`:
   `planner` shows floors ≤ selected and hides the selected floor's roof; `outside` shows all + roofs on uncovered
   rooms; `inside` shows all + ceilings, and the camera is clamped under the ceiling (except on stairs).
+  `LayoutEngine` (viewer, embed: the 3D Company page's "Upper view") is always `planner` outside walkthrough, on the
+  store's `currentFloor`: the ground floor at first, the chosen one (`setFloor`), the floor walked to after walking,
+  so the desks and people of that floor show from above. Walking uses `outside` / `inside` (`onViewChange`).
 - **Floor heights** (`building.js`): floor `{ id, name, height }`; `elevationOf` sums the heights below. Upper-floor
   rooms sit on a `SLAB` (0.3 m) that starts exactly where full-height walls below end, so storeys never gap or overlap.
   `planWallHeight`: lower walls change only that room; walls higher than the floor allows raise the floor to
@@ -317,7 +325,9 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
   `editor.addFloor({ copyRooms })` copies footprints, types, wall heights, doors and windows (no furniture, no stairs),
   one undo step. N takes you to the new floor; Studio switches to it.
 - **Preview floors:** Page Up / Page Down (or ▲ ▼ by "Floor 1 of 3" in the HUD) = `play.stepFloor(±1)` →
-  `arrivalOnFloor`: same x, z, standing on a room there, else flying at that floor's height.
+  `arrivalOnFloor`: same x, z, standing on a room there, else flying at that floor's height. Walking again after
+  another floor was chosen (Studio's floor switcher, a viewer's `setFloor`) starts on that floor the same way, and a
+  message left from the last walk is cleared (`activate`, `playController.floors.test.js`).
 - **Room height:** Stretch (slot 3) aimed at the top edge of a wall grabs the top (drag up / down), or + / − on a
   wall (0.1 m, a burst = one undo step). Studio: blue handles on top of the selected room's walls (3D), Inspector
   "Wall height". Hint: "Office · walls 3.4 m · Ground Floor is now 3.7 m high".
@@ -415,6 +425,19 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
   with `characterChosen` false (assetReference null; `resolvePeople` sets it), "Choose your character" links to
   `chooseCharacterUrl` (embed: `characters.chooseUrl`; http(s) only, `safeLink`).
 - **None with quality 'low'** (`engine.characters` is null) or Studio's Realistic look off (`setEnabled`).
+- **Walking as yourself** (v0.12.0, viewer / embed walkthrough only; Studio's Preview keeps the simple figure):
+  `LayoutEngine.setPlayer({ personId, character, walkClipUrl, walk })` (`<LayoutViewer player walkClipUrl>`; the embed:
+  `player: { personId, assetReference }` + `characters.walkClipUrl`, resolved by `resolvePlayer` / `walkClipUrlOf`).
+  Made when walking starts (`_syncPlayer`, keyed on url / rig / height / clip / walk; a token drops stale loads), the
+  file through CharacterSystem's queue (`loadFile`, once per scene). `PlayerCharacter.bakeWalk`: the clip (an
+  animation-only GLB, Mixamo names) sampled at 30 / s in character space (`D = inv(srcRest) × src(t)`, `want =
+  tgtRest × D`), so a skeleton whose bones point another way (UE) walks too; hips bob scaled, root motion removed.
+  Speed: `people.clipSpeed` (root motion ≥ 0.2 m, else 2 × the foot's range / duration); `walkRatio` = your speed /
+  that (0.25 to 6); below 0.3 m/s or flying = the standing pose. Eye height `playerEyeHeight` (0.93 × height).
+  `playController.setCharacter(c, { eyeHeight })` (null = the simple figure). Your seated figure is hidden while
+  walking (`CharacterSystem.setHiddenPerson`). No / unknown character, a failed file, quality 'low' = the simple
+  figure; no clip, a failed clip or manifest `walk: false` = the standing pose (slides). Our test clip:
+  `public/assets/characters/placeholder-walk.glb` (`scripts/make-placeholder-character.mjs`: 1.2 m/s).
 
 ## Realistic look (how it works)
 
@@ -675,6 +698,9 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
   characters); hands don't follow the keyboard. A desk with no chair has its person on its local +Z side (a
   reception desk: −Z), turned with the desk; a corner desk's person stands outside its long side, not in the L. No
   "Choose your character" hint yet. Full characters' skeletons are not frozen (≤ 12, cheap).
+- Walking as yourself: walk ↔ stand switches at once (no blend); no turn-on-the-spot, running or flying clip (Shift
+  plays the walk faster, flying stands); Studio's Preview still walks as the simple figure. Checked with our
+  placeholder figures only, not yet with AJ / ch12 / Victoria (AHDUS step after the tag).
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).
 
@@ -739,6 +765,13 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 ## DONE: realistic look, real assets (25 Oct 2026, branch `feat/real-assets`)
 
 Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
+
+## DONE: walking as yourself (v0.12.0, 4 Nov 2026, branch `feature/walk-as-yourself`)
+
+Task 2 of private-docs/TASKS_CHARACTERS.md: in a viewer's walkthrough you are your own character with one shared walk
+clip (see "Walking as yourself" in "People at their desks"), plus the 3D Company page's view from above showing the
+chosen floor without its roof (LayoutEngine keeps FloorSystem on the store's current floor). Screenshots:
+private-docs/screenshots/v0.12.0/ (not in git).
 
 ## DONE: "Who sits here" (v0.11.2, 4 Nov 2026, branch `feature/seats-studio`)
 

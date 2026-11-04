@@ -105,7 +105,9 @@ await engine.whenBuilt();            // everything built ('progress' events unti
 engine.finishBuild();                // build the rest now, in one go
 
 // --- Navigation ---
-engine.setFloor(floorId);            // Switch to a specific floor
+engine.setPlayer({ personId, character, walkClipUrl }); // walking through as your own character (v0.12.0)
+engine.setFloor(floorId);            // Show this floor from above: no roof, floors above hidden (view / edit mode;
+                                     // the ground floor at first, the floor walked to after walkthrough)
 engine.setView('3d');                // Switch between "3d" and "2d" views
 engine.focusOn(entityId);            // Fly to a room, object or anchor (false if unknown)
 engine.fitView();                    // The whole building in view

@@ -301,3 +301,45 @@ export function phaseOf(personId) {
   for (const ch of String(personId)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return (h % 6283) / 1000;
 }
+
+// ── Walking as yourself (walkthrough: engine/systems/PlayerCharacter.ts) ──
+
+/** The eye is this far up a person's height (Preview's figure: 1.62 m of 1.75 m). */
+export const EYE_RATIO = 1.62 / 1.75;
+
+/** Where the walkthrough camera sits for a person this tall (m). */
+export function playerEyeHeight(height) {
+  const h = Number(height);
+  return +((Number.isFinite(h) && h > 0 ? h : 1.75) * EYE_RATIO).toFixed(3);
+}
+
+/** Slower than this (m/s) the character stands instead of walking. */
+export const WALK_MIN_SPEED = 0.3;
+/** The walk clip plays at most this much faster / slower than its own speed. */
+export const MIN_WALK_RATIO = 0.25;
+export const MAX_WALK_RATIO = 6;
+
+/**
+ * How fast to play the walk clip so the feet keep up with the ground:
+ * walking `speed` m/s with a clip that walks `clipSpeed` m/s at its own speed.
+ */
+export function walkRatio(speed, clipSpeed) {
+  if (!(clipSpeed > 0) || !(speed > 0)) return 1;
+  return Math.min(MAX_WALK_RATIO, Math.max(MIN_WALK_RATIO, speed / clipSpeed));
+}
+
+/** A clip moving its hips at least this far forward over one cycle has root motion (m, the clip's size). */
+export const ROOT_MOTION_MIN = 0.2;
+
+/**
+ * How fast a walk clip walks at its own speed (m/s, the clip's size): its
+ * root motion over the cycle if it has some (`hipsTravel`), else from its
+ * steps: in one cycle (two steps) each foot sweeps back one step length
+ * (`footRange`, the foot's forward range relative to the hips).
+ * @param {{ duration: number, hipsTravel: number, footRange: number }} clip
+ */
+export function clipSpeed({ duration, hipsTravel, footRange }) {
+  if (!(duration > 0)) return 0;
+  if (Math.abs(hipsTravel) >= ROOT_MOTION_MIN) return Math.abs(hipsTravel) / duration;
+  return footRange > 0 ? (2 * footRange) / duration : 0;
+}

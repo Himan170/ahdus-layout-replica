@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DESK_SIZES, SEAT_REACH, deskSeat, deskSeats, seatPose, personNear, chooseFullCharacters, MAX_FULL_CHARACTERS,
   normaliseBoneName, canonicalBoneName, BONE_TABLE, SEATED_POSE, STANDING_POSE, breathing, phaseOf,
+  playerEyeHeight, walkRatio, clipSpeed, MIN_WALK_RATIO, MAX_WALK_RATIO,
 } from '../people';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 
@@ -205,5 +206,29 @@ describe('poses', () => {
     expect(phaseOf('a')).not.toBe(phaseOf('b'));
     expect(phaseOf('a')).toBe(phaseOf('a'));
     expect(phaseOf('anyone')).toBeLessThan(2 * Math.PI);
+  });
+});
+
+describe('walking as yourself', () => {
+  it('the camera sits at eye height for the person (Preview: 1.62 m for 1.75 m)', () => {
+    expect(playerEyeHeight(1.75)).toBeCloseTo(1.62, 3);
+    expect(playerEyeHeight(1.88)).toBeGreaterThan(1.62);
+    expect(playerEyeHeight(1.5)).toBeLessThan(1.4);
+    expect(playerEyeHeight(undefined)).toBeCloseTo(1.62, 3);
+  });
+
+  it('the clip plays as fast as you walk, within limits', () => {
+    expect(walkRatio(2.4, 1.2)).toBeCloseTo(2);
+    expect(walkRatio(0.6, 1.2)).toBeCloseTo(0.5);
+    expect(walkRatio(100, 1.2)).toBe(MAX_WALK_RATIO);
+    expect(walkRatio(0.01, 1.2)).toBe(MIN_WALK_RATIO);
+    expect(walkRatio(2, 0)).toBe(1); // a clip with no known speed plays at its own
+  });
+
+  it("a clip's own speed: its root motion, else two step lengths per cycle", () => {
+    expect(clipSpeed({ duration: 1, hipsTravel: 1.2, footRange: 0.6 })).toBeCloseTo(1.2);
+    expect(clipSpeed({ duration: 2, hipsTravel: -1.4, footRange: 0 })).toBeCloseTo(0.7); // walking towards -Z
+    expect(clipSpeed({ duration: 1.1, hipsTravel: 0, footRange: 0.66 })).toBeCloseTo(1.2); // in place
+    expect(clipSpeed({ duration: 0, hipsTravel: 1, footRange: 1 })).toBe(0);
   });
 });

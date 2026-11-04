@@ -3,6 +3,8 @@
 //   node scripts/make-placeholder-character.mjs
 //   → public/assets/characters/placeholder-mixamo.glb  (Mixamo bone names, "mixamorig:" prefix)
 //     public/assets/characters/placeholder-ue.glb      (Unreal-style names: pelvis, spine_01, thigh_l, …)
+//     public/assets/characters/placeholder-walk.glb    (a walk clip only: the Mixamo-named skeleton + one animation,
+//                                                       no mesh; walkthrough retargets it onto the player's character)
 //     public/assets/characters/manifest.json           (the embed's character manifest for tests and demos)
 // Same skeleton as a Mixamo character (Hips → Spine → Spine1 → Spine2 → Neck → Head, shoulders, arms,
 // legs, feet), 1.75 m tall, in a T-pose, facing +Z: so CharacterSystem's pose code is tested on real
@@ -217,10 +219,109 @@ function makeGlb({ rig, shirt }) {
   return Buffer.concat([header, chunk(0x4e4f534a, json), chunk(0x004e4942, bin)]);
 }
 
+/** A .glb from a glTF JSON and its binary chunks (each padded to 4 bytes). */
+function glb(gltf, bin) {
+  let json = Buffer.from(JSON.stringify(gltf));
+  json = Buffer.concat([json, Buffer.alloc((4 - (json.length % 4)) % 4, 0x20)]);
+  const header = Buffer.alloc(12);
+  header.writeUInt32LE(0x46546c67, 0);
+  header.writeUInt32LE(2, 4);
+  header.writeUInt32LE(12 + 8 + json.length + 8 + bin.length, 8);
+  const chunk = (type, data) => {
+    const h = Buffer.alloc(8);
+    h.writeUInt32LE(data.length, 0);
+    h.writeUInt32LE(type, 4);
+    return Buffer.concat([h, data]);
+  };
+  return Buffer.concat([header, chunk(0x4e4f534a, json), chunk(0x004e4942, bin)]);
+}
+
+// ── The walk clip: one cycle (two steps) in WALK_SECONDS, moving forward WALK_METRES (root motion on the hips) ──
+const WALK_SECONDS = 1.0;
+const WALK_METRES = 1.2;
+const WALK_KEYS = 16;
+/** Rotation about an axis, as a glTF quaternion [x, y, z, w]. */
+const axisQuat = (axis, a) => [axis[0] * Math.sin(a / 2), axis[1] * Math.sin(a / 2), axis[2] * Math.sin(a / 2), Math.cos(a / 2)];
+/** a ∘ b (b first), glTF quaternions. */
+const mulQuat = ([ax, ay, az, aw], [bx, by, bz, bw]) => [
+  aw * bx + ax * bw + ay * bz - az * by,
+  aw * by - ax * bz + ay * bw + az * bx,
+  aw * bz + ax * by - ay * bx + az * bw,
+  aw * bw - ax * bx - ay * by - az * bz,
+];
+const X = [1, 0, 0];
+const Z = [0, 0, 1];
+
+function makeWalkGlb() {
+  const joints = JOINTS.map(([mixamo, , parent, pos]) => ({ key: mixamo, name: `mixamorig:${mixamo}`, parent, pos }));
+  const index = new Map(joints.map((j, i) => [j.key, i]));
+  const nodes = joints.map((j) => {
+    const parent = j.parent ? joints[index.get(j.parent)] : null;
+    return { name: j.name, translation: parent ? j.pos.map((v, k) => +(v - parent.pos[k]).toFixed(4)) : j.pos };
+  });
+  joints.forEach((j, i) => {
+    const children = joints.map((c, k) => (c.parent === j.key ? k : -1)).filter((k) => k >= 0);
+    if (children.length) nodes[i].children = children;
+  });
+
+  // Key times and, per bone, a rotation at each time (the arms hang down from the T-pose first)
+  const times = Array.from({ length: WALK_KEYS + 1 }, (_, i) => (i / WALK_KEYS) * WALK_SECONDS);
+  const phase = (t) => (2 * Math.PI * t) / WALK_SECONDS;
+  const rot = {
+    // +X turns a hanging limb backwards (its end goes to -Z): a thigh forward is a negative angle
+    LeftUpLeg: (p) => axisQuat(X, -0.42 * Math.sin(p)),
+    RightUpLeg: (p) => axisQuat(X, 0.42 * Math.sin(p)),
+    LeftLeg: (p) => axisQuat(X, 0.6 * Math.max(0, Math.cos(p))),
+    RightLeg: (p) => axisQuat(X, 0.6 * Math.max(0, -Math.cos(p))),
+    LeftArm: (p) => mulQuat(axisQuat(X, 0.32 * Math.sin(p)), axisQuat(Z, -1.3)),
+    RightArm: (p) => mulQuat(axisQuat(X, -0.32 * Math.sin(p)), axisQuat(Z, 1.3)),
+    LeftForeArm: (p) => axisQuat(X, -0.25 - 0.1 * Math.sin(p)),
+    RightForeArm: (p) => axisQuat(X, -0.25 + 0.1 * Math.sin(p)),
+    Spine: (p) => axisQuat([0, 1, 0], 0.06 * Math.sin(p)),
+  };
+  const hips = joints[index.get('Hips')].pos;
+  const hipsAt = (t) => [hips[0], hips[1] + 0.025 * Math.cos(2 * phase(t)), hips[2] + (WALK_METRES * t) / WALK_SECONDS];
+
+  const chunks = [];
+  const views = [];
+  const accessors = [];
+  let offset = 0;
+  const add = (values, accessor) => {
+    const bytes = Buffer.from(new Float32Array(values).buffer);
+    views.push({ buffer: 0, byteOffset: offset, byteLength: bytes.length });
+    chunks.push(bytes);
+    offset += bytes.length;
+    accessors.push({ bufferView: views.length - 1, componentType: 5126, ...accessor });
+    return accessors.length - 1;
+  };
+  const input = add(times, { count: times.length, type: 'SCALAR', min: [0], max: [WALK_SECONDS] });
+  const samplers = [];
+  const channels = [];
+  const animate = (node, path, values, type) => {
+    samplers.push({ input, interpolation: 'LINEAR', output: add(values, { count: times.length, type }) });
+    channels.push({ sampler: samplers.length - 1, target: { node, path } });
+  };
+  for (const [bone, f] of Object.entries(rot)) animate(index.get(bone), 'rotation', times.flatMap((t) => f(phase(t))), 'VEC4');
+  animate(index.get('Hips'), 'translation', times.flatMap(hipsAt), 'VEC3');
+
+  const gltf = {
+    asset: { version: '2.0', generator: 'ahdus-layout-replica scripts/make-placeholder-character.mjs (CC0)' },
+    scene: 0,
+    scenes: [{ name: 'Walk', nodes: [index.get('Hips')] }],
+    nodes,
+    animations: [{ name: 'Walk', samplers, channels }],
+    accessors,
+    bufferViews: views,
+    buffers: [{ byteLength: offset }],
+  };
+  return glb(gltf, Buffer.concat(chunks));
+}
+
 mkdirSync(OUT, { recursive: true });
 const files = [
   ['placeholder-mixamo.glb', makeGlb({ rig: 'mixamo', shirt: [0.24, 0.43, 0.84] })],
   ['placeholder-ue.glb', makeGlb({ rig: 'ue', shirt: [0.16, 0.4, 0.31] })],
+  ['placeholder-walk.glb', makeWalkGlb()],
 ];
 for (const [name, data] of files) {
   writeFileSync(`${OUT}/${name}`, data);

@@ -28,7 +28,8 @@
  *          modes (setMode); `editor` (store/editorHistory.js on this engine's
  *          store) refuses every edit outside edit mode;
  *          people at their desks (setPeople: systems/CharacterSystem; none
- *          with quality 'low').
+ *          with quality 'low'); walking through as your own character
+ *          (setPlayer: systems/PlayerCharacter, the walk clip retargeted).
  *   Stubs (TODO):  systems/PlacementSystem, SelectionSystem.
  *
  * Modes:
@@ -57,8 +58,9 @@ import { FloorSystem } from './systems/FloorSystem';
 import { setCameraView, flyTo, boundsOf } from './systems/CameraSystem';
 import type { GroundBox } from './systems/CameraSystem';
 import { HighlightSystem } from './systems/HighlightSystem';
-import { CharacterSystem } from './systems/CharacterSystem';
-import type { Person, PlacedPerson } from './systems/CharacterSystem';
+import { CharacterSystem, validCharacter } from './systems/CharacterSystem';
+import type { Person, PlacedPerson, CharacterFile } from './systems/CharacterSystem';
+import { createPlayerCharacter } from './systems/PlayerCharacter';
 import { SceneBuilder } from './systems/SceneBuilder';
 import type { BuildProgress } from './systems/SceneBuilder';
 import { elevationOf } from '../play/building';
@@ -145,7 +147,20 @@ type EventMap = {
 };
 
 export type { BuildProgress };
-export type { Person, PlacedPerson };
+export type { Person, PlacedPerson, CharacterFile };
+
+/**
+ * The person looking (the signed-in user). Walking through, they are their
+ * own `character` (null: Preview's simple figure), walking with the clip at
+ * `walkClipUrl` (none, or `walk: false`: the standing pose); their figure at
+ * their desk (`personId`, as in setPeople) isn't drawn meanwhile.
+ */
+export interface Player {
+  personId?: string | null;
+  character?: CharacterFile | null;
+  walkClipUrl?: string | null;
+  walk?: boolean;
+}
 
 /** What every edit answers outside edit mode. */
 export const READ_ONLY = 'This layout is view-only here';
@@ -181,6 +196,7 @@ export class LayoutEngine {
   private _loaded: Layout | null = null;
   private _cachedLayout: Layout | null = null;
   private _unsubscribe: () => void;
+  private _unsubscribeFloor: () => void;
 
   // Drawing (the same systems as Workplace Studio)
   readonly rooms: RoomSystem;
@@ -199,6 +215,11 @@ export class LayoutEngine {
 
   // Walkthrough mode (made the first time it is needed: it needs the canvas)
   private _walkthrough: WalkthroughSystem | null = null;
+  private _player: Player | null = null;
+  /** What the walkthrough's character was made from ('' = the simple figure). */
+  private _playerKey = '';
+  private _playerToken = 0;
+  private _playerReady: Promise<void> = Promise.resolve();
 
   /**
    * What E would do on what the character looks at, for the walkthrough's
@@ -250,8 +271,9 @@ export class LayoutEngine {
     this.rooms = new RoomSystem(this.scene, { shadowGenerator });
     this.objects = new ObjectSystem(this.scene, { shadowGenerator });
     this.floors = new FloorSystem(this.rooms, this.objects, () => this._store.getState());
-    // Until a floor is chosen, the whole building shows, with roofs
-    this.floors.setView({ mode: 'outside', level: 0 });
+    // Seen from above (view / edit): the chosen floor without its roof, the floors above hidden,
+    // so its desks and people show. Walking switches to inside / outside (onViewChange).
+    this.floors.setFloor(this._store.getState().currentFloor);
     this.highlights = new HighlightSystem(this.rooms, this.objects);
     this.characters = this._quality === 'low' ? null : new CharacterSystem(this.scene, {
       getLayout: () => this._store.getState(),
@@ -280,6 +302,11 @@ export class LayoutEngine {
       if (this._loading) return; // loadLayout builds it (in slices)
       this._draw();
       if (edited) this._emitChange('edit', 'layout');
+    });
+
+    // A floor chosen in the store (setFloor, a new layout, the floor you walked to) is the one shown from above
+    this._unsubscribeFloor = this._store.subscribe((s) => s.currentFloor, (floorId) => {
+      if (!this._walkthrough?.isActive()) this.floors.setFloor(floorId);
     });
 
     const editor = createEditorHistory(undefined, { workspace: this._store });
@@ -437,6 +464,22 @@ export class LayoutEngine {
     this.characters?.setPeople(people);
   }
 
+  /**
+   * The person looking (Player): walking through, they are their own
+   * character, made when walking starts (each file loads once, with the
+   * people's); null = the simple figure, as with quality 'low' or a file that
+   * can't be loaded. Their seated figure is hidden while they walk.
+   */
+  setPlayer(player: Player | null): void {
+    this._player = player ? { ...player } : null;
+    this._syncPlayer();
+  }
+
+  /** Resolves when the walkthrough's character is made (or the simple figure stays): tests. */
+  whenPlayerReady(): Promise<void> {
+    return this._playerReady;
+  }
+
   /** The person under a screen point (CSS px in the canvas: their desk, chair or them), or null. */
   pickPerson(x: number, y: number): PlacedPerson | null {
     return this.characters?.pickPerson(x, y) ?? null;
@@ -577,11 +620,13 @@ export class LayoutEngine {
 
   /** Stop rendering and dispose the scene and the Babylon engine. */
   dispose(): void {
+    this._playerToken++; // a character still loading is dropped
     this._builder.dispose();
     this._walkthrough?.dispose();
     this._walkthrough = null;
     this.characters?.dispose();
     this._unsubscribe();
+    this._unsubscribeFloor();
     this._listeners.clear();
     // The scene takes every room and item mesh with it; forget them
     this.rooms.meshes.clear();
@@ -612,8 +657,41 @@ export class LayoutEngine {
       this._ensureWalkthrough().activate();
     } else if (this._walkthrough?.isActive()) {
       this._walkthrough.deactivate();
-      this.floors.setView({ mode: 'outside', level: 0 });
+      // Back to the view from above, on the floor you walked to (its floorChange came from onLevelChange)
+      this.floors.setFloor(this._store.getState().currentFloor);
     }
+    this._syncPlayer();
+  }
+
+  /** The walkthrough's character for the player now, and their seated figure hidden while walking. */
+  private _syncPlayer(): void {
+    const walk = this._walkthrough;
+    this.characters?.setHiddenPerson(walk?.isActive() ? (this._player?.personId ?? null) : null);
+    if (!walk) return; // made when walking starts
+    const p = this._player;
+    const character = this.characters ? validCharacter(p?.character) : null;
+    const key = character
+      ? JSON.stringify([character.url, character.rig, character.height, p?.walkClipUrl ?? null, p?.walk !== false])
+      : '';
+    if (key === this._playerKey) return;
+    this._playerKey = key;
+    const token = ++this._playerToken;
+    if (!character) {
+      walk.setCharacter(null);
+      this._playerReady = Promise.resolve();
+      return;
+    }
+    const files = this.characters!;
+    this._playerReady = createPlayerCharacter(this.scene, {
+      character, walkClipUrl: p?.walkClipUrl ?? null, walk: p?.walk,
+    }, (url) => files.loadFile(url)).then((made) => {
+      if (token !== this._playerToken || this._walkthrough !== walk) { made.dispose(); return; }
+      walk.setCharacter(made);
+    }, (err) => {
+      if (token !== this._playerToken) return;
+      console.warn(`[characters] could not make your character from ${character.url}: the simple figure walks`, err?.message ?? err);
+      walk.setCharacter(null);
+    });
   }
 
   private _ensureWalkthrough(): WalkthroughSystem {
