@@ -163,10 +163,17 @@ describe('LayoutEngine.loadLayout draws a layout', () => {
     expect(engine.getLayout()!.building.name).toBe('Head office');
   });
 
-  it('shows the whole building at first; setFloor shows the floors up to that one', () => {
-    const engine = makeEngine();
+  it('shows the ground floor from above at first (no roof, nothing above); setFloor shows the floors up to that one', () => {
+    const engine = makeEngine({ mode: 'view' });
     engine.loadLayout(save());
-    expect(enabled(engine.rooms.getRoomMesh('room_b'))).toBe(true);
+    expect(engine.floors.getView()).toEqual({ mode: 'planner', level: 0 });
+    expect(enabled(engine.rooms.getRoomMesh('room_a'))).toBe(true);
+    expect(enabled(engine.rooms.getRoomMesh('room_b'))).toBe(false);
+    engine.setFloor(1);
+    expect(engine.floors.getView()).toEqual({ mode: 'planner', level: 1 });
+    // a new layout starts on its ground floor again
+    engine.loadLayout(save());
+    expect(engine.floors.getView()).toEqual({ mode: 'planner', level: 0 });
     engine.setFloor(0);
     expect(enabled(engine.rooms.getRoomMesh('room_a'))).toBe(true);
     expect(enabled(engine.rooms.getRoomMesh('room_b'))).toBe(false);
@@ -555,10 +562,21 @@ describe('walkthrough mode', () => {
     expect(engine.floors.getView().mode).toBe('inside');
     engine.setMode('view');
     expect(controllers[0].deactivate).toHaveBeenCalled();
-    expect(engine.floors.getView().mode).toBe('outside');
+    expect(engine.floors.getView()).toEqual({ mode: 'planner', level: 0 });
     expect(controllers).toHaveLength(1); // made once, reused
     engine.setMode('walkthrough');
     expect(controllers[0].active).toBe(true);
+  });
+
+  it('back from walking: the floor you walked to, seen from above (its roof off)', () => {
+    const engine = makeEngine({ mode: 'walkthrough' });
+    engine.loadLayout(save());
+    controllers[0].options.onViewChange({ inside: false, level: 0 });
+    controllers[0].options.onLevelChange(1); // walked up the stairs
+    expect(engine.floors.getView().mode).toBe('outside'); // walking keeps its own view
+    engine.setMode('view');
+    expect(engine.floors.getView()).toEqual({ mode: 'planner', level: 1 });
+    expect(enabled(engine.rooms.getRoomMesh('room_b'))).toBe(true);
   });
 
   it('the 2D view goes back to 3D for walking', () => {

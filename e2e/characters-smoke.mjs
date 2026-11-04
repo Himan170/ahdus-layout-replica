@@ -5,6 +5,8 @@
 // each file downloaded once), seated poses, not pickable, the hover card (name + department, text
 // only, never the email), a click keeps the card, a tap on a phone shows it, "Choose your character" on the
 // player's own card (setPlayer), per floor (setFloor), walking up to a desk, quality 'low' = no people.
+// The view from above (the 3D Company page's "Upper view") shows the chosen floor without its roof: at the start,
+// after setFloor and after walking (on the floor walked to).
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run e2e:characters      (builds the embed; serves the files itself)
@@ -122,6 +124,17 @@ const drawnPeople = () => p.evaluate(() => {
   const count = (name) => { const m = sc.getMeshByName(name); return m?.isEnabled() ? m.thinInstanceCount : 0; };
   return { seated: count('people_seated'), standing: count('people_standing'), full: e.characters.fullCount };
 });
+/** What the view from above shows: the floor view, roofs of each room drawn, rooms shown. */
+const fromAbove = () => p.evaluate(() => {
+  const e = window.workplace._engine;
+  const roofs = {};
+  for (const m of e.scene.meshes) {
+    const md = m.metadata;
+    if (md?.part === 'roof' && md.roomId) roofs[md.roomId] = (roofs[md.roomId] ?? false) || m.isEnabled();
+  }
+  const shown = (id) => !!e.rooms.getRoomMesh(id)?.isEnabled();
+  return { view: e.floors.getView(), roofs, open: shown('room_open'), up: shown('room_up') };
+});
 /** Wait for the character files on another page (the phone's), then a few frames. */
 const settleOn = async (pg) => {
   await pg.evaluate(() => window.workplace._engine.characters.whenSettled());
@@ -180,11 +193,17 @@ log('a person keeps only name, department and character: no email reaches the vi
 log('characters from the manifest; unknown or null asset references are simple figures',
   placed.filter((x) => x.character).length === 13, `${placed.filter((x) => x.character).length} with a character file`);
 
-// Far away (the whole building in view): everyone is a simple figure, two thin-instanced meshes
+// The view from above starts on the ground floor: its roof off, the floor above hidden, so its desks and people show
+const start = await fromAbove();
+log('the view from above starts on the ground floor: no roof over its desks, the floor above hidden',
+  start.view.mode === 'planner' && start.view.level === 0 && start.open && !start.up && start.roofs.room_open === false,
+  JSON.stringify(start));
+
+// Far away (the whole ground floor in view): everyone is a simple figure, two thin-instanced meshes
 const far = await drawnPeople();
 const farMeshes = await p.evaluate(() => window.workplace._engine.scene.meshes.filter((m) => m.name.startsWith('people_')).length);
-log('from far away: all 21 are simple figures (2 meshes with thin instances), no character file downloaded',
-  far.seated === 20 && far.standing === 1 && far.full === 0 && farMeshes === 2 &&
+log('from far away: the 17 people downstairs are simple figures (2 meshes with thin instances), no character file downloaded',
+  far.seated === 16 && far.standing === 1 && far.full === 0 && farMeshes === 2 &&
   !requests.some((u) => u.endsWith('.glb') && u.includes('/characters/')), JSON.stringify(far));
 await shot('characters-far.png');
 
@@ -308,7 +327,22 @@ log('walking up to a desk shows who sits there', /Person 6/.test(walkCard ?? '')
 await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -7.5, yaw: 0, pitch: 0 })); // outside
 const gone = await p.waitForSelector('[data-person-card]', { state: 'detached', timeout: 15000 }).then(() => true).catch(() => false);
 log('walking away hides it', gone);
+// Walk up to Floor 1 (as Page Up), then back to the view from above: that floor, its roof off, everyone shows
+await p.evaluate(() => { window.embedEvents.length = 0; return window.workplace.setFloor(1); });
+await frames(2);
 await p.evaluate(() => window.workplace.setMode('view'));
+await frames(3);
+const back = await fromAbove();
+const backPeople = await drawnPeople();
+const floorEvents = await p.evaluate(() => window.embedEvents.filter((e) => e.name === 'floorChange').map((e) => e.data.floorId));
+log('back from walking on Floor 1: the view from above shows Floor 1 without its roof, its people, and floorChange said so',
+  back.view.mode === 'planner' && back.view.level === 1 && back.up && back.roofs.room_up === false &&
+  backPeople.full + backPeople.seated + backPeople.standing === 21 && floorEvents.map(String).includes('1'),
+  `${JSON.stringify(back)} | ${JSON.stringify(backPeople)} | floorChange ${JSON.stringify(floorEvents)}`);
+await p.evaluate(() => window.workplace.setFloor(0));
+const again = await fromAbove();
+log('choosing the ground floor again: its roof stays off, the floor above is hidden',
+  again.view.level === 0 && !again.up && again.roofs.room_open === false, JSON.stringify(again));
 await frames(2);
 
 // ── 6. setPeople([]) = nobody; quality 'low' = no people at all ──
@@ -395,6 +429,10 @@ if (SHOTS) {
     await look(0, -0.5, phone ? 19 : 14, 0.8, -Math.PI / 2 - 0.35);
     await settle();
     await p.screenshot({ path: `${SHOTS}/${tag}-busy-office.png`, timeout: 180000 });
+    // The view from above as the 3D Company page opens it (Fit view, ground floor, no roof over the people)
+    await p.evaluate(() => window.workplace._engine.fitView({ animate: false }));
+    await settle();
+    await p.screenshot({ path: `${SHOTS}/${tag}-view-from-above.png`, timeout: 180000 });
   }
   log(`screenshots in ${SHOTS}`, true);
 }

@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (744, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (745, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -63,8 +63,9 @@ npm run e2e:embed    # 27 checks   e2e/embed-smoke.mjs     (NO dev server needed
                      #                                       in it (no Supabase), serves embed-test.html itself; keys are the page's until the view is engaged, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
                      #                                       with cookies, destroy(), assets next to the script, quality low)
-npm run e2e:characters # 23     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
-                     #                                       on 2 floors: simple figures, full characters near the
+npm run e2e:characters # 27     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
+                     #                                       on 2 floors: the view from above (no roof: at the start,
+                     #                                       after setFloor, after walking), simple figures, full characters near the
                      #                                       camera (each file once), seated poses, hover card (text,
                      #                                       no email), a click keeps it, "Choose your character" on
                      #                                       your own card, a phone's tap, per floor, walking up,
@@ -292,6 +293,9 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 - `WorkplaceEditor` builds **all** floors at once (`engine/systems/RoomSystem`, `ObjectSystem`). `FloorSystem` uses a view `{ mode, level }`:
   `planner` shows floors ≤ selected and hides the selected floor's roof; `outside` shows all + roofs on uncovered
   rooms; `inside` shows all + ceilings, and the camera is clamped under the ceiling (except on stairs).
+  `LayoutEngine` (viewer, embed: the 3D Company page's "Upper view") is always `planner` outside walkthrough, on the
+  store's `currentFloor`: the ground floor at first, the chosen one (`setFloor`), the floor walked to after walking,
+  so the desks and people of that floor show from above. Walking uses `outside` / `inside` (`onViewChange`).
 - **Floor heights** (`building.js`): floor `{ id, name, height }`; `elevationOf` sums the heights below. Upper-floor
   rooms sit on a `SLAB` (0.3 m) that starts exactly where full-height walls below end, so storeys never gap or overlap.
   `planWallHeight`: lower walls change only that room; walls higher than the floor allows raise the floor to

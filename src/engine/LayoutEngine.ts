@@ -181,6 +181,7 @@ export class LayoutEngine {
   private _loaded: Layout | null = null;
   private _cachedLayout: Layout | null = null;
   private _unsubscribe: () => void;
+  private _unsubscribeFloor: () => void;
 
   // Drawing (the same systems as Workplace Studio)
   readonly rooms: RoomSystem;
@@ -250,8 +251,9 @@ export class LayoutEngine {
     this.rooms = new RoomSystem(this.scene, { shadowGenerator });
     this.objects = new ObjectSystem(this.scene, { shadowGenerator });
     this.floors = new FloorSystem(this.rooms, this.objects, () => this._store.getState());
-    // Until a floor is chosen, the whole building shows, with roofs
-    this.floors.setView({ mode: 'outside', level: 0 });
+    // Seen from above (view / edit): the chosen floor without its roof, the floors above hidden,
+    // so its desks and people show. Walking switches to inside / outside (onViewChange).
+    this.floors.setFloor(this._store.getState().currentFloor);
     this.highlights = new HighlightSystem(this.rooms, this.objects);
     this.characters = this._quality === 'low' ? null : new CharacterSystem(this.scene, {
       getLayout: () => this._store.getState(),
@@ -280,6 +282,11 @@ export class LayoutEngine {
       if (this._loading) return; // loadLayout builds it (in slices)
       this._draw();
       if (edited) this._emitChange('edit', 'layout');
+    });
+
+    // A floor chosen in the store (setFloor, a new layout, the floor you walked to) is the one shown from above
+    this._unsubscribeFloor = this._store.subscribe((s) => s.currentFloor, (floorId) => {
+      if (!this._walkthrough?.isActive()) this.floors.setFloor(floorId);
     });
 
     const editor = createEditorHistory(undefined, { workspace: this._store });
@@ -582,6 +589,7 @@ export class LayoutEngine {
     this._walkthrough = null;
     this.characters?.dispose();
     this._unsubscribe();
+    this._unsubscribeFloor();
     this._listeners.clear();
     // The scene takes every room and item mesh with it; forget them
     this.rooms.meshes.clear();
@@ -612,7 +620,8 @@ export class LayoutEngine {
       this._ensureWalkthrough().activate();
     } else if (this._walkthrough?.isActive()) {
       this._walkthrough.deactivate();
-      this.floors.setView({ mode: 'outside', level: 0 });
+      // Back to the view from above, on the floor you walked to (its floorChange came from onLevelChange)
+      this.floors.setFloor(this._store.getState().currentFloor);
     }
   }
 
