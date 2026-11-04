@@ -8,7 +8,9 @@
  * to its file:
  *   { "mixamo:aj-v1": { "url": "office/aj.glb", "rig": "mixamo", "height": 1.78 }, … }
  * url: relative to the manifest's own address (or absolute); rig: 'mixamo'
- * (default) or 'ue' (Unreal-style bone names); height in m (default 1.75).
+ * (default) or 'ue' (Unreal-style bone names); height in m (default 1.75);
+ * "walk": false = walking through, this character doesn't use the walk clip
+ * (it stands and slides), for a skeleton the clip doesn't fit.
  */
 
 export const DEFAULT_HEIGHT = 1.75;
@@ -48,10 +50,12 @@ export function parseManifest(data, baseUrl) {
     }
     if (entry.rig !== undefined && entry.rig !== 'mixamo' && entry.rig !== 'ue') problems.push(`${ref}: unknown rig "${entry.rig}" (using mixamo)`);
     const h = Number(entry.height);
+    if (entry.walk !== undefined && typeof entry.walk !== 'boolean') problems.push(`${ref}: "walk" must be true or false`);
     characters.set(ref, {
       url,
       rig: entry.rig === 'ue' ? 'ue' : 'mixamo',
       height: Number.isFinite(h) && h >= MIN_HEIGHT && h <= MAX_HEIGHT ? h : DEFAULT_HEIGHT,
+      ...(entry.walk === false ? { walk: false } : {}),
     });
   }
   return { characters, problems };
@@ -111,9 +115,48 @@ export function resolvePeople(list, characters) {
       deskId,
       name: text(p.name),
       department: text(p.department),
-      character: (ref && characters.get(ref)) || null,
+      character: fileOf(ref && characters.get(ref)),
       characterChosen: ref !== null,
     });
   }
   return out;
+}
+
+/** A manifest entry as the viewer draws it: { url, rig, height } (no other fields), or null. */
+function fileOf(entry) {
+  return entry ? { url: entry.url, rig: entry.rig, height: entry.height } : null;
+}
+
+/**
+ * The person looking (mount's `player`, setPlayer): { personId, assetReference }
+ * → what the viewer takes: { personId, character, walk }. Walking through, they
+ * are their character from the manifest (unknown / null = the simple figure);
+ * `walk` false if the manifest says so. null = nobody given.
+ * @param {unknown} value
+ * @param {Map<string, object>} characters
+ */
+export function resolvePlayer(value, characters) {
+  if (!value || typeof value !== 'object') return null;
+  const personId = text(value.personId) || null;
+  const ref = typeof value.assetReference === 'string' ? value.assetReference : null;
+  const entry = (ref && characters?.get(ref)) || null;
+  if (!personId && !entry) return null;
+  return { personId, character: fileOf(entry), walk: entry?.walk !== false };
+}
+
+/**
+ * The walk clip of mount's `characters` option (`walkClipUrl`, relative to the
+ * page), or null: none given, or not http(s).
+ * @param {{ walkClipUrl?: string } | undefined} option
+ * @param {string} pageUrl
+ */
+export function walkClipUrlOf(option, pageUrl) {
+  const raw = option?.walkClipUrl;
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  try {
+    const url = new URL(raw.trim(), pageUrl).href;
+    return /^https?:/.test(url) ? url : null;
+  } catch {
+    return null;
+  }
 }

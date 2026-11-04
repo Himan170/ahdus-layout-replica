@@ -94,7 +94,8 @@ export interface CharacterSystemOptions {
   loadFile?: (url: string, scene: Scene) => Promise<AssetContainer>;
 }
 
-interface LoadedFile {
+/** A character (or walk clip) file, loaded once per scene. */
+export interface LoadedFile {
   container: AssetContainer;
   /** Rest pose, measured on the first copy: height and lowest point (file units). */
   rest?: { height: number; minY: number };
@@ -137,6 +138,8 @@ export class CharacterSystem {
 
   // full characters
   private files = new Map<string, Promise<LoadedFile> | LoadedFile | 'failed'>();
+  /** The person walking through (LayoutEngine): their seated figure isn't drawn meanwhile. */
+  private hiddenPerson: string | null = null;
   private queue: string[] = [];
   private downloading = 0;
   private full = new Map<string, FullCharacter>();
@@ -222,6 +225,27 @@ export class CharacterSystem {
     }
   }
 
+  /**
+   * A file through the same load-once queue as the people's (the player's
+   * character, the walk clip): rejects if it can't be loaded.
+   */
+  loadFile(url: string): Promise<LoadedFile> {
+    const file = this.fileFor(url);
+    if (file === 'failed') return Promise.reject(new Error(`could not load ${url}`));
+    if (file && !(file instanceof Promise)) return Promise.resolve(file);
+    const loading = this.files.get(url);
+    return loading instanceof Promise ? loading : Promise.reject(new Error(`could not load ${url}`));
+  }
+
+  /** Don't draw this person at their desk (they are walking through); null: everyone. */
+  setHiddenPerson(personId: string | null): void {
+    if (this.hiddenPerson === personId) return;
+    this.hiddenPerson = personId;
+    this.figureKey = null;
+    this.lastChoice = -Infinity;
+    this.update();
+  }
+
   /** Show people (true) or nothing at all (false: the simple look). */
   setEnabled(on: boolean): void {
     if (this.enabled === !!on) return;
@@ -286,7 +310,7 @@ export class CharacterSystem {
   }
 
   private isShown(p: PlacedPerson): boolean {
-    if (!this.enabled) return false;
+    if (!this.enabled || p.personId === this.hiddenPerson) return false;
     const desk = this.options.getObjectMesh(p.deskId);
     return !!desk && !desk.isDisposed() && desk.isEnabled();
   }
@@ -346,41 +370,13 @@ export class CharacterSystem {
   }
 
   private makeFull(person: PlacedPerson, file: LoadedFile): void {
-    const rig = person.character?.rig ?? 'mixamo';
-    const copy = file.container.instantiateModelsToScene((name) => name, false, { doNotInstantiate: true });
-    for (const group of copy.animationGroups) { group.stop(); group.dispose(); }
-    const root = new TransformNode(`person_${person.personId}`, this.scene);
-    const fit = new TransformNode(`person_fit_${person.personId}`, this.scene);
-    fit.parent = root;
-    for (const n of copy.rootNodes) n.parent = fit;
-    const meshes = fit.getChildMeshes(false);
-    for (const m of meshes) {
-      m.isPickable = false;
-      m.checkCollisions = false;
-      m.metadata = { ...(m.metadata ?? {}), personId: person.personId };
-    }
-
-    // bones by their Mixamo name
-    const bones = new Map<string, TransformNode>();
-    for (const skeleton of copy.skeletons) {
-      for (const bone of skeleton.bones) {
-        const node = bone.getTransformNode();
-        const key = canonicalBoneName(bone.name, rig);
-        if (node && key && !bones.has(key)) bones.set(key, node);
-      }
-    }
-
-    // the person's height: the file's rest pose, measured once
-    refreshTree(root);
-    if (!file.rest) file.rest = measure(meshes);
-    const scale = (person.character?.height ?? FIGURE_HEIGHT) / file.rest.height;
-    fit.scaling.setAll(scale);
+    const { root, meshes, skeletons, bones } = copyCharacter(this.scene, file, person.character!, `person_${person.personId}`,
+      { personId: person.personId });
     root.rotation.y = person.yaw;
-    root.position.set(person.x, person.y - file.rest.minY * scale, person.z);
+    root.position.set(person.x, person.y, person.z);
     refreshTree(root);
 
-    const pose = person.seated ? SEATED_POSE : STANDING_POSE;
-    for (const [bone, toward, dir] of pose) aimBone(root, bones.get(bone), bones.get(toward), dir);
+    poseBones(root, bones, person.seated ? SEATED_POSE : STANDING_POSE);
 
     // seated: the hips onto the seat, a little behind its centre
     const hips = bones.get('Hips');
@@ -406,7 +402,7 @@ export class CharacterSystem {
       spine = { node: spineNode, base: rotationOf(spineNode).clone(), axis: side };
     }
     this.full.set(person.personId, {
-      url: person.character!.url, root, meshes, skeletons: copy.skeletons, spine, phase: phaseOf(person.personId),
+      url: person.character!.url, root, meshes, skeletons, spine, phase: phaseOf(person.personId),
     });
     this.figureKey = null;
   }
@@ -476,9 +472,66 @@ export class CharacterSystem {
   }
 }
 
+// ── A copy of a character file (people at desks, the player walking through) ──
+
+export interface CharacterCopy {
+  /** At the feet, facing +Z; move and turn this one. */
+  root: TransformNode;
+  meshes: AbstractMesh[];
+  skeletons: Skeleton[];
+  /** Bones by their Mixamo name (Hips, LeftUpLeg, …), whatever the rig. */
+  bones: Map<string, TransformNode>;
+}
+
+/**
+ * A copy of the file with its own skeleton (geometry and materials shared),
+ * scaled to the person's height, its feet at `root`'s origin, in its rest pose.
+ * Its meshes aren't pickable and carry `metadata` (e.g. { personId }).
+ */
+export function copyCharacter(scene: Scene, file: LoadedFile, character: CharacterFile, name: string,
+  metadata: Record<string, unknown> = {}): CharacterCopy {
+  const rig = character.rig ?? 'mixamo';
+  const copy = file.container.instantiateModelsToScene((n) => n, false, { doNotInstantiate: true });
+  for (const group of copy.animationGroups) { group.stop(); group.dispose(); }
+  const root = new TransformNode(name, scene);
+  const fit = new TransformNode(`${name}_fit`, scene);
+  fit.parent = root;
+  for (const n of copy.rootNodes) n.parent = fit;
+  const meshes = fit.getChildMeshes(false);
+  for (const m of meshes) {
+    m.isPickable = false;
+    m.checkCollisions = false;
+    m.metadata = { ...(m.metadata ?? {}), ...metadata };
+  }
+
+  const bones = new Map<string, TransformNode>();
+  for (const skeleton of copy.skeletons) {
+    for (const bone of skeleton.bones) {
+      const node = bone.getTransformNode();
+      const key = canonicalBoneName(bone.name, rig);
+      if (node && key && !bones.has(key)) bones.set(key, node);
+    }
+  }
+
+  // the person's height: the file's rest pose, measured once
+  refreshTree(root);
+  if (!file.rest) file.rest = measure(meshes);
+  const scale = (character.height ?? FIGURE_HEIGHT) / file.rest.height;
+  fit.scaling.setAll(scale);
+  fit.position.y = -file.rest.minY * scale;
+  refreshTree(root);
+  return { root, meshes, skeletons: copy.skeletons, bones };
+}
+
+/** Aim the bones into a pose (play/people SEATED_POSE, STANDING_POSE), parents first. */
+export function poseBones(root: TransformNode, bones: Map<string, TransformNode>, pose: [string, string, number[]][]): void {
+  for (const [bone, toward, dir] of pose) aimBone(root, bones.get(bone), bones.get(toward), dir);
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function validCharacter(c: CharacterFile | null | undefined): CharacterFile | null {
+/** A character file as the systems use it (rig and height checked), or null: the simple figure. */
+export function validCharacter(c: CharacterFile | null | undefined): CharacterFile | null {
   if (!c || typeof c.url !== 'string' || !c.url) return null;
   const height = Number(c.height);
   return {
@@ -493,7 +546,7 @@ function samePlace(a: PlacedPerson, b: PlacedPerson): boolean {
 }
 
 /** World matrices from the top down (a child's uses its parent's). */
-function refreshTree(top: TransformNode): void {
+export function refreshTree(top: TransformNode): void {
   top.computeWorldMatrix(true);
   for (const n of top.getDescendants(false)) (n as TransformNode).computeWorldMatrix?.(true);
 }

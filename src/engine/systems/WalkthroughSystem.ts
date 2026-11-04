@@ -17,6 +17,7 @@ import type { Vector3 } from '@babylonjs/core/Maths/math.vector';
 
 import { createPlayController } from '../../play/playController';
 import type { LayoutRecords, V1Room } from './RoomSystem';
+import type { PlayCharacter } from './PlayerCharacter';
 
 /** What E was pressed on: an item, or a door / window of a room (playController's target). */
 export interface WalkthroughTarget {
@@ -202,6 +203,24 @@ export class WalkthroughSystem {
 
   getPosition(): Vector3 {
     return this.controller.getPosition();
+  }
+
+  /**
+   * Walk as this character (systems/PlayerCharacter: your own), the camera at
+   * its eye height; null = Preview's built-in figure. The one before is disposed.
+   */
+  setCharacter(character: PlayCharacter | null): void {
+    this.controller.setCharacter(character, { eyeHeight: character?.eyeHeight });
+  }
+
+  /** The character walking now: a PlayCharacter, or the built-in figure (kind undefined). */
+  getCharacter(): (Partial<PlayCharacter> & { root: TransformNode }) | null {
+    return this.controller.getCharacter?.() ?? null;
+  }
+
+  /** The camera's height above the feet (m). */
+  getEyeHeight(): number {
+    return this.controller.getEyeHeight?.() ?? 1.62;
   }
 
   /** Which way the character faces (radians, 0 = +Z / north). */

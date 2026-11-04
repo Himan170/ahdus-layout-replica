@@ -9,7 +9,8 @@
  *   });
  *   workplace.registerAction('CNC_MACHINE', { label: 'Watch CNC training video', run: (target) => { … } });
  *   workplace.setPeople([{ personId, deskId, name, department, assetReference }]);  // option characters: { manifestUrl }
- *   workplace.setPlayer({ personId });  // the signed-in person: their card offers characters.chooseUrl
+ *   workplace.setPlayer({ personId, assetReference });  // the signed-in person: walking through they are their own
+ *                                      // character (characters.walkClipUrl); their card offers characters.chooseUrl
  *
  * `npm run build:embed` (vite.embed.config.js) makes one IIFE file with React
  * and Babylon inside. It shows <LayoutViewer /> and works through layoutBridge
@@ -24,7 +25,7 @@ import { LayoutViewer } from '../engine/react/LayoutViewer';
 import { layoutBridge } from '../integration/layoutBridge';
 import { anchorsFromStore } from '../integration/anchorsFromStore';
 import { readLayout, modeProblem, actionMatcher, filterAnchors } from './embedLayout';
-import { readManifest, resolvePeople } from './characterManifest';
+import { readManifest, resolvePeople, resolvePlayer, walkClipUrlOf } from './characterManifest';
 import css from './embed.css?inline';
 
 /** layoutBridge, for modules on the page (docs/TEAM_INTEGRATION.md): the same object our modules use. */
@@ -63,12 +64,6 @@ function removeStyles() {
   if (mounted === 0) document.getElementById(STYLE_ID)?.remove();
 }
 
-/** The player option / setPlayer's argument as the viewer takes it: { personId } or null. */
-function playerOf(value) {
-  const id = value && typeof value === 'object' ? value.personId : null;
-  return id === null || id === undefined || id === '' ? null : { personId: String(id) };
-}
-
 /** Call a page's callback; its errors are logged, never thrown into the viewer. */
 function call(fn, ...args) {
   try {
@@ -93,9 +88,11 @@ function call(fn, ...args) {
  *   mode?: 'view' | 'walkthrough',    // default 'view'; 'edit' is refused
  *   quality?: 'high' | 'low',         // 'low': simple models and materials, no downloads (slow PCs)
  *   assetBaseUrl?: string,            // where models/, textures/, env/ are; default: assets/ next to this script
- *   characters?: { manifestUrl?: string, manifest?: object, chooseUrl?: string }, // assetReference → { url, rig, height }
- *                                     // (setPeople); chooseUrl: where people choose their character
- *   player?: { personId?: string },   // the signed-in person (setPlayer): "Choose your character" on their own card
+ *   characters?: { manifestUrl?: string, manifest?: object, chooseUrl?: string, walkClipUrl?: string },
+ *                                     // the manifest: assetReference → { url, rig, height } (setPeople, player);
+ *                                     // chooseUrl: where people choose their character; walkClipUrl: the walk clip
+ *   player?: { personId?: string, assetReference?: string | null }, // the signed-in person (setPlayer): walking
+ *                                     // through they are their own character; "Choose your character" on their card
  *   onEvent?: (name: string, data: object) => void,
  *   onError?: (error: Error) => void,
  * }} [options]
@@ -119,8 +116,10 @@ export function mount(element, options = {}) {
   const actions = new Set(); // removers of this viewer's "Press E" actions
   const abort = new AbortController();
   let people = []; // who sits where (setPeople), resolved through the manifest
-  let manifest = null; // Promise of the character manifest, read on the first setPeople
-  let player = playerOf(options.player); // the signed-in person (setPlayer)
+  let manifest = null; // Promise of the character manifest, read on the first setPeople / player's character
+  let playerGiven = options.player ?? null; // the signed-in person (setPlayer), as the page gave it
+  let player = resolvePlayer(playerGiven, new Map()); // …as the viewer takes it ({ personId, character, walk })
+  const walkClipUrl = walkClipUrlOf(options.characters, document.baseURI);
 
   let resolveReady;
   let rejectReady;
@@ -172,11 +171,37 @@ export function mount(element, options = {}) {
     });
   }
 
+  /** The character manifest (option characters), read once: assetReference → { url, rig, height }. */
+  function characterMap() {
+    manifest ??= readManifest(options.characters, { headers: options.headers, signal: abort.signal, pageUrl: document.baseURI })
+      .then((m) => {
+        if (m.problems.length) console.warn(`[AHDUSWorkplace] character manifest: ${m.problems.join('; ')}`);
+        return m.characters;
+      }, (err) => {
+        if (err?.name !== 'AbortError') console.warn(`[AHDUSWorkplace] ${err.message}: everyone is a simple figure`);
+        return new Map();
+      });
+    return manifest;
+  }
+
+  /** The signed-in person: at once by personId, then with their character once the manifest is read. */
+  async function updatePlayer(given) {
+    if (closed) return;
+    playerGiven = given;
+    player = resolvePlayer(given, new Map());
+    render();
+    if (typeof given?.assetReference !== 'string') return;
+    const characters = await characterMap();
+    if (closed || playerGiven !== given) return;
+    player = resolvePlayer(given, characters);
+    render();
+  }
+
   function render() {
     root?.render(
       <LayoutViewer
         layout={layout} mode={mode} quality={quality} assetBaseUrl={assetBaseUrl} people={people}
-        player={player} chooseCharacterUrl={options.characters?.chooseUrl}
+        player={player} chooseCharacterUrl={options.characters?.chooseUrl} walkClipUrl={walkClipUrl ?? undefined}
         onReady={onReady} onError={fail} onProgress={onProgress}
         onCard={(card) => emit('card', { title: card.title, body: card.body ?? card.text ?? '' })}
         style={{ width: '100%', height: '100%' }}
@@ -334,16 +359,8 @@ export function mount(element, options = {}) {
      */
     async setPeople(list) {
       if (closed) return 0;
-      manifest ??= readManifest(options.characters, { headers: options.headers, signal: abort.signal, pageUrl: document.baseURI })
-        .then((m) => {
-          if (m.problems.length) console.warn(`[AHDUSWorkplace] character manifest: ${m.problems.join('; ')}`);
-          return m.characters;
-        }, (err) => {
-          if (err?.name !== 'AbortError') console.warn(`[AHDUSWorkplace] ${err.message}: everyone is a simple figure`);
-          return new Map();
-        });
       const given = resolvePeople(list, new Map()).length; // a bad list is refused before waiting
-      const characters = await manifest;
+      const characters = await characterMap();
       if (closed) return 0;
       people = resolvePeople(list, characters);
       render();
@@ -355,9 +372,7 @@ export function mount(element, options = {}) {
      * If they sit at a desk and never chose a character, their card links to characters.chooseUrl.
      */
     setPlayer(next) {
-      if (closed) return;
-      player = playerOf(next);
-      render();
+      return updatePlayer(next ?? null);
     },
 
     /** Remove the viewer: the element, the 3D engine, its actions and listeners. */
@@ -381,6 +396,8 @@ export function mount(element, options = {}) {
     if (closed) return;
     root = createRoot(view);
     render();
+    // the player option's character, from the manifest (unless setPlayer came first)
+    if (playerGiven === (options.player ?? null)) updatePlayer(playerGiven);
   })().catch((err) => {
     if (err?.name !== 'AbortError') fail(err);
   });

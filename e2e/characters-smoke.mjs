@@ -6,7 +6,9 @@
 // only, never the email), a click keeps the card, a tap on a phone shows it, "Choose your character" on the
 // player's own card (setPlayer), per floor (setFloor), walking up to a desk, quality 'low' = no people.
 // The view from above (the 3D Company page's "Upper view") shows the chosen floor without its roof: at the start,
-// after setFloor and after walking (on the floor walked to).
+// after setFloor and after walking (on the floor walked to). Walking as yourself (setPlayer + characters.walkClipUrl):
+// your own character walks with our placeholder clip (Mixamo and Unreal-style rigs), stands when you stop, the camera
+// at your eye height, V hides your body, your seated figure hides; no character = the simple figure.
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run e2e:characters      (builds the embed; serves the files itself)
@@ -173,7 +175,10 @@ await p.evaluate((layout) => {
   window.embedEvents = [];
   window.workplace = AHDUSWorkplace.mount(document.getElementById('workplace'), {
     layout, mode: 'view',
-    characters: { manifestUrl: '/dist-embed/assets/characters/manifest.json', chooseUrl: '/choose-character.html' },
+    characters: {
+      manifestUrl: '/dist-embed/assets/characters/manifest.json', chooseUrl: '/choose-character.html',
+      walkClipUrl: '/dist-embed/assets/characters/placeholder-walk.glb',
+    },
     onEvent: (name, data) => window.embedEvents.push({ name, data }),
   });
 }, LAYOUT);
@@ -345,6 +350,124 @@ log('choosing the ground floor again: its roof stays off, the floor above is hid
   again.view.level === 0 && !again.up && again.roofs.room_open === false, JSON.stringify(again));
 await frames(2);
 
+// ── 5b. Walking as yourself ──
+/** The character walking now: kind ('full' = your own), file, walking, eye height, shown. */
+const walker = () => p.evaluate(() => {
+  const w = window.workplace._engine.walkthrough;
+  const c = w.getCharacter();
+  const foot = c?.root.getDescendants(false).find((n) => /LeftFoot$|foot_l$/.test(n.name));
+  const hips = c?.root.getDescendants(false).find((n) => /Hips$|pelvis$/.test(n.name));
+  return {
+    kind: c?.kind ?? 'simple', name: c?.root.name, walking: !!c?.walking, walkSpeed: c?.walkSpeed ?? null, speed: c?.speed ?? null,
+    ratio: c?.walkGroup?.speedRatio ?? null, eye: w.getEyeHeight(), shown: !!c?.root.isEnabled(),
+    stride: foot && hips ? +(foot.getAbsolutePosition().z - hips.getAbsolutePosition().z).toFixed(3) : null,
+  };
+});
+const walkAs = async (assetReference, personId = 'user_1') => {
+  await p.evaluate(({ assetReference, personId }) => window.workplace.setPlayer({ personId, assetReference }), { assetReference, personId });
+  await p.evaluate(() => window.workplace._engine.whenPlayerReady());
+  await frames(2);
+};
+await p.evaluate(() => window.workplace.setFloor(0));
+const before = await drawnPeople();
+await p.evaluate(() => window.workplace.setMode('walkthrough'));
+await walkAs('placeholder:mixamo-v1');
+// in the aisle between the desks, looking along it
+await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -5.6, yaw: 0, pitch: -0.15, fly: false }));
+await frames(3);
+const standing = await walker();
+const without = await drawnPeople();
+const myFigure = await p.evaluate(() => !!window.workplace._engine.scene.getNodeByName('person_user_1')?.isEnabled());
+log('walkthrough: you are your own character (Mixamo rig), standing, the camera at your eye height (1.75 m → 1.62 m)',
+  standing.kind === 'full' && standing.name === 'player_character' && standing.shown && !standing.walking &&
+  standing.walkSpeed > 1 && Math.abs(standing.eye - 1.62) < 0.01, JSON.stringify(standing));
+// from above: the 17 people of the ground floor; walking: every floor (21) but you
+log('your seated figure at your desk is hidden while you walk', before.full + before.seated + before.standing === 17 &&
+  without.full + without.seated + without.standing === 20 && !myFigure,
+  `${JSON.stringify(before)} → ${JSON.stringify(without)}, your figure shown: ${myFigure}`);
+const walkFiles = requests.filter((u) => u.endsWith('/placeholder-walk.glb')).length;
+const mixamoFiles = requests.filter((u) => u.endsWith('/placeholder-mixamo.glb')).length;
+log('the walk clip is downloaded once; your character file is the one already loaded for the people',
+  walkFiles === 1 && mixamoFiles === 1, `walk.glb ×${walkFiles}, placeholder-mixamo.glb ×${mixamoFiles}`);
+// Hold W: the walk clip plays, as fast as you move; let go: the standing pose
+await p.focus('#workplace [tabindex="0"]');
+await p.keyboard.down('KeyW');
+const strides = [];
+let moving = null;
+for (let i = 0; i < 4; i++) {
+  await frames(1);
+  moving = await walker();
+  strides.push(moving.stride);
+}
+if (SHOTS) {
+  for (const [w, h, tag] of [[1440, 900, 'desktop'], [390, 844, 'phone']]) {
+    await p.setViewportSize({ width: w, height: h });
+    await p.evaluate(() => window.workplace._engine.babylonEngine.setHardwareScalingLevel(1 / window.devicePixelRatio));
+    await p.evaluate(() => window.workplace._engine.babylonEngine.resize());
+    await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -5.6, yaw: 0, pitch: -0.15, fly: false }));
+    await frames(2);
+    await p.screenshot({ path: `${SHOTS}/${tag}-walking.png`, timeout: 180000 });
+  }
+  await p.setViewportSize({ width: 1280, height: 720 });
+  await p.evaluate(() => window.workplace._engine.babylonEngine.setHardwareScalingLevel(2));
+  await p.evaluate(() => window.workplace._engine.babylonEngine.resize());
+}
+await p.keyboard.up('KeyW');
+await frames(3);
+const stopped = await walker();
+log('holding W: your character walks (the clip plays as fast as you move, the legs swing); let go: it stands',
+  moving.walking && moving.speed > 1 && moving.speed < 4.3 &&
+  Math.abs(moving.ratio - Math.min(6, Math.max(0.25, moving.speed / moving.walkSpeed))) < 0.01 &&new Set(strides.map((s) => Math.sign(Math.round(s * 20)))).size >= 2 &&
+  !stopped.walking && stopped.kind === 'full', `${JSON.stringify(moving)} strides ${JSON.stringify(strides)} | stopped ${JSON.stringify(stopped)}`);
+if (SHOTS) {
+  for (const [w, h, tag] of [[1440, 900, 'desktop'], [390, 844, 'phone']]) {
+    await p.setViewportSize({ width: w, height: h });
+    await p.evaluate(() => window.workplace._engine.babylonEngine.setHardwareScalingLevel(1 / window.devicePixelRatio));
+    await p.evaluate(() => window.workplace._engine.babylonEngine.resize());
+    await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -3.2, yaw: Math.PI * 0.85, pitch: -0.1 }));
+    await frames(3);
+    await p.screenshot({ path: `${SHOTS}/${tag}-standing.png`, timeout: 180000 });
+  }
+  await p.setViewportSize({ width: 1280, height: 720 });
+  await p.evaluate(() => window.workplace._engine.babylonEngine.setHardwareScalingLevel(2));
+  await p.evaluate(() => window.workplace._engine.babylonEngine.resize());
+}
+// V: first person hides your own body; V again shows it
+await p.focus('#workplace [tabindex="0"]');
+await p.keyboard.press('KeyV');
+await frames(2);
+const first = await walker();
+await p.keyboard.press('KeyV');
+await frames(2);
+const third = await walker();
+log('V (first person) hides your own body; V again shows it', !first.shown && third.shown, `${first.shown} → ${third.shown}`);
+// An Unreal-style skeleton walks with the same clip (bone table + rest-pose correction); a taller person sees from higher
+await walkAs('placeholder:ue-v1', 'user_2');
+await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -5.6, yaw: 0, pitch: -0.15, fly: false }));
+await p.keyboard.down('KeyW');
+await frames(2);
+const ue = await walker();
+await p.keyboard.up('KeyW');
+await frames(2);
+await walkAs('placeholder:tall-v1', 'user_3');
+const tall = await walker();
+log('an Unreal-style rig walks with the same clip (1.68 m: eye 1.55 m); a 1.88 m person: eye 1.74 m',
+  ue.kind === 'full' && ue.walking && Math.abs(ue.eye - 1.555) < 0.01 && Math.abs(tall.eye - 1.741) < 0.01,
+  `${JSON.stringify(ue)} | tall eye ${tall.eye}`);
+// Never chose a character (or an unknown one): the simple figure, at the usual eye height
+await walkAs(null, 'user_4');
+const simple = await walker();
+await walkAs('mixamo:not-in-the-manifest', 'user_5');
+const unknown = await walker();
+log('no character, or one not in the manifest: the simple figure walks (eye 1.62 m)',
+  simple.kind === 'simple' && simple.name === 'playerCharacter' && unknown.kind === 'simple' && Math.abs(simple.eye - 1.62) < 0.01,
+  `${JSON.stringify(simple)} | ${JSON.stringify(unknown)}`);
+await p.evaluate(() => window.workplace.setMode('view'));
+await frames(2);
+const allBack = await drawnPeople();
+log('back in the view from above: everyone at their desk again', allBack.full + allBack.seated + allBack.standing === 17, JSON.stringify(allBack));
+await p.evaluate(() => window.workplace.setPlayer(null));
+
 // ── 6. setPeople([]) = nobody; quality 'low' = no people at all ──
 await p.evaluate(() => window.workplace.setPeople([]));
 await frames(3);
@@ -355,17 +478,24 @@ const low = await p.evaluate(async ({ layout, people }) => {
   const el = document.createElement('div');
   el.style.cssText = 'position:fixed;right:0;bottom:0;width:320px;height:200px';
   document.body.append(el);
-  const h = AHDUSWorkplace.mount(el, { layout, mode: 'view', quality: 'low', characters: { manifestUrl: '/dist-embed/assets/characters/manifest.json' } });
+  const h = AHDUSWorkplace.mount(el, {
+    layout, mode: 'view', quality: 'low', player: { personId: 'user_1', assetReference: 'placeholder:mixamo-v1' },
+    characters: { manifestUrl: '/dist-embed/assets/characters/manifest.json', walkClipUrl: '/dist-embed/assets/characters/placeholder-walk.glb' },
+  });
   await h.ready;
   await h.setPeople(people);
   await new Promise((r) => setTimeout(r, 1500));
+  h.setMode('walkthrough');
+  await h._engine.whenPlayerReady();
   const sc = h._engine.scene;
   const out = { characters: h._engine.characters, people: sc.meshes.filter((m) => m.name.startsWith('people_') || m.metadata?.personId).length };
+  const walker = h._engine.walkthrough.getCharacter()?.kind ?? 'simple';
   h.destroy();
   el.remove();
-  return { characters: out.characters === null, people: out.people };
+  return { characters: out.characters === null, people: out.people, walker };
 }, { layout: LAYOUT, people: PEOPLE });
-log('quality \'low\': no people at all', low.characters && low.people === 0, JSON.stringify(low));
+log('quality \'low\': no people at all, and you walk as the simple figure',
+  low.characters && low.people === 0 && low.walker === 'simple', JSON.stringify(low));
 log('no warnings about the manifest', !warnings.some((w) => /character manifest/.test(w)), warnings.filter((w) => /manifest/.test(w)).join(' | '));
 
 // ── 6b. A phone (390 × 844, touch): a tap on a desk shows the card, a tap elsewhere hides it ──

@@ -71,8 +71,8 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `mode` | `'view'` \| `'walkthrough'` | `view` (default): orbit and zoom around the building, seen from above: the chosen floor (the ground floor at first) without its roof, the floors above it hidden, so its desks and people show. `walkthrough`: walk through it as a character; back in `view`, the floor you walked to is shown (a `floorChange` event says which). **`'edit'` is refused**: admins edit in Workplace Studio (section 6). |
 | `quality` | `'high'` \| `'low'` | `high` (default): the realistic look: real furniture models, photo textures on floors and walls, a photographed sky. They load after the workplace is drawn (the simple look shows until then). `low`: the simple models and materials, nothing extra downloaded: for slow computers. |
 | `assetBaseUrl` | string | Where the realistic look's files are (the `assets/` folder: `models/`, `textures/`, `env/`). Default: `assets/` next to `ahdus-workplace.js`. Set it when you host them elsewhere, e.g. `'https://cdn.example.com/ahdus/assets/'`. A file that can't be loaded keeps the simple look for that item or surface (a warning in the console, never an error). |
-| `characters` | object | `{ manifestUrl }`: where the **character manifest** is (section 4b), fetched with `credentials: 'include'` and `headers` on the first `setPeople`. Or `{ manifest }`: the manifest itself. Without it everyone is the neutral simple figure. Also `chooseUrl`: where people choose their character (http / https, or relative to the page), for the "Choose your character" link (section 4b). |
-| `player` | object | `{ personId }`: the person looking, i.e. the signed-in user (the same `personId` as in `setPeople`). Their own card offers "Choose your character" if they never chose one. Change it later with `setPlayer`. |
+| `characters` | object | `{ manifestUrl }`: where the **character manifest** is (section 4b), fetched with `credentials: 'include'` and `headers` on the first `setPeople`. Or `{ manifest }`: the manifest itself. Without it everyone is the neutral simple figure. Also `chooseUrl`: where people choose their character (http / https, or relative to the page), for the "Choose your character" link (section 4b), and `walkClipUrl`: the walk clip your own character walks with in `walkthrough` (section 4c). |
+| `player` | object | `{ personId, assetReference }`: the person looking, i.e. the signed-in user (the same `personId` and `assetReference` as in `setPeople`). In `walkthrough` they walk as their own character (section 4c); their own card offers "Choose your character" if they never chose one. Change it later with `setPlayer`. |
 | `onEvent(name, data)` | function | Everything that happens (section 5). |
 | `onError(error)` | function | The layout could not be shown (section 7). Without it, the message goes to the console. |
 
@@ -93,7 +93,7 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `anchors({ kind?, roomId?, floorId?, objectId? })` | Hook points, e.g. `anchors({ kind: 'machine' })` or every workstation on Floor 1: `anchors({ kind: 'workstation', floorId: 1 })`. `[]` until `ready`. |
 | `registerAction(match, { label, run, when? })` | A "Press E" action (below). Returns a function that removes it. |
 | `setPeople(list)` | Who sits at which desk (section 4b). Replaces the list before; `setPeople([])` = nobody. Returns a promise of how many people were given (after the manifest is read). Can be called before `ready`. |
-| `setPlayer({ personId } \| null)` | The person looking (the signed-in user), as the `player` option. |
+| `setPlayer({ personId, assetReference } \| null)` | The person looking (the signed-in user), as the `player` option. Returns a promise, done when their character is known (after the manifest is read). |
 | `destroy()` | Removes the viewer: the element is as you gave it, the 3D engine, its keys and its actions are gone. Safe to call twice. |
 
 Calls made before `ready` (`setFloor`, `focusOn`, `highlight`) wait for it and return `undefined`. After `destroy()` every call returns `false` (or `[]`).
@@ -184,12 +184,39 @@ workplace.setPeople([
 | `url` | The `.glb` file. Relative to the manifest's own address, or absolute (http / https only). Loaded by the browser like any model: give it CORS headers if it is on another origin. |
 | `rig` | `'mixamo'` (default): Mixamo bone names, any prefix (`mixamorig:`, `mixamorig4:`, …). `'ue'`: Unreal-style names (`pelvis`, `spine_01`, `thigh_l`, …). |
 | `height` | The person's height in metres (1 to 2.3; default 1.75): the model is scaled to it. |
+| `walk` | Optional, `false`: walking through, this character doesn't use the walk clip (it stands and slides). For a skeleton the clip doesn't fit. |
 
 The file must be a skinned glTF binary facing +Z with its feet at 0 (as Mixamo exports). Office copies should be
 light (`docs/TEAM_INTEGRATION.md` section 4, "Harsh"). glTF extensions it may use: `EXT_texture_webp`,
 `KHR_materials_specular`, `KHR_materials_unlit` (no Draco, meshopt or KTX2 compression). A file that requires any
 other extension can't be loaded: that person stays a simple figure (a warning in the console). Entries that can't be used are left out (a warning).
 Test files: `assets/characters/manifest.json` next to `ahdus-workplace.js` (self-made placeholder figures).
+
+### 4c. Walking as yourself (`player`, `characters.walkClipUrl`)
+
+```js
+const workplace = AHDUSWorkplace.mount(el, {
+  layoutUrl, mode: 'view',
+  characters: {
+    manifestUrl: '/frontend/workplace/characters.json',
+    walkClipUrl: '/frontend/character/office/walk.glb',     // the walk animation only (no mesh)
+  },
+  player: { personId: String(currentUser.id), assetReference: mySeat?.assetReference ?? myCharacter ?? null },
+});
+```
+
+- In `walkthrough` you are **your own character** (from the manifest by `assetReference`) instead of the simple
+  figure. It is made when walking starts (each file is downloaded once, shared with the people at their desks).
+- **The walk:** the clip at `walkClipUrl` (an animation-only `.glb`, Mixamo bone names, one cycle) is put onto your
+  character by bone names: Mixamo and Unreal-style skeletons (`rig: 'ue'`), with a correction for a skeleton whose
+  bones point another way. It plays as fast as you move, so the feet keep up with the floor (its own speed is read
+  from the clip: its forward motion, else its steps); the clip's forward motion is taken out. Standing still or flying:
+  the standing pose. No `walkClipUrl`, a clip that can't be loaded, or `walk: false` in the manifest: the standing
+  pose all the time (the character slides).
+- **The camera** sits at your eye height (0.93 × `height`: 1.62 m for 1.75 m). `V` (first person) hides your body.
+- **Your seated figure** (the `setPeople` entry with your `personId`) is hidden while you walk, and back in `view`.
+- `assetReference` `null` or unknown, a character file that fails, or `quality: 'low'`: the simple figure walks, as before.
+- Test files: `assets/characters/placeholder-walk.glb` next to `ahdus-workplace.js` (our own clip: 1.2 m a second).
 
 ---
 

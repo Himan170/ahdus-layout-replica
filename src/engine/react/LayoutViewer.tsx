@@ -24,6 +24,8 @@
  * keeps their card open until the next click or tap elsewhere: phones have no
  * pointing. `player` is the signed-in person: on their own card, if they never
  * chose a character, "Choose your character" links to `chooseCharacterUrl`.
+ * Walking through, they are their own `player.character` (walking with the
+ * clip at `walkClipUrl`; none: the simple figure) and their seated figure hides.
  *
  * Walking through, the keys are the page's until the view is engaged: clicked
  * (it captures the mouse) or focused (Tab; a focus ring shows). Esc gives
@@ -36,6 +38,7 @@ import type { CSSProperties } from 'react';
 import { LayoutEngine } from '../LayoutEngine';
 import type {
   EngineMode, QualityLevel, InteractEvent, EnterRoomEvent, ExitRoomEvent, BuildProgress, Person, PlacedPerson,
+  CharacterFile,
 } from '../LayoutEngine';
 import { progressPercent } from '../../play/buildSchedule';
 import { connectEngine } from '../../integration/layoutBridge';
@@ -59,8 +62,13 @@ export interface LayoutViewerProps {
    * { url, rig: 'mixamo' | 'ue', height } | null }]. Not drawn with quality 'low'.
    */
   people?: Person[];
-  /** The person looking (the signed-in user): their own card can offer "Choose your character". */
-  player?: { personId?: string | number | null } | null;
+  /**
+   * The person looking (the signed-in user): their own card can offer "Choose your character"; walking through,
+   * they are `character` ({ url, rig, height }; null: the simple figure). `walk: false`: they don't walk (slide).
+   */
+  player?: { personId?: string | number | null; character?: CharacterFile | null; walk?: boolean } | null;
+  /** The walk clip (an animation-only .glb, Mixamo bone names) your character walks with; none: the standing pose. */
+  walkClipUrl?: string;
   /** Where people choose their character (http(s) or relative to the page); none = no link. */
   chooseCharacterUrl?: string;
   /** The engine is ready and the layout is fully built (focusOn, highlight, getAnchors, …). */
@@ -226,6 +234,17 @@ export function LayoutViewer(props: LayoutViewerProps) {
   useEffect(() => {
     engine?.setPeople(people ?? []);
   }, [engine, people]);
+
+  // You, walking through: your own character (the engine makes it when walking starts)
+  const playerKey = JSON.stringify([
+    props.player?.personId ?? null, props.player?.character ?? null, props.walkClipUrl ?? null, props.player?.walk ?? true,
+  ]);
+  useEffect(() => {
+    if (!engine) return;
+    const [personId, character, walkClipUrl, walk] = JSON.parse(playerKey);
+    engine.setPlayer(personId === null && !character ? null
+      : { personId: personId === null ? null : String(personId), character, walkClipUrl, walk });
+  }, [engine, playerKey]);
 
   // The person card: pointing at a desk (view mode), walking up to it (walkthrough)
   useEffect(() => {

@@ -54,9 +54,22 @@ vi.mock('../../play/playController', () => ({
       getYaw: () => 0.5,
       getPosition: () => ({ x: 1, y: 0, z: 2 }),
       stepFloor: vi.fn(),
+      setCharacter: vi.fn((ch: any, opts: any) => { c.character = ch; c.eyeHeight = opts?.eyeHeight; }),
+      getCharacter: () => c.character ?? null,
       dispose: vi.fn(),
     };
     controllers.push(c);
+    return c;
+  }),
+}));
+
+// The player's character: systems/PlayerCharacter is tested with real files in PlayerCharacter.test.ts
+const made = vi.hoisted(() => [] as any[]);
+vi.mock('../systems/PlayerCharacter', () => ({
+  createPlayerCharacter: vi.fn(async (_scene: unknown, spec: any) => {
+    if (spec.character.url.includes('broken')) throw new Error('404');
+    const c = { spec, eyeHeight: 1.5, kind: 'full', root: {}, dispose: vi.fn() };
+    made.push(c);
     return c;
   }),
 }));
@@ -577,6 +590,62 @@ describe('walkthrough mode', () => {
     engine.setMode('view');
     expect(engine.floors.getView()).toEqual({ mode: 'planner', level: 1 });
     expect(enabled(engine.rooms.getRoomMesh('room_b'))).toBe(true);
+  });
+
+  it('setPlayer: walking through, you are your own character (made when walking starts); your desk figure hides', async () => {
+    made.length = 0;
+    const engine = makeEngine({ mode: 'view' });
+    engine.loadLayout(save());
+    const hidden = vi.spyOn(engine.characters!, 'setHiddenPerson');
+    const me = { personId: 'u1', character: { url: 'https://x/aj.glb', rig: 'mixamo' as const, height: 1.8 }, walkClipUrl: 'https://x/walk.glb' };
+    engine.setPlayer(me);
+    await engine.whenPlayerReady();
+    expect(made).toHaveLength(0); // nothing downloaded until walking
+    engine.setMode('walkthrough');
+    await engine.whenPlayerReady();
+    expect(made).toHaveLength(1);
+    expect(made[0].spec).toEqual({ character: me.character, walkClipUrl: 'https://x/walk.glb', walk: undefined });
+    expect(controllers[0].setCharacter).toHaveBeenLastCalledWith(made[0], { eyeHeight: 1.5 });
+    expect(hidden).toHaveBeenLastCalledWith('u1');
+    // the same player again: nothing made again
+    engine.setPlayer({ ...me });
+    await engine.whenPlayerReady();
+    expect(made).toHaveLength(1);
+    engine.setMode('view');
+    expect(hidden).toHaveBeenLastCalledWith(null);
+    // no character (never chose one): the simple figure
+    engine.setMode('walkthrough');
+    engine.setPlayer({ personId: 'u1', character: null });
+    await engine.whenPlayerReady();
+    expect(controllers[0].setCharacter).toHaveBeenLastCalledWith(null, { eyeHeight: undefined });
+  });
+
+  it("setPlayer: a file that can't be loaded, or quality 'low' = the simple figure; a newer player wins", async () => {
+    made.length = 0;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const engine = makeEngine({ mode: 'walkthrough' });
+    engine.loadLayout(save());
+    engine.setPlayer({ personId: 'u1', character: { url: 'https://x/broken.glb' } });
+    await engine.whenPlayerReady();
+    expect(controllers[0].setCharacter).toHaveBeenLastCalledWith(null, { eyeHeight: undefined });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('the simple figure walks'), '404');
+    // two quick changes: only the last one is used, the first is disposed
+    engine.setPlayer({ personId: 'u1', character: { url: 'https://x/a.glb' } });
+    const first = engine.whenPlayerReady();
+    engine.setPlayer({ personId: 'u1', character: { url: 'https://x/b.glb' } });
+    await first;
+    await engine.whenPlayerReady();
+    expect(made.map((m) => m.spec.character.url)).toEqual(['https://x/a.glb', 'https://x/b.glb']);
+    expect(made[0].dispose).toHaveBeenCalled();
+    expect(controllers[0].setCharacter).toHaveBeenLastCalledWith(made[1], { eyeHeight: 1.5 });
+    warn.mockRestore();
+
+    const low = makeEngine({ mode: 'walkthrough', quality: 'low' });
+    low.loadLayout(save());
+    low.setPlayer({ personId: 'u1', character: { url: 'https://x/aj.glb' } });
+    await low.whenPlayerReady();
+    expect(made).toHaveLength(2);
+    expect(controllers[1].setCharacter).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'full' }), expect.anything());
   });
 
   it('the 2D view goes back to 3D for walking', () => {

@@ -76,7 +76,7 @@ const GRAVITY = -18;
 const MOUSE_SENS = 0.0022;
 const BODY_RADIUS = 0.32;
 const BODY_HEIGHT = 1.8;
-const EYE = 1.62;
+const EYE = 1.62; // the built-in figure's; another character brings its own (setCharacter)
 const CAM_DISTANCE = 3.8;
 const SHOULDER = 0.85;
 const REACH = 9;          // furniture / doors: how far you can build
@@ -135,9 +135,11 @@ export function createPlayController(scene, canvas, {
   collider.ellipsoidOffset = new Vector3(0, BODY_HEIGHT / 2, 0);
   collider.setEnabled(false);
 
-  const character = createCharacter(scene, { shadowGenerator });
+  // The built-in figure, until setCharacter gives another one (the walkthrough: your own character)
+  let character = createCharacter(scene, { shadowGenerator });
   character.root.parent = collider;
   character.setVisible(false);
+  let eyeHeight = EYE;
 
   // ── Previews (same look as the planner's): blue = OK, red = can't ──
   const pv = createBuildPreview(scene, 'play');
@@ -1179,7 +1181,7 @@ export function createPlayController(scene, canvas, {
 
     // ── Camera ──
     const dir = lookDir();
-    const eye = collider.position.add(new Vector3(0, EYE, 0));
+    const eye = collider.position.add(new Vector3(0, eyeHeight, 0));
     let showCharacter = !firstPerson;
     if (firstPerson) {
       camera.position.copyFrom(eye.add(forward.scale(0.12)));
@@ -1399,6 +1401,23 @@ export function createPlayController(scene, canvas, {
       if (newPitch !== undefined) pitch = newPitch;
       hasSpawned = true;
     },
+
+    /**
+     * Walk as another character: { root, update(dt, speed, flying), setVisible, dispose }, its root at the
+     * feet facing +Z (as play/character.js), the camera at `eyeHeight`. null = the built-in figure again.
+     * The character shown before is disposed.
+     */
+    setCharacter(next, { eyeHeight: eye } = {}) {
+      const old = character;
+      character = next ?? createCharacter(scene, { shadowGenerator });
+      character.root.parent = collider;
+      character.root.rotation.y = yaw;
+      character.setVisible(active && !firstPerson);
+      eyeHeight = next && eye > 0 ? eye : EYE;
+      if (old !== character) old.dispose();
+    },
+    getCharacter: () => character,
+    getEyeHeight: () => eyeHeight,
 
     isActive: () => active,
     getRoomId: () => currentRoomId ?? null,
