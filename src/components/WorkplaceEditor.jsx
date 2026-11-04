@@ -42,6 +42,9 @@ import { useStudioKeyboard } from '../hooks/useStudioKeyboard';
 import { useStudioFileActions } from '../hooks/useStudioFileActions';
 // Inside AHDUS: the Publish dialog and button state, the leave warning, toasts
 import { useAhdusPublish } from '../hooks/useAhdusPublish';
+import { useAhdusSeats } from '../hooks/useAhdusSeats';
+import SeatsBanner from '../ui/SeatsBanner';
+import { isDesk, seatAtDesk, seatOfPerson, losingDeskText } from '../ui/seatFlow';
 import { useLibraryDrop } from '../hooks/useLibraryDrop';
 
 // Components
@@ -330,11 +333,6 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
     setInteraction, setPositionsVersion, setPlannerHint, setMeasurePreview, setMeasureStart, setMeasurements,
     setSceneReady, editor, showStudioMessage, placeObject, DEMO_MODULES,
   });
-
-  // People at their desks: drawn only when some are passed in (LayoutEditor's `people`)
-  useEffect(() => {
-    if (sceneReady) characterSystemRef.current?.setPeople(people ?? []);
-  }, [sceneReady, people]);
 
   // ─── Store → scene: meshes, the floor being edited, the gizmo (hooks/useStoreMeshSync.js) ───
   useStoreMeshSync({
@@ -923,9 +921,35 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
     return counts;
   }, [roomsMap]);
 
+  // ─── Inside AHDUS: who sits at which desk (hooks/useAhdusSeats.js); toasts come from useAhdusPublish ───
+  const toastRef = useRef(null);
+  const allObjects = useMemo(() => Object.values(objectsMap), [objectsMap]);
+  const seats = useAhdusSeats({
+    enabled: inAhdus && hasBackend, objects: allObjects, phone,
+    toast: (tone, text) => toastRef.current?.(tone, text),
+  });
+  // People at their desks: inside AHDUS its seats, else only when some are passed in (LayoutEditor's `people`)
+  const studioPeople = inAhdus ? seats.people : people;
+  useEffect(() => {
+    if (sceneReady) characterSystemRef.current?.setPeople(studioPeople ?? []);
+  }, [sceneReady, studioPeople]);
+  const seatPanel = seats.access !== 'none' && selectedObject && isDesk(selectedObject.assetType) ? {
+    access: seats.access,
+    seat: seatAtDesk(seats.seats, selectedObject.id),
+    busy: seats.busy,
+    onAssign: (person) => seats.assign(selectedObject.id, person),
+    onRemove: () => seats.remove(selectedObject.id),
+    search: seats.search,
+    whereSits: (userId) => {
+      const seat = seatOfPerson(seats.seats, userId);
+      return seat ? `Sits at ${seats.label(seat.deskId)}` : null;
+    },
+  } : null;
+
   // Footer hint: a short message after a change, else what the tool says
   // (problems in red, sizes while dragging), else the tool's own hint
   const footerHint = (() => {
+    if (seats.pickHint) return { text: seats.pickHint, tone: 'message' };
     if (libraryDrop.hint) return { text: libraryDrop.hint, tone: libraryDrop.hintBad ? 'bad' : 'message' };
     if (plannerMessage) return { text: plannerMessage.text, tone: plannerMessage.bad ? 'bad' : 'message' };
     if (!placementMode && plannerHint) {
@@ -968,6 +992,9 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
 
   // ─── Inside AHDUS: publish, leave, rename (hooks/useAhdusPublish.js) ───
   const ahdus = useAhdusPublish({ enabled: inAhdus && hasBackend, onLeave: handleAllLayouts });
+  toastRef.current = ahdus.showToast;
+  const { refresh: refreshSeats } = seats;
+  useEffect(() => { if (ahdus.dialog === 'publish') refreshSeats(); }, [ahdus.dialog, refreshSeats]);
   const loadVersions = useCallback(
     () => listVersions(AHDUS_COMPANY, useWorkspaceStore.getState().layoutId),
     [],
@@ -999,9 +1026,27 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
           state={ahdus.state}
           busy={ahdus.publishing}
           loadVersions={loadVersions}
+          seatWarning={losingDeskText(seats.losing)}
           onCancel={ahdus.cancelDialog}
           onConfirm={ahdus.confirmPublish}
         />
+      )}
+      {seats.confirm && (
+        <Dialog
+          title={seats.confirm.plan.title}
+          label="Who sits here"
+          onCancel={seats.cancelAssign}
+          actions={(
+            <>
+              <button className="ui-btn" onClick={seats.cancelAssign} disabled={seats.busy} data-autofocus>Cancel</button>
+              <button className="ui-btn is-primary" onClick={seats.confirmAssign} disabled={seats.busy}>
+                {seats.confirm.plan.confirmLabel}
+              </button>
+            </>
+          )}
+        >
+          <p data-seat-question>{seats.confirm.plan.question}</p>
+        </Dialog>
       )}
       {templateAsk && (
         <Dialog
@@ -1045,6 +1090,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
               />
             )}
             <ProposedLayoutBanner editor={editor} onMessage={showStudioMessage} />
+            {seats.access === 'manage' && (
+              <SeatsBanner seats={seats.withoutDesk} busy={seats.busy} picking={seats.pickingFor}
+                onAssignDesk={seats.startPickDesk} onRemove={seats.remove} />
+            )}
           </>
         )}
       header={(
@@ -1258,7 +1307,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
             selectedRoomId={selectedOpening ? null : selectedRoomId}
             isBusy={() => measureModeRef.current || !!plannerToolsRef.current?.isDragging() ||
               !!placementManagerRef.current?.isActive()}
-            pickPerson={people?.length ? (x, y) => characterSystemRef.current?.pickPerson(x, y) ?? null : null}
+            pickPerson={studioPeople?.length ? (x, y) => characterSystemRef.current?.pickPerson(x, y) ?? null : null}
           />
           <MeasurementOverlay
             scene={sceneReady}
@@ -1348,6 +1397,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
           onSelectOpening={(o) => useWorkspaceStore.getState().selectOpening(o)}
           onAddOpening={() => { setOpenTray('doors'); handlePickOption({ tool: { kind: 'door' } }); }}
           onDuplicateRoom={handleDuplicateRoom}
+          seatPanel={seatPanel}
         />
       )}
     />

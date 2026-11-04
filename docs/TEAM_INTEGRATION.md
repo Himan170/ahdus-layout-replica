@@ -179,9 +179,18 @@ each character is:
   person per desk, one desk per person per site). The 3D Company page fetches them (`GET
   /api/workplace/sites/{site}/seats` → `[{ deskId, userId, name, department, assetReference }]`, no email) and
   calls the embed's `workplace.setPeople(list.map((s) => ({ personId: s.userId, deskId: s.deskId, name: s.name,
-  department: s.department, assetReference: s.assetReference })))` (`docs/EMBED_GUIDE.md` section 4b). Studio:
-  `<LayoutEditor people={…} />` (resolved: `character: { url, rig, height } | null` instead of `assetReference`).
-  `assetReference` null (the person never chose) = the neutral simple figure.
+  department: s.department, assetReference: s.assetReference })))` (`docs/EMBED_GUIDE.md` section 4b), with
+  `player: { personId: <the signed-in user's id> }` and `characters.chooseUrl` (the character picker) so a person
+  who never chose sees "Choose your character" on their own card. `<LayoutEditor people={…} />` (resolved:
+  `character: { url, rig, height } | null` instead of `assetReference`). `assetReference` null (the person never
+  chose) = the neutral simple figure.
+- **Assigning seats** (v0.11.2): in Workplace Studio inside AHDUS, a desk's Inspector has "Who sits here". Admin and
+  HR (`GET /api/workplace/me` → `canAppoint`) see the person with Change / Remove, or "Assign someone" (a name
+  search, `GET /api/workplace/people?q=`), saved at once (`PUT` / `DELETE …/seats/{deskId}`): not in the layout, not
+  in undo, no publish needed. Moving someone from another desk, or replacing someone, asks first. "People without
+  a desk (N)" lists seats whose desk is not in the layout (Assign a desk / Remove), and Publish warns "N people lose
+  their desk". Appointed editors see names only. Studio draws the people at their desks with the manifest at
+  `/frontend/workplace/characters.json`.
 - **Manifest** (AHDUS, e.g. `/frontend/character/office/manifest.json`), passed as `characters: { manifestUrl }`:
   `{ "<asset_reference>": { "url": "<file>.glb", "rig": "mixamo" | "ue", "height": 1.75 } }`. File names don't follow
   the ids (`ch29` → `ch29_nonpbr-slit.glb`), hence a manifest. Moving the files behind a login later only changes

@@ -3,7 +3,8 @@
 // manifest (the self-made placeholder figures: public/assets/characters/, Mixamo and Unreal-style
 // bone names) or none (the simple figure). Checks: who is drawn as a full character (nearest, ≤ 12,
 // each file downloaded once), seated poses, not pickable, the hover card (name + department, text
-// only, never the email), per floor (setFloor), walking up to a desk, quality 'low' = no people.
+// only, never the email), a click keeps the card, a tap on a phone shows it, "Choose your character" on the
+// player's own card (setPlayer), per floor (setFloor), walking up to a desk, quality 'low' = no people.
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run e2e:characters      (builds the embed; serves the files itself)
@@ -104,7 +105,7 @@ p.on('request', (r) => requests.push(r.url()));
 const warnings = [];
 p.on('console', (m) => { if (m.type() === 'warning') warnings.push(m.text()); });
 
-const frames = (count = 3) => p.evaluate((count) => new Promise((res) => {
+const frames = (count = 3, pg = p) => pg.evaluate((count) => new Promise((res) => {
   const sc = window.workplace._engine.scene; let c = 0;
   let t = null;
   const o = sc.onAfterRenderObservable.add(() => { if (++c >= count) done(); });
@@ -121,6 +122,13 @@ const drawnPeople = () => p.evaluate(() => {
   const count = (name) => { const m = sc.getMeshByName(name); return m?.isEnabled() ? m.thinInstanceCount : 0; };
   return { seated: count('people_seated'), standing: count('people_standing'), full: e.characters.fullCount };
 });
+/** Wait for the character files on another page (the phone's), then a few frames. */
+const settleOn = async (pg) => {
+  await pg.evaluate(() => window.workplace._engine.characters.whenSettled());
+  await frames(3, pg);
+  await pg.evaluate(() => new Promise((r) => setTimeout(r, 400)));
+  await frames(2, pg);
+};
 /** Wait for the character files, then for the choice to swap them in. */
 const settle = async () => {
   await p.evaluate(() => window.workplace._engine.characters.whenSettled());
@@ -129,13 +137,13 @@ const settle = async () => {
   await frames(2);
 };
 /** Camera on the orbit: look at (x, z) from `radius` m. */
-const look = (x, z, radius, beta = 1.05, alpha = -Math.PI / 2) => p.evaluate(({ x, z, radius, beta, alpha }) => {
+const look = (x, z, radius, beta = 1.05, alpha = -Math.PI / 2, pg = p) => pg.evaluate(({ x, z, radius, beta, alpha }) => {
   const cam = window.workplace._engine.scene.activeCamera;
   cam.target.set(x, 0.8, z);
   cam.radius = radius; cam.beta = beta; cam.alpha = alpha;
 }, { x, z, radius, beta, alpha });
 /** Where a point is on the screen (CSS px in the page). */
-const onScreen = (x, y, z) => p.evaluate(({ x, y, z }) => {
+const onScreen = (x, y, z, pg = p) => pg.evaluate(({ x, y, z }) => {
   const sc = window.workplace._engine.scene;
   const cam = sc.activeCamera;
   const canvas = sc.getEngine().getRenderingCanvas();
@@ -152,7 +160,7 @@ await p.evaluate((layout) => {
   window.embedEvents = [];
   window.workplace = AHDUSWorkplace.mount(document.getElementById('workplace'), {
     layout, mode: 'view',
-    characters: { manifestUrl: '/dist-embed/assets/characters/manifest.json' },
+    characters: { manifestUrl: '/dist-embed/assets/characters/manifest.json', chooseUrl: '/choose-character.html' },
     onEvent: (name, data) => window.embedEvents.push({ name, data }),
   });
 }, LAYOUT);
@@ -237,6 +245,47 @@ const card2 = await p.waitForFunction(() => document.querySelector('[data-person
 log('the card follows the pointer to another desk', card2 === 'user_6', String(card2));
 await p.mouse.move(5, 5);
 
+// ── 3b. A click keeps the card; "Choose your character" on your own card ──
+const cardNow = () => p.evaluate(() => {
+  const el = document.querySelector('[data-person-card]');
+  const a = el?.querySelector('a[data-choose-character]');
+  return el ? { id: el.getAttribute('data-person-card'), pinned: el.hasAttribute('data-pinned'), link: a ? a.getAttribute('href') : null } : null;
+});
+await p.mouse.click(deskTop.x, deskTop.y);
+await p.waitForSelector('[data-person-card][data-pinned]', { timeout: 30000 }).catch(() => {});
+await p.mouse.move(5, 5);
+await p.waitForTimeout(400);
+const kept = await cardNow();
+log('a click on a desk keeps its card open after the pointer moves away (no link: not the player)',
+  kept?.id === 'user_2' && kept.pinned && kept.link === null, JSON.stringify(kept));
+await p.mouse.click(5, 5);
+await p.waitForSelector('[data-person-card]', { state: 'detached', timeout: 10000 }).catch(() => {});
+log('a click elsewhere hides it', (await cardNow()) === null);
+await p.evaluate(() => window.workplace.setPlayer({ personId: 'user_2' }));
+await p.mouse.click(deskTop.x, deskTop.y);
+await p.waitForSelector('[data-person-card][data-pinned]', { timeout: 30000 }).catch(() => {});
+const chose = await cardNow();
+await p.mouse.click(5, 5);
+await look(-2.5, 1.2, 6, 0.8, -Math.PI / 2 - 0.3); // desk 14: user_14 never chose (assetReference null)
+await frames(3);
+await p.evaluate(() => window.workplace.setPlayer({ personId: 'user_14' }));
+const desk14 = await onScreen(-2.5, 0.77, 3);
+await p.mouse.click(desk14.x, desk14.y);
+await p.waitForSelector('[data-person-card][data-pinned]', { timeout: 30000 }).catch(() => {});
+const mine = await cardNow();
+log('"Choose your character" only on your own card (the player), and only if they never chose one; it links to chooseUrl',
+  chose?.id === 'user_2' && chose.link === null && mine?.id === 'user_14' && mine.link?.endsWith('/choose-character.html'),
+  `${JSON.stringify(chose)} | ${JSON.stringify(mine)}`);
+await p.mouse.click(5, 5);
+await p.evaluate(() => window.workplace.setPlayer(null));
+await p.mouse.click(desk14.x, desk14.y);
+await p.waitForSelector('[data-person-card][data-pinned]', { timeout: 30000 }).catch(() => {});
+const nobodyMe = await cardNow();
+log('setPlayer(null): no link', nobodyMe?.id === 'user_14' && nobodyMe.link === null, JSON.stringify(nobodyMe));
+await p.mouse.click(5, 5);
+await look(-2.5, -3.6, 6, 0.8, -Math.PI / 2 - 0.3);
+await frames(2);
+
 // ── 4. Per floor: setFloor(0) hides the people upstairs; setFloor(1) shows both floors ──
 await frames(3);
 const ground = await drawnPeople();
@@ -284,6 +333,45 @@ const low = await p.evaluate(async ({ layout, people }) => {
 }, { layout: LAYOUT, people: PEOPLE });
 log('quality \'low\': no people at all', low.characters && low.people === 0, JSON.stringify(low));
 log('no warnings about the manifest', !warnings.some((w) => /character manifest/.test(w)), warnings.filter((w) => /manifest/.test(w)).join(' | '));
+
+// ── 6b. A phone (390 × 844, touch): a tap on a desk shows the card, a tap elsewhere hides it ──
+{
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const t = await ctx.newPage();
+  t.on('pageerror', (e) => errs.push('pageerror (phone): ' + e.message));
+  await t.goto(new URL('people-test.html', base).href);
+  await t.evaluate(async ({ layout, people }) => {
+    window.workplace = AHDUSWorkplace.mount(document.getElementById('workplace'), {
+      layout, mode: 'view', player: { personId: 'user_14' },
+      characters: { manifestUrl: '/dist-embed/assets/characters/manifest.json', chooseUrl: '/choose-character.html' },
+    });
+    await window.workplace.ready;
+    await window.workplace.setPeople(people);
+  }, { layout: LAYOUT, people: PEOPLE });
+  await t.evaluate(() => window.workplace.setFloor(0));
+  await look(-2.5, 1.2, 7, 0.8, -Math.PI / 2 - 0.3, t);
+  await frames(3, t);
+  const at = await onScreen(-2.5, 0.77, 3, t);
+  await t.touchscreen.tap(at.x, at.y);
+  const tapped = await t.waitForSelector('[data-person-card]', { timeout: 30000 }).then(async (el) => ({
+    id: await el.getAttribute('data-person-card'), text: await el.textContent(),
+    link: await el.$eval('a[data-choose-character]', (a) => a.getAttribute('href')).catch(() => null),
+    right: await el.evaluate((n) => n.getBoundingClientRect().right),
+  })).catch(() => null);
+  log('phone: a tap on a desk shows who sits there (inside the screen), with "Choose your character" on your own card',
+    tapped?.id === 'user_14' && /Person 14/.test(tapped.text) && tapped.link?.endsWith('/choose-character.html') && tapped.right <= 390,
+    JSON.stringify(tapped));
+  if (SHOTS) {
+    await t.evaluate(() => window.workplace._engine.babylonEngine.setHardwareScalingLevel(1 / window.devicePixelRatio));
+    await settleOn(t);
+    await t.screenshot({ path: `${SHOTS}/phone-tap-card.png`, timeout: 180000 });
+  }
+  await t.touchscreen.tap(20, 20);
+  const hidden = await t.waitForSelector('[data-person-card]', { state: 'detached', timeout: 10000 }).then(() => true).catch(() => false);
+  log('phone: a tap elsewhere hides it', hidden);
+  await t.evaluate(() => window.workplace.destroy());
+  await ctx.close();
+}
 
 // ── 7. Screenshots (SHOTS=dir): desk with a seated figure, the hover card, a busy office ──
 if (SHOTS) {

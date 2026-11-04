@@ -3,17 +3,18 @@
  *
  * Workplace Studio inside AHDUS (hooks/useAhdusPublish.js opens them):
  * - PublishDialog: "Publish <site>?", who will see it, when it was last published
- *   (the newest 'published' entry of the versions list), Cancel / Publish.
+ *   (the newest 'published' entry of the versions list), Cancel / Publish; and who loses
+ *   their desk when the draft has removed desks people sit at (seatWarning, ui/seatFlow.js).
  * - LeaveDialog: leaving while employees still see an older version: Stay / Publish now / Leave.
  */
 
 import { useEffect, useState } from 'react';
-import { Send } from 'lucide-react';
+import { Send, AlertTriangle } from 'lucide-react';
 import Dialog from './Dialog';
 import { lastPublishedAt, lastPublishedText } from './publishFlow';
 
 /** loadVersions: () => Promise<versions[]> (newest first; may reject). */
-export function PublishDialog({ siteName, state, busy, loadVersions, onCancel, onConfirm }) {
+export function PublishDialog({ siteName, state, busy, loadVersions, seatWarning = null, onCancel, onConfirm }) {
   const never = state === 'never';
   const [last, setLast] = useState(never ? null : undefined); // undefined: still asking
 
@@ -47,6 +48,11 @@ export function PublishDialog({ siteName, state, busy, loadVersions, onCancel, o
     >
       <p>Everyone in your company will see this version.</p>
       {lastLine && <p className="ui-muted" data-last-published>{lastLine}</p>}
+      {seatWarning && (
+        <p className="dialog-warning" data-seat-warning>
+          <AlertTriangle size={16} strokeWidth={1.75} aria-hidden /> {seatWarning} They stay under People without a desk.
+        </p>
+      )}
     </Dialog>
   );
 }

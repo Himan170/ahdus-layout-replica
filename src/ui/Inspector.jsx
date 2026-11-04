@@ -26,6 +26,7 @@ import {
 import { FLOOR_FINISHES, floorKindOf } from '../utils/materialLibrary';
 import { MIN_WALL_HEIGHT, MAX_WALL_HEIGHT } from '../play/building';
 import { describeRoom, describeObject, describeAccessibilityRoutes } from '../utils/accessibleSummary';
+import SeatSection from './SeatSection';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 
@@ -436,6 +437,7 @@ export default function Inspector({
   onSelectOpening,      // ({ roomId, kind, index }) => void
   onAddOpening,         // () => void: the Doors & windows tool
   onDuplicateRoom,      // (roomId) => void
+  seatPanel = null,     // a desk inside AHDUS: SeatSection's props ("Who sits here"), else null
 }) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -553,6 +555,7 @@ export default function Inspector({
       </header>
 
       <div className="inspector__body">
+        {mode === 'object' && seatPanel && <SeatSection key={object.id} {...seatPanel} />}
         {mode === 'object' && (
           <ObjectBody object={object} floorName={floorName} onUpdate={onUpdateObject}
             hookPoints={hookPoints} positions={positions} onSetPositionRef={onSetPositionRef} />

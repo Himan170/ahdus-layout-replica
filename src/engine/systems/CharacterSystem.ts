@@ -64,6 +64,9 @@ export interface Person {
   department?: string;
   /** null / missing: the neutral simple figure. */
   character?: CharacterFile | null;
+  /** Whether they chose a character in AHDUS (default: whether `character` is given). The viewer's card offers
+   *  "Choose your character" to the signed-in person (LayoutViewer `player`) when they haven't. */
+  characterChosen?: boolean;
 }
 
 /** A person where they are drawn (world space; y = the floor under them). */

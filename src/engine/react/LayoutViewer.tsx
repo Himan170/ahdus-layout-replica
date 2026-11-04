@@ -20,7 +20,10 @@
  * People: `people` ([{ personId, deskId, name, department, character }],
  * LayoutEngine.setPeople) sit at their desks. Pointing at a desk with a
  * person (view mode), or walking up to one, shows a small card with their
- * name and department (text only).
+ * name and department (text only). A click or a tap on a desk (or a person)
+ * keeps their card open until the next click or tap elsewhere: phones have no
+ * pointing. `player` is the signed-in person: on their own card, if they never
+ * chose a character, "Choose your character" links to `chooseCharacterUrl`.
  *
  * Walking through, the keys are the page's until the view is engaged: clicked
  * (it captures the mouse) or focused (Tab; a focus ring shows). Esc gives
@@ -56,6 +59,10 @@ export interface LayoutViewerProps {
    * { url, rig: 'mixamo' | 'ue', height } | null }]. Not drawn with quality 'low'.
    */
   people?: Person[];
+  /** The person looking (the signed-in user): their own card can offer "Choose your character". */
+  player?: { personId?: string | number | null } | null;
+  /** Where people choose their character (http(s) or relative to the page); none = no link. */
+  chooseCharacterUrl?: string;
   /** The engine is ready and the layout is fully built (focusOn, highlight, getAnchors, …). */
   onReady?: (engine: LayoutEngine) => void;
   /** Building the layout: { done, total, floor, currentFloorReady, allBuilt } (the last one has allBuilt). */
@@ -87,6 +94,20 @@ interface Hud {
 /** How often the person under the pointer (or next to the walker) is looked up (ms). */
 const PERSON_EVERY_MS = 50;
 const NEAR_EVERY_MS = 250;
+/** A click or tap, not a drag of the view: at most this far (px) and this long (ms) from press to release. */
+const TAP_PX = 8;
+const TAP_MS = 600;
+
+/** A link the page gave: only http(s), absolute or relative to the page (never javascript: and the like). */
+function safeLink(url: unknown): string | null {
+  if (typeof url !== 'string' || !url.trim()) return null;
+  try {
+    const u = new URL(url, document.baseURI);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
+  } catch {
+    return null;
+  }
+}
 
 /** The layout to show, from the props (throws if it can't be found). */
 function layoutFrom({ layout, companyId, layoutId }: LayoutViewerProps): unknown {
@@ -110,8 +131,9 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [hud, setHud] = useState<Hud | null>(null);
   const [card, setCard] = useState<Card | null>(null);
   const [progress, setProgress] = useState<BuildProgress | null>(null);
-  // the person pointed at (view) or walked up to (walkthrough); at: the cursor in the box (px)
-  const [person, setPerson] = useState<{ who: PlacedPerson; at: { x: number; y: number } | null } | null>(null);
+  // the person pointed at (view) or walked up to (walkthrough); at: the cursor in the box (px);
+  // pinned: clicked or tapped (stays until the next click or tap, and its link can be clicked)
+  const [person, setPerson] = useState<{ who: PlacedPerson; at: { x: number; y: number } | null; pinned?: boolean } | null>(null);
   // the latest callbacks, so the engine's handlers never call stale ones
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -225,21 +247,48 @@ export function LayoutViewer(props: LayoutViewerProps) {
       last = performance.now();
       const who = pos ? engine.pickPerson(pos.x, pos.y) : null;
       const at = pos;
-      setPerson((was) => (who && at ? (same(was?.who, who) && was?.at?.x === at.x && was?.at?.y === at.y ? was : { who, at }) : null));
+      setPerson((was) => {
+        if (was?.pinned) return was; // a clicked card stays until the next click
+        return who && at ? (same(was?.who, who) && was?.at?.x === at.x && was?.at?.y === at.y ? was : { who, at }) : null;
+      });
     };
-    const onMove = (e: PointerEvent) => {
-      if (e.buttons) { pos = null; setPerson(null); return; } // turning the view
+    const spot = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      pos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    };
+    let down: { x: number; y: number; t: number } | null = null;
+    const onMove = (e: PointerEvent) => {
+      if (e.buttons) { // turning the view (a tap's small jitter too: its release shows the card again)
+        pos = null;
+        if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= TAP_PX) return;
+        setPerson(null);
+        return;
+      }
+      pos = spot(e);
       if (timer) return;
       timer = setTimeout(look, Math.max(0, PERSON_EVERY_MS - (performance.now() - last)));
     };
-    const onLeave = () => { pos = null; clearTimeout(timer); timer = undefined; setPerson(null); };
+    const onDown = (e: PointerEvent) => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; };
+    // A click or tap: the person there (their card stays), or nobody (the card goes)
+    const onUp = (e: PointerEvent) => {
+      const was = down;
+      down = null;
+      if (!was || Math.hypot(e.clientX - was.x, e.clientY - was.y) > TAP_PX || performance.now() - was.t > TAP_MS) return;
+      const at = spot(e);
+      const who = engine.pickPerson(at.x, at.y);
+      setPerson(who ? { who, at, pinned: true } : null);
+    };
+    // Leaving the canvas (onto a clicked card, to use its link) keeps a clicked card
+    const onLeave = () => { pos = null; clearTimeout(timer); timer = undefined; setPerson((was) => (was?.pinned ? was : null)); };
     canvas.addEventListener('pointermove', onMove, { passive: true });
+    canvas.addEventListener('pointerdown', onDown, { passive: true });
+    canvas.addEventListener('pointerup', onUp, { passive: true });
     canvas.addEventListener('pointerleave', onLeave, { passive: true });
     return () => {
       clearTimeout(timer);
       canvas.removeEventListener('pointermove', onMove);
+      canvas.removeEventListener('pointerdown', onDown);
+      canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointerleave', onLeave);
       setPerson(null);
     };
@@ -247,6 +296,11 @@ export function LayoutViewer(props: LayoutViewerProps) {
 
   const walking = mode === 'walkthrough';
   const engaged = !!(hud?.engaged ?? hud?.locked);
+  // Their own card, no character chosen yet: "Choose your character"
+  const me = props.player?.personId;
+  const chooseUrl = safeLink(props.chooseCharacterUrl);
+  const offerChoice = !!(person && chooseUrl && me != null && String(me) === person.who.personId
+    && !(person.who.characterChosen ?? !!person.who.character));
   return (
     <div
       ref={boxRef}
@@ -298,10 +352,18 @@ export function LayoutViewer(props: LayoutViewerProps) {
         // text only (React escapes it): name and department, nothing else
         <div
           data-person-card={person.who.personId}
-          style={person.at ? { ...styles.person, ...personSpot(person.at, boxRef.current) } : { ...styles.person, ...styles.personNear }}
+          data-pinned={person.pinned ? '' : undefined}
+          style={{
+            ...styles.person,
+            ...(person.at ? personSpot(person.at, boxRef.current, offerChoice ? 80 : 56) : styles.personNear),
+            ...(person.pinned ? { pointerEvents: 'auto' } : null),
+          }}
         >
           <strong style={{ display: 'block' }}>{person.who.name || 'Someone'}</strong>
           {person.who.department && <span>{person.who.department}</span>}
+          {offerChoice && chooseUrl && (
+            <a href={chooseUrl} data-choose-character style={styles.link}>Choose your character</a>
+          )}
         </div>
       )}
       {card && (
@@ -315,11 +377,11 @@ export function LayoutViewer(props: LayoutViewerProps) {
 }
 
 /** Next to the cursor, kept inside the box. */
-function personSpot(at: { x: number; y: number }, box: HTMLElement | null): CSSProperties {
+function personSpot(at: { x: number; y: number }, box: HTMLElement | null, height = 56): CSSProperties {
   const w = box?.clientWidth ?? 0;
   const h = box?.clientHeight ?? 0;
   const left = at.x + 14 + 220 > w ? Math.max(4, at.x - 14 - 220) : at.x + 14;
-  const top = at.y + 14 + 56 > h ? Math.max(4, at.y - 14 - 56) : at.y + 14;
+  const top = at.y + 14 + height > h ? Math.max(4, at.y - 14 - height) : at.y + 14;
   return { left, top };
 }
 
@@ -345,6 +407,7 @@ const styles: Record<string, CSSProperties> = {
   quiet: { ...panel, right: 12, bottom: 12, padding: '4px 10px', fontSize: 12, opacity: 0.8 },
   key: { border: '1px solid #fff8', borderRadius: 4, padding: '0 5px', marginRight: 4 },
   person: { ...panel, maxWidth: 220, padding: '6px 10px', fontSize: 13, overflowWrap: 'anywhere' },
+  link: { display: 'block', marginTop: 4, color: '#a7f3d0', textDecoration: 'underline', fontWeight: 600 },
   // walking up to a desk: above the HUD, in the middle
   personNear: { left: '50%', bottom: 96, transform: 'translateX(-50%)', textAlign: 'center' },
 };
