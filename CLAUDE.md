@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (759, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (762, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -63,7 +63,7 @@ npm run e2e:embed    # 27 checks   e2e/embed-smoke.mjs     (NO dev server needed
                      #                                       in it (no Supabase), serves embed-test.html itself; keys are the page's until the view is engaged, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
                      #                                       with cookies, destroy(), assets next to the script, quality low)
-npm run e2e:characters # 35     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
+npm run e2e:characters # 36     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
                      #                                       on 2 floors: the view from above (no roof: at the start,
                      #                                       after setFloor, after walking), simple figures, full characters near the
                      #                                       camera (each file once), seated poses, hover card (text,
@@ -325,7 +325,9 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
   `editor.addFloor({ copyRooms })` copies footprints, types, wall heights, doors and windows (no furniture, no stairs),
   one undo step. N takes you to the new floor; Studio switches to it.
 - **Preview floors:** Page Up / Page Down (or ▲ ▼ by "Floor 1 of 3" in the HUD) = `play.stepFloor(±1)` →
-  `arrivalOnFloor`: same x, z, standing on a room there, else flying at that floor's height.
+  `arrivalOnFloor`: same x, z, standing on a room there, else flying at that floor's height. Walking again after
+  another floor was chosen (Studio's floor switcher, a viewer's `setFloor`) starts on that floor the same way, and a
+  message left from the last walk is cleared (`activate`, `playController.floors.test.js`).
 - **Room height:** Stretch (slot 3) aimed at the top edge of a wall grabs the top (drag up / down), or + / − on a
   wall (0.1 m, a burst = one undo step). Studio: blue handles on top of the selected room's walls (3D), Inspector
   "Wall height". Hint: "Office · walls 3.4 m · Ground Floor is now 3.7 m high".

@@ -238,6 +238,11 @@ export class WalkthroughSystem {
     return this.controller.getLevel();
   }
 
+  /** Flying (F, or arrived on a floor with no room there)? */
+  isFlying(): boolean {
+    return this.controller.isFlying();
+  }
+
   /** The floor above (+1) or below (−1), at the same spot: Page Up / Page Down. */
   stepFloor(dir: 1 | -1): void {
     this.controller.stepFloor(dir);

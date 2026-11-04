@@ -1301,11 +1301,16 @@ export function createPlayController(scene, canvas, {
       // Start on the floor the planner was showing
       currentLevel = state().currentFloor ?? 0;
       lastView = null;
+      messageUntil = 0; // a message from the last walk ("Floor 1: no room here…") is old news
       if (!hasSpawned) {
         const s = spawnPoint();
         collider.position.set(s.x, groundHeightAt(s.x, s.z), s.z);
         yaw = s.yaw;
         hasSpawned = true;
+      } else if (levelForY(state().floors, collider.position.y) !== currentLevel) {
+        // Another floor was chosen while you were away (Studio's floor switcher, a viewer's
+        // setFloor): start there, same x, z, as Page Up / Down would (standing or flying)
+        goToFloor(currentLevel);
       }
       collider.setEnabled(true);
       character.setVisible(!firstPerson);

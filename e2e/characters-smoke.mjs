@@ -371,9 +371,20 @@ const walkAs = async (assetReference, personId = 'user_1') => {
 await p.evaluate(() => window.workplace.setFloor(0));
 const before = await drawnPeople();
 await p.evaluate(() => window.workplace.setMode('walkthrough'));
+await frames(2);
+// Last time you walked you were flying on Floor 1 (no room there); the ground floor has been chosen since
+const resumed = await p.evaluate(() => {
+  const e = window.workplace._engine;
+  return {
+    level: e.walkthrough.getLevel(), flying: e.walkthrough.isFlying(), floor: e.getStore().getState().currentFloor,
+    hint: document.querySelector('[data-hud="hint"]')?.textContent ?? null,
+  };
+});
+log('walking again after choosing the ground floor: you start on it, standing (not flying on Floor 1), the usual hint',
+  resumed.level === 0 && !resumed.flying && resumed.floor === 0 && /^W A S D walk/.test(resumed.hint ?? ''), JSON.stringify(resumed));
 await walkAs('placeholder:mixamo-v1');
 // in the aisle between the desks, looking along it
-await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -5.6, yaw: 0, pitch: -0.15, fly: false }));
+await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -5.6, yaw: 0, pitch: -0.15 }));
 await frames(3);
 const standing = await walker();
 const without = await drawnPeople();
@@ -404,7 +415,8 @@ if (SHOTS) {
     await p.setViewportSize({ width: w, height: h });
     await p.evaluate(() => window.workplace._engine.babylonEngine.setHardwareScalingLevel(1 / window.devicePixelRatio));
     await p.evaluate(() => window.workplace._engine.babylonEngine.resize());
-    await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -5.6, yaw: 0, pitch: -0.15, fly: false }));
+    await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -5.6, yaw: 0, pitch: -0.15 }));
+    await p.evaluate(() => window.workplace._engine.scene.whenReadyAsync()); // every material compiled at this size
     await frames(2);
     await p.screenshot({ path: `${SHOTS}/${tag}-walking.png`, timeout: 180000 });
   }
@@ -417,7 +429,8 @@ await frames(3);
 const stopped = await walker();
 log('holding W: your character walks (the clip plays as fast as you move, the legs swing); let go: it stands',
   moving.walking && moving.speed > 1 && moving.speed < 4.3 &&
-  Math.abs(moving.ratio - Math.min(6, Math.max(0.25, moving.speed / moving.walkSpeed))) < 0.01 &&new Set(strides.map((s) => Math.sign(Math.round(s * 20)))).size >= 2 &&
+  Math.abs(moving.ratio - Math.min(6, Math.max(0.25, moving.speed / moving.walkSpeed))) < 0.01 &&
+  new Set(strides.map((s) => Math.sign(Math.round(s * 20)))).size >= 2 &&
   !stopped.walking && stopped.kind === 'full', `${JSON.stringify(moving)} strides ${JSON.stringify(strides)} | stopped ${JSON.stringify(stopped)}`);
 if (SHOTS) {
   for (const [w, h, tag] of [[1440, 900, 'desktop'], [390, 844, 'phone']]) {
@@ -425,6 +438,7 @@ if (SHOTS) {
     await p.evaluate(() => window.workplace._engine.babylonEngine.setHardwareScalingLevel(1 / window.devicePixelRatio));
     await p.evaluate(() => window.workplace._engine.babylonEngine.resize());
     await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -3.2, yaw: Math.PI * 0.85, pitch: -0.1 }));
+    await p.evaluate(() => window.workplace._engine.scene.whenReadyAsync());
     await frames(3);
     await p.screenshot({ path: `${SHOTS}/${tag}-standing.png`, timeout: 180000 });
   }
@@ -443,7 +457,7 @@ const third = await walker();
 log('V (first person) hides your own body; V again shows it', !first.shown && third.shown, `${first.shown} → ${third.shown}`);
 // An Unreal-style skeleton walks with the same clip (bone table + rest-pose correction); a taller person sees from higher
 await walkAs('placeholder:ue-v1', 'user_2');
-await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -5.6, yaw: 0, pitch: -0.15, fly: false }));
+await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -5.6, yaw: 0, pitch: -0.15 }));
 await p.keyboard.down('KeyW');
 await frames(2);
 const ue = await walker();
