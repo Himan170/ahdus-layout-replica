@@ -85,6 +85,19 @@ const BODY_HEIGHT = 1.8;
 const EYE = 1.62; // the built-in figure's; another character brings its own (setCharacter)
 const CAM_DISTANCE = 3.8;
 const SHOULDER = 0.85;
+
+/**
+ * How far right of the character the third-person camera sits (m), for a view
+ * of this aspect ratio (width / height). A portrait phone (390 × 844) sees only
+ * ~0.95 m on each side of the character at CAM_DISTANCE, so the full shoulder
+ * offset put the figure half off the left edge: narrow views centre it, wide
+ * ones (from 4:3) keep the over-the-shoulder view, in between it eases.
+ */
+export function shoulderOffset(aspect) {
+  if (!(aspect > 0)) return SHOULDER;
+  const t = Math.min(1, Math.max(0, (aspect - 0.8) / (1.3 - 0.8)));
+  return SHOULDER * t;
+}
 const REACH = 9;          // furniture / doors: how far you can build
 const FLOOR_REACH = 45;   // rooms / walls: corners can be far away
 const ROOM_FLOOR_Y = 0.02;
@@ -1227,7 +1240,7 @@ export function createPlayController(scene, canvas, {
     } else {
       const desired = eye
         .add(dir.scale(-CAM_DISTANCE))
-        .add(right.scale(SHOULDER))
+        .add(right.scale(shoulderOffset(scene.getEngine().getAspectRatio(camera))))
         .add(new Vector3(0, 0.45, 0));
       // Pull the camera in front of walls instead of looking through them
       const toCam = desired.subtract(eye);
