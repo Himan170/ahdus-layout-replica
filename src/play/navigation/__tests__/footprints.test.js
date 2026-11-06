@@ -6,7 +6,7 @@ import { Scene } from '@babylonjs/core/scene';
 
 vi.mock('../../../utils/materialLibrary', () => ({ getAssetMaterial: () => null }));
 const { ASSET_TYPES, OBJECT_CATEGORIES, buildAssetMesh } = await import('../../../utils/assetCatalog');
-const { itemFootprint, CLEARANCE, BODY_RADIUS } = await import('../walkMap');
+const { itemFootprint, ITEM_CLEARANCE, BODY_RADIUS } = await import('../walkMap');
 
 describe('catalogue footprints', () => {
   it('every solid catalogue item\'s footprint covers its primitive model (the realistic models are fitted into it)', () => {
@@ -26,9 +26,9 @@ describe('catalogue footprints', () => {
         z0 = Math.min(z0, b.minimumWorld.z); z1 = Math.max(z1, b.maximumWorld.z);
       }
       const fp = itemFootprint({ assetType: type, x: 0, z: 0 }, ASSET_TYPES);
-      // a model may stick out a little (handles, a chair's wheels): never more than the 0.05 m margin
+      // a model may stick out a little (handles, a chair's wheels): never more than ITEM_MARGIN (0.02 m)
       const over = Math.max(x1 - fp.hw, -fp.hw - x0, z1 - fp.hd, -fp.hd - z0);
-      if (over > CLEARANCE - BODY_RADIUS + 1e-6) tooBig.push(`${type} by ${over.toFixed(3)} m`);
+      if (over > ITEM_CLEARANCE - BODY_RADIUS + 1e-6) tooBig.push(`${type} by ${over.toFixed(3)} m (${(2 * Math.max(x1, -x0)).toFixed(3)} × ${(2 * Math.max(z1, -z0)).toFixed(3)})`);
     }
     engine.dispose();
     expect(tooBig).toEqual([]);

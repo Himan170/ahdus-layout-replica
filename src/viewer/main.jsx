@@ -5,12 +5,14 @@
  *   …/viewer.html?mode=view                                orbit instead
  *   …/viewer.html?companyId=…&layoutId=…                   a layout saved in this browser
  *   …/viewer.html?demoModules=1                            with the teammates' demo modules
+ *   …/viewer.html?mode=view&debug=walkmap                  the walk map + a route (viewer/walkMapDebug.js;
+ *                                                          &to=x,z,floor, &from=x,z,floor)
  *
  * Only the viewer, a mode switch and a live list of the bridge's events and
  * anchors: no Workplace Studio code is loaded (e2e/viewer-smoke.mjs checks).
  */
 
-import { StrictMode, useCallback, useEffect, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { LayoutViewer } from '../engine/react/LayoutViewer';
@@ -22,6 +24,7 @@ const companyId = params.get('companyId') ?? undefined;
 const layoutId = params.get('layoutId') ?? undefined;
 const layout = companyId && layoutId ? undefined : SAMPLE_LAYOUT;
 const EVENTS = ['enterRoom', 'exitRoom', 'interact'];
+const WALK_MAP_DEBUG = params.get('debug') === 'walkmap';
 
 if (params.has('demoModules')) {
   import('../integration/demoModules').then((m) => m.installDemoModules(layoutBridge));
@@ -36,6 +39,9 @@ function ViewerPage() {
   const [mode, setMode] = useState(params.get('mode') === 'view' ? 'view' : 'walkthrough');
   const [log, setLog] = useState([]);
   const [anchors, setAnchors] = useState([]);
+  const mainRef = useRef(null);
+  const debugRef = useRef(null);
+  useEffect(() => () => debugRef.current?.then((d) => d?.dispose()), []);
 
   // Everything the bridge tells modules, as they get it
   useEffect(() => {
@@ -55,6 +61,16 @@ function ViewerPage() {
       window.__ahdusScene = engine.scene;
       window.ahdus = layoutBridge;
     }
+    if (WALK_MAP_DEBUG) {
+      const previous = debugRef.current;
+      debugRef.current = import('./walkMapDebug').then(async (m) => {
+        (await previous)?.dispose(); // StrictMode: the first viewer's engine is gone
+        await engine.whenBuilt();
+        return m.installWalkMapDebug(engine, mainRef.current, {
+          from: m.parseSpot(params.get('from')), to: m.parseSpot(params.get('to')),
+        });
+      });
+    }
   }, []);
   const onCard = useCallback((card) => {
     if (import.meta.env.DEV) (window.__ahdusCards ??= []).push({ title: card.title, text: card.body ?? card.text ?? '' });
@@ -73,7 +89,7 @@ function ViewerPage() {
           </button>
         ))}
       </header>
-      <main style={styles.main}>
+      <main style={styles.main} ref={mainRef}>
         <LayoutViewer
           layout={layout} companyId={companyId} layoutId={layoutId} mode={mode}
           onReady={onReady} onCard={onCard} style={{ flex: 1, minWidth: 0 }}
@@ -101,7 +117,7 @@ const styles = {
   header: { display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', borderBottom: '1px solid #e2e8f0', background: '#fff' },
   button: { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 6, padding: '4px 12px', font: 'inherit', cursor: 'pointer' },
   on: { background: '#1e40af', border: '1px solid #1e40af', color: '#fff' },
-  main: { flex: 1, display: 'flex', minHeight: 0 },
+  main: { flex: 1, display: 'flex', minHeight: 0, position: 'relative' },
   aside: { width: 300, maxWidth: '40%', overflowY: 'auto', borderLeft: '1px solid #e2e8f0', background: '#fff', padding: '8px 16px' },
   h2: { fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.4, opacity: 0.7, margin: '12px 0 6px' },
   list: { listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4, fontSize: 13 },

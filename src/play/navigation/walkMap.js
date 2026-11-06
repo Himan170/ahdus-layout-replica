@@ -6,7 +6,9 @@
  * FREE when the walking body's centre fits there: standing on something (a
  * room's floor, or the ground around the building on the ground floor) and at
  * least CLEARANCE (the body's radius 0.32 m + 0.05 m) from every wall and
- * every solid item.
+ * ITEM_CLEARANCE (0.32 m + 0.02 m) from every solid item. On upper floors a
+ * room's floor reaches under its walls, so a door between two rooms there
+ * stands on something (v0.13.2).
  *
  * The walls are exactly the ones utils/roomBuilder.js builds (the same
  * roomWallSegments / wallSegmentOpenings / splitWall, so shared walls are
@@ -39,10 +41,17 @@ export const CELL = 0.1;
 /** The walking body (playController's collider ellipsoid): radius and height. */
 export const BODY_RADIUS = 0.32;
 export const BODY_HEIGHT = 1.8;
-/** Kept clear around the body. */
+/** Kept clear around the body, from walls. */
 export const BODY_MARGIN = 0.05;
-/** How far the body's centre stays from walls and solid items. */
+/** How far the body's centre stays from walls. */
 export const CLEARANCE = BODY_RADIUS + BODY_MARGIN;
+/**
+ * Kept clear around the body, from solid items (v0.13.2): smaller, so every gap of 0.78 m or more
+ * between furniture has a free cell (a 0.8 m aisle between a chair and the next row of desks, which
+ * the real collision lets the 0.64 m body through, left a 6 cm strip the cell centres missed).
+ */
+export const ITEM_MARGIN = 0.02;
+export const ITEM_CLEARANCE = BODY_RADIUS + ITEM_MARGIN;
 /** On the ground floor you can walk this far around the building (the street in front of the entrance). */
 export const STREET = 10;
 /** Skirting sticks out of the wall this much on each side (roomBuilder: wall thickness + 0.03), and collides. */
@@ -88,6 +97,12 @@ export const MODEL_SIZES = {
   WHITEBOARD: { width: 2, depth: 0.18 },
   PLANT_LARGE: { width: 0.68, depth: 0.68 },
   CNC_MACHINE: { width: 2.2, depth: 1.96 },
+  // a few centimetres over (handles, a counter's lip, a frame): within the old 0.05 m margin, not ITEM_MARGIN
+  DOOR_SINGLE: { width: 1.1, depth: 0.12 },
+  RECEPTION_DESK: { width: 2.6, depth: 0.85 },
+  FILING_CABINET: { width: 0.46, depth: 0.67 },
+  PROJECTOR_SCREEN: { width: 2.5, depth: 0.08 },
+  FIRST_AID: { width: 0.35, depth: 0.24 },
 };
 
 /**
@@ -214,12 +229,14 @@ export function distanceToRect(rect, x, z) {
  * Build the walk map of one floor.
  * @param {{ rooms, objects, floors }} layout  store shape (arrays or records; v1 field names)
  * @param {number} floorId
- * @param {{ catalog?: object, cell?: number, clearance?: number, street?: number }} [options]
+ * @param {{ catalog?: object, cell?: number, clearance?: number, itemClearance?: number, street?: number }} [options]
  *   catalog: ASSET_TYPES (item sizes, solid or not)
  * @returns {WalkMap}
  */
 export function buildWalkMap(layout, floorId, options = {}) {
   const { catalog = {}, clearance = CLEARANCE, street = STREET } = options;
+  const itemClearance = options.itemClearance ?? Math.min(clearance, ITEM_CLEARANCE);
+  const clearOf = (o) => (o.kind === 'item' ? itemClearance : clearance);
   const rooms = list(layout.rooms).filter((r) => floorOf(r) === floorId);
   const objects = list(layout.objects);
   const floors = layout.floors ?? {};
@@ -261,12 +278,15 @@ export function buildWalkMap(layout, floorId, options = {}) {
     }
   };
 
-  // 1. Something to stand on: the ground floor everywhere; an upper floor in its rooms
+  // 1. Something to stand on: the ground floor everywhere; an upper floor in its rooms, up to the
+  //    outside of their walls (the floor runs under them: a door between two rooms stands on it)
   cells.fill(ground ? FREE : VOID);
   if (!ground) {
     for (const r of rooms) {
+      const t = wallThicknessOf(r) / 2 + SKIRTING_OUT;
       const rect = roomRect(r);
-      forBox(rect, (k, x, z) => { if (rectContains(rect, x, z)) cells[k] = FREE; });
+      const under = { x0: rect.x0 - t, x1: rect.x1 + t, z0: rect.z0 - t, z1: rect.z1 + t };
+      forBox(under, (k, x, z) => { if (rectContains(under, x, z)) cells[k] = FREE; });
     }
   }
   // 2. The openings for stairs coming up from the floor below: nothing to stand on
@@ -286,13 +306,14 @@ export function buildWalkMap(layout, floorId, options = {}) {
       if (cells[k] === FREE && distanceToRect(rect, x, z) === 0) cells[k] = STAIRS;
     });
   }
-  // 4. Walls and solid items, grown by the clearance (exact distance from each cell's centre)
+  // 4. Walls and solid items, grown by their clearance (exact distance from each cell's centre)
   const standing = cells.slice(); // each cell before walls and items (for step 5)
-  const c2 = clearance * clearance;
   for (const o of obstacles) {
     const cos = Math.cos(o.rot);
     const sin = Math.sin(o.rot);
-    forBox(rectBounds(o, clearance), (k, x, z) => {
+    const grow = clearOf(o);
+    const c2 = grow * grow;
+    forBox(rectBounds(o, grow), (k, x, z) => {
       if (cells[k] === BLOCKED) return;
       const dx = x - o.x;
       const dz = z - o.z;
@@ -305,6 +326,7 @@ export function buildWalkMap(layout, floorId, options = {}) {
   //    cell centres. The cells a door's centre line crosses are tested at the point ON that line
   //    (level with the cell's centre, exactly, against every wall and item), so a door the body
   //    fits through is open on the map. Everything else stays measured from cell centres.
+  const passages = new Map(); // cell → the point on the door's centre line it was opened at (routes go through it)
   for (const d of doors) {
     if (d.width / 2 < clearance) continue; // the body can't pass (0.7 m doors and narrower)
     const reach = d.depth / 2 + clearance + cell;
@@ -312,7 +334,7 @@ export function buildWalkMap(layout, floorId, options = {}) {
       ? { x0: d.x, x1: d.x, z0: d.z - reach, z1: d.z + reach }
       : { x0: d.x - reach, x1: d.x + reach, z0: d.z, z1: d.z };
     const near = obstacles.filter((o) => {
-      const b = rectBounds(o, clearance);
+      const b = rectBounds(o, clearOf(o));
       return b.x0 <= box.x1 && b.x1 >= box.x0 && b.z0 <= box.z1 && b.z1 >= box.z0;
     });
     const steps = Math.ceil((4 * reach) / cell);
@@ -325,7 +347,10 @@ export function buildWalkMap(layout, floorId, options = {}) {
       if (cells[k] !== BLOCKED || standing[k] === BLOCKED) continue;
       const qx = d.alongX ? d.x : cx(i);
       const qz = d.alongX ? cz(j) : d.z;
-      if (near.every((o) => distanceToRect(o, qx, qz) >= clearance)) cells[k] = standing[k];
+      if (near.every((o) => distanceToRect(o, qx, qz) >= clearOf(o))) {
+        cells[k] = standing[k];
+        passages.set(k, { x: qx, z: qz });
+      }
     }
   }
 
@@ -344,6 +369,7 @@ export function buildWalkMap(layout, floorId, options = {}) {
     cells,
     obstacles,
     rooms,
+    passages,
     /** The cell value at a world point (outside the map: VOID). */
     at(x, z) {
       const k = indexOf(x, z);
@@ -353,6 +379,15 @@ export function buildWalkMap(layout, floorId, options = {}) {
     isFree(x, z, { stairs: onStairs = false } = {}) {
       const v = this.at(x, z);
       return v === FREE || (onStairs && v === STAIRS);
+    },
+    /**
+     * Does the body fit exactly HERE (not just at its cell's centre, which can be 7 cm further from
+     * a wall or a desk)? A FREE cell and the point itself clear of every wall and solid item.
+     */
+    isClear(x, z) {
+      if (this.at(x, z) !== FREE) return false;
+      return obstacles.every((o) => Math.abs(o.x - x) > o.hw + o.hd + 1 || Math.abs(o.z - z) > o.hw + o.hd + 1 ||
+        distanceToRect(o, x, z) >= clearOf(o));
     },
     /** The centre of the cell a point is in (null outside the map). */
     cellCentre(x, z) {
@@ -402,6 +437,9 @@ export function createWalkMapCache(options = {}) {
  * @property {Uint8Array} cells  BLOCKED | FREE | STAIRS | VOID, row by row (z), index j * cols + i
  * @property {object[]} obstacles  walls and solid items ({ x, z, hw, hd, rot, kind })
  * @property {object[]} rooms   the floor's rooms
+ * @property {Map<number, {x:number, z:number}>} passages  cells opened on a narrow door's centre line
+ *   (step 5): the point on that line, where a route crosses the cell
  * @property {(x:number, z:number) => number} at
  * @property {(x:number, z:number, o?: { stairs?: boolean }) => boolean} isFree
+ * @property {(x:number, z:number) => boolean} isClear  FREE and the exact point clear of everything
  */

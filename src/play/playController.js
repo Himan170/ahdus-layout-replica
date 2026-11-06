@@ -233,7 +233,7 @@ export function createPlayController(scene, canvas, {
   const freeSpot = (x, z, floorId, standing) => {
     const map = walkMap(floorId);
     const v = map.at(x, z);
-    if (standing ? v === FREE || v === STAIRS : v !== BLOCKED) return { x, z, moved: false };
+    if (standing ? map.isClear(x, z) || v === STAIRS : v !== BLOCKED) return { x, z, moved: false };
     const spot = standing && nearestFree(map, x, z, { values: [FREE, STAIRS] });
     const near = spot || nearestFree(map, x, z, { values: NOT_BLOCKED });
     return near ? { x: near.x, z: near.z, moved: true } : { x, z, moved: false };
