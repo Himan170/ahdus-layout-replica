@@ -16,6 +16,7 @@ import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import type { Vector3 } from '@babylonjs/core/Maths/math.vector';
 
 import { createPlayController } from '../../play/playController';
+import { lockPointer } from '../../utils/pointerLock';
 import type { LayoutRecords, V1Room } from './RoomSystem';
 import type { PlayCharacter } from './PlayerCharacter';
 
@@ -84,7 +85,7 @@ export class WalkthroughSystem {
   private onPointerDown = () => {
     if (!this.controller.isActive()) return;
     if (!this.focusTarget?.contains(document.activeElement)) this.focusTarget?.focus({ preventScroll: true });
-    if (document.pointerLockElement !== this.canvas) this.canvas.requestPointerLock?.();
+    if (document.pointerLockElement !== this.canvas) void lockPointer(this.canvas);
   };
 
   /** Esc gives the keys back to the page: the mouse and the focus. */

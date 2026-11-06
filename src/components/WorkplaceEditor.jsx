@@ -87,6 +87,7 @@ import { DEFAULT_HOTBAR } from '../play/hotbarItems';
 
 // Team integration: how other modules connect to the layout (docs/TEAM_INTEGRATION.md)
 import { layoutBridge } from '../integration/layoutBridge';
+import { lockPointer } from '../utils/pointerLock';
 import { anchorsForObject } from '../integration/anchorsFromStore';
 
 const DEMO_MODULES = typeof window !== 'undefined' &&
@@ -401,7 +402,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
   }, [isPlaying, showGrid, plannerTool, placementMode, sceneReady]);
 
   const handleResumePlay = useCallback(() => {
-    sceneRef.current?.getEngine().getRenderingCanvas()?.requestPointerLock?.();
+    lockPointer(sceneRef.current?.getEngine().getRenderingCanvas());
   }, []);
 
   // Picking an item (or closing the catalog) goes straight back to playing

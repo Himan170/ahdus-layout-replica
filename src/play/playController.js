@@ -55,6 +55,7 @@ import { itemOverFloorPoint, wallTargetOf } from '../utils/pickHelpers';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { createCharacter } from './character';
 import { moveWithSteps } from './movement';
+import { lockPointer } from '../utils/pointerLock';
 import {
   snap, wallSegmentTransform, findRoomAt, formatRoomSize,
   planRoom, planOpening, planRemoveOpening, wallSegmentData, resizeItem,
@@ -1025,7 +1026,7 @@ export function createPlayController(scene, canvas, {
   function onMouseDown(e) {
     if (!active) return;
     if (!locked) {
-      canvas.requestPointerLock?.();
+      lockPointer(canvas);
       return;
     }
     if (e.button === 0) primaryAction();
@@ -1324,7 +1325,7 @@ export function createPlayController(scene, canvas, {
       canvas.addEventListener('mousedown', onMouseDown);
       canvas.addEventListener('wheel', onWheel, { passive: false });
       canvas.addEventListener('contextmenu', onContextMenu);
-      if (!onPage) canvas.requestPointerLock?.(); // on a page the user clicks the view first
+      if (!onPage) lockPointer(canvas); // on a page the user clicks the view first
       lastHud = '';
     },
 
