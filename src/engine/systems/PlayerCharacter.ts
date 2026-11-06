@@ -35,7 +35,7 @@ import '@babylonjs/core/Animations/animatable';
 import {
   canonicalBoneName, clipSpeed, playerEyeHeight, walkRatio, STANDING_POSE, WALK_MIN_SPEED,
 } from '../../play/people';
-import { copyCharacter, poseBones, refreshTree } from './CharacterSystem';
+import { copyCharacter, poseBones, refreshTree, restContainer } from './CharacterSystem';
 import type { CharacterFile, CharacterCopy, LoadedFile } from './CharacterSystem';
 
 /** Who walks: their character file, the walk clip, and whether this character may use it. */
@@ -158,6 +158,7 @@ export interface BakedWalk {
  * in whatever pose the last sample gave (restore it afterwards).
  */
 export function bakeWalk(scene: Scene, clip: AssetContainer, target: Pick<CharacterCopy, 'root' | 'bones'>): BakedWalk | null {
+  restContainer(clip); // the clip's rest pose, not a frame of its walk (else the arms stayed straight out)
   const src = clip.instantiateModelsToScene((n) => n, false, { doNotInstantiate: true });
   const top = new TransformNode('walk_clip', scene);
   for (const n of src.rootNodes) n.parent = top;
