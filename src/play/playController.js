@@ -1311,7 +1311,7 @@ export function createPlayController(scene, canvas, {
       hint,
       message: now < messageUntil ? message : null,
       roomName: here?.name ?? 'Outside',
-      floor: floorPosition(state().floors, currentLevel), // "Floor 1 of 3"
+      floor: floorPosition(state().floors, currentLevel), // { index, count, name }: the HUD shows the name
       prompt,
     };
     const key = JSON.stringify(info);

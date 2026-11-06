@@ -57,7 +57,7 @@
 
 .ui-kbd.is-ok { border-color: var(--accent); }
 
-/* "Floor 1 of 3" with the floor below / above buttons (Page Down / Page Up) */
+/* The floor's name ("Ground Floor") with the floor below / above buttons (Page Down / Page Up) */
 .hud-floor {
   display: inline-flex;
   align-items: center;
@@ -66,7 +66,7 @@
   font-size: 13px;
   pointer-events: auto;
 }
-.hud-floor__label { padding: 0 6px; white-space: nowrap; }
+.hud-floor__label { padding: 0 6px; white-space: nowrap; max-width: 14em; overflow: hidden; text-overflow: ellipsis; }
 .hud-floor__btn {
   display: grid;
   place-items: center;

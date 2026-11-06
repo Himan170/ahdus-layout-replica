@@ -2,7 +2,7 @@
 //   - N asks "Copy rooms from below" / "Empty floor"; copying builds the same rooms on Floor 1
 //   - rooms are drawn on the upper floor in Preview; one that overhangs gets a warning
 //   - the upper floor gets an opening over the stairs; the character walks up and back down
-//   - Page Up / Page Down move the character between floors; the HUD says "Floor 2 of 2"
+//   - Page Up / Page Down move the character between floors; the HUD says the floor's name ("Floor 1")
 //   - Stretch + / − raises the ground floor's walls; the floor above goes up with them (no gap),
 //     and the stairs are rebuilt to climb the taller floor
 //   - stairs with no room above: the roof is cut over them and the hint says so
@@ -218,8 +218,8 @@ await pose({ x: -2, z: -1, yaw: 0, pitch: -0.1, floor: 0, fly: false });
 await p.keyboard.press('PageUp'); await frames(3);
 q = await pos();
 const floorLabel = await hudText('[data-hud="floor"]');
-log('Page Up: Floor 1 at the same spot, standing on its floor; the HUD says "Floor 2 of 2"',
-  (await level()) === 1 && near(q.y, 3.52) && near(q.x, -2, 0.01) && near(q.z, -1, 0.01) && !(await flying()) && /Floor 2 of 2/.test(floorLabel),
+log('Page Up: Floor 1 at the same spot, standing on its floor; the HUD says "Floor 1" (its name, not "2 of 2")',
+  (await level()) === 1 && near(q.y, 3.52) && near(q.x, -2, 0.01) && near(q.z, -1, 0.01) && !(await flying()) && /Floor 1/.test(floorLabel) && !/of 2/.test(floorLabel),
   `level ${await level()} y=${q.y.toFixed(2)} "${floorLabel}"`);
 await pose({ x: 20, z: 0, yaw: 0, pitch: -0.1, floor: 0, fly: false });
 await p.keyboard.press('PageUp'); await frames(3);

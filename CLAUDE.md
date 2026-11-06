@@ -328,7 +328,7 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 - **Adding floors:** Studio's "Add floor above" and Preview's N ask "Copy rooms from below" (default) or "Empty floor";
   `editor.addFloor({ copyRooms })` copies footprints, types, wall heights, doors and windows (no furniture, no stairs),
   one undo step. N takes you to the new floor; Studio switches to it.
-- **Preview floors:** Page Up / Page Down (or ▲ ▼ by "Floor 1 of 3" in the HUD) = `play.stepFloor(±1)` →
+- **Preview floors:** Page Up / Page Down (or ▲ ▼ by the floor's name in the HUD, `floorPosition(…).name`; the viewer HUD shows it too, v0.13.1) = `play.stepFloor(±1)` →
   `arrivalOnFloor`: same x, z, standing on a room there, else flying at that floor's height; a wall or a desk there
   = the nearest free spot (`freeSpot`, see "Where walking starts"). Preview again after another floor was chosen
   (Studio's floor switcher) starts on that floor the same way, and a message left from the last walk is cleared
