@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (765, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (769, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -769,6 +769,13 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 ## DONE: realistic look, real assets (25 Oct 2026, branch `feat/real-assets`)
 
 Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
+
+## DONE: no red pointer-lock errors (v0.12.3, 6 Nov 2026, branch `fix/pointer-lock-promise`)
+
+Found in Task 3's AHDUS check: browsers reject `requestPointerLock()`'s promise when they refuse the lock (a click
+right after Esc, a frame, a pane that can't lock), and nobody caught it: a red "Uncaught (in promise)". Every lock
+request (Preview, viewer / embed walkthrough, Studio's resume) now goes through `utils/pointerLock.lockPointer`,
+which catches it (resolves false; the next click asks again). Tests in `utils/__tests__/pointerLock.test.js`.
 
 ## DONE: the walk keeps the arms down (v0.12.2, 6 Nov 2026, branch `fix/walk-clip-rest`)
 
