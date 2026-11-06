@@ -231,7 +231,8 @@ export class WalkthroughSystem {
 
   /**
    * Put the character at an exact spot and view angle (tests, "go to" features). A spot in a
-   * wall or a solid item becomes the nearest one where the body fits (exact: true = exactly there, for tests).
+   * wall or a solid item becomes the nearest one where the body fits. `exact: true` is for tests only
+   * (it can put the body inside a wall); features must never pass it.
    */
   setPose(pose: { x: number; z: number; yaw?: number; pitch?: number; floor?: number; y?: number; fly?: boolean; exact?: boolean }): void {
     this.controller.setPose(pose);

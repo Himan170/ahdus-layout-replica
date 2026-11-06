@@ -56,8 +56,8 @@ npm run e2e:shared-walls  # 17     e2e/shared-walls-smoke.mjs (one wall + one do
 npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
                           #                                    rooms drawn inside sharing walls with each other and
                           #                                    the outer wall, doors, picks, upper floor, save + reopen)
-npm run e2e:viewer   # 17 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
-                     #                                       the vite build), where walking starts + Home, setPose
+npm run e2e:viewer   # 18 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
+                     #                                       the vite build), where walking starts (no room events) + Home, setPose
                      #                                       into a machine, walk in, E + a module's action, edits
                      #                                       refused, Page Up, view mode, a saved layout)
 npm run e2e:embed    # 27 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
@@ -400,7 +400,8 @@ Step v0.13.0 of `private-docs/NAVIGATION_PLAN.md` (4.1, 4.2, 4.6). Pure maths in
   `respawnOnActivate` (WalkthroughSystem: true, every walk starts there; Studio's Preview: only the first time, then
   it keeps your place). `goToFloor` (Page Up / Down, a viewer's `setFloor` while walking) and `setPose` move a spot in a
   wall / solid item to the nearest free one (`freeSpot`; flying or `y` given: only off walls and items);
-  `setPose({ …, exact: true })` = exactly there (tests that aim from inside a wall: play-smoke's `aimAtGround`).
+  `setPose({ …, exact: true })` = exactly there, even in a wall: **tests only** (play-smoke's `aimAtGround` aims
+  from a spot computed through a wall); features and teammates' code must never pass it.
   Collisions themselves (walls, windows, solid furniture, `moveWithSteps`) and free walking are unchanged.
 - **UI:** viewer / embed HUD button "Back to entrance" (`data-hud="entrance"`, top left next to the keys hint);
   Preview's HUD "Entrance" (aria-label `Back to entrance`) + Home in its key list.
@@ -813,6 +814,10 @@ Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REP
 Step v0.13.0 of private-docs/NAVIGATION_PLAN.md: the walk map + entrance spawn, Home / "Back to entrance", Page Up /
 Down and setPose never land in a wall or a desk (see "Where walking starts"). Screenshots (Meridian, with and without
 its spawn point, opened while Floor 1 was shown): private-docs/screenshots/v0.13.0/ (not in git).
+**Next, v0.13.1 (first, before routes; private-docs/NAVIGATION_PLAN.md 5.1):** doors from 0.8 m open on the walk
+map (as the real collision); centre the third-person character on phones (390 px: half off the left edge); the HUD
+shows the floor's own name, not "Floor 1 of 2" (confusing next to a floor named "Floor 1"); hide the spawn-point
+marker (blue disc) outside Studio.
 
 ## DONE: no red pointer-lock errors (v0.12.3, 6 Nov 2026, branch `fix/pointer-lock-promise`)
 

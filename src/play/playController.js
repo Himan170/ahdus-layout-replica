@@ -1461,9 +1461,11 @@ export function createPlayController(scene, canvas, {
     stepFloor,
 
     /**
-     * Put the character at an exact spot and view angle.
-     * Used by tests, and later by "go to" features (e.g. jump to a desk).
-     * @param {{x:number, z:number, yaw?:number, pitch?:number}} pose
+     * Put the character at a spot and view angle (tests, later "go to" features). A spot in a wall
+     * or a solid item becomes the nearest one where the body fits.
+     * `exact: true` is FOR TESTS ONLY: it skips that and can put the body inside a wall (e2e scripts
+     * that aim from a spot computed through a wall). Features must never pass it.
+     * @param {{x:number, z:number, yaw?:number, pitch?:number, floor?:number, y?:number, fly?:boolean, exact?:boolean}} pose
      */
     setPose({ x, z, yaw: newYaw, pitch: newPitch, floor, y, fly, exact = false }) {
       if (floor !== undefined && floor !== currentLevel) {
@@ -1472,7 +1474,7 @@ export function createPlayController(scene, canvas, {
       }
       if (fly !== undefined) flying = !!fly;
       // Inside a wall or a desk: the nearest spot where the body fits (standing, unless flying or y given).
-      // exact: exactly there (tests that aim from a spot, e.g. through a wall)
+      // exact (tests only): exactly there, even inside a wall
       if (!exact) ({ x, z } = freeSpot(x, z, currentLevel, !flying && y === undefined));
       // y given (e.g. hovering over an empty upper floor while flying), else stand on what's there
       collider.position.set(x, y ?? groundHeightAt(x, z), z);
