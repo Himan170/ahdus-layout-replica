@@ -151,7 +151,7 @@ export function entranceSpawn(layout, options = {}) {
 
   /** The body fits at (x, z), else the nearest spot where it does (preferring `accept`). */
   const settle = (x, z, accept) => {
-    if (map.isFree(x, z) && (!accept || accept(x, z))) return { x, z, moved: false };
+    if (map.isClear(x, z) && (!accept || accept(x, z))) return { x, z, moved: false };
     const spot = (accept && nearestFree(map, x, z, { accept })) || nearestFree(map, x, z)
       || nearestFree(map, x, z, { maxDistance: SEARCH_RADIUS * 4 });
     return spot ? { x: spot.x, z: spot.z, moved: true } : { x, z, moved: false };

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildWalkMap, createWalkMapCache, wallObstacles, isSolidItem, itemFootprint, distanceToRect, groundFloorId,
-  BLOCKED, FREE, STAIRS, VOID, CLEARANCE, CELL, SKIRTING_OUT,
+  BLOCKED, FREE, STAIRS, VOID, CLEARANCE, ITEM_CLEARANCE, CELL, SKIRTING_OUT,
 } from '../walkMap';
 import { ASSET_TYPES } from '../../../utils/assetCatalog';
 
@@ -133,7 +133,7 @@ describe('items', () => {
     for (let x = -2; x <= 2; x += 0.1) {
       for (let z = -2; z <= 2; z += 0.1) {
         const c = m.cellCentre(x, z);
-        expect(m.at(c.x, c.z) === BLOCKED).toBe(distanceToRect(fp, c.x, c.z) < CLEARANCE);
+        expect(m.at(c.x, c.z) === BLOCKED).toBe(distanceToRect(fp, c.x, c.z) < ITEM_CLEARANCE);
       }
     }
     expect(m.at(0.03 + 0.8 + 0.3, 0.04)).toBe(BLOCKED);
@@ -170,9 +170,57 @@ describe('items', () => {
     const m = map([room('big', 0, 0, 12, 12)], [item('d', 'DESK_STANDARD', 0, 0, { floor: 1 })]);
     expect(m.at(0, 0)).toBe(FREE);
   });
+
+  it('a 0.8 m aisle between two desks is open (items keep ITEM_CLEARANCE, not the wall clearance); 0.6 m is closed', () => {
+    const aisle = (gap) => {
+      const m = map([room('big', 0, 0, 12, 12)], [item('a', 'DESK_STANDARD', 0, 0), item('b', 'DESK_STANDARD', 0, 0.8 + gap)]);
+      let open = 0;
+      for (let z = 0.4; z <= 0.4 + gap; z += 0.01) if (m.at(0, z) === FREE) open++;
+      return open;
+    };
+    expect(aisle(0.8)).toBeGreaterThan(0);
+    expect(aisle(0.6)).toBe(0);
+  });
+
+  it('isClear: the exact point is clear of every item, not only its cell centre', () => {
+    const desk = item('d', 'DESK_STANDARD', 0, 0);
+    const m = map([room('big', 0, 0, 12, 12)], [desk]);
+    const fp = itemFootprint(desk, ASSET_TYPES);
+    let freeButTooClose = 0;
+    for (let z = 0.6; z <= 1.0; z += 0.005) {
+      const near = distanceToRect(fp, 0, z) < ITEM_CLEARANCE;
+      if (m.isFree(0, z) && near) freeButTooClose++;
+      expect(m.isClear(0, z)).toBe(m.isFree(0, z) && !near);
+    }
+    expect(freeButTooClose).toBeGreaterThan(0); // the case isClear is for
+  });
 });
 
 describe('floors', () => {
+  it('upper floor: a door between two back-to-back rooms is walkable (the floor reaches under the walls)', () => {
+    const rooms = [
+      room('g', 0, 0, 12, 4),
+      room('u1', -3, 0, 6, 4, { floor: 1, doors: [{ wall: 'east', offset: 0, width: 1 }] }),
+      room('u2', 3, 0, 6, 4, { floor: 1 }),
+    ];
+    const up = map(rooms, [], 1);
+    expect(up.at(0, 0)).toBe(FREE);
+    expect(reaches(up, { x: -1.5, z: 0 }, { x: 1.5, z: 0 })).toBe(true);
+    expect(up.at(0, 1.2)).toBe(BLOCKED); // the shared wall beside the door
+  });
+
+  it('a 0.8 m door is opened on its centre line, and those cells are recorded as passages', () => {
+    const m = map([office({ doors: [{ wall: 'south', offset: 0, width: 0.8 }] })]);
+    expect(m.passages.size).toBeGreaterThan(0);
+    for (const [k, p] of m.passages) {
+      expect(m.cells[k]).toBe(FREE);
+      expect(Math.abs(p.x)).toBeLessThan(0.01); // on the door's centre line
+      expect(m.indexOf(p.x, p.z)).toBe(k);
+    }
+    expect(reaches(m, { x: 0, z: 0 }, { x: 0, z: -4 })).toBe(true);
+    expect(map([office({ doors: [{ wall: 'south', offset: 0, width: 0.7 }] })]).passages.size).toBe(0);
+  });
+
   it('upper floor: only its rooms are standing room; the opening over stairs from below is not', () => {
     const rooms = [room('g', 0, 0, 10, 8), room('u', 0, 0, 10, 8, { floor: 1 })];
     const stairs = item('st', 'STAIRCASE', 2, 0);
