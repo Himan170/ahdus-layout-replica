@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (803, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (833, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -209,7 +209,9 @@ src/planner/plannerTools.js        Studio mouse tools: draw room / wall, door / 
 src/utils/buildPreview.js          Blue/red build previews shared by both modes
 src/play/navigation/               PURE (v0.13.0): walkMap.js (the walk map of a floor: 0.1 m cells, walls with door gaps,
                                    solid items, grown by the body; createWalkMapCache) + entrance.js (entranceSpawn: where
-                                   walking starts; outsideDoors / mainEntrance; nearestFree). Tests in navigation/__tests__/
+                                   walking starts; outsideDoors / mainEntrance; nearestFree) + route.js (v0.13.2: findRoute,
+                                   findNearestRoute, floorLinks). Tests in navigation/__tests__/ (meridianLike.js,
+                                   randomLayouts.js: shared test layouts)
 src/play/people.js                 PURE: people at desks: deskSeat / deskSeats (the chair of a desk), seatPose,
                                    personNear, chooseFullCharacters (≤ 12 nearest), BONE_TABLE (Mixamo ↔ Unreal
                                    names), normaliseBoneName, SEATED_POSE / STANDING_POSE (tests in play/__tests__)
@@ -250,7 +252,8 @@ src/engine/                        Embeddable engine (H2): LayoutEngine (own sto
                                    back: toV1), anchors, commands; systems/: SceneSetup, RoomSystem, ObjectSystem,
                                    FloorSystem (Studio uses these four), CameraSystem, HighlightSystem, WalkthroughSystem
                                    (Placement/Selection still stubs); react/: <LayoutViewer />, <LayoutEditor />
-viewer.html + src/viewer/          Blank test page for <LayoutViewer /> (sample company, bridge event list)
+viewer.html + src/viewer/          Blank test page for <LayoutViewer /> (sample company, bridge event list);
+                                   walkMapDebug.js: ?mode=view&debug=walkmap (the walk map + a route, loaded only then)
 src/embed/                         The one-file embed for plain HTML pages: index.jsx (AHDUSWorkplace.mount → <LayoutViewer />
                                    + layoutBridge), embedLayout.js (pure: layout / layoutUrl, action matching), embed.css;
                                    built by vite.embed.config.js. embed-test.html + embed-sample.ahdus.json: its test page
@@ -386,10 +389,14 @@ Step v0.13.0 of `private-docs/NAVIGATION_PLAN.md` (4.1, 4.2, 4.6). Pure maths in
   stair opening, off the map). The ground floor is walkable 10 m around the building (`STREET`). Walls = what
   roomBuilder builds (`roomWallSegments` / `wallSegmentOpenings` / `splitWall`: shared walls once, doors of either
   room cut them, windows don't), + skirting (it collides). Items: as ObjectSystem makes them collide (not markers,
-  stairs, `solid: false`, nor y ≥ 1.8 m), catalogue size × scale, turned; `MODEL_SIZES` for the 5 models bigger than
-  their catalogue size (`footprints.test.js` measures every model). A 1 m door leaves ~0.26 m. Doors from 0.8 m are
+  stairs, `solid: false`, nor y ≥ 1.8 m), catalogue size × scale, turned; `MODEL_SIZES` for the 10 models bigger than
+  their catalogue size (`footprints.test.js` measures every model). Items keep `ITEM_CLEARANCE` (0.32 + 0.02 m, v0.13.2),
+  walls `CLEARANCE`: a 0.8 m aisle between a chair and the next desk row is open. Upper floors: a room's floor
+  reaches under its own walls (v0.13.2), so doors between rooms upstairs are walkable. A 1 m door leaves ~0.26 m. Doors from 0.8 m are
   open, as for the real collision (v0.13.1): the cells a door's centre line crosses are tested ON that line (step 5,
-  door passages; walls and items still exact), 0.7 m and narrower stay closed. Meridian: ~15 ms per floor. `createWalkMapCache` rebuilds only when the store's
+  door passages, kept in `map.passages`: cell → its point on the line; walls and items still exact), 0.7 m and narrower
+  stay closed. `map.isClear(x, z)`: FREE and the exact point clear (a cell's centre can be 7 cm further from a desk;
+  the spawn and `freeSpot` use it). Meridian: ~15 ms per floor. `createWalkMapCache` rebuilds only when the store's
   room / item records or floors change.
 - **Spawn** (`entrance.js` `entranceSpawn`): always the ground floor: its `SPAWN_POINT` (if blocked: the nearest free
   spot), else the **main entrance** (`outsideDoors`: on a part of the wall no room shares, its room not inside another,
@@ -408,8 +415,40 @@ Step v0.13.0 of `private-docs/NAVIGATION_PLAN.md` (4.1, 4.2, 4.6). Pure maths in
   Preview's HUD "Entrance" (aria-label `Back to entrance`) + Home in its key list. The spawn point's marker (the blue
   disc) shows in Studio only (Preview too): LayoutEngine outside edit mode hides `STUDIO_ONLY_TYPES`
   (`ObjectSystem.setHiddenTypes`, FloorSystem never enables them; the item, its anchor and focusOn stay), v0.13.1.
-- Not yet: Studio hints ("No door leads outside…", "Spawn point is inside furniture…"); routes, search and "take me
-  there" are v0.13.1–v0.13.3.
+- Not yet: Studio hints ("No door leads outside…", "Spawn point is inside furniture…"); search and "Take me there"
+  are v0.13.3 / v0.13.4.
+
+## Routes (v0.13.2, how they work)
+
+Step v0.13.2 of `private-docs/NAVIGATION_PLAN.md` (4.3, 5.2). PURE: `src/play/navigation/route.js`. No UI yet: only
+the viewer's debug view uses it (search and "Take me there" will).
+- `findRoute(layout, from, to, { catalog | maps, links, name })` → `{ legs: [{ floor, points, stairsAtEnd? }], length,
+  seconds, from, to }` or `{ problem, message }`. Exact A* over the FREE cells of all floors (8 neighbours, no
+  corner cutting, octile); floors joined by **links** (`floorLinks`: a staircase from the spot in front of its bottom
+  step to `stairTop`, both ways, cost = the flight's length; stairs that lead nowhere are none; `options.links` for
+  lifts later); the heuristic goes through the links. `stairsAtEnd` = { kind, objectId, direction, toFloor, length }.
+- Walking within 4 cells of a wall or item costs up to double (`NEAR_WALL_COST`): routes keep to the middle of
+  doors and corridors. Never a block: a door under ~0.9 m is ONE cell wide on the walk map and routes go through
+  it (on its centre line, `map.passages`).
+- Smoothing: the furthest point in line of sight (every crossed cell FREE + the segment ≥ body + 0.02 m from every
+  wall and item, exactly), and no closer to any obstacle than the cell path came (− 5 cm).
+- Start / goal in a wall or desk: the nearest free spot (start: not a pocket between furniture; goal: one that can be
+  reached, within `SNAP_DISTANCE` 1.5 m). The walkable areas are labelled per map and joined by links, so "no route"
+  is known at once: `NO_FLOOR`, `START_BLOCKED`, `NO_STAIRS` ("…: no stairs lead to Floor 2"), `GOAL_BLOCKED`,
+  `NO_DOOR` ("No walking route to Server Room: it has no door"), `START_NO_DOOR`, `NO_ROUTE` ("…: something blocks
+  the way"). The name: `options.name`, else the room there, else the floor.
+- `findNearestRoute(layout, from, goals)`: the nearest by walking (nearest-first by straight line, stops when no
+  other can be nearer) + `goalIndex`.
+- Speed: the longest Meridian route (entrance → Floor 1's far corner) ~20 ms warm (~26 ms in a browser), ~70 ms the
+  first time after a layout change (pass one `maps` = `createWalkMapCache` to reuse the maps).
+- Tests (`route.test.js`): an independent checker (every 2 cm of the route FREE and ≥ body radius from walls and
+  items; wall crossings only in doors), door middles, 0.8 m / 0.7 m doors, no door, stairs up / down, the
+  Meridian-shaped layout (entrance → the far desk upstairs through the expected doors; every 3rd desk upstairs)
+  and 200 random layouts.
+- **Debug view:** `viewer.html?mode=view&debug=walkmap` (`&to=x,z,floor`, `&from=x,z,floor`): the current floor's
+  walk map (green free, red too close, blue stairs, yellow narrow-door cells), the route in orange, a panel
+  (`[data-walkmap-debug]`, `data-route-problem`) with length / time / ms; click the floor = the goal, Shift + click =
+  the start. Dev hook `window.__ahdusWalkDebug` ({ route(from, to), last, ms }).
 
 ## Progressive loading (how it works)
 
@@ -564,7 +603,7 @@ site on the server (local mode renames the layout), the leave check. Saving, und
   e2e scripts pick a tool with `pick(tile, option)`: it opens the tile's library unless it is open (a click on an open
   tile closes it), then clicks the option; Rooms = "Draw your own size". Furniture: drag the tile onto the floor.
 - viewer.html's dev hooks: `__ahdusViewer` (the LayoutEngine; `.walkthrough.setPose`), `__ahdusScene`, `ahdus`,
-  `__viewerEvents` (bridge events), `__ahdusCards`. A viewer captures the mouse on pointerdown (Babylon prevents
+  `__viewerEvents` (bridge events), `__ahdusCards`, `__ahdusWalkDebug` (only with `&debug=walkmap`). A viewer captures the mouse on pointerdown (Babylon prevents
   the default of pointerdown, so the browser sends no mousedown; Studio captures it from its button).
 - embed-test.html's hooks (also in production: it's a plain page): `window.workplace` (the handle; `._engine` = its
   LayoutEngine, for tests only), `window.embedEvents` (every onEvent call). A viewer's walkthrough doesn't capture the
@@ -745,7 +784,8 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Walking as yourself: walk ↔ stand switches at once (no blend); no turn-on-the-spot, running or flying clip (Shift
   plays the walk faster, flying stands); Studio's Preview still walks as the simple figure. Checked with our
   placeholder figures only, not yet with AJ / ch12 / Victoria (AHDUS step after the tag).
-- Walk map: a door passage is one cell wide where the door is under ~0.9 m (routes must allow that). Studio doesn't warn yet about a layout with no door outside or a spawn point inside furniture.
+- Walk map: a door passage is one cell wide where the door is under ~0.9 m (routes allow it). A desk whose chair
+  stands against a wall (Meridian's top row) can't be reached by the body: a route ends at the nearest reachable spot. Studio doesn't warn yet about a layout with no door outside or a spawn point inside furniture.
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).
 
@@ -811,6 +851,13 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 
 Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
 
+## DONE: walking routes (v0.13.2, 7 Nov 2026, branch `feature/walk-routes`)
+
+Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?debug=walkmap` view (see "Routes"),
+and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
+`MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
+**Next:** v0.13.3 search (`places.js`), then v0.13.4 "Take me there".
+
 ## DONE: the v0.13.0 review fixes (v0.13.1, 7 Nov 2026, branch `fix/v0.13.1`)
 
 private-docs/NAVIGATION_PLAN.md 5.1, one commit each: doors from 0.8 m are open on the walk map (door passages,
@@ -818,8 +865,7 @@ see "Where walking starts"; 0.6 / 0.7 m stay closed); the third-person camera is
 (`playController.shoulderOffset(aspect)`); the viewer / embed HUD and Preview's floor control show the floor's own
 name (`floorPosition(…).name`), not "Floor 1 of 2"; the spawn point's blue disc shows in Studio only
 (`LayoutEngine.STUDIO_ONLY_TYPES`). Screenshots (viewer.html, 1440×900 + 390×844): private-docs/screenshots/v0.13.1/
-(not in git). **Next: v0.13.1 routes** (`route.js`, NAVIGATION_PLAN.md 5; the release table calls it v0.13.1, so
-it will be tagged v0.13.2 or later: Himan decides).
+(not in git). Routes followed as v0.13.2 (below).
 
 ## DONE: walkthrough starts at the entrance (v0.13.0, 6 Nov 2026, branch `fix/walkthrough-spawn`)
 
