@@ -300,7 +300,7 @@ If your Content-Security-Policy blocks added `<style>` elements, link the file i
 | Mode | Controls |
 |---|---|
 | `view` | Drag to orbit, right-drag to pan, wheel to zoom |
-| `walkthrough` | **Click the view** (it captures the mouse) **or Tab to it** (a blue focus ring shows) to walk: W A S D walk, the mouse looks around, Space jumps, F flies (Space up, C down), V first / third person, Page Up / Page Down change floor, **E** uses what you look at. **Esc** gives the mouse and the keys back to the page. The view says "Click to walk · Esc to release" |
+| `walkthrough` | **Click the view** (it captures the mouse) **or Tab to it** (a blue focus ring shows) to walk: W A S D walk, the mouse looks around, Space jumps, F flies (Space up, C down), V first / third person, Page Up / Page Down change floor, **E** uses what you look at, **Home** (or the "Back to entrance" button) goes back to the start. **Esc** gives the mouse and the keys back to the page. The view says "Click to walk · Esc to release". Every walk starts on the ground floor, outside the main entrance and facing it (or at the layout's spawn point); you never start or land inside a wall or furniture |
 
 ---
 

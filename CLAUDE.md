@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (769, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (803, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -56,8 +56,9 @@ npm run e2e:shared-walls  # 17     e2e/shared-walls-smoke.mjs (one wall + one do
 npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
                           #                                    rooms drawn inside sharing walls with each other and
                           #                                    the outer wall, doors, picks, upper floor, save + reopen)
-npm run e2e:viewer   # 14 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
-                     #                                       the vite build), walk in, E + a module's action, edits
+npm run e2e:viewer   # 17 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
+                     #                                       the vite build), where walking starts + Home, setPose
+                     #                                       into a machine, walk in, E + a module's action, edits
                      #                                       refused, Page Up, view mode, a saved layout)
 npm run e2e:embed    # 27 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
                      #                                       in it (no Supabase), serves embed-test.html itself; keys are the page's until the view is engaged, walk in,
@@ -206,6 +207,9 @@ src/ui/MeasurementOverlay.jsx      Distance / wall-length labels over the canvas
 src/play/playController.js         Preview: movement, camera, aiming, every hotbar tool, Stretch, Edit item, stairs, levels
 src/planner/plannerTools.js        Studio mouse tools: draw room / wall, door / window, drag a wall to resize
 src/utils/buildPreview.js          Blue/red build previews shared by both modes
+src/play/navigation/               PURE (v0.13.0): walkMap.js (the walk map of a floor: 0.1 m cells, walls with door gaps,
+                                   solid items, grown by the body; createWalkMapCache) + entrance.js (entranceSpawn: where
+                                   walking starts; outsideDoors / mainEntrance; nearestFree). Tests in navigation/__tests__/
 src/play/people.js                 PURE: people at desks: deskSeat / deskSeats (the chair of a desk), seatPose,
                                    personNear, chooseFullCharacters (≤ 12 nearest), BONE_TABLE (Mixamo ↔ Unreal
                                    names), normaliseBoneName, SEATED_POSE / STANDING_POSE (tests in play/__tests__)
@@ -325,9 +329,10 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
   `editor.addFloor({ copyRooms })` copies footprints, types, wall heights, doors and windows (no furniture, no stairs),
   one undo step. N takes you to the new floor; Studio switches to it.
 - **Preview floors:** Page Up / Page Down (or ▲ ▼ by "Floor 1 of 3" in the HUD) = `play.stepFloor(±1)` →
-  `arrivalOnFloor`: same x, z, standing on a room there, else flying at that floor's height. Walking again after
-  another floor was chosen (Studio's floor switcher, a viewer's `setFloor`) starts on that floor the same way, and a
-  message left from the last walk is cleared (`activate`, `playController.floors.test.js`).
+  `arrivalOnFloor`: same x, z, standing on a room there, else flying at that floor's height; a wall or a desk there
+  = the nearest free spot (`freeSpot`, see "Where walking starts"). Preview again after another floor was chosen
+  (Studio's floor switcher) starts on that floor the same way, and a message left from the last walk is cleared
+  (`activate`, `playController.floors.test.js`). A viewer's walkthrough always starts at the entrance instead.
 - **Room height:** Stretch (slot 3) aimed at the top edge of a wall grabs the top (drag up / down), or + / − on a
   wall (0.1 m, a burst = one undo step). Studio: blue handles on top of the selected room's walls (3D), Inspector
   "Wall height". Hint: "Office · walls 3.4 m · Ground Floor is now 3.7 m high".
@@ -370,6 +375,37 @@ parent ids). Details: `docs/ROOM_FORMAT.md`.
   - **Studio:** drag a selected room's floor to move it (`planRoomMove`). This happens only after a 5 px drag, and
     never where an item stands (a click selects what is under the cursor). The Inspector size snaps the edges it
     moves (so it sets x / z too) and keeps inner rooms inside (`planRoomResize`).
+
+## Where walking starts (v0.13.0, how it works)
+
+Step v0.13.0 of `private-docs/NAVIGATION_PLAN.md` (4.1, 4.2, 4.6). Pure maths in `src/play/navigation/` (no Babylon).
+- **Walk map** (`walkMap.js`, `buildWalkMap(layout, floorId, { catalog })`): one grid per floor, 0.1 m cells
+  (bigger on huge floors, ≤ 2.5 M cells), from the LAYOUT DATA: each cell is `FREE` (the body's centre fits),
+  `BLOCKED` (a wall or solid item closer than `CLEARANCE` = body radius 0.32 + 0.05 m, measured exactly from the cell's
+  centre), `STAIRS` (a flight starting on this floor) or `VOID` (nothing to stand on: outside an upper floor's rooms, a
+  stair opening, off the map). The ground floor is walkable 10 m around the building (`STREET`). Walls = what
+  roomBuilder builds (`roomWallSegments` / `wallSegmentOpenings` / `splitWall`: shared walls once, doors of either
+  room cut them, windows don't), + skirting (it collides). Items: as ObjectSystem makes them collide (not markers,
+  stairs, `solid: false`, nor y ≥ 1.8 m), catalogue size × scale, turned; `MODEL_SIZES` for the 5 models bigger than
+  their catalogue size (`footprints.test.js` measures every model). A 1 m door leaves ~0.26 m; doors under ~0.9 m can
+  be closed on the map (cell size). Meridian: ~15 ms per floor. `createWalkMapCache` rebuilds only when the store's
+  room / item records or floors change.
+- **Spawn** (`entrance.js` `entranceSpawn`): always the ground floor: its `SPAWN_POINT` (if blocked: the nearest free
+  spot), else the **main entrance** (`outsideDoors`: on a part of the wall no room shares, its room not inside another,
+  no room 1 m in front; a RECEPTION's first, then the widest) 3 m outside it, facing it; else 3 m outside the middle of
+  the −Z side, facing the building; no rooms: (0, −8). Then `nearestFree` (≤ 6 m), preferring spots where the whole body
+  is outside every room. Tests: Meridian-shaped layout (`__tests__/meridianLike.js`) + 200 seeded random layouts.
+- **playController:** `spawnPoint()` / `respawn()` (= `placeAtSpawn`: ground floor, standing, facing the entrance,
+  pitch −0.12) / `backToEntrance()` (Home key, + "Back at the entrance") / `isFree(x, z, floor)`. Option
+  `respawnOnActivate` (WalkthroughSystem: true, every walk starts there; Studio's Preview: only the first time, then
+  it keeps your place). `goToFloor` (Page Up / Down, a viewer's `setFloor` while walking) and `setPose` move a spot in a
+  wall / solid item to the nearest free one (`freeSpot`; flying or `y` given: only off walls and items);
+  `setPose({ …, exact: true })` = exactly there (tests that aim from inside a wall: play-smoke's `aimAtGround`).
+  Collisions themselves (walls, windows, solid furniture, `moveWithSteps`) and free walking are unchanged.
+- **UI:** viewer / embed HUD button "Back to entrance" (`data-hud="entrance"`, top left next to the keys hint);
+  Preview's HUD "Entrance" (aria-label `Back to entrance`) + Home in its key list.
+- Not yet: Studio hints ("No door leads outside…", "Spawn point is inside furniture…"); routes, search and "take me
+  there" are v0.13.1–v0.13.3.
 
 ## Progressive loading (how it works)
 
@@ -705,6 +741,8 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Walking as yourself: walk ↔ stand switches at once (no blend); no turn-on-the-spot, running or flying clip (Shift
   plays the walk faster, flying stands); Studio's Preview still walks as the simple figure. Checked with our
   placeholder figures only, not yet with AJ / ch12 / Victoria (AHDUS step after the tag).
+- Walk map: doors narrower than ~0.9 m may show as closed (0.1 m cells, body 0.64 m + margin); only routes (v0.13.1)
+  will care. Studio doesn't warn yet about a layout with no door outside or a spawn point inside furniture.
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).
 
@@ -769,6 +807,12 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 ## DONE: realistic look, real assets (25 Oct 2026, branch `feat/real-assets`)
 
 Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
+
+## DONE: walkthrough starts at the entrance (v0.13.0, 6 Nov 2026, branch `fix/walkthrough-spawn`)
+
+Step v0.13.0 of private-docs/NAVIGATION_PLAN.md: the walk map + entrance spawn, Home / "Back to entrance", Page Up /
+Down and setPose never land in a wall or a desk (see "Where walking starts"). Screenshots (Meridian, with and without
+its spawn point, opened while Floor 1 was shown): private-docs/screenshots/v0.13.0/ (not in git).
 
 ## DONE: no red pointer-lock errors (v0.12.3, 6 Nov 2026, branch `fix/pointer-lock-promise`)
 

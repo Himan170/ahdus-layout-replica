@@ -15,7 +15,10 @@
  *   Hotbar        1-9 or mouse wheel, B = open catalog
  *   New floor     N adds a floor above (asks: copy the rooms below, or empty) and takes you there
  *   Floors        Page Up / Page Down: the floor above / below, at the same spot
- *                 (standing if there is a room there, else flying)
+ *                 (standing if there is a room there, else flying), moved to the
+ *                 nearest spot where the body fits if a wall or furniture is there
+ *   Entrance      Home: back to where walking starts (navigation/entrance.js: the
+ *                 ground floor's spawn point, else 3 m outside the main entrance)
  *   Planner       Tab
  *
  * Tools (the item in your hand):
@@ -56,6 +59,8 @@ import { ROOM_TYPES } from '../utils/roomStore';
 import { createCharacter } from './character';
 import { moveWithSteps } from './movement';
 import { lockPointer } from '../utils/pointerLock';
+import { createWalkMapCache, FREE, STAIRS, BLOCKED } from './navigation/walkMap';
+import { entranceSpawn, nearestFree, NOT_BLOCKED } from './navigation/entrance';
 import {
   snap, wallSegmentTransform, findRoomAt, formatRoomSize,
   planRoom, planOpening, planRemoveOpening, wallSegmentData, resizeItem,
@@ -91,6 +96,7 @@ const GROUND_BUILD_KINDS = new Set(['room', 'wall', 'stretch']);
 const WALL_LABEL = { north: 'north', south: 'south', east: 'east', west: 'west' };
 const STAIRS_NEED_ROOM = 'Build a room above to use these stairs';
 const TOP_EDGE = 0.35; // aiming this close to the top of a wall grabs its top (wall height)
+const SPAWN_PITCH = -0.12; // starting to walk: looking at the entrance, a little down
 
 export function createPlayController(scene, canvas, {
   getState,              // () => ({ rooms: Room[], objects: Obj[], currentFloor })
@@ -117,6 +123,9 @@ export function createPlayController(scene, canvas, {
   // they are the page's: no preventDefault, no movement. Activating doesn't capture the
   // mouse, and Tab is always the page's. Preview passes nothing: the keys are its own.
   isEngaged = null,
+  // Start at the entrance every time walking starts (LayoutEngine's walkthrough). Preview
+  // (false) starts there the first time, then keeps your place between Studio and Preview.
+  respawnOnActivate = false,
 }) {
   const onPage = typeof isEngaged === 'function';
   /** Do the keys move the character now? (Preview: while the mouse is captured.) */
@@ -197,6 +206,25 @@ export function createPlayController(scene, canvas, {
     return below ? state().rooms.filter((r) => r.floor === below.id) : null;
   };
   const floorName = (id) => Object.values(state().floors).find((f) => f.id === id)?.name ?? 'This floor';
+  // Where the body fits (navigation/walkMap.js), per floor, built when first needed, kept until the layout changes
+  const walkMaps = createWalkMapCache({ catalog: ASSET_TYPES });
+  const walkMap = (floorId) => {
+    const st = state();
+    return walkMaps.get({ rooms: st.rooms, objects: st.objects, floors: st.floors }, floorId);
+  };
+  /**
+   * The spot itself if the body fits there on that floor, else the nearest one
+   * where it does (within 6 m). Standing: a floor or a staircase; flying (or no
+   * room there: you'll fall or fly): anything but a wall or a solid item.
+   */
+  const freeSpot = (x, z, floorId, standing) => {
+    const map = walkMap(floorId);
+    const v = map.at(x, z);
+    if (standing ? v === FREE || v === STAIRS : v !== BLOCKED) return { x, z, moved: false };
+    const spot = standing && nearestFree(map, x, z, { values: [FREE, STAIRS] });
+    const near = spot || nearestFree(map, x, z, { values: NOT_BLOCKED });
+    return near ? { x: near.x, z: near.z, moved: true } : { x, z, moved: false };
+  };
   const onThisLevel = (m) =>
     (m.metadata?.floorId ?? m.parent?.metadata?.floorId ?? currentLevel) === currentLevel;
   const say = (text, ms = 3000) => {
@@ -994,6 +1022,10 @@ export function createPlayController(scene, canvas, {
         e.preventDefault();
         stepFloor(e.code === 'PageUp' ? 1 : -1);
         break;
+      case 'Home':
+        e.preventDefault();
+        backToEntrance();
+        break;
       case 'KeyE': {
         const target = interactTarget();
         if (target) onInteract(target);
@@ -1085,11 +1117,17 @@ export function createPlayController(scene, canvas, {
   function goToFloor(floorId) {
     const st = state();
     if (!Object.values(st.floors).some((f) => f.id === floorId)) return null;
-    const { x, z } = collider.position;
-    const arrival = arrivalOnFloor({ x, z, floorId, floors: st.floors, rooms: st.rooms, stairs: stairsList() });
+    let { x, z } = collider.position;
+    let arrival = arrivalOnFloor({ x, z, floorId, floors: st.floors, rooms: st.rooms, stairs: stairsList() });
+    // Never in a wall or a desk up there: the nearest spot where the body fits
+    const spot = freeSpot(x, z, floorId, !arrival.fly);
+    if (spot.moved) {
+      ({ x, z } = spot);
+      arrival = arrivalOnFloor({ x, z, floorId, floors: st.floors, rooms: st.rooms, stairs: stairsList() });
+    }
     flying = arrival.fly;
     vy = 0;
-    collider.position.y = arrival.y;
+    collider.position.set(x, arrival.y, z);
     collider.computeWorldMatrix(true);
     if (floorId !== currentLevel) {
       currentLevel = floorId;
@@ -1276,16 +1314,41 @@ export function createPlayController(scene, canvas, {
   //  Public API
   // ─────────────────────────────────────────────────────────────────────
 
+  /**
+   * Where walking starts (navigation/entrance.js): always on the ground floor;
+   * its spawn point, else 3 m outside the main entrance facing it, else outside
+   * the building's -Z side; never in a wall or furniture.
+   */
   function spawnPoint() {
-    const spawn = state().objects.find((o) => o.assetType === 'SPAWN_POINT' && o.floor === state().currentFloor);
-    if (spawn) return { x: spawn.x, z: spawn.z, yaw: spawn.rotationY ?? 0 };
-    const rooms = floorRooms();
-    if (rooms.length) {
-      // stand just outside the south side of the first room, looking at it
-      const r = rooms[0];
-      return { x: r.x, z: r.z - r.depth / 2 - 4, yaw: 0 };
+    const st = state();
+    const layout = { rooms: st.rooms, objects: st.objects, floors: st.floors };
+    return entranceSpawn(layout, { maps: { get: (_, floorId) => walkMap(floorId) } });
+  }
+
+  /** Put the character at the spawn point: standing, on the ground floor, facing the entrance. */
+  function placeAtSpawn() {
+    const s = spawnPoint();
+    if (s.floor !== currentLevel) {
+      currentLevel = s.floor;
+      clearPreview();
+      clearGhost();
+      onLevelChange(s.floor);
     }
-    return { x: 0, z: -8, yaw: 0 };
+    flying = false;
+    vy = 0;
+    collider.position.set(s.x, groundHeightAt(s.x, s.z), s.z);
+    collider.computeWorldMatrix(true);
+    yaw = s.yaw;
+    pitch = SPAWN_PITCH;
+    hasSpawned = true;
+    return s;
+  }
+
+  /** Home, and the HUD's "Back to entrance". */
+  function backToEntrance() {
+    if (!active) return;
+    placeAtSpawn();
+    say('Back at the entrance', 2000);
   }
 
   let hasSpawned = false;
@@ -1303,11 +1366,8 @@ export function createPlayController(scene, canvas, {
       currentLevel = state().currentFloor ?? 0;
       lastView = null;
       messageUntil = 0; // a message from the last walk ("Floor 1: no room here…") is old news
-      if (!hasSpawned) {
-        const s = spawnPoint();
-        collider.position.set(s.x, groundHeightAt(s.x, s.z), s.z);
-        yaw = s.yaw;
-        hasSpawned = true;
+      if (!hasSpawned || respawnOnActivate) {
+        placeAtSpawn(); // the ground floor, at the entrance
       } else if (levelForY(state().floors, collider.position.y) !== currentLevel) {
         // Another floor was chosen while you were away (Studio's floor switcher, a viewer's
         // setFloor): start there, same x, z, as Page Up / Down would (standing or flying)
@@ -1372,11 +1432,23 @@ export function createPlayController(scene, canvas, {
       onBuildToolChange(!!next && GROUND_BUILD_KINDS.has(next.kind));
     },
 
-    /** Respawn on the current floor (e.g. after switching floors) */
-    respawn() {
-      const s = spawnPoint();
-      collider.position.set(s.x, groundHeightAt(s.x, s.z), s.z);
-      yaw = s.yaw;
+    /**
+     * Back to where walking starts (a new layout, "Back to entrance"): the ground floor's
+     * spawn point, else outside the main entrance (navigation/entrance.js entranceSpawn).
+     * @returns {{ x, z, yaw, floor, source, moved }}
+     */
+    respawn: placeAtSpawn,
+
+    /** Home / the HUD button: respawn, and say so. */
+    backToEntrance,
+
+    /** Where walking starts now (not moving there): entranceSpawn's answer. */
+    spawnPoint,
+
+    /** Does the walking body fit at (x, z) on a floor (standing on a floor or a staircase, clear of walls and solid items)? */
+    isFree(x, z, floorId = currentLevel) {
+      const v = walkMap(floorId).at(x, z);
+      return v === FREE || v === STAIRS;
     },
 
     /** Turn the view by a mouse-movement amount (used by tests and touch controls) */
@@ -1393,12 +1465,15 @@ export function createPlayController(scene, canvas, {
      * Used by tests, and later by "go to" features (e.g. jump to a desk).
      * @param {{x:number, z:number, yaw?:number, pitch?:number}} pose
      */
-    setPose({ x, z, yaw: newYaw, pitch: newPitch, floor, y, fly }) {
+    setPose({ x, z, yaw: newYaw, pitch: newPitch, floor, y, fly, exact = false }) {
       if (floor !== undefined && floor !== currentLevel) {
         currentLevel = floor;
         onLevelChange(floor);
       }
       if (fly !== undefined) flying = !!fly;
+      // Inside a wall or a desk: the nearest spot where the body fits (standing, unless flying or y given).
+      // exact: exactly there (tests that aim from a spot, e.g. through a wall)
+      if (!exact) ({ x, z } = freeSpot(x, z, currentLevel, !flying && y === undefined));
       // y given (e.g. hovering over an empty upper floor while flying), else stand on what's there
       collider.position.set(x, y ?? groundHeightAt(x, z), z);
       collider.computeWorldMatrix(true);

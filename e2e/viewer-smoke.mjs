@@ -108,6 +108,27 @@ await p.mouse.move(500, 360);
 await p.click('canvas');
 await wait(500);
 log('clicking the view captures the mouse', await p.evaluate(() => !!document.pointerLockElement));
+
+// Where walking starts (v0.13.0): the ground floor, 3 m outside the main entrance (the Reception's door), facing it
+const start = await p.evaluate(() => {
+  const w = window.__ahdusViewer.walkthrough; const v = w.getPosition();
+  return { level: w.getLevel(), x: +v.x.toFixed(3), z: +v.z.toFixed(3), yaw: +w.getYaw().toFixed(3), free: w.isFree(v.x, v.z, 0),
+    source: w.spawnPoint().source, button: !!document.querySelector('[data-hud="entrance"]') };
+});
+log('walking starts on the ground floor, 3 m outside the Reception door, facing it; "Back to entrance" shows',
+  start.level === 0 && Math.abs(start.x) < 0.05 && Math.abs(start.z + 6.075) < 0.05 && Math.abs(start.yaw) < 0.01 &&
+  start.free && start.source === 'entrance' && start.button, JSON.stringify(start));
+await pose(12, 1.5, Math.PI, 0);
+await p.keyboard.press('Home'); await frames(3);
+const home = await pos();
+log('Home takes you back to the entrance', Math.abs(home.x) < 0.05 && Math.abs(home.z + 6.075) < 0.05, JSON.stringify(home));
+await pose(13, -1.5, 0, 0); // the CNC machine's middle
+const beside = await p.evaluate(() => {
+  const w = window.__ahdusViewer.walkthrough; const v = w.getPosition();
+  return { x: +v.x.toFixed(2), z: +v.z.toFixed(2), free: w.isFree(v.x, v.z, 0) };
+});
+log('setPose into a machine lands on the nearest free spot beside it', beside.free && Math.hypot(beside.x - 13, beside.z + 1.5) > 1, JSON.stringify(beside));
+
 await pose(0, -7, 0, 0); // outside, south of the Reception door, facing it
 await walkUntil('KeyW', ({ z }) => z > -2.5); // through the door (south wall at z = -3); the reception desk stops you at about -1.75
 const at = await pos();

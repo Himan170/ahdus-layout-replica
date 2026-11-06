@@ -60,14 +60,16 @@ const groundAim = () => p.evaluate(() => {
   return { x: r.origin.x + r.direction.x * t, z: r.origin.z + r.direction.z * t };
 });
 // Stand so that, looking down at PITCH, the crosshair lands on (tx, tz)
+// The spot it stands on to aim may be in a wall (e.g. stretching one): exact, not moved to a free spot
+const exactPose = async (x, z, yaw, pitch) => { await p.evaluate((a) => window.__ahdusPlay.setPose(a), { x, z, yaw, pitch, exact: true }); await frames(3); };
 const aimAtGround = async (yaw, tx, tz, pitch) => {
   let x = tx, z = tz;
   for (let i = 0; i < 3; i++) {
-    await pose(x, z, yaw, pitch);
+    await exactPose(x, z, yaw, pitch);
     const g = await groundAim();
     x += tx - g.x; z += tz - g.z;
   }
-  await pose(x, z, yaw, pitch);
+  await exactPose(x, z, yaw, pitch);
 };
 const hudRoom = () => p.locator('[data-hud="room"] strong').first().textContent();
 const shot = (name) => p.screenshot({ path: `e2e/screens/${name}`, timeout: 120000 });

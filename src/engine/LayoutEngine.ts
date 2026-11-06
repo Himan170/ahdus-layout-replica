@@ -341,7 +341,7 @@ export class LayoutEngine {
     // Built a slice at a time, the start floor first ('progress' events; whenBuilt())
     this._builder.start();
     this.highlights.apply();
-    // Walking through: start at this layout's spawn point
+    // Walking through: start at this layout's entrance
     if (this._walkthrough?.isActive()) this._walkthrough.respawn();
     this._emitChange('loadLayout', 'root');
   }
