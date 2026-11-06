@@ -811,15 +811,22 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 
 Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
 
+## DONE: the v0.13.0 review fixes (v0.13.1, 7 Nov 2026, branch `fix/v0.13.1`)
+
+private-docs/NAVIGATION_PLAN.md 5.1, one commit each: doors from 0.8 m are open on the walk map (door passages,
+see "Where walking starts"; 0.6 / 0.7 m stay closed); the third-person camera is centred on a portrait phone
+(`playController.shoulderOffset(aspect)`); the viewer / embed HUD and Preview's floor control show the floor's own
+name (`floorPosition(…).name`), not "Floor 1 of 2"; the spawn point's blue disc shows in Studio only
+(`LayoutEngine.STUDIO_ONLY_TYPES`). Screenshots (viewer.html, 1440×900 + 390×844): private-docs/screenshots/v0.13.1/
+(not in git). **Next: v0.13.1 routes** (`route.js`, NAVIGATION_PLAN.md 5; the release table calls it v0.13.1, so
+it will be tagged v0.13.2 or later: Himan decides).
+
 ## DONE: walkthrough starts at the entrance (v0.13.0, 6 Nov 2026, branch `fix/walkthrough-spawn`)
 
 Step v0.13.0 of private-docs/NAVIGATION_PLAN.md: the walk map + entrance spawn, Home / "Back to entrance", Page Up /
 Down and setPose never land in a wall or a desk (see "Where walking starts"). Screenshots (Meridian, with and without
 its spawn point, opened while Floor 1 was shown): private-docs/screenshots/v0.13.0/ (not in git).
-**Next, v0.13.1 (first, before routes; private-docs/NAVIGATION_PLAN.md 5.1):** doors from 0.8 m open on the walk
-map (as the real collision); centre the third-person character on phones (390 px: half off the left edge); the HUD
-shows the floor's own name, not "Floor 1 of 2" (confusing next to a floor named "Floor 1"); hide the spawn-point
-marker (blue disc) outside Studio.
+The four fixes of its review are v0.13.1 (below).
 
 ## DONE: no red pointer-lock errors (v0.12.3, 6 Nov 2026, branch `fix/pointer-lock-promise`)
 
