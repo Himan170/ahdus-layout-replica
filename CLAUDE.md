@@ -387,8 +387,9 @@ Step v0.13.0 of `private-docs/NAVIGATION_PLAN.md` (4.1, 4.2, 4.6). Pure maths in
   roomBuilder builds (`roomWallSegments` / `wallSegmentOpenings` / `splitWall`: shared walls once, doors of either
   room cut them, windows don't), + skirting (it collides). Items: as ObjectSystem makes them collide (not markers,
   stairs, `solid: false`, nor y ≥ 1.8 m), catalogue size × scale, turned; `MODEL_SIZES` for the 5 models bigger than
-  their catalogue size (`footprints.test.js` measures every model). A 1 m door leaves ~0.26 m; doors under ~0.9 m can
-  be closed on the map (cell size). Meridian: ~15 ms per floor. `createWalkMapCache` rebuilds only when the store's
+  their catalogue size (`footprints.test.js` measures every model). A 1 m door leaves ~0.26 m. Doors from 0.8 m are
+  open, as for the real collision (v0.13.1): the cells a door's centre line crosses are tested ON that line (step 5,
+  door passages; walls and items still exact), 0.7 m and narrower stay closed. Meridian: ~15 ms per floor. `createWalkMapCache` rebuilds only when the store's
   room / item records or floors change.
 - **Spawn** (`entrance.js` `entranceSpawn`): always the ground floor: its `SPAWN_POINT` (if blocked: the nearest free
   spot), else the **main entrance** (`outsideDoors`: on a part of the wall no room shares, its room not inside another,
@@ -742,8 +743,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Walking as yourself: walk ↔ stand switches at once (no blend); no turn-on-the-spot, running or flying clip (Shift
   plays the walk faster, flying stands); Studio's Preview still walks as the simple figure. Checked with our
   placeholder figures only, not yet with AJ / ch12 / Victoria (AHDUS step after the tag).
-- Walk map: doors narrower than ~0.9 m may show as closed (0.1 m cells, body 0.64 m + margin); only routes (v0.13.1)
-  will care. Studio doesn't warn yet about a layout with no door outside or a spawn point inside furniture.
+- Walk map: a door passage is one cell wide where the door is under ~0.9 m (routes must allow that). Studio doesn't warn yet about a layout with no door outside or a spawn point inside furniture.
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).
 

@@ -17,8 +17,11 @@
  * catalogue footprint × scale, turned. Seated people never block.
  *
  * The distance to each wall / item is measured exactly (from each cell's centre
- * to the obstacle's rectangle), so a 1 m door leaves a ~0.26 m wide strip and
- * a 0.7 m one is closed (the body is 0.64 m wide, plus the margin).
+ * to the obstacle's rectangle), so a 1 m door leaves a ~0.26 m wide strip. In a
+ * door gap the cells on the door's centre line are tested on that line, so a
+ * 0.8 m door (a 0.06 m strip, narrower than a cell) is open, as it is for the
+ * real collision, and a 0.7 m one is closed (the body is 0.64 m wide, plus the
+ * margin).
  *
  * Used by entrance.js (where the walkthrough starts, nearestFree) and
  * play/playController.js. No Babylon. Tests: navigation/__tests__/walkMap.test.js.
@@ -31,7 +34,7 @@ import {
   floorsInOrder, floorBelow, stairOpening, stairDimsFor, rectContains, roomRect,
 } from '../building';
 
-/** Cell size (m): a 1 m door minus the body leaves ~3 cells (0.2 m cells would close 0.8 m doors). */
+/** Cell size (m): a 1 m door minus the body leaves ~3 cells; narrower doors are opened along their centre line. */
 export const CELL = 0.1;
 /** The walking body (playController's collider ellipsoid): radius and height. */
 export const BODY_RADIUS = 0.32;
@@ -113,7 +116,23 @@ export function itemFootprint(obj, catalog = {}) {
  * @param {object[]} rooms  the rooms of ONE floor (store shape)
  */
 export function wallObstacles(rooms) {
+  return wallsAndDoors(rooms).walls;
+}
+
+/**
+ * The door gaps of a floor's walls ({ x, z, alongX, width, depth }: the gap's
+ * centre, the wall's direction, the door's width along it, the wall's
+ * thickness with skirting across it). A door stored on both rooms of a shared
+ * wall can be listed twice (harmless).
+ * @param {object[]} rooms  the rooms of ONE floor (store shape)
+ */
+export function doorGaps(rooms) {
+  return wallsAndDoors(rooms).doors;
+}
+
+function wallsAndDoors(rooms) {
   const out = [];
+  const gaps = [];
   for (const room of rooms) {
     const T = wallThicknessOf(room);
     for (const wall of roomWalls(room)) {
@@ -127,6 +146,17 @@ export function wallObstacles(rooms) {
         const height = Math.max(room.wallHeight ?? 3, BODY_HEIGHT + 1);
         const wallCx = wall.cx + (wall.alongX ? 0 : segment.crossOffset);
         const wallCz = wall.cz + (wall.alongX ? segment.crossOffset : 0);
+        for (const d of doors) {
+          if ((d.top ?? 2.1) < BODY_HEIGHT - 1e-6) continue; // too low to walk under
+          const mid = d.offset + segmentCentre;
+          gaps.push({
+            x: room.x + (wall.alongX ? wallCx + mid : wallCx),
+            z: room.z + (wall.alongX ? wallCz : wallCz + mid),
+            alongX: wall.alongX,
+            width: d.width ?? 1,
+            depth: thickness,
+          });
+        }
         for (const p of splitWall(segmentLength, height, doors)) {
           if (p.y0 >= BODY_HEIGHT - 1e-6) continue; // over a door: you walk under it
           const mid = (p.u0 + p.u1) / 2 + segmentCentre;
@@ -144,7 +174,7 @@ export function wallObstacles(rooms) {
       }
     }
   }
-  return out;
+  return { walls: out, doors: gaps };
 }
 
 /** Solid items of one floor as rectangles (itemFootprint). */
@@ -194,7 +224,7 @@ export function buildWalkMap(layout, floorId, options = {}) {
   const objects = list(layout.objects);
   const floors = layout.floors ?? {};
   const ground = floorId === groundFloorId(floors);
-  const walls = wallObstacles(rooms);
+  const { walls, doors } = wallsAndDoors(rooms);
   const items = itemObstacles(objects, floorId, catalog);
   const obstacles = [...walls, ...items];
 
@@ -257,6 +287,7 @@ export function buildWalkMap(layout, floorId, options = {}) {
     });
   }
   // 4. Walls and solid items, grown by the clearance (exact distance from each cell's centre)
+  const standing = cells.slice(); // each cell before walls and items (for step 5)
   const c2 = clearance * clearance;
   for (const o of obstacles) {
     const cos = Math.cos(o.rot);
@@ -269,6 +300,33 @@ export function buildWalkMap(layout, floorId, options = {}) {
       const ez = Math.max(Math.abs(dx * sin + dz * cos) - o.hd, 0);
       if (ex * ex + ez * ez < c2) cells[k] = BLOCKED;
     });
+  }
+  // 5. Door passages: a narrow door's free strip (a 0.8 m door: 0.06 m wide) can fall between two
+  //    cell centres. The cells a door's centre line crosses are tested at the point ON that line
+  //    (level with the cell's centre, exactly, against every wall and item), so a door the body
+  //    fits through is open on the map. Everything else stays measured from cell centres.
+  for (const d of doors) {
+    if (d.width / 2 < clearance) continue; // the body can't pass (0.7 m doors and narrower)
+    const reach = d.depth / 2 + clearance + cell;
+    const box = d.alongX
+      ? { x0: d.x, x1: d.x, z0: d.z - reach, z1: d.z + reach }
+      : { x0: d.x - reach, x1: d.x + reach, z0: d.z, z1: d.z };
+    const near = obstacles.filter((o) => {
+      const b = rectBounds(o, clearance);
+      return b.x0 <= box.x1 && b.x1 >= box.x0 && b.z0 <= box.z1 && b.z1 >= box.z0;
+    });
+    const steps = Math.ceil((4 * reach) / cell);
+    for (let n = 0; n <= steps; n++) {
+      const t = -reach + (n * 2 * reach) / steps;
+      const i = Math.floor(((d.alongX ? d.x : d.x + t) - x0) / cell);
+      const j = Math.floor(((d.alongX ? d.z + t : d.z) - z0) / cell);
+      if (i < 0 || j < 0 || i >= cols || j >= rows) continue;
+      const k = j * cols + i;
+      if (cells[k] !== BLOCKED || standing[k] === BLOCKED) continue;
+      const qx = d.alongX ? d.x : cx(i);
+      const qz = d.alongX ? cz(j) : d.z;
+      if (near.every((o) => distanceToRect(o, qx, qz) >= clearance)) cells[k] = standing[k];
+    }
   }
 
   const indexOf = (x, z) => {

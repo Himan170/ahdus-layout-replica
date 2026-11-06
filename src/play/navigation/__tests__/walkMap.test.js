@@ -15,6 +15,25 @@ const map = (rooms, objects = [], floorId = 0) => buildWalkMap({ rooms, objects,
 /** A 6 × 4 m office at the origin, its south wall on z = −2. */
 const office = (more) => room('office', 0, 0, 6, 4, more);
 
+/** Can the body walk from a to b on the map (FREE cells, 4 neighbours)? */
+function reaches(m, a, b) {
+  const start = m.indexOf(a.x, a.z);
+  const goal = m.indexOf(b.x, b.z);
+  if (m.cells[start] !== FREE || m.cells[goal] !== FREE) return false;
+  const seen = new Uint8Array(m.cells.length);
+  const queue = [start];
+  seen[start] = 1;
+  while (queue.length) {
+    const k = queue.pop();
+    if (k === goal) return true;
+    const i = k % m.cols;
+    for (const n of [i > 0 ? k - 1 : -1, i < m.cols - 1 ? k + 1 : -1, k - m.cols, k + m.cols]) {
+      if (n >= 0 && n < m.cells.length && !seen[n] && m.cells[n] === FREE) { seen[n] = 1; queue.push(n); }
+    }
+  }
+  return false;
+}
+
 describe('walls', () => {
   it('a wall cell is never walkable, nor is anything closer to it than the clearance', () => {
     const m = map([office()]);
@@ -52,6 +71,27 @@ describe('walls', () => {
       const any = [-0.05, 0, 0.05].some((x) => m.at(x, -2) === FREE);
       expect(any).toBe(open);
     }
+  });
+
+  it('a 0.8 m door is open, on every wall and wherever it lies on the grid; 0.6 / 0.7 m stay closed', () => {
+    const offsets = [0, 0.02, 0.03, 0.05, 0.07, 0.09, 0.43, -1.234];
+    for (const wall of ['south', 'north', 'east', 'west']) {
+      for (const offset of offsets) {
+        for (const [width, open] of [[0.6, false], [0.7, false], [0.8, true], [0.85, true]]) {
+          // the room off the grid's lines too (x, z), with thick walls sometimes
+          const m = map([room('r', 0.013, -0.027, 6, 4, {
+            doors: [{ wall, offset, width }], wallThickness: offset > 0.4 ? 0.3 : 0.15,
+          })]);
+          expect(reaches(m, { x: 0.013, z: -0.027 }, { x: 0, z: -7 }), `${wall} ${offset} ${width}`).toBe(open);
+        }
+      }
+    }
+  });
+
+  it('a 0.8 m door with a desk in front of it is closed (door passages still check items)', () => {
+    const rooms = [office({ doors: [{ wall: 'south', offset: 0, width: 0.8 }] })];
+    const m = map(rooms, [item('d', 'DESK_STANDARD', 0, -1.4)]);
+    expect(reaches(m, { x: 0, z: 0.8 }, { x: 0, z: -7 })).toBe(false);
   });
 
   it('windows do not open the wall (their glass collides)', () => {
