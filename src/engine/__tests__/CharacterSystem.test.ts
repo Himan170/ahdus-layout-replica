@@ -185,6 +185,38 @@ describe('CharacterSystem', () => {
     many.dispose();
   });
 
+  it('loadFile waits its turn while every slot is busy, ahead of the people still queued (the walk clip)', async () => {
+    // AHDUS: three seated people's files filled the 3 slots when walking started, and the walk clip was refused
+    FILES['clip.glb'] = FILES['mixamo.glb'];
+    const cs = system({ maxDownloads: 1 });
+    cs.setPeople([person('p1', 'd1', 'mixamo.glb'), person('p3', 'd3', 'ue.glb')]);
+    cs.update(); // mixamo.glb downloading, ue.glb queued
+    const clip = cs.loadFile('/chars/clip.glb');
+    const again = cs.loadFile('/chars/clip.glb');
+    const loaded = await clip;
+    expect(loaded.container).toBeTruthy();
+    expect(await again).toBe(loaded);
+    await settle(cs);
+    expect(loads).toEqual(['/chars/mixamo.glb', '/chars/clip.glb', '/chars/ue.glb']);
+    expect(cs.fullCount).toBe(2);
+    // a file that can't be loaded still rejects after waiting
+    const busy = system({ maxDownloads: 1 });
+    busy.setPeople([person('p1', 'd1', 'mixamo.glb')]);
+    busy.update();
+    await expect(busy.loadFile('/chars/missing.glb')).rejects.toThrow('404');
+    // closed while waiting: rejects
+    const closed = system({ maxDownloads: 1 });
+    closed.setPeople([person('p1', 'd1', 'mixamo.glb')]);
+    closed.update();
+    const waiting = closed.loadFile('/chars/clip.glb');
+    closed.dispose();
+    await expect(waiting).rejects.toThrow('closed');
+    await expect(closed.loadFile('/chars/clip.glb')).rejects.toThrow('closed');
+    cs.dispose();
+    busy.dispose();
+    delete FILES['clip.glb'];
+  });
+
   it('keeps the simple figure when a file fails, and draws people with no character as simple figures', async () => {
     const cs = system();
     cs.setPeople([person('n', 'd1', null), { ...person('f', 'd3', null), character: { url: '/chars/broken.glb' } }, person('s', 'd2', null)]);

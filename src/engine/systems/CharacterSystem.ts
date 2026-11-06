@@ -141,6 +141,8 @@ export class CharacterSystem {
   /** The person walking through (LayoutEngine): their seated figure isn't drawn meanwhile. */
   private hiddenPerson: string | null = null;
   private queue: string[] = [];
+  /** loadFile calls for a file still in the queue: settled when its download starts and ends. */
+  private waiting = new Map<string, { resolve: (f: LoadedFile) => void; reject: (e: Error) => void }[]>();
   private downloading = 0;
   private full = new Map<string, FullCharacter>();
   private chosen: string[] = [];
@@ -227,14 +229,20 @@ export class CharacterSystem {
 
   /**
    * A file through the same load-once queue as the people's (the player's
-   * character, the walk clip): rejects if it can't be loaded.
+   * character, the walk clip): rejects if it can't be loaded. While other
+   * files take every download slot it waits its turn, ahead of the people's.
    */
   loadFile(url: string): Promise<LoadedFile> {
+    if (this.disposed) return Promise.reject(new Error('The characters were closed'));
     const file = this.fileFor(url);
     if (file === 'failed') return Promise.reject(new Error(`could not load ${url}`));
-    if (file && !(file instanceof Promise)) return Promise.resolve(file);
-    const loading = this.files.get(url);
-    return loading instanceof Promise ? loading : Promise.reject(new Error(`could not load ${url}`));
+    if (file instanceof Promise) return file;
+    if (file) return Promise.resolve(file);
+    // Queued (every slot busy): first in the queue, settled when its download is done
+    this.queue = [url, ...this.queue.filter((u) => u !== url)];
+    return new Promise((resolve, reject) => {
+      this.waiting.set(url, [...(this.waiting.get(url) ?? []), { resolve, reject }]);
+    });
   }
 
   /** Don't draw this person at their desk (they are walking through); null: everyone. */
@@ -283,6 +291,9 @@ export class CharacterSystem {
     this.figureMaterial?.dispose();
     for (const f of this.files.values()) if (f !== 'failed' && !(f instanceof Promise)) f.container.dispose();
     this.files.clear();
+    this.queue = [];
+    for (const list of this.waiting.values()) for (const w of list) w.reject(new Error('The characters were closed'));
+    this.waiting.clear();
   }
 
   // ── Placing ────────────────────────────────────────────────────────────
@@ -366,6 +377,9 @@ export class CharacterSystem {
       });
       loading.catch(() => {});
       this.files.set(url, loading);
+      const waiting = this.waiting.get(url);
+      this.waiting.delete(url);
+      for (const w of waiting ?? []) loading.then(w.resolve, w.reject);
     }
   }
 
