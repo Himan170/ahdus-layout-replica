@@ -439,8 +439,8 @@ the viewer's debug view uses it (search and "Take me there" will).
   the way"). The name: `options.name`, else the room there, else the floor.
 - `findNearestRoute(layout, from, goals)`: the nearest by walking (nearest-first by straight line, stops when no
   other can be nearer) + `goalIndex`.
-- Speed: the longest Meridian route (entrance → Floor 1's far corner) ~20 ms warm (~26 ms in a browser), ~70 ms the
-  first time after a layout change (pass one `maps` = `createWalkMapCache` to reuse the maps).
+- Speed: the longest Meridian route (entrance → Floor 1's far corner, 122 m) ~30 ms warm in Node (the plan's limit),
+  ~100 ms the first time after a layout change (pass one `maps` = `createWalkMapCache` to reuse the maps).
 - Tests (`route.test.js`): an independent checker (every 2 cm of the route FREE and ≥ body radius from walls and
   items; wall crossings only in doors), door middles, 0.8 m / 0.7 m doors, no door, stairs up / down, the
   Meridian-shaped layout (entrance → the far desk upstairs through the expected doors; every 3rd desk upstairs)
@@ -785,7 +785,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
   plays the walk faster, flying stands); Studio's Preview still walks as the simple figure. Checked with our
   placeholder figures only, not yet with AJ / ch12 / Victoria (AHDUS step after the tag).
 - Walk map: a door passage is one cell wide where the door is under ~0.9 m (routes allow it). A desk whose chair
-  stands against a wall (Meridian's top row) can't be reached by the body: a route ends at the nearest reachable spot. Studio doesn't warn yet about a layout with no door outside or a spawn point inside furniture.
+  stands against a wall can't be reached by the body: a route ends at the nearest reachable spot (within 1.5 m). Studio doesn't warn yet about a layout with no door outside or a spawn point inside furniture.
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).
 

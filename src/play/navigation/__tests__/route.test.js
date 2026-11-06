@@ -334,7 +334,7 @@ describe('the Meridian-shaped layout', () => {
       if (t.length) problems.push(`${desk.id}: ${t.join(', ')}`);
     }
     expect(problems).toEqual([]);
-    expect(slowest).toBeLessThan(200); // ~20 ms on a laptop once warm (plan: ≤ 30 ms); test runners and CI vary
+    expect(slowest).toBeLessThan(200); // ~30 ms on a laptop once warm (plan: ≤ 30 ms); test runners and CI vary
   });
 });
 

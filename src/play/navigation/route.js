@@ -16,8 +16,8 @@
  *   a lower bound from there), so a route to Floor 1 heads for the stairs
  *   instead of filling the ground floor. The open cells sit in a bucket queue
  *   (5 mm steps): the longest Meridian route (entrance → Floor 1's far
- *   corner) takes ~20 ms once warm; the first one after a layout change
- *   ~70 ms (the per-map tables below are made then).
+ *   corner, 122 m) takes ~30 ms once warm; the first one after a layout
+ *   change ~100 ms (the walk maps and the per-map tables below are made then).
  * - Walking next to a wall costs more (up to double in the 4 cells beside a
  *   wall or a desk), so routes keep to the middle of doorways and
  *   corridors. It is a cost, never a block: a narrow door is one cell wide on
