@@ -152,7 +152,7 @@ Without React: `connectEngine(engine)` from `src/integration/layoutBridge.js` co
 - The engine does **not** handle authentication or API calls. The app shell (Dhruv's frontend) fetches the layout JSON from the backend and passes it as `layout` (or to `loadLayout()`). Saving: `<LayoutEditor onChange>` gives you the layout (v2) to POST, or call `engine.getLayout()`.
 - The `mode` determines what the user can do:
   - `"edit"` — Workplace Studio: Build panel, Inspector, gizmos, its Preview
-  - `"view"` — read-only 3D view, can orbit and zoom but not change anything
+  - `"view"` — read-only 3D view, can orbit and zoom but not change anything. The spawn point marker (the blue disc) shows in `"edit"` only
   - `"walkthrough"` — Preview's character (third person; V switches to first person), W A S D, mouse, E; interactions fire events; nothing can be changed. It starts outside the main entrance on the ground floor; Home (or "Back to entrance") goes back there
 - Role-based mode selection (admin = edit, employee = walkthrough) is Dhruv's responsibility — the engine just follows the mode it's given.
 

@@ -87,7 +87,7 @@ export class FloorSystem {
     }
     for (const [objId, mesh] of this.objects.meshes) {
       const o = objects[objId];
-      if (o) mesh.setEnabled((rank.get(o.floor ?? 0) ?? 0) <= levelRank);
+      if (o) mesh.setEnabled((rank.get(o.floor ?? 0) ?? 0) <= levelRank && (this.objects.isShown?.(o) ?? true));
     }
   }
 }

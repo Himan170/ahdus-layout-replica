@@ -405,7 +405,9 @@ Step v0.13.0 of `private-docs/NAVIGATION_PLAN.md` (4.1, 4.2, 4.6). Pure maths in
   from a spot computed through a wall); features and teammates' code must never pass it.
   Collisions themselves (walls, windows, solid furniture, `moveWithSteps`) and free walking are unchanged.
 - **UI:** viewer / embed HUD button "Back to entrance" (`data-hud="entrance"`, top left next to the keys hint);
-  Preview's HUD "Entrance" (aria-label `Back to entrance`) + Home in its key list.
+  Preview's HUD "Entrance" (aria-label `Back to entrance`) + Home in its key list. The spawn point's marker (the blue
+  disc) shows in Studio only (Preview too): LayoutEngine outside edit mode hides `STUDIO_ONLY_TYPES`
+  (`ObjectSystem.setHiddenTypes`, FloorSystem never enables them; the item, its anchor and focusOn stay), v0.13.1.
 - Not yet: Studio hints ("No door leads outside…", "Spawn point is inside furniture…"); routes, search and "take me
   there" are v0.13.1–v0.13.3.
 
