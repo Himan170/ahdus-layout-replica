@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (762, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (763, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -429,7 +429,8 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
   `LayoutEngine.setPlayer({ personId, character, walkClipUrl, walk })` (`<LayoutViewer player walkClipUrl>`; the embed:
   `player: { personId, assetReference }` + `characters.walkClipUrl`, resolved by `resolvePlayer` / `walkClipUrlOf`).
   Made when walking starts (`_syncPlayer`, keyed on url / rig / height / clip / walk; a token drops stale loads), the
-  file through CharacterSystem's queue (`loadFile`, once per scene). `PlayerCharacter.bakeWalk`: the clip (an
+  file through CharacterSystem's queue (`loadFile`, once per scene; while the ≤ 3 slots are busy it waits, first in
+  the queue, never refused: v0.12.1). `PlayerCharacter.bakeWalk`: the clip (an
   animation-only GLB, Mixamo names) sampled at 30 / s in character space (`D = inv(srcRest) × src(t)`, `want =
   tgtRest × D`), so a skeleton whose bones point another way (UE) walks too; hips bob scaled, root motion removed.
   Speed: `people.clipSpeed` (root motion ≥ 0.2 m, else 2 × the foot's range / duration); `walkRatio` = your speed /
@@ -765,6 +766,12 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 ## DONE: realistic look, real assets (25 Oct 2026, branch `feat/real-assets`)
 
 Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
+
+## DONE: the walk clip waits its turn (v0.12.1, 6 Nov 2026, branch `fix/walk-clip-queue`)
+
+Found in AHDUS: walking started while three seated people's files filled the 3 download slots, and
+`CharacterSystem.loadFile` refused the queued walk clip (and would have refused a queued character file), so you slid
+in the standing pose. Now a queued file waits, ahead of the people's (test in `CharacterSystem.test.ts`).
 
 ## DONE: walking as yourself (v0.12.0, 4 Nov 2026, branch `feature/walk-as-yourself`)
 
