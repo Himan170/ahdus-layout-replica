@@ -17,6 +17,7 @@ import type { PlayCharacter } from '../systems/PlayerCharacter';
 import { copyCharacter, refreshTree } from '../systems/CharacterSystem';
 import type { LoadedFile } from '../systems/CharacterSystem';
 import { playerEyeHeight } from '../../play/people';
+import { GLB_LOAD_OPTIONS } from '../../utils/modelLoader';
 
 // Our own placeholder figures and walk clip (scripts/make-placeholder-character.mjs): the clip walks 1.2 m a second
 const FILES: Record<string, Uint8Array> = {
@@ -104,6 +105,37 @@ describe('walking as yourself: the player character', () => {
     const hips = bone(c, 'Hips', 'ue').getAbsolutePosition();
     expect(bone(c, 'LeftFoot', 'ue').getAbsolutePosition().z - hips.z).toBeGreaterThan(0.12);
     expect(bone(c, 'RightFoot', 'ue').getAbsolutePosition().z - hips.z).toBeLessThan(-0.12);
+  });
+
+  it('bakes from the clip\'s rest pose even when its animation has been running (AHDUS: the arms stayed straight out)', async () => {
+    const file = await loadFile('mixamo.glb');
+    const clip = await loadFile('walk.glb');
+    const armAt = (walk: { group: AnimationGroup }, copy: { root: TransformNode; bones: Map<string, TransformNode> }) => {
+      at(walk.group, quarter(walk.group), copy.root);
+      const arm = copy.bones.get('LeftArm')!.getAbsolutePosition();
+      const foot = copy.bones.get('LeftFoot')!.getAbsolutePosition();
+      return { arm: copy.bones.get('LeftForeArm')!.getAbsolutePosition().subtract(arm).normalize(), foot: foot.clone() };
+    };
+    const fresh = copyCharacter(scene, file, { url: 'mixamo.glb', rig: 'mixamo', height: 1.75 }, 'fresh');
+    const want = armAt(bakeWalk(scene, clip.container, fresh)!, fresh);
+    // what a browser does to a file whose animation the loader started: the scene moves its bones every frame
+    const running = clip.container.animationGroups[0];
+    running.start(true);
+    running.goToFrame(quarter(running) + 3);
+    const late = copyCharacter(scene, file, { url: 'mixamo.glb', rig: 'mixamo', height: 1.75 }, 'late');
+    const got = armAt(bakeWalk(scene, clip.container, late)!, late);
+    expect(Vector3.Distance(got.arm, want.arm)).toBeLessThan(1e-3);
+    expect(Vector3.Distance(got.foot.subtract(late.root.getAbsolutePosition()), want.foot.subtract(fresh.root.getAbsolutePosition()))).toBeLessThan(1e-3);
+    expect(running.isPlaying).toBeFalsy();
+  });
+
+  it('our loader starts no animation in a file (GLB_LOAD_OPTIONS)', async () => {
+    const container = await LoadAssetContainerAsync(new Uint8Array(FILES['walk.glb']), scene, GLB_LOAD_OPTIONS);
+    expect(container.animationGroups.length).toBe(1);
+    expect(container.animationGroups[0].isStarted).toBeFalsy(); // undefined until started
+    // the default would have started it
+    const started = await LoadAssetContainerAsync(new Uint8Array(FILES['walk.glb']), scene, { pluginExtension: '.glb' });
+    expect(started.animationGroups[0].isStarted).toBe(true);
   });
 
   it('rest-pose correction: a leg whose bones are twisted another way still swings forward, not sideways (a plain copy of the rotations fails here)', async () => {

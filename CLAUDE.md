@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (763, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (765, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -433,6 +433,9 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
   the queue, never refused: v0.12.1). `PlayerCharacter.bakeWalk`: the clip (an
   animation-only GLB, Mixamo names) sampled at 30 / s in character space (`D = inv(srcRest) × src(t)`, `want =
   tgtRest × D`), so a skeleton whose bones point another way (UE) walks too; hips bob scaled, root motion removed.
+  srcRest / tgtRest must be the files' REST poses: `modelLoader.GLB_LOAD_OPTIONS` (every .glb load) starts no
+  animation of a file (the loader's default plays the first one in its container, and copies then start mid-walk),
+  and `restContainer` resets a file that runs one anyway (v0.12.2).
   Speed: `people.clipSpeed` (root motion ≥ 0.2 m, else 2 × the foot's range / duration); `walkRatio` = your speed /
   that (0.25 to 6); below 0.3 m/s or flying = the standing pose. Eye height `playerEyeHeight` (0.93 × height).
   `playController.setCharacter(c, { eyeHeight })` (null = the simple figure). Your seated figure is hidden while
@@ -766,6 +769,13 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 ## DONE: realistic look, real assets (25 Oct 2026, branch `feat/real-assets`)
 
 Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
+
+## DONE: the walk keeps the arms down (v0.12.2, 6 Nov 2026, branch `fix/walk-clip-rest`)
+
+Found in AHDUS with Harsh's walk clip: the legs walked but the arms stayed straight out. The glTF loader started the
+clip's animation inside its container, the scene moved those bones every frame, and the copy `bakeWalk` measured
+the clip's "rest" from was a frame of the walk. Now no file's animation is started (`GLB_LOAD_OPTIONS`) and
+`restContainer` resets one that runs (tests in `PlayerCharacter.test.ts`). Our placeholder clip hid it in e2e.
 
 ## DONE: the walk clip waits its turn (v0.12.1, 6 Nov 2026, branch `fix/walk-clip-queue`)
 

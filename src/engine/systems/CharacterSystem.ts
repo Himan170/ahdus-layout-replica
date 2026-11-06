@@ -498,6 +498,19 @@ export interface CharacterCopy {
 }
 
 /**
+ * Puts a loaded file back in its rest pose and stops its animations: a copy
+ * (instantiateModelsToScene) starts in the pose the file's nodes are in, and
+ * an animation the glTF loader started moves them every frame. Our loader
+ * starts none (modelLoader GLB_LOAD_OPTIONS); this covers files loaded otherwise.
+ */
+export function restContainer(container: AssetContainer): void {
+  for (const group of container.animationGroups) {
+    if (group.isStarted) group.reset();
+    group.stop();
+  }
+}
+
+/**
  * A copy of the file with its own skeleton (geometry and materials shared),
  * scaled to the person's height, its feet at `root`'s origin, in its rest pose.
  * Its meshes aren't pickable and carry `metadata` (e.g. { personId }).
@@ -505,6 +518,7 @@ export interface CharacterCopy {
 export function copyCharacter(scene: Scene, file: LoadedFile, character: CharacterFile, name: string,
   metadata: Record<string, unknown> = {}): CharacterCopy {
   const rig = character.rig ?? 'mixamo';
+  restContainer(file.container);
   const copy = file.container.instantiateModelsToScene((n) => n, false, { doNotInstantiate: true });
   for (const group of copy.animationGroups) { group.stop(); group.dispose(); }
   const root = new TransformNode(name, scene);

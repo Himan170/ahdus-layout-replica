@@ -55,10 +55,18 @@ function loader() {
   return loaderModule;
 }
 
+/**
+ * How every .glb is loaded. animationStartMode 0 = NONE: the loader would otherwise start a file's first animation
+ * (FIRST) inside its container. The scene then moves the container's bones every frame, and a copy made later
+ * (instantiateModelsToScene) starts in that moving pose, not the file's rest pose: the walk clip baked from such a
+ * copy left the arms straight out (v0.12.2). Nothing of ours plays a file's own animation.
+ */
+export const GLB_LOAD_OPTIONS = Object.freeze({ pluginExtension: '.glb', pluginOptions: { gltf: { animationStartMode: 0 } } });
+
 /** Load a .glb file into an AssetContainer (the glTF loader is fetched on first use). Characters use it too. */
 export async function loadGlbContainer(url, scene) {
   const { LoadAssetContainerAsync } = await loader();
-  return LoadAssetContainerAsync(url, scene, { pluginExtension: '.glb' });
+  return LoadAssetContainerAsync(url, scene, GLB_LOAD_OPTIONS);
 }
 
 const containers = new WeakMap(); // scene → Map(model → Promise<AssetContainer>)
@@ -69,7 +77,7 @@ function loadModel(scene, model) {
   if (!cache.has(model)) {
     const url = assetUrl(scene, `${MODEL_DIR}${model}.glb`);
     cache.set(model, trackLoad(scene, loader().then(({ LoadAssetContainerAsync }) =>
-      LoadAssetContainerAsync(url, scene, { pluginExtension: '.glb' }))));
+      LoadAssetContainerAsync(url, scene, GLB_LOAD_OPTIONS))));
   }
   return cache.get(model);
 }
