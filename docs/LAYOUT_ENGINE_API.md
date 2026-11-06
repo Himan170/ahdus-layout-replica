@@ -106,6 +106,12 @@ engine.finishBuild();                // build the rest now, in one go
 
 // --- Navigation ---
 engine.setPlayer({ personId, character, walkClipUrl }); // walking through as your own character (v0.12.0)
+// Walkthrough (v0.13.0): every walk starts on the GROUND floor, at its spawn point (or the nearest
+// free spot to it), else 3 m outside the main entrance facing it, else outside the building's -Z side.
+// The player never lands in a wall or a solid item (start, Page Up / Down, setFloor, setPose).
+engine.walkthrough?.respawn();       // back to that spot (also: the Home key, the "Back to entrance" button)
+engine.walkthrough?.spawnPoint();    // where walking would start: { x, z, yaw, floor, source, moved }
+engine.walkthrough?.isFree(x, z, floorId); // does the walking body fit there (clear of walls and solid items)?
 engine.setFloor(floorId);            // Show this floor from above: no roof, floors above hidden (view / edit mode;
                                      // the ground floor at first, the floor walked to after walkthrough)
 engine.setView('3d');                // Switch between "3d" and "2d" views
@@ -147,7 +153,7 @@ Without React: `connectEngine(engine)` from `src/integration/layoutBridge.js` co
 - The `mode` determines what the user can do:
   - `"edit"` — Workplace Studio: Build panel, Inspector, gizmos, its Preview
   - `"view"` — read-only 3D view, can orbit and zoom but not change anything
-  - `"walkthrough"` — Preview's character (third person; V switches to first person), W A S D, mouse, E; interactions fire events; nothing can be changed
+  - `"walkthrough"` — Preview's character (third person; V switches to first person), W A S D, mouse, E; interactions fire events; nothing can be changed. It starts outside the main entrance on the ground floor; Home (or "Back to entrance") goes back there
 - Role-based mode selection (admin = edit, employee = walkthrough) is Dhruv's responsibility — the engine just follows the mode it's given.
 
 ---

@@ -11,7 +11,7 @@
  */
 
 import { useEffect } from 'react';
-import { ArrowLeft, LayoutGrid as CatalogIcon, ChevronUp, ChevronDown, Copy, Square } from 'lucide-react';
+import { ArrowLeft, LayoutGrid as CatalogIcon, ChevronUp, ChevronDown, Copy, Square, DoorOpen } from 'lucide-react';
 import { catalogSections, itemKey } from '../play/hotbarItems';
 import { itemIcon } from '../ui/tools';
 import CatalogPicker from '../ui/CatalogPicker';
@@ -33,6 +33,7 @@ const CONTROLS = [
   ['B', 'Catalog of all items'],
   ['N', 'New floor above (copy the rooms below, or empty)'],
   ['Page Up / Down', 'Go to the floor above / below'],
+  ['Home', 'Back to the entrance'],
   ['3 + / −', 'Stretch: raise or lower the walls'],
   ['Ctrl+Z', 'Undo'],
   ['Tab', 'Back to Studio'],
@@ -102,6 +103,7 @@ export default function PlayHUD({
   demoModules = false, // true when the demo teammate modules are running (?demoModules=1)
   onFloorUp,           // () => void   the floor above (Page Up)
   onFloorDown,         // () => void   the floor below (Page Down)
+  onBackToEntrance,    // () => void   back to where walking starts (Home)
   newFloorAsk = false, // N was pressed: ask "copy rooms or empty?"
   copyFromName = '',   // name of the floor the rooms would be copied from
   onNewFloorChoice,    // (copyRooms: boolean | null) => void   null = cancel
@@ -149,6 +151,13 @@ export default function PlayHUD({
               <ChevronUp size={16} strokeWidth={1.75} aria-hidden />
             </button>
           </span>
+        )}
+        {onBackToEntrance && (
+          <button className="hud-card hud-btn" aria-label="Back to entrance" title="Back to entrance (Home)" onClick={onBackToEntrance}>
+            <DoorOpen size={18} strokeWidth={1.75} aria-hidden />
+            Entrance
+            <Key>Home</Key>
+          </button>
         )}
         <span className="hud-card hud-pill ui-muted">
           {hud?.flying ? 'Flying' : 'Walking'}{hud?.firstPerson ? ', first person' : ''}

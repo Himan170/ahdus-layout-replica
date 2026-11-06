@@ -1345,6 +1345,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
               floorName={floorName}
               onFloorUp={() => playRef.current?.stepFloor(1)}
               onFloorDown={() => playRef.current?.stepFloor(-1)}
+              onBackToEntrance={() => playRef.current?.backToEntrance()}
               newFloorAsk={newFloorAsk}
               copyFromName={floorsMap[currentFloor]?.name ?? ''}
               onNewFloorChoice={handleNewFloorChoice}

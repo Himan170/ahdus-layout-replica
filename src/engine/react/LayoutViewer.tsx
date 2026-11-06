@@ -353,8 +353,19 @@ export function LayoutViewer(props: LayoutViewerProps) {
       {walking && !error && hud && (
         <>
           {engaged && <div aria-hidden style={styles.crosshair}>+</div>}
-          <div id={keysHintId} data-hud="keys" style={styles.keys}>
-            {engaged ? 'Esc to release' : 'Click to walk · Esc to release'}
+          <div style={styles.topLeft}>
+            <div id={keysHintId} data-hud="keys" style={styles.keys}>
+              {engaged ? 'Esc to release' : 'Click to walk · Esc to release'}
+            </div>
+            <button
+              type="button"
+              data-hud="entrance"
+              style={styles.button}
+              title="Back to entrance (Home)"
+              onClick={() => engine?.walkthrough?.backToEntrance()}
+            >
+              Back to entrance
+            </button>
           </div>
           <div style={styles.hud} aria-live="polite">
             <span data-hud="room"><strong>{hud.roomName}</strong></span>
@@ -416,7 +427,12 @@ const styles: Record<string, CSSProperties> = {
     color: '#fff', font: '22px/1 system-ui, sans-serif', textShadow: '0 0 3px #000', pointerEvents: 'none',
   },
   hud: { ...panel, left: 12, bottom: 12, maxWidth: 'calc(100% - 24px)' },
-  keys: { ...panel, left: 12, top: 12, padding: '4px 10px', fontSize: 13 },
+  topLeft: { position: 'absolute', left: 12, top: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', maxWidth: 'calc(100% - 24px)' },
+  keys: { ...panel, position: 'static', padding: '4px 10px', fontSize: 13 },
+  button: {
+    ...panel, position: 'static', padding: '4px 10px', fontSize: 13, pointerEvents: 'auto', cursor: 'pointer',
+    border: '1px solid #fff6',
+  },
   // The view has the keys: drawn over the canvas (an outline would be clipped by the page's box)
   focusRing: {
     position: 'absolute', inset: 0, pointerEvents: 'none', borderRadius: 'inherit',

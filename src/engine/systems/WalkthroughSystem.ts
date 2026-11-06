@@ -43,6 +43,17 @@ export interface WalkthroughCallbacks {
   describeInteraction?: (target: WalkthroughTarget) => { label: string; name: string; handled: boolean } | null;
 }
 
+/** Where walking starts (play/navigation/entrance.js entranceSpawn). */
+export interface SpawnSpot {
+  x: number;
+  z: number;
+  yaw: number;
+  floor: number;
+  source: 'spawnPoint' | 'entrance' | 'buildingSide' | 'origin';
+  /** A wall or furniture was on the spot: this is the nearest free one. */
+  moved: boolean;
+}
+
 /** The answer to any edit asked for while walking through. */
 export const WALKTHROUGH_READ_ONLY = 'Walking through: the layout can\'t be changed here';
 
@@ -145,11 +156,14 @@ export class WalkthroughSystem {
       describeInteraction: callbacks.describeInteraction,
       // The keys are the page's until the view is engaged (Preview's are always its own)
       isEngaged: this.isEngaged,
+      // Every walk starts at the entrance (the ground floor), wherever you were looking from above
+      respawnOnActivate: true,
     });
   }
 
   /**
-   * Take over the camera; the character starts at the spawn point. The keys
+   * Take over the camera; the character starts at the entrance (play/navigation/entrance.js:
+   * the ground floor's spawn point, else 3 m outside the main entrance, facing it). The keys
    * stay the page's until the user clicks the view or tabs to it.
    */
   activate(): void {
@@ -192,13 +206,35 @@ export class WalkthroughSystem {
     return this.controller.isActive();
   }
 
-  /** Back to the spawn point (a spawn marker, else outside the first room) on the current floor. */
-  respawn(): void {
-    this.controller.respawn();
+  /**
+   * Back to where walking starts: on the ground floor, its spawn point (or the nearest free spot
+   * to it), else 3 m outside the main entrance facing it, else outside the building's −Z side.
+   */
+  respawn(): SpawnSpot {
+    return this.controller.respawn();
   }
 
-  /** Put the character at an exact spot and view angle (tests, "go to" features). */
-  setPose(pose: { x: number; z: number; yaw?: number; pitch?: number; floor?: number; y?: number; fly?: boolean }): void {
+  /** Home / "Back to entrance": respawn and say so in the HUD (only while walking). */
+  backToEntrance(): void {
+    this.controller.backToEntrance();
+  }
+
+  /** Where walking would start now (nothing moves). */
+  spawnPoint(): SpawnSpot {
+    return this.controller.spawnPoint();
+  }
+
+  /** Does the walking body fit at (x, z) on a floor (default: the one you are on)? Clear of walls and solid items. */
+  isFree(x: number, z: number, floorId?: number): boolean {
+    return this.controller.isFree(x, z, floorId);
+  }
+
+  /**
+   * Put the character at an exact spot and view angle (tests, "go to" features). A spot in a
+   * wall or a solid item becomes the nearest one where the body fits. `exact: true` is for tests only
+   * (it can put the body inside a wall); features must never pass it.
+   */
+  setPose(pose: { x: number; z: number; yaw?: number; pitch?: number; floor?: number; y?: number; fly?: boolean; exact?: boolean }): void {
     this.controller.setPose(pose);
   }
 
