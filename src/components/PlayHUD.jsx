@@ -137,15 +137,15 @@ export default function PlayHUD({
         </button>
         <span className="hud-card hud-pill" data-hud="room">
           <strong>{hud?.roomName ?? 'Outside'}</strong>
-          <span className="ui-muted">{floorName}</span>
+          {!floor && <span className="ui-muted">{floorName}</span>}
         </span>
         {floor && (
-          <span className="hud-card hud-floor" data-hud="floor" title={floorName}>
+          <span className="hud-card hud-floor" data-hud="floor" title={`Floor ${floor.index} of ${floor.count}`}>
             <button className="hud-floor__btn" aria-label="Floor below" title="Floor below (Page Down)"
               disabled={floor.index <= 1} onClick={onFloorDown}>
               <ChevronDown size={16} strokeWidth={1.75} aria-hidden />
             </button>
-            <span className="hud-floor__label">Floor {floor.index} of {floor.count}</span>
+            <span className="hud-floor__label">{floor.name ?? floorName}</span>
             <button className="hud-floor__btn" aria-label="Floor above" title="Floor above (Page Up)"
               disabled={floor.index >= floor.count} onClick={onFloorUp}>
               <ChevronUp size={16} strokeWidth={1.75} aria-hidden />

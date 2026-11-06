@@ -128,10 +128,17 @@ export function floorBelow(floors, floorId) {
   return i > 0 ? sorted[i - 1] : null;
 }
 
-/** For "Floor 2 of 3": a floor's place counted from the ground (1 = lowest) and how many there are. */
+/**
+ * A floor's place counted from the ground (1 = lowest), how many there are, and
+ * its own name (what the HUDs show: "Floor 1 of 2" read wrong next to a floor
+ * named "Floor 1"). A floor with no name: "Ground Floor" for the lowest, else "Floor <id>".
+ */
 export function floorPosition(floors, floorId) {
   const sorted = floorsInOrder(floors);
-  return { index: Math.max(0, sorted.findIndex((f) => f.id === floorId)) + 1, count: sorted.length };
+  const i = Math.max(0, sorted.findIndex((f) => f.id === floorId));
+  const own = sorted[i]?.name;
+  const name = typeof own === 'string' && own.trim() ? own : i === 0 ? 'Ground Floor' : `Floor ${floorId}`;
+  return { index: i + 1, count: sorted.length, name };
 }
 
 /**

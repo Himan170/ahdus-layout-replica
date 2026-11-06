@@ -581,6 +581,32 @@ describe('walkthrough mode', () => {
     expect(controllers[0].active).toBe(true);
   });
 
+  it('the spawn point (a Studio marker) is hidden in view and walkthrough mode, shown in edit mode', () => {
+    const withSpawn = () => {
+      const layout = save();
+      layout.objects.push({ id: 'obj_spawn', assetType: 'SPAWN_POINT', name: 'SPAWN_POINT 1', floor: 0, roomId: '',
+        x: 0, y: 0, z: -6, rotationY: 0, scaleX: 1, scaleY: 1, scaleZ: 1, isLocked: false, label: '' });
+      return layout;
+    };
+    const engine = makeEngine({ mode: 'walkthrough' });
+    engine.loadLayout(withSpawn());
+    const spawn = () => engine.objects.getObjectMesh('obj_spawn');
+    expect(spawn()).not.toBeNull(); // built (anchors, focusOn), just not shown
+    expect(enabled(spawn())).toBe(false);
+    expect(enabled(engine.objects.getObjectMesh('obj_desk'))).toBe(true);
+    controllers[0].options.onViewChange({ inside: true, level: 0 }); // walking's own views keep it hidden
+    expect(enabled(spawn())).toBe(false);
+    engine.setMode('view');
+    expect(enabled(spawn())).toBe(false);
+    engine.setFloor(1);
+    expect(enabled(spawn())).toBe(false);
+    engine.setMode('edit');
+    expect(enabled(spawn())).toBe(true);
+    const view = makeEngine({ mode: 'view' });
+    view.loadLayout(withSpawn());
+    expect(enabled(view.objects.getObjectMesh('obj_spawn'))).toBe(false);
+  });
+
   it('back from walking: the floor you walked to, seen from above (its roof off)', () => {
     const engine = makeEngine({ mode: 'walkthrough' });
     engine.loadLayout(save());

@@ -27,6 +27,8 @@ export class ObjectSystem {
   readonly meshes = new Map<string, TransformNode>();
   private scene: Scene;
   private shadowGenerator: any; // a ShadowGenerator (typed loosely: utils/ is plain JS)
+  /** Item types not shown (LayoutEngine outside edit mode: the spawn point). */
+  private hiddenTypes = new Set<string>();
 
   constructor(scene: Scene, options: ObjectSystemOptions = {}) {
     this.scene = scene;
@@ -102,6 +104,19 @@ export class ObjectSystem {
       else removeLockVisual(mesh);
     }
     return { built, pending };
+  }
+
+  /**
+   * Item types to keep hidden (built, but never enabled: FloorSystem.apply
+   * reads isShown). Call FloorSystem.apply() after it. [] shows every type.
+   */
+  setHiddenTypes(types: string[]): void {
+    this.hiddenTypes = new Set(types);
+  }
+
+  /** Is this item's type shown at all (FloorSystem still decides per floor)? */
+  isShown(obj: { assetType: string }): boolean {
+    return !this.hiddenTypes.has(obj.assetType);
   }
 
   getObjectMesh(objectId: string): TransformNode | null {

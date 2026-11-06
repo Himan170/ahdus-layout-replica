@@ -42,7 +42,17 @@ describe('floor heights and derived elevations', () => {
     expect(levelForY(floors, 3.4)).toBe(1);    // 1 m before reaching 4.3
     expect(levelForY(floors, 4.32)).toBe(1);
     expect(levelForY(floors, 7.82)).toBe(2);
-    expect(floorPosition(floors, 1)).toEqual({ index: 2, count: 3 });
+    expect(floorPosition(floors, 1)).toMatchObject({ index: 2, count: 3 });
+  });
+
+  it('floorPosition gives the floor name of its own (the HUDs show it, not "Floor 1 of 2")', () => {
+    const two = { 0: { id: 0, name: 'Ground Floor', height: 3.5 }, 1: { id: 1, name: 'Floor 1', height: 3.5 } };
+    expect(floorPosition(two, 0)).toEqual({ index: 1, count: 2, name: 'Ground Floor' });
+    expect(floorPosition(two, 1)).toEqual({ index: 2, count: 2, name: 'Floor 1' });
+    const named = { 0: { id: 0, name: 'Lobby', height: 3.5 }, 3: { id: 3, name: '  ', height: 3.5 } };
+    expect(floorPosition(named, 0).name).toBe('Lobby');
+    expect(floorPosition(named, 3).name).toBe('Floor 3'); // no name: its id
+    expect(floorPosition({ 0: { id: 0, height: 3.5 } }, 0).name).toBe('Ground Floor');
   });
 });
 

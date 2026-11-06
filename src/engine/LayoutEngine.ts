@@ -70,6 +70,9 @@ import { createWorkspaceStore } from '../store/workspaceStore';
 import { createEditorHistory } from '../store/editorHistory';
 import { primaryAnchor } from '../integration/anchorsFromStore';
 
+/** Item types only Studio shows (markers for the editor): hidden in view and walkthrough mode (v0.13.1). */
+export const STUDIO_ONLY_TYPES = ['SPAWN_POINT'];
+
 // ── Types ────────────────────────────────────────────────────────────────
 
 export type EngineMode = 'edit' | 'view' | 'walkthrough';
@@ -652,6 +655,9 @@ export class LayoutEngine {
 
   /** Walk through in walkthrough mode; give the orbit camera back otherwise. */
   private _applyMode(): void {
+    // The spawn point (a blue disc) is a Studio marker: hidden in view and walkthrough mode
+    this.objects.setHiddenTypes(this._mode === 'edit' ? [] : STUDIO_ONLY_TYPES);
+    this.floors.apply();
     if (this._mode === 'walkthrough') {
       if (this._view === '2d') this.setView('3d'); // walking is always 3D
       this._ensureWalkthrough().activate();

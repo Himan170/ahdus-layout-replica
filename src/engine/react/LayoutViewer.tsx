@@ -94,8 +94,8 @@ interface Hud {
   hint?: { title?: string; detail?: string };
   message?: string | null;
   roomName?: string;
-  /** "Floor 1 of 3" (building.floorPosition) */
-  floor?: { index: number; count: number };
+  /** building.floorPosition: the HUD shows the floor's own name */
+  floor?: { index: number; count: number; name?: string };
   prompt?: { label: string; name: string } | null;
 }
 
@@ -369,7 +369,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
           </div>
           <div style={styles.hud} aria-live="polite">
             <span data-hud="room"><strong>{hud.roomName}</strong></span>
-            {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · Floor {hud.floor.index} of {hud.floor.count}</span>}
+            {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · {hud.floor.name ?? `Floor ${hud.floor.index}`}</span>}
             <div data-hud="hint">{hud.message ?? hud.hint?.detail}</div>
             {engaged && hud.prompt && (
               <div data-hud="prompt"><kbd style={styles.key}>E</kbd> {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</div>

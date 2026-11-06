@@ -161,7 +161,7 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   and top (`store.selectedOpening` = { roomId, kind, index }; one undo step per drag).
   Furniture stacks on table tops. Clicking the floor under a desk selects the desk.
   Code: `WorkplaceEditor.jsx` (wiring) + `src/ui/*`, `src/utils/gizmoController.js`, `src/utils/placementManager.js`.
-- **Preview**: Minecraft-style. Third-person character, hotbar 1–9, B = catalog, left-click builds, right-click
+- **Preview**: Minecraft-style. Third-person character (over the shoulder; centred on a portrait phone: `shoulderOffset(aspect)`), hotbar 1–9, B = catalog, left-click builds, right-click
   removes, R rotates, E interacts, N adds a floor above, F fly (Space up / C down), V first/third person, Tab or
   "Back to Studio" returns. Code: `src/play/playController.js` + `src/components/PlayHUD.jsx` (+ `src/ui/preview.css`).
   Default hotbar (`src/play/hotbarItems.js`): Office room, Meeting room, Stretch, Door, Window, Desk, Chair, Staircase, Edit item.
@@ -328,7 +328,7 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 - **Adding floors:** Studio's "Add floor above" and Preview's N ask "Copy rooms from below" (default) or "Empty floor";
   `editor.addFloor({ copyRooms })` copies footprints, types, wall heights, doors and windows (no furniture, no stairs),
   one undo step. N takes you to the new floor; Studio switches to it.
-- **Preview floors:** Page Up / Page Down (or ▲ ▼ by "Floor 1 of 3" in the HUD) = `play.stepFloor(±1)` →
+- **Preview floors:** Page Up / Page Down (or ▲ ▼ by the floor's name in the HUD, `floorPosition(…).name`; the viewer HUD shows it too, v0.13.1) = `play.stepFloor(±1)` →
   `arrivalOnFloor`: same x, z, standing on a room there, else flying at that floor's height; a wall or a desk there
   = the nearest free spot (`freeSpot`, see "Where walking starts"). Preview again after another floor was chosen
   (Studio's floor switcher) starts on that floor the same way, and a message left from the last walk is cleared
@@ -387,8 +387,9 @@ Step v0.13.0 of `private-docs/NAVIGATION_PLAN.md` (4.1, 4.2, 4.6). Pure maths in
   roomBuilder builds (`roomWallSegments` / `wallSegmentOpenings` / `splitWall`: shared walls once, doors of either
   room cut them, windows don't), + skirting (it collides). Items: as ObjectSystem makes them collide (not markers,
   stairs, `solid: false`, nor y ≥ 1.8 m), catalogue size × scale, turned; `MODEL_SIZES` for the 5 models bigger than
-  their catalogue size (`footprints.test.js` measures every model). A 1 m door leaves ~0.26 m; doors under ~0.9 m can
-  be closed on the map (cell size). Meridian: ~15 ms per floor. `createWalkMapCache` rebuilds only when the store's
+  their catalogue size (`footprints.test.js` measures every model). A 1 m door leaves ~0.26 m. Doors from 0.8 m are
+  open, as for the real collision (v0.13.1): the cells a door's centre line crosses are tested ON that line (step 5,
+  door passages; walls and items still exact), 0.7 m and narrower stay closed. Meridian: ~15 ms per floor. `createWalkMapCache` rebuilds only when the store's
   room / item records or floors change.
 - **Spawn** (`entrance.js` `entranceSpawn`): always the ground floor: its `SPAWN_POINT` (if blocked: the nearest free
   spot), else the **main entrance** (`outsideDoors`: on a part of the wall no room shares, its room not inside another,
@@ -404,7 +405,9 @@ Step v0.13.0 of `private-docs/NAVIGATION_PLAN.md` (4.1, 4.2, 4.6). Pure maths in
   from a spot computed through a wall); features and teammates' code must never pass it.
   Collisions themselves (walls, windows, solid furniture, `moveWithSteps`) and free walking are unchanged.
 - **UI:** viewer / embed HUD button "Back to entrance" (`data-hud="entrance"`, top left next to the keys hint);
-  Preview's HUD "Entrance" (aria-label `Back to entrance`) + Home in its key list.
+  Preview's HUD "Entrance" (aria-label `Back to entrance`) + Home in its key list. The spawn point's marker (the blue
+  disc) shows in Studio only (Preview too): LayoutEngine outside edit mode hides `STUDIO_ONLY_TYPES`
+  (`ObjectSystem.setHiddenTypes`, FloorSystem never enables them; the item, its anchor and focusOn stay), v0.13.1.
 - Not yet: Studio hints ("No door leads outside…", "Spawn point is inside furniture…"); routes, search and "take me
   there" are v0.13.1–v0.13.3.
 
@@ -742,8 +745,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Walking as yourself: walk ↔ stand switches at once (no blend); no turn-on-the-spot, running or flying clip (Shift
   plays the walk faster, flying stands); Studio's Preview still walks as the simple figure. Checked with our
   placeholder figures only, not yet with AJ / ch12 / Victoria (AHDUS step after the tag).
-- Walk map: doors narrower than ~0.9 m may show as closed (0.1 m cells, body 0.64 m + margin); only routes (v0.13.1)
-  will care. Studio doesn't warn yet about a layout with no door outside or a spawn point inside furniture.
+- Walk map: a door passage is one cell wide where the door is under ~0.9 m (routes must allow that). Studio doesn't warn yet about a layout with no door outside or a spawn point inside furniture.
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).
 
@@ -809,15 +811,22 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
 
 Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REPORT.md 3.18); see "Realistic look" above.
 
+## DONE: the v0.13.0 review fixes (v0.13.1, 7 Nov 2026, branch `fix/v0.13.1`)
+
+private-docs/NAVIGATION_PLAN.md 5.1, one commit each: doors from 0.8 m are open on the walk map (door passages,
+see "Where walking starts"; 0.6 / 0.7 m stay closed); the third-person camera is centred on a portrait phone
+(`playController.shoulderOffset(aspect)`); the viewer / embed HUD and Preview's floor control show the floor's own
+name (`floorPosition(…).name`), not "Floor 1 of 2"; the spawn point's blue disc shows in Studio only
+(`LayoutEngine.STUDIO_ONLY_TYPES`). Screenshots (viewer.html, 1440×900 + 390×844): private-docs/screenshots/v0.13.1/
+(not in git). **Next: v0.13.1 routes** (`route.js`, NAVIGATION_PLAN.md 5; the release table calls it v0.13.1, so
+it will be tagged v0.13.2 or later: Himan decides).
+
 ## DONE: walkthrough starts at the entrance (v0.13.0, 6 Nov 2026, branch `fix/walkthrough-spawn`)
 
 Step v0.13.0 of private-docs/NAVIGATION_PLAN.md: the walk map + entrance spawn, Home / "Back to entrance", Page Up /
 Down and setPose never land in a wall or a desk (see "Where walking starts"). Screenshots (Meridian, with and without
 its spawn point, opened while Floor 1 was shown): private-docs/screenshots/v0.13.0/ (not in git).
-**Next, v0.13.1 (first, before routes; private-docs/NAVIGATION_PLAN.md 5.1):** doors from 0.8 m open on the walk
-map (as the real collision); centre the third-person character on phones (390 px: half off the left edge); the HUD
-shows the floor's own name, not "Floor 1 of 2" (confusing next to a floor named "Floor 1"); hide the spawn-point
-marker (blue disc) outside Studio.
+The four fixes of its review are v0.13.1 (below).
 
 ## DONE: no red pointer-lock errors (v0.12.3, 6 Nov 2026, branch `fix/pointer-lock-promise`)
 
