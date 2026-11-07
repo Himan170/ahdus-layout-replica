@@ -516,9 +516,12 @@ export function LayoutViewer(props: LayoutViewerProps) {
         // The toolbar, top left: walking, the keys hint and Back to entrance; the search button
         const walkBar = walking && !error && hud ? (
           <>
-            <div id={keysHintId} data-hud="keys" style={styles.keys}>
+            {/* the view's description for screen readers (always); the pill shows only in mouse look (v0.14.0):
+                the cursor is gone then, and Esc is how to get it back. Otherwise Esc still releases the keys */}
+            <span id={keysHintId} data-hud="keys-state" style={styles.srOnly}>
               {hud.locked ? 'Mouse look · Esc to release' : engaged ? 'Esc to release' : 'Click the view to walk'}
-            </div>
+            </span>
+            {hud.locked && <div aria-hidden data-hud="keys" style={styles.keys}>Mouse look · Esc to release</div>}
             <button
               type="button"
               data-hud="entrance"
@@ -603,7 +606,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
           <div style={styles.hud} aria-live="polite">
             <span data-hud="room"><strong>{hud.roomName}</strong></span>
             {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · {hud.floor.name ?? `Floor ${hud.floor.index}`}</span>}
-            <div data-hud="hint">{hud.message ?? hud.hint?.detail}</div>
+            {/* while the one-time hint shows, the keys aren't said twice (a message still shows) */}
+            {(hud.message ?? (hint ? null : hud.hint?.detail)) && <div data-hud="hint">{hud.message ?? hud.hint?.detail}</div>}
             {engaged && hud.prompt && (
               <div data-hud="prompt"><kbd style={styles.key}>E</kbd> {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</div>
             )}
@@ -667,6 +671,10 @@ const styles: Record<string, CSSProperties> = {
   },
   row: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   keys: { ...panel, position: 'static', padding: '4px 10px', fontSize: 13 },
+  srOnly: {
+    position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)',
+    whiteSpace: 'nowrap', border: 0,
+  },
   button: {
     ...panel, position: 'static', padding: '4px 10px', fontSize: 13, pointerEvents: 'auto', cursor: 'pointer',
     border: '1px solid #fff6',

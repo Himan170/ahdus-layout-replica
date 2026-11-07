@@ -181,7 +181,8 @@ log('realistic look: items are real models, loaded from assets/ next to the scri
 await shot('embed-page.png');
 
 // ── 1b. The keys are the page's until the view is engaged (clicked, or focused with Tab); Esc gives them back ──
-const keysHint = () => p.locator('[data-hud="keys"]').textContent({ timeout: 5000 }).catch(() => '');
+// who has the keys: the view's description (for screen readers); the visible pill shows only in mouse look (v0.14.0)
+const keysHint = () => p.locator('[data-hud="keys-state"]').textContent({ timeout: 5000 }).catch(() => '');
 const focusName = () => p.evaluate(() => {
   const a = document.activeElement;
   return a?.closest('[data-layout-viewer]') ? 'viewer' : a?.id || a?.tagName || ''; // in the view: the box or its canvas
@@ -200,12 +201,12 @@ async function hold(key, n = 4) {
 // v0.14.0: walking starts with the keys (the view takes the focus, no click); the mouse is never captured by itself
 const atLoad = {
   lock: await p.evaluate(() => !!document.pointerLockElement), hint: await keysHint(), focus: await focusName(),
-  ring: await p.locator('[data-focus-ring]').count(),
+  ring: await p.locator('[data-focus-ring]').count(), pill: await p.locator('[data-hud="keys"]').count(),
 };
 await pose(0, -9, 0, 0);                                                // outside, facing the reception door: room to walk
 const loadWalk = await hold('KeyW');
 log('walking starts with the keys: the view has the focus at once (no click, no focus ring), W walks; the mouse is not captured',
-  !atLoad.lock && atLoad.hint === 'Esc to release' && atLoad.focus === 'viewer' && atLoad.ring === 0 && loadWalk > 0.1,
+  !atLoad.lock && atLoad.hint === 'Esc to release' && atLoad.pill === 0 && atLoad.focus === 'viewer' && atLoad.ring === 0 && loadWalk > 0.1,
   JSON.stringify({ atLoad, loadWalk: +loadWalk.toFixed(2) }));
 const start = await pos();
 await p.click('#page-note');

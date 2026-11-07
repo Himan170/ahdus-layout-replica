@@ -99,6 +99,8 @@ const base = `http://localhost:${port}/`;
 
 const b = await chromium.launch({ ...(exe ? { executablePath: exe } : {}), args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const p = await b.newPage({ viewport: { width: 1280, height: 720 } });
+// the one-time walking hint (v0.14.0, e2e:controls) has been seen: the HUD's own line shows at once
+await p.addInitScript(() => { try { localStorage.setItem('ahdus.walkHintSeen', '1'); } catch { /* none */ } });
 p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 p.on('console', (m) => {
   if (m.type() !== 'error' || m.text().includes('BJS')) return;

@@ -89,10 +89,11 @@ npm run e2e:seats    # 24 checks   e2e/seats-smoke.mjs     (NO dev server: start
                      #                                       search, move / replace questions, not in undo, People
                      #                                       without a desk, the Publish warning, editors read-only,
                      #                                       phone; SHOTS=<dir>: screenshots)
-npm run e2e:controls # 15 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
+npm run e2e:controls # 17 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
                      #                                       to look (cursor stays), Back to entrance / ? / Find / Clear give
                      #                                       the keys back, click the floor walks there, a key ends it, a
-                     #                                       desk = the card, the CNC = its action, double-click / L / Esc;
+                     #                                       desk = the card, the CNC = its action, double-click / L / Esc,
+                     #                                       the pill only in mouse look, no HUD line under the hint, the sky's 6 sides;
                      #                                       SHOTS=<dir>: 1440×900 + 390×844 screenshots)
 npm run e2e          # all of them (Himan's laptop once hung on this: run the scripts ONE AT A TIME)
 node e2e/real-assets-shots.mjs before|after   # screenshots of one sample layout: e2e/screens/real-assets-<tag>-*.png
@@ -595,7 +596,13 @@ walkthrough only: **Studio's Preview keeps pointer lock exactly as before** (pla
 - **Hint + help** (`LayoutViewer`): the first walk in a browser shows `WALK_HINT` "W A S D to walk · drag to look ·
   click the floor to go there" for 6 s (localStorage `ahdus.walkHintSeen`, try / catch; not on touch-only devices);
   the "?" button (`data-hud="help"`, aria-label `Keys and mouse`) opens `WALK_HELP` (14 rows, `data-walk-help`), Esc or a
-  press outside closes it. Pill: "Click the view to walk" / "Esc to release" / "Mouse look · Esc to release".
+  press outside closes it. While the hint shows, the HUD's own keys line under the room name is hidden (not the same words
+  twice; a message still shows). The pill "Mouse look · Esc to release" (`data-hud="keys"`) shows only in mouse look;
+  who has the keys is the view's description for screen readers (`data-hud="keys-state"`, hidden: "Click the view to
+  walk" / "Esc to release" / "Mouse look · Esc to release").
+- **One engine per canvas at a time:** `LayoutEngine.create(canvas, { signal })`: aborted before it is ready = disposed
+  at once (an AbortError). `<LayoutViewer>` aborts on unmount: in dev (StrictMode) the first engine used to keep running
+  on the canvas's WebGL context while the second started, and the second one's first sky face (+X) decoded black.
 - Tests: `play/__tests__/dragLook.test.js`, `engine/__tests__/WalkthroughSystem.test.ts` (jsdom, the real controller on
   a NullEngine), `LayoutEngine.test.ts` (walkClick), `e2e/controls-smoke.mjs`.
 
@@ -945,7 +952,8 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Take me there: no lifts, no running; the line is drawn on the floor you are on only (the stairs marker shows where
   to go up); a route through a door narrower than ~0.9 m keeps the body on its centre line (slow there). Studio's
   Preview has no search box, so no Show route there.
-- Easy controls (v0.14.0): touch is not done yet (v0.14.1): touch keeps its v0.13 behaviour (no drag look or tap to walk by touch).
+- Easy controls (v0.14.0): touch is not done yet (v0.14.1): touch keeps its v0.13 behaviour (no drag look or tap to walk by touch),
+  and the hint, the HUD line and the "?" help still use mouse words on touch screens (v0.14.1: joystick, drag, tap).
   A click on a wall walks to the spot in front of it; there is no "walk to the room behind this wall".
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).

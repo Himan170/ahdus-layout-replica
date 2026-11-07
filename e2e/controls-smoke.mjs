@@ -39,6 +39,8 @@ await ctx.addInitScript(() => {
   new MutationObserver(() => {
     const el = document.querySelector('[data-walk-hint]');
     if (el && window.__hints.at(-1) !== el) { window.__hints.push(el); window.__hintTexts = window.__hints.map((h) => h.textContent); }
+    // the HUD's own keys line while the hint shows (it shouldn't: the same words twice)
+    if (el && document.querySelector('[data-hud="hint"]')) window.__hudLineWithHint = document.querySelector('[data-hud="hint"]').textContent;
   }).observe(document, { childList: true, subtree: true });
 });
 const p = await ctx.newPage();
@@ -72,6 +74,10 @@ const focus = () => p.evaluate(() => {
   return a?.tagName ?? '';
 });
 const keysPill = () => p.locator('[data-hud="keys"]').textContent({ timeout: 5000 }).catch(() => '');
+/** The pill "Mouse look · Esc to release": only in mouse look (v0.14.0). */
+const pillCount = () => p.locator('[data-hud="keys"]').count();
+/** The view's description for screen readers: who has the keys. */
+const keysState = () => p.locator('[data-hud="keys-state"]').textContent({ timeout: 5000 }).catch(() => '');
 const nav = () => p.evaluate(() => (window.__viewerNav ?? []).map((e) => ({ state: e.state, source: e.source ?? null })));
 const walkingNow = () => p.evaluate(() => window.__ahdusViewer.navigation.walking);
 /** Where a world point is on the page (px). */
@@ -94,19 +100,21 @@ await ready();
 await p.evaluate((s) => window.__ahdusScene.getEngine().setHardwareScalingLevel(s), SHOTS ? 1 : 2); // fast without a GPU
 await frames(3);
 if (SHOTS) await shot('controls-start.png');
-const atStart = { focus: await focus(), lock: await locked(), ring: await p.locator('[data-focus-ring]').count(), pill: await keysPill() };
+const atStart = { focus: await focus(), lock: await locked(), ring: await p.locator('[data-focus-ring]').count(), pill: await pillCount(), state: await keysState() };
 const walked = await hold('KeyW');
-log('walking starts with the keys: the view has the focus (no ring, no click), W walks; the mouse is not captured',
-  atStart.focus === 'view' && !atStart.lock && atStart.ring === 0 && atStart.pill === 'Esc to release' && walked > 0.1,
+log('walking starts with the keys: the view has the focus (no ring, no click), W walks; the mouse is not captured; no "Esc to release" button',
+  atStart.focus === 'view' && !atStart.lock && atStart.ring === 0 && atStart.pill === 0 && atStart.state === 'Esc to release' && walked > 0.1,
   JSON.stringify({ ...atStart, walked: +walked.toFixed(2) }));
 
 await p.waitForFunction(() => window.__hintTexts?.length > 0, null, { timeout: 30000 }).catch(() => {});
-const hints = await p.evaluate(() => ({ texts: window.__hintTexts ?? [], seen: localStorage.getItem('ahdus.walkHintSeen') }));
+const hints = await p.evaluate(() => ({ texts: window.__hintTexts ?? [], seen: localStorage.getItem('ahdus.walkHintSeen'), lineWithHint: window.__hudLineWithHint ?? null }));
 await p.waitForSelector('[data-walk-hint]', { state: 'detached', timeout: 30000 }).catch(() => {});
 const hintGone = (await p.locator('[data-walk-hint]').count()) === 0;
-log('the one-time hint: "W A S D to walk · drag to look · click the floor to go there", then it goes',
-  hints.texts.length === 1 && hints.texts[0] === 'W A S D to walk · drag to look · click the floor to go there' && hints.seen === '1' && hintGone,
-  JSON.stringify({ ...hints, hintGone }));
+const lineAfter = await p.locator('[data-hud="hint"]').textContent({ timeout: 5000 }).catch(() => '');
+log('the one-time hint: "W A S D to walk · drag to look · click the floor to go there", then it goes; the HUD line under the room name only after it',
+  hints.texts.length === 1 && hints.texts[0] === 'W A S D to walk · drag to look · click the floor to go there' && hints.seen === '1' && hintGone &&
+  hints.lineWithHint === null && /^W A S D walk/.test(lineAfter),
+  JSON.stringify({ ...hints, hintGone, lineAfter }));
 
 // ── 2. Drag to look: the view turns, the cursor stays, no walk ──
 await pose(0, -12, 0, -0.2);
@@ -244,15 +252,15 @@ const mouseLook = { lock: await locked(), crosshair: await p.locator('[data-cros
 if (SHOTS) await shot('controls-mouse-look.png');
 await p.keyboard.press('Escape');
 await frames(2);
-const esc1 = { lock: await locked(), focus: await focus(), crosshair: await p.locator('[data-crosshair]').count(), walked: +(await hold('KeyW')).toFixed(2) };
+const esc1 = { lock: await locked(), focus: await focus(), crosshair: await p.locator('[data-crosshair]').count(), pill: await pillCount(), walked: +(await hold('KeyW')).toFixed(2) };
 await wait(500); // an Esc within 0.4 s of the release is the same key press (the browser's own Esc), not a second one
 await p.keyboard.press('Escape');
 await frames(2);
-const esc2 = { focus: await focus(), walked: +(await hold('KeyW')).toFixed(2), pill: await keysPill() };
-log('double-click: mouse look (crosshair, "Mouse look · Esc to release"); Esc releases the mouse and the keys stay; the next Esc gives them back',
+const esc2 = { focus: await focus(), walked: +(await hold('KeyW')).toFixed(2), pill: await pillCount(), state: await keysState() };
+log('double-click: mouse look (crosshair, "Mouse look · Esc to release"); Esc releases the mouse (the pill goes) and the keys stay; the next Esc gives them back',
   mouseLook.lock && mouseLook.crosshair === 1 && mouseLook.pill === 'Mouse look · Esc to release' && mouseLook.walking === null &&
-  !esc1.lock && esc1.focus === 'view' && esc1.crosshair === 0 && esc1.walked > 0.1 &&
-  esc2.focus !== 'view' && esc2.walked < 0.01 && esc2.pill === 'Click the view to walk',
+  !esc1.lock && esc1.focus === 'view' && esc1.crosshair === 0 && esc1.pill === 0 && esc1.walked > 0.1 &&
+  esc2.focus !== 'view' && esc2.walked < 0.01 && esc2.pill === 0 && esc2.state === 'Click the view to walk',
   JSON.stringify({ mouseLook, esc1, esc2 }));
 
 await p.mouse.click(sky.x, sky.y); // takes the keys back (a click on the sky walks nowhere)
@@ -265,6 +273,23 @@ await p.keyboard.press('KeyL');
 await frames(2);
 log('a click on the view takes the keys back; L switches mouse look on and off',
   back.focus === 'view' && back.walking === null && lLock && !(await locked()), JSON.stringify({ ...back, lLock }));
+
+// The sky: all six sides of its cube map decoded (the first one was black in dev: React StrictMode's first engine
+// still ran on the same WebGL context; it is disposed at once now)
+await p.waitForFunction(() => window.__ahdusScene.environmentTexture?.isReady(), null, { timeout: 60000 }).catch(() => {});
+const skyFaces = await p.evaluate(async () => {
+  const tex = window.__ahdusScene.environmentTexture;
+  if (!tex) return null;
+  const means = [];
+  for (let f = 0; f < 6; f++) {
+    const d = await tex.readPixels(f, 0);
+    let s = 0;
+    for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2];
+    means.push(+(s / (d.length / 4) / 3).toFixed(2));
+  }
+  return means;
+});
+log('the sky has all six sides (none black)', !!skyFaces && skyFaces.every((m) => m > 0.1), JSON.stringify(skyFaces));
 
 // ── 7. The hint only once per browser ──
 await p.reload();
