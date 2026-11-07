@@ -542,11 +542,18 @@ export class LayoutEngine {
     return this.characters?.pickPerson(x, y) ?? null;
   }
 
-  /** Walking through: the person the character stands next to (within `radius` m on its floor), or null. */
-  personNearWalker(radius = 1.8): PlacedPerson | null {
+  /**
+   * Walking through: the person the character stands next to (within `radius` m on its floor), or null.
+   * With `personId`: that person only (the viewer keeps the card of the person a walk arrived at).
+   */
+  personNearWalker(radius = 1.8, personId: string | null = null): PlacedPerson | null {
     const walk = this._walkthrough;
     if (!this.characters || !walk?.isActive()) return null;
-    return this.characters.personAt(walk.getPosition(), walk.getLevel(), radius);
+    if (personId === null) return this.characters.personAt(walk.getPosition(), walk.getLevel(), radius);
+    // one person (the one a walk arrived at): within radius on your floor
+    const at = walk.getPosition();
+    const p = this.characters.getPlaced().find((q) => q.personId === personId);
+    return p && p.floor === walk.getLevel() && Math.hypot(p.x - at.x, p.z - at.z) <= radius ? p : null;
   }
 
   // ── Querying ───────────────────────────────────────────────────────────

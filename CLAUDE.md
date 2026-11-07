@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (878, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (880, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -80,7 +80,7 @@ npm run e2e:characters # 36     e2e/characters-smoke.mjs (NO dev server: builds 
 npm run e2e:navigation # 19 checks e2e/navigation-smoke.mjs (viewer.html, the Meridian-shaped layout; MERIDIAN=<layout.json>
                      #                                       MERIDIAN_PEOPLE=<people.json> = the real one: the card's Show route /
                      #                                       Take me there, from above = from the entrance, the line (≤ 2
-                     #                                       meshes), re-route 3 m off, Kavya at reception, Floor 1 by the
+                     #                                       meshes), re-route 3 m off, Kavya at reception (in front of the counter, facing her), Floor 1 by the
                      #                                       stairs, nearest washroom, every frame clear of walls / furniture,
                      #                                       W pauses + G, the time, Esc / Stop, free walking, phone; run it
                      #                                       ALONE; SHOTS=<dir>: screenshots + a .webm recording)
@@ -479,7 +479,9 @@ Step v0.13.3 of `private-docs/NAVIGATION_PLAN.md` (4.4, and the "not walking" pa
   another name), facilities (`FACILITIES`: RESTROOM = washroom / restroom / toilet / WC / bathroom…, MEETING,
   RECEPTION, STAIRS: rooms of those types, and RECEPTION_DESK / STAIRCASE items not in a room of their kind). Each
   place: `detail` ("HR · Ground Floor, Lobby & Reception"), `entityId` (focusOn), `highlight` ids (a person: desk +
-  chair), `goals` (where a walk ends: just inside each door, 0.7 m behind a chair, in front of a stair's bottom step).
+  chair), `goals` (where a walk ends: just inside each door, 0.7 m behind a chair (a
+  reception desk: in front of its counter, `people.visitorSpot`: its visitor side, `COUNTER_GAP` 0.45 m out), in front of a
+  stair's bottom step).
 - **Search** (`searchPlaces`): every query word must start a word of the place (name words first; 3+ letters also
   inside a name word); whole names first; then the floor shown / where you stand. A query naming a facility
   ("wash") lists all of them; walking (`from` with x, z) a "Nearest washroom" entry comes first. Groups People /
@@ -528,7 +530,9 @@ Preview has no search box).
   (1.8 / 1.3 / 0.9 / 0.6 m, side offsets ± 0.1 / 0.2 m; clear = cells walkable + `FURNITURE_CLEARANCE` 0.44 m from
   items, or as much as there is), pushes away from furniture across the way; where it is **tight** (`tightAhead`: the map
   blocked on both sides within 0.3 m of the line in the next 1.5 m, a 1 m door, a narrow aisle) it follows the route's
-  own line closely, at most 2.8 m/s and 0.2 m per frame (a slow frame cut the corner into a door frame), turns at most `TURN_RATE` (270°/s) and
+  own line closely, at most 2.8 m/s and 0.2 m per frame (a slow frame cut the corner into a door frame); a step never
+  ends closer than 0.36 m to a wall or item (`SAFE_CLEARANCE`, nor closer than you are), else it is halved (the turn off
+  the top of a flight at 0.25 s frames), turns at most `TURN_RATE` (270°/s) and
   slows for turns, corners and the last 2 m (`AUTO_SPEED` 4.2 = WALK_SPEED). `offRoute` (> 3 m: `OFF_ROUTE`),
   `stuck` (< 0.3 m in 1.5 s), `arrived` (within 1 m on the goal's floor).
 - **NavigationSystem's rules:** off route → a new route (≤ every 0.5 s); stuck → a new route, stuck twice (the count
@@ -547,7 +551,8 @@ Preview has no search box).
   (`data-nav-strip` = state, `data-nav-walk`, `data-nav-paused`) replaces the card: "Going to Kavya Iyer · 42 m
   [· Floor 1]" (`goingLine`), "Paused · Press G to continue", Continue / Take me there (`data-nav-continue`), Stop
   (`data-nav-stop`); then "You have arrived" + name + detail, or the problem (`data-nav-problem`), with Close. The
-  person card shows by itself there (within 1.8 m). `<LayoutViewer onModeChange onNavigation>`; viewer.html keeps
+  person card shows by itself there (within 1.8 m; after a walk arrives at a person, their card stays while you are
+  within 3 m: across a reception counter too, `personNearWalker(radius, personId)`). `<LayoutViewer onModeChange onNavigation>`; viewer.html keeps
   `window.__viewerNav` (dev).
 - **Embed:** `workplace.goTo(target, { walk })` (a name = the first search result), `stopRoute()`, the 'navigation'
   event; the handle's `mode` follows the engine's 'mode' event.

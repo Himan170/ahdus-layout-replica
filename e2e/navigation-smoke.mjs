@@ -211,16 +211,25 @@ await watch(true);
 const kavyaArrived = await waitNav(['arrived', 'failed', 'stopped']);
 await watch(false);
 const m1 = await mon();
-const kavyaDesk = await place(people.find((x) => x.name === 'Kavya Iyer').deskId);
-const facing = await p.evaluate((d) => {
-  const w = window.__ahdusViewer.walkthrough;
+// in front of the counter (its visitor side: the desk's local +Z, the receptionist works at −Z), facing her
+const kavya = people.find((x) => x.name === 'Kavya Iyer');
+const facing = await p.evaluate(({ deskId, personId }) => {
+  const e = window.__ahdusViewer;
+  const w = e.walkthrough;
   const v = w.getPosition();
-  const want = Math.atan2(d.x - v.x, d.z - v.z);
+  const d = e.getStore().getState().objects[deskId];
+  const her = e.characters?.getPlaced().find((q) => q.personId === personId);
+  const r = d.rotationY ?? 0;
+  const lx = (v.x - d.x) * Math.cos(r) - (v.z - d.z) * Math.sin(r); // the walker in the desk's own frame
+  const lz = (v.x - d.x) * Math.sin(r) + (v.z - d.z) * Math.cos(r);
+  const want = Math.atan2(her.x - v.x, her.z - v.z);
   const diff = Math.abs(Math.atan2(Math.sin(want - w.getYaw()), Math.cos(want - w.getYaw())));
-  return { diff, dist: Math.hypot(d.x - v.x, d.z - v.z) };
-}, kavyaDesk);
-log('Take me there: arrives at Kavya Iyer\'s desk and faces it', kavyaArrived?.state === 'arrived' && facing.dist < 2.5 && facing.diff < 0.6,
-  `${kavyaArrived?.state}${kavyaArrived?.message ? ` (${kavyaArrived.message})` : ''}, ${facing.dist.toFixed(2)} m from the desk, ${(facing.diff * 57.3).toFixed(0)}° off`);
+  return { lx, lz, diff, toHer: Math.hypot(her.x - v.x, her.z - v.z), herLz: (her.x - d.x) * Math.sin(r) + (her.z - d.z) * Math.cos(r) };
+}, { deskId: kavya.deskId, personId: String(kavya.personId) });
+log('Take me there: ends in front of the reception counter, facing Kavya Iyer behind it',
+  kavyaArrived?.state === 'arrived' && facing.herLz < 0 && facing.lz > 0.425 && facing.lz < 2.5 && Math.abs(facing.lx) < 1.25 && facing.diff < 0.6,
+  `${kavyaArrived?.state}${kavyaArrived?.message ? ` (${kavyaArrived.message})` : ''}, ${facing.lz.toFixed(2)} m in front of the counter's centre `
+  + `(she sits ${(-facing.herLz).toFixed(2)} m behind it), ${facing.toHer.toFixed(2)} m from her, ${(facing.diff * 57.3).toFixed(0)}° off`);
 log('…never inside a wall or furniture (every frame)', m1.frames > 3 && m1.min > INSIDE, `${m1.frames} frames, closest ${m1.min.toFixed(3)} m (${JSON.stringify(m1.at)})`);
 await wait(1500);
 const card = await p.evaluate(() => ({

@@ -112,6 +112,8 @@ interface Hud {
 /** How often the person under the pointer (or next to the walker) is looked up (ms). */
 const PERSON_EVERY_MS = 50;
 const NEAR_EVERY_MS = 250;
+/** After a walk arrives at a person, their card stays while you are this close (m; across a counter too). */
+const ARRIVED_CARD_M = 3;
 /** A click or tap, not a drag of the view: at most this far (px) and this long (ms) from press to release. */
 const TAP_PX = 8;
 const TAP_MS = 600;
@@ -156,6 +158,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [person, setPerson] = useState<{ who: PlacedPerson; at: { x: number; y: number } | null; pinned?: boolean } | null>(null);
   // the latest callbacks, so the engine's handlers never call stale ones
   const propsRef = useRef(props);
+  /** The person the last walk (Take me there / Show route) arrived at, while you stay near them. */
+  const arrivedRef = useRef<string | null>(null);
   propsRef.current = props;
   const readyFor = useRef<LayoutEngine | null>(null); // onReady once per engine
 
@@ -192,7 +196,11 @@ export function LayoutViewer(props: LayoutViewerProps) {
           setShownMode(m);
           if (m !== 'edit') propsRef.current.onModeChange?.(m);
         }),
-        e.on('navigation', (ev) => propsRef.current.onNavigation?.(ev)),
+        e.on('navigation', (ev) => {
+          if (ev.state === 'arrived') arrivedRef.current = ev.place?.personId != null ? String(ev.place.personId) : null;
+          else if (ev.state === 'started') arrivedRef.current = null;
+          propsRef.current.onNavigation?.(ev);
+        }),
         e.on('progress', (p) => {
           setProgress(p);
           propsRef.current.onProgress?.(p);
@@ -271,7 +279,11 @@ export function LayoutViewer(props: LayoutViewerProps) {
     const same = (a: PlacedPerson | null | undefined, b: PlacedPerson | null | undefined) => (a?.personId ?? null) === (b?.personId ?? null);
     if (shownMode === 'walkthrough') {
       const timer = setInterval(() => {
-        const who = engine.personNearWalker();
+        let who = engine.personNearWalker();
+        if (!who && arrivedRef.current !== null) {
+          who = engine.personNearWalker(ARRIVED_CARD_M, arrivedRef.current);
+          if (!who) arrivedRef.current = null; // walked away: back to the usual 1.8 m
+        }
         setPerson((was) => (same(was?.who, who) ? was : who ? { who, at: null } : null));
       }, NEAR_EVERY_MS);
       return () => { clearInterval(timer); setPerson(null); };

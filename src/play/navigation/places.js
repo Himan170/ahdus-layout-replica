@@ -22,13 +22,14 @@
  * comes first, whose goals go to findNearestRoute (route.js).
  *
  * Each place has `goals`: where a walk to it ends ({ x, z, floor }): just
- * inside each door of a room, behind a person's chair (their aisle side), in
+ * inside each door of a room, behind a person's chair (their aisle side; at a
+ * reception desk: in front of its counter, people.visitorSpot), in
  * front of a staircase's bottom step. Tests: navigation/__tests__/places.test.js.
  */
 
 import { floorAbove, stairDimsFor } from '../building';
 import { roomOpenings, wallThicknessOf } from '../geometry';
-import { deskSeats, seatPose, isDesk } from '../people';
+import { deskSeats, seatPose, isDesk, visitorSpot } from '../people';
 import { stairBottom } from './route';
 
 const list = (v) => (Array.isArray(v) ? v : Object.values(v ?? {}));
@@ -196,7 +197,7 @@ export function buildPlaces(layout, people = []) {
       detail = joinDetail('Stairs', above ? `${floorName(floor)} to ${floorName(above.id)}` : floorName(floor));
     } else if (isDesk(o.assetType)) {
       const pose = seatPose(o.id, objects, floors);
-      if (pose) goal = behind(pose);
+      goal = visitorSpot(o) ?? (pose ? behind(pose) : goal);
     }
     add({
       id: `item:${o.id}`, kind: 'facility', group: 'facilities', name, detail,
@@ -223,7 +224,7 @@ export function buildPlaces(layout, people = []) {
       floor, roomId: room?.id ?? null, roomName: roomName(room), department: dept || null, facility: null,
       personId: String(p.personId), deskId: desk.id,
       entityId: desk.id, highlight: [desk.id, ...(pose?.chairId ? [pose.chairId] : [])],
-      x: at.x, z: at.z, goals: [{ ...(pose ? behind(pose) : { x: desk.x, z: desk.z }), floor }],
+      x: at.x, z: at.z, goals: [{ ...(visitorSpot(desk) ?? (pose ? behind(pose) : { x: desk.x, z: desk.z })), floor }],
     }, name, [dept]);
   }
 
