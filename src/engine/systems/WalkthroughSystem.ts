@@ -19,6 +19,7 @@ import { createPlayController } from '../../play/playController';
 import { lockPointer } from '../../utils/pointerLock';
 import type { LayoutRecords, V1Room } from './RoomSystem';
 import type { PlayCharacter } from './PlayerCharacter';
+import type { Pilot } from './NavigationSystem';
 
 /** What E was pressed on: an item, or a door / window of a room (playController's target). */
 export interface WalkthroughTarget {
@@ -123,6 +124,7 @@ export class WalkthroughSystem {
    * @param getState  the layout to walk through (the store's v1 records)
    * @param getObjectMesh  an item's root node (ObjectSystem)
    * @param focusTarget  the view's box (focus in it engages the view); default the canvas
+   * @param walkMaps  the walk maps to share (NavigationSystem.walkMaps); default the controller's own
    */
   constructor(
     scene: Scene,
@@ -131,6 +133,7 @@ export class WalkthroughSystem {
     getObjectMesh: (objectId: string) => TransformNode | null,
     callbacks: WalkthroughCallbacks = {},
     focusTarget: HTMLElement | null = null,
+    walkMaps: unknown = null,
   ) {
     this.canvas = canvas;
     this.scene = scene;
@@ -158,6 +161,8 @@ export class WalkthroughSystem {
       isEngaged: this.isEngaged,
       // Every walk starts at the entrance (the ground floor), wherever you were looking from above
       respawnOnActivate: true,
+      // one cache of walk maps for the search, the routes and walking
+      walkMaps,
     });
   }
 
@@ -236,6 +241,14 @@ export class WalkthroughSystem {
    */
   setPose(pose: { x: number; z: number; yaw?: number; pitch?: number; floor?: number; y?: number; fly?: boolean; exact?: boolean }): void {
     this.controller.setPose(pose);
+  }
+
+  /**
+   * Follow a route (NavigationSystem, "Show route" / "Take me there"): asked every frame where to go;
+   * null = free walking, exactly as before.
+   */
+  setAutopilot(pilot: Pilot | null): void {
+    this.controller.setAutopilot(pilot);
   }
 
   getPosition(): Vector3 {

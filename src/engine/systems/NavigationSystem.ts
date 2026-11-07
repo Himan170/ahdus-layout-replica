@@ -1,30 +1,39 @@
 /**
  * NavigationSystem.ts
  *
- * Search and show places (v0.13.3, private-docs/NAVIGATION_PLAN.md 4.4 and
- * the "not walking" part of 4.5): `engine.navigation`.
+ * Search, show and go to places: `engine.navigation` (v0.13.3 search, v0.13.4
+ * "Show route" / "Take me there"; private-docs/NAVIGATION_PLAN.md 4.4 to 4.7).
  *
  *   engine.navigation.find('Kavya')   → [{ id, kind, name, detail, floorId, … }]  (People, Rooms, Facilities)
  *   engine.navigation.show(id)        → from above: its floor, the camera flies to it, it is outlined;
- *                                       walking: it is outlined and the walk to it is measured (route.js;
- *                                       "Nearest washroom": findNearestRoute from where you stand)
- *   engine.navigation.clear()         → the outline goes
+ *                                       walking: it is outlined and the walk to it is measured
+ *   engine.navigation.routeTo(target, { walk: 'guide' | 'auto' })
+ *                                     → walking there (from above: walking starts at the entrance):
+ *                                       'guide' = Show route (a line on the floor, you walk),
+ *                                       'auto' = Take me there (your character walks it)
+ *   engine.navigation.stop()          → the route ends
+ *   engine.on('navigation', (e) => …) → { state: 'started' | 'progress' | 'arrived' | 'stopped' | 'failed', … }
  *
  * The index (play/navigation/places.js, pure) is made again when the layout's
- * rooms, items or floors, or the people (setPeople), change; a search is a few
- * ms for hundreds of people. Walking there ("Walk there", "Show route") is
- * v0.13.4.
+ * rooms, items or floors, or the people (setPeople), change. The walk maps are
+ * one cache (walkMaps), shared with the walkthrough's controller, and built in
+ * idle time after a layout loads (warm()), so the first route doesn't freeze.
+ * Following a route is play/navigation/follow.js (pure); the character moves
+ * through the walkthrough's own collisions (playController.setAutopilot).
  */
 
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 import { buildPlaces, searchPlaces, publicPlace, flatResults, FACILITIES } from '../../play/navigation/places';
-import { findNearestRoute } from '../../play/navigation/route';
+import { findNearestRoute, roomAt } from '../../play/navigation/route';
 import { createWalkMapCache } from '../../play/navigation/walkMap';
+import { entranceSpawn } from '../../play/navigation/entrance';
+import { createFollower, routeMarks, headingOf, turnTowards, TURN_RATE } from '../../play/navigation/follow';
+import { supportHeight, elevationOf, floorsInOrder } from '../../play/building';
 
 /** What search results look like to the page (places.publicPlace). */
 export interface PlaceResult {
   id: string;
-  kind: 'person' | 'room' | 'department' | 'facility' | 'nearest';
+  kind: 'person' | 'room' | 'department' | 'facility' | 'nearest' | 'spot';
   group: 'people' | 'rooms' | 'facilities';
   name: string;
   /** e.g. "Engineering · Floor 1, Engineering 2" */
@@ -63,13 +72,81 @@ export interface ShowResult {
   message?: string;
 }
 
+/** Where routeTo can go: a result (or its id), a person, a desk, a room, an item, a kind of place, a spot. */
+export type RouteTarget =
+  | string
+  | { id: string }
+  | { personId: string }
+  | { deskId: string }
+  | { roomId: string }
+  | { objectId: string }
+  | { type: 'RESTROOM' | 'MEETING' | 'RECEPTION' | 'STAIRS' }
+  | { x: number; z: number; floor?: number; name?: string };
+
+export type WalkMode = 'guide' | 'auto';
+
+/** routeTo's answer: the walk started (where to, how far), or why it can't. */
+export interface RouteAnswer {
+  place?: PlaceResult;
+  walk?: WalkMode;
+  length?: number;
+  seconds?: number;
+  floors?: number[];
+  problem?: string;
+  message?: string;
+}
+
+/** The 'navigation' event. */
+export interface NavigationEvent {
+  state: 'started' | 'progress' | 'arrived' | 'stopped' | 'failed';
+  /** 'guide' (Show route) or 'auto' (Take me there). */
+  walk: WalkMode;
+  place: PlaceResult;
+  /** Metres left. */
+  remaining?: number;
+  /** The whole route (started; progress after a new route). */
+  length?: number;
+  seconds?: number;
+  /** The floor you are on. */
+  floor?: number;
+  /** Take me there was paused by a movement key ("Press G to continue"). */
+  paused?: boolean;
+  /** A new route was made (you left the old one, or it was stuck). */
+  rerouted?: boolean;
+  problem?: string;
+  message?: string;
+}
+
+/** A walker's controller (playController via WalkthroughSystem): what navigation drives. */
+export interface PilotHost {
+  setAutopilot(pilot: Pilot | null): void;
+}
+
+export interface PilotFrame { x: number; z: number; y: number; floor: number; yaw: number; userMoving: boolean; flying: boolean }
+export interface Pilot {
+  drive(dt: number, me: PilotFrame): { dirX: number; dirZ: number; speed: number; yaw?: number; pitch?: number } | null;
+  key(code: string): boolean;
+}
+
+export interface RouteLine {
+  show(chevrons: { x: number; y: number; z: number; yaw?: number }[], markers: { kind: 'stairs' | 'goal'; x: number; y: number; z: number }[]): void;
+  hide(): void;
+}
+
 interface Hooks {
-  getLayout: () => { rooms: object; objects: object; floors: Record<number, { id: number; name: string }>; currentFloor: number };
+  getLayout: () => { rooms: object; objects: object; floors: Record<number, { id: number; name: string; height?: number }>; currentFloor: number };
   /** Walking: where you stand; null from above. */
   getWalker: () => { x: number; z: number; floor: number } | null;
   focusOn: (entityId: string, options: { animate: boolean; around?: number; beta?: number }) => boolean;
   highlight: (ids: string[], color: string) => void;
   clearHighlights: () => void;
+  /** Start walking (from above: at the entrance); the controller to drive, or null if walking can't start. */
+  startWalking?: () => PilotHost | null;
+  /** The route line (RouteLineSystem). */
+  routeLine?: () => RouteLine | null;
+  emit?: (event: NavigationEvent) => void;
+  /** When idle work runs (default requestIdleCallback, else a short timeout); tests pass their own. */
+  idle?: (fn: () => void) => void;
 }
 
 /** The outline of a place found. */
@@ -77,20 +154,61 @@ export const SEARCH_HIGHLIGHT = '#2fbf71';
 /** Showing a person or an item: this far around it (m), looking down at most this far from straight down (rad). */
 export const SHOW_AROUND = 4;
 export const SHOW_BETA = 0.75;
+/** At most two new routes a second (NAVIGATION_PLAN 4.8). */
+export const REROUTE_EVERY = 0.5;
+/** Stuck this many times (with no real progress between): "Can't get past here". */
+export const STUCK_LIMIT = 2;
+/** Progress since the last time it was stuck that forgives it (m). */
+const STUCK_FORGIVEN_AFTER = 3;
+export const CANT_GET_PAST = "Can't get past here";
+/** The route line: redrawn after this much progress (m). */
+const REDRAW_EVERY = 0.5;
+/** A 'progress' event: after this much progress (m), or this long (s). */
+const PROGRESS_EVERY_M = 1;
+const PROGRESS_EVERY_S = 1;
+/** Arrived: facing the person or room, looking a little down. */
+const ARRIVE_PITCH = -0.18;
 
 // places.js is plain JS: its places are read as loose records here
 type Place = Record<string, any>;
 type Index = { places: Place[]; byId: Map<string, Place> };
-/** findNearestRoute's answer: a route (+ goalIndex), or { problem, message }. */
-interface RouteAnswer { problem?: string; message?: string; length: number; seconds: number; legs: { floor: number }[]; goalIndex: number }
+type Route = {
+  problem?: string; message?: string; length: number; seconds: number;
+  legs: { floor: number; points: { x: number; z: number }[] }[]; goalIndex?: number;
+};
+
+interface Walk {
+  place: Place;
+  walk: WalkMode;
+  host: PilotHost;
+  route: Route;
+  follower: ReturnType<typeof createFollower>;
+  paused: boolean;
+  stuck: number;
+  stuckAtS: number;
+  sinceReroute: number;
+  drawnS: number;
+  drawnFloor: number;
+  emittedRemaining: number;
+  sinceEmit: number;
+  /** Arrived: turning to face it, then done. */
+  faceYaw: number | null;
+  /** Walking time so far (s, the frames' time). */
+  elapsed: number;
+}
+
+const list = <T,>(v: unknown): T[] => (Array.isArray(v) ? v : Object.values((v ?? {}) as Record<string, T>));
 
 export class NavigationSystem {
   private hooks: Hooks;
   private people: { personId: string; deskId: string; name?: string; department?: string }[] = [];
   private index: Index | null = null;
   private indexKey: unknown[] = [];
-  private maps = createWalkMapCache({ catalog: ASSET_TYPES });
+  /** The walk maps (one per floor), shared with the walkthrough's controller (playController's walkMaps option). */
+  readonly walkMaps = createWalkMapCache({ catalog: ASSET_TYPES });
   private shown: string | null = null;
+  private active: Walk | null = null;
+  private warmToken = 0;
 
   constructor(hooks: Hooks) {
     this.hooks = hooks;
@@ -117,6 +235,38 @@ export class NavigationSystem {
     return this.index;
   }
 
+  /**
+   * Build the walk maps of every floor (and warm up the route finder) in idle time, one floor at a
+   * time: after a layout loads, so the first route or "Take me there" doesn't freeze the page. A
+   * changed layout (or warm() again) drops a warm-up that hasn't finished. Resolves when done.
+   */
+  warm(): Promise<void> {
+    const token = ++this.warmToken;
+    const idle = this.hooks.idle ?? defaultIdle;
+    const s = this.hooks.getLayout();
+    const steps: (() => void)[] = floorsInOrder(s.floors).map((f: { id: number }) => () => { this.walkMaps.get(s, f.id); });
+    // one route (the entrance → the first place), so the route finder's own parts are made too
+    steps.push(() => {
+      const spawn = entranceSpawn(s, { maps: this.walkMaps });
+      const goal = this.places().places.find((p) => p.goals?.length)?.goals[0];
+      if (goal) findNearestRoute(s, { x: spawn.x, z: spawn.z, floor: spawn.floor }, [goal], { maps: this.walkMaps });
+    });
+    return new Promise((resolve) => {
+      const next = () => {
+        const now = this.hooks.getLayout();
+        if (token !== this.warmToken || now.rooms !== s.rooms || now.objects !== s.objects || now.floors !== s.floors) {
+          resolve();
+          return;
+        }
+        const step = steps.shift();
+        if (!step) { resolve(); return; }
+        try { step(); } catch (e) { console.warn('[navigation] warming up the walk maps failed', e); }
+        idle(next);
+      };
+      idle(next);
+    });
+  }
+
   /** Where you are, for "nearest first": walking, your spot; from above, the floor shown. */
   private from() {
     return this.hooks.getWalker() ?? { floor: this.hooks.getLayout().currentFloor };
@@ -125,7 +275,7 @@ export class NavigationSystem {
   /** Search, grouped as the search box shows it (People, Rooms, Facilities; `limit` per group). */
   search(query: string, { limit }: { limit?: number } = {}): SearchGroups {
     const r = searchPlaces(this.places(), String(query ?? ''), { from: this.from(), limit });
-    const pub = (list: Place[]) => list.map((p) => publicPlace(p) as PlaceResult);
+    const pub = (items: Place[]) => items.map((p) => publicPlace(p) as PlaceResult);
     return {
       query: r.query,
       groups: { people: pub(r.groups.people), rooms: pub(r.groups.rooms), facilities: pub(r.groups.facilities) },
@@ -153,6 +303,47 @@ export class NavigationSystem {
     return (r.groups.facilities.find((p: Place) => p.id === id) as Place) ?? null;
   }
 
+  /** routeTo's targets → a place (with the goals to walk to); null: no such place. */
+  private resolve(target: RouteTarget): Place | null {
+    if (typeof target === 'string') return this.place(target);
+    if (!target || typeof target !== 'object') return null;
+    const t = target as Record<string, unknown>;
+    if (typeof t.id === 'string') return this.place(t.id);
+    if (t.personId != null) return this.place(`person:${t.personId}`);
+    if (t.roomId != null) return this.place(`room:${t.roomId}`);
+    if (typeof t.type === 'string') return this.place(`nearest:${t.type.toUpperCase()}`);
+    const s = this.hooks.getLayout();
+    const objectId = t.deskId ?? t.objectId;
+    if (objectId != null) {
+      const id = String(objectId);
+      const person = this.places().places.find((p) => p.kind === 'person' && p.deskId === id);
+      if (person) return person;
+      const item = this.place(`item:${id}`);
+      if (item) return item;
+      const o = (s.objects as Record<string, Place>)[id];
+      if (!o) return null;
+      const label = o.label || ASSET_TYPES[o.assetType as keyof typeof ASSET_TYPES]?.label || 'Item';
+      return this.spot(o.x, o.z, o.floor ?? 0, label, { id: `object:${id}`, entityId: id, highlight: [id] });
+    }
+    if (Number.isFinite(t.x) && Number.isFinite(t.z)) {
+      const floor = Number.isFinite(t.floor) ? (t.floor as number) : (this.hooks.getWalker()?.floor ?? s.currentFloor);
+      return this.spot(t.x as number, t.z as number, floor, typeof t.name === 'string' ? t.name : null);
+    }
+    return null;
+  }
+
+  /** A place made for a spot (or an item that isn't in the index). */
+  private spot(x: number, z: number, floor: number, name: string | null, more: Partial<Place> = {}): Place {
+    const s = this.hooks.getLayout();
+    const room = roomAt(s, floor, x, z) as Place | null;
+    const floorName = s.floors[floor]?.name || `Floor ${floor}`;
+    return {
+      id: `spot:${x.toFixed(2)},${z.toFixed(2)},${floor}`, kind: 'spot', group: 'rooms', name: name ?? room?.name ?? 'This spot',
+      detail: room ? `${floorName}, ${room.name}` : floorName, floor, floorName, roomId: room?.id ?? null, roomName: room?.name ?? '',
+      department: null, facility: null, entityId: null, highlight: [], x, z, goals: [{ x, z, floor }], ...more,
+    };
+  }
+
   /**
    * Show a place (an id from find(), or a result): from above, its floor, the
    * camera flies to it and it is outlined; walking, it is outlined and the
@@ -167,18 +358,13 @@ export class NavigationSystem {
     const out: Partial<ShowResult> = {};
 
     if (walker) {
-      // each goal named after its own place ("No walking route to Restrooms: …", not "…to Nearest washroom")
-      const goals = place.goals.map((g: { x: number; z: number; floor: number; placeId?: string }) => ({
-        ...g, name: (g.placeId && this.places().byId.get(g.placeId)?.name) || place!.name,
-      }));
-      const route = findNearestRoute(this.hooks.getLayout(), walker, goals, { maps: this.maps }) as unknown as RouteAnswer;
+      const route = this.routeFrom(walker, place);
       if (route.problem) {
         out.problem = route.problem;
         out.message = route.message;
       } else {
         out.route = { length: route.length, seconds: route.seconds, floors: route.legs.map((l) => l.floor) };
-        const chosen = goals[route.goalIndex]?.placeId;
-        if (place.kind === 'nearest' && chosen) place = this.places().byId.get(chosen) as Place;
+        place = this.chosen(place, route);
       }
     } else if (place.kind === 'nearest') {
       // from above there is no "where you stand": the first one (the floor shown first)
@@ -195,15 +381,254 @@ export class NavigationSystem {
     return { place: publicPlace(place) as PlaceResult, ...out };
   }
 
+  /** The route from a spot to a place (the nearest of its goals by walking), each goal named after its own place. */
+  private routeFrom(from: { x: number; z: number; floor: number }, place: Place): Route {
+    const goals = place.goals.map((g: { x: number; z: number; floor: number; placeId?: string }) => ({
+      ...g, name: (g.placeId && this.places().byId.get(g.placeId)?.name) || place.name,
+    }));
+    return findNearestRoute(this.hooks.getLayout(), from, goals, { maps: this.walkMaps }) as unknown as Route;
+  }
+
+  /** "Nearest washroom": the one the route goes to. */
+  private chosen(place: Place, route: Route): Place {
+    if (place.kind !== 'nearest' || route.goalIndex === undefined) return place;
+    const id = place.goals[route.goalIndex]?.placeId;
+    return (id && this.places().byId.get(id)) || place;
+  }
+
   /** The place shown now (its id), or null. */
   get current(): string | null {
     return this.shown;
   }
 
-  /** Take the outline away (the camera stays). */
+  /** Take the outline away (the camera stays). A route being followed ends too. */
   clear(): void {
+    if (this.active) this.stop();
     if (this.shown === null) return;
     this.shown = null;
     this.hooks.clearHighlights();
   }
+
+  // ── Going there (v0.13.4) ──────────────────────────────────────────────
+
+  /** The route being followed now, or null: { place, walk, paused, remaining, elapsed }. */
+  get walking(): { place: PlaceResult; walk: WalkMode; paused: boolean; remaining: number; elapsed: number } | null {
+    const w = this.active;
+    if (!w) return null;
+    return {
+      place: publicPlace(w.place) as PlaceResult, walk: w.walk, paused: w.paused,
+      remaining: Math.max(0, w.follower.length - w.follower.progress), elapsed: w.elapsed,
+    };
+  }
+
+  /**
+   * Go to a place: 'guide' (Show route: the line on the floor, you walk) or 'auto' (Take me there:
+   * your character walks it, through the same collisions as your keys; a movement key pauses it,
+   * G continues, Esc or stop() ends it). From above, walking starts at the entrance.
+   * target: an id or result from find(), { personId } | { deskId } | { roomId } | { objectId } |
+   * { type: 'RESTROOM' | 'MEETING' | 'RECEPTION' | 'STAIRS' } (the nearest) | { x, z, floor }.
+   */
+  routeTo(target: RouteTarget, { walk = 'guide' }: { walk?: WalkMode } = {}): RouteAnswer {
+    const mode: WalkMode = walk === 'auto' ? 'auto' : 'guide';
+    if (!this.resolve(target)) return { problem: 'NOT_FOUND', message: 'Nothing found to go to' };
+    if (this.active) this.end('stopped', { silent: true });
+    const host = this.hooks.startWalking?.() ?? null;
+    const walker = this.hooks.getWalker();
+    if (!host || !walker) return { problem: 'NOT_WALKING', message: 'Walking is not possible here' };
+    // resolved again now that you are walking ("the nearest washroom" is the nearest to where you stand)
+    let place = this.resolve(target)!;
+    const route = this.routeFrom(walker, place);
+    if (route.problem) {
+      const message = route.message ?? 'No walking route';
+      this.hooks.emit?.({ state: 'failed', walk: mode, place: publicPlace(place) as PlaceResult, problem: route.problem, message, floor: walker.floor });
+      return { place: publicPlace(place) as PlaceResult, problem: route.problem, message };
+    }
+    place = this.chosen(place, route);
+    const w: Walk = {
+      place, walk: mode, host, route, follower: this.follower(route), paused: false, stuck: 0, stuckAtS: 0,
+      sinceReroute: 0, drawnS: -Infinity, drawnFloor: -1, emittedRemaining: route.length, sinceEmit: 0, faceYaw: null, elapsed: 0,
+    };
+    this.active = w;
+    this.hooks.clearHighlights();
+    if (place.highlight?.length) this.hooks.highlight(place.highlight, SEARCH_HIGHLIGHT);
+    this.shown = place.id;
+    host.setAutopilot(this.pilot(w));
+    this.draw(w, walker.floor, true);
+    const floors = route.legs.map((l) => l.floor);
+    this.hooks.emit?.({
+      state: 'started', walk: mode, place: publicPlace(place) as PlaceResult, length: route.length, remaining: route.length,
+      seconds: route.seconds, floor: walker.floor,
+    });
+    return { place: publicPlace(place) as PlaceResult, walk: mode, length: route.length, seconds: route.seconds, floors };
+  }
+
+  /** End the route (Stop, Esc): the line goes, the character stops (your keys again). */
+  stop(): boolean {
+    if (!this.active) return false;
+    this.end('stopped');
+    return true;
+  }
+
+  /** Take me there again after a movement key paused it (G, "Continue"); also Show route → Take me there. */
+  resume(): boolean {
+    const w = this.active;
+    if (!w || w.faceYaw !== null) return false;
+    w.walk = 'auto';
+    w.paused = false;
+    w.stuck = 0;
+    w.follower.resetStuck();
+    // walked off it meanwhile: a new route from where you are
+    const me = this.hooks.getWalker();
+    if (me && w.follower.step({ x: me.x, z: me.z, floor: me.floor, yaw: 0 }, 0, { drive: false }).offBy > 1) {
+      return this.reroute(w);
+    }
+    this.emitProgress(w, me?.floor, { force: true });
+    return true;
+  }
+
+  private follower(route: Route) {
+    const layout = this.hooks.getLayout();
+    // arrived = within 1 m AND in the room the route ends in (a room's goal is just inside its door)
+    const legs = (route as { legs: { floor: number; points: { x: number; z: number }[] }[] }).legs;
+    const last = legs[legs.length - 1];
+    const endAt = last?.points[last.points.length - 1];
+    const goalRoom = endAt ? roomAt(layout, last.floor, endAt.x, endAt.z) : null;
+    const inGoalRoom = (me: { x: number; z: number; floor: number }) => !goalRoom || roomAt(layout, me.floor, me.x, me.z)?.id === goalRoom.id;
+    return createFollower(route as never, { mapFor: (f: number) => this.walkMaps.get(this.hooks.getLayout(), f), inGoalRoom });
+  }
+
+  /** A new route from where you are to the same place; false: none (the walk failed). */
+  private reroute(w: Walk): boolean {
+    const me = this.hooks.getWalker();
+    if (!me) return false;
+    const route = this.routeFrom(me, w.place); // "the nearest …": again the nearest from here
+    w.sinceReroute = 0;
+    if (route.problem) {
+      this.end('failed', { problem: route.problem, message: route.message ?? CANT_GET_PAST });
+      return false;
+    }
+    w.route = route;
+    w.follower = this.follower(route);
+    w.drawnS = -Infinity;
+    this.draw(w, me.floor, true);
+    this.emitProgress(w, me.floor, { force: true, rerouted: true });
+    return true;
+  }
+
+  private end(state: 'arrived' | 'stopped' | 'failed', { problem, message, silent = false }: { problem?: string; message?: string; silent?: boolean } = {}): void {
+    const w = this.active;
+    if (!w) return;
+    this.active = null;
+    w.host.setAutopilot(null);
+    this.hooks.routeLine?.()?.hide();
+    if (state !== 'arrived') { // arrived: the place stays outlined
+      this.hooks.clearHighlights();
+      this.shown = null;
+    }
+    if (silent) return;
+    const me = this.hooks.getWalker();
+    this.hooks.emit?.({
+      state, walk: w.walk, place: publicPlace(w.place) as PlaceResult, floor: me?.floor,
+      ...(state === 'arrived' ? { remaining: 0 } : {}), ...(problem ? { problem } : {}), ...(message ? { message } : {}),
+    });
+  }
+
+  /** The route line ahead of you on your floor (redrawn as you go). */
+  private draw(w: Walk, floor: number, force = false): void {
+    const line = this.hooks.routeLine?.();
+    if (!line) return;
+    const s = w.follower.progress;
+    if (!force && floor === w.drawnFloor && Math.abs(s - w.drawnS) < REDRAW_EVERY) return;
+    w.drawnS = s;
+    w.drawnFloor = floor;
+    const { chevrons, markers } = routeMarks(w.follower.path, s, floor);
+    const st = this.hooks.getLayout();
+    const rooms = list<Place>(st.rooms);
+    const stairs = list<Place>(st.objects).filter((o) => o.assetType === 'STAIRCASE');
+    const elev = elevationOf(st.floors, floor);
+    const support = (x: number, z: number, from: number) => supportHeight({ x, z, y: from, floors: st.floors, rooms, stairs });
+    let up = elev; // on a staircase, from the last chevron's height (the steps climb)
+    line.show(
+      chevrons.map((c: { x: number; z: number; yaw: number; stairs: boolean }) => {
+        const h = support(c.x, c.z, (c.stairs ? up : elev) + 0.5);
+        if (c.stairs) up = h;
+        return { x: c.x, z: c.z, yaw: c.yaw, y: h + 0.03 };
+      }),
+      markers.map((m: { kind: string; x: number; z: number }) => ({ kind: m.kind as 'stairs' | 'goal', x: m.x, z: m.z, y: support(m.x, m.z, elev + 0.5) })),
+    );
+  }
+
+  private emitProgress(w: Walk, floor: number | undefined, { force = false, rerouted = false } = {}): void {
+    const remaining = Math.max(0, w.follower.length - w.follower.progress);
+    if (!force && Math.abs(remaining - w.emittedRemaining) < PROGRESS_EVERY_M && w.sinceEmit < PROGRESS_EVERY_S) return;
+    w.emittedRemaining = remaining;
+    w.sinceEmit = 0;
+    this.hooks.emit?.({
+      state: 'progress', walk: w.walk, place: publicPlace(w.place) as PlaceResult, remaining, length: w.follower.length,
+      floor, paused: w.paused, ...(rerouted ? { rerouted } : {}),
+    });
+  }
+
+  /** What the walkthrough's controller asks every frame while a route is followed. */
+  private pilot(w: Walk): Pilot {
+    return {
+      key: (code) => {
+        if (this.active !== w) return false;
+        if (code === 'Escape') { this.stop(); return false; } // Esc also gives the keys back to the page, as always
+        if (code === 'KeyG') return w.walk === 'guide' || w.paused ? this.resume() || true : true;
+        return false;
+      },
+      drive: (dt, me) => {
+        if (this.active !== w) return null;
+        if (!w.paused) w.elapsed += dt; // the walk's own time (paused time doesn't count)
+        w.sinceReroute += dt;
+        w.sinceEmit += dt;
+        // arrived: turn to face the person or room, then the walk is over
+        if (w.faceYaw !== null) {
+          const yaw = turnTowards(me.yaw, w.faceYaw, TURN_RATE * dt);
+          if (Math.abs(yaw - w.faceYaw) < 0.02) {
+            this.end('arrived');
+            return { dirX: 0, dirZ: 0, speed: 0, yaw: w.faceYaw, pitch: ARRIVE_PITCH };
+          }
+          return { dirX: 0, dirZ: 0, speed: 0, yaw };
+        }
+        // a movement key pauses Take me there ("Press G to continue")
+        if (w.walk === 'auto' && !w.paused && me.userMoving) {
+          w.paused = true;
+          this.emitProgress(w, me.floor, { force: true });
+        }
+        const driving = w.walk === 'auto' && !w.paused && !me.userMoving;
+        const step = w.follower.step({ x: me.x, z: me.z, floor: me.floor, yaw: me.yaw }, dt, { drive: driving });
+        if (step.arrived) {
+          const p = w.place;
+          const far = Number.isFinite(p.x) && Math.hypot(p.x - me.x, p.z - me.z) > 0.2;
+          w.faceYaw = far ? headingOf(p.x - me.x, p.z - me.z) : me.yaw;
+          this.hooks.routeLine?.()?.hide();
+          if (w.walk === 'guide' || w.paused) { this.end('arrived'); return null; } // you walked there yourself
+          return { dirX: 0, dirZ: 0, speed: 0, yaw: turnTowards(me.yaw, w.faceYaw, TURN_RATE * dt) };
+        }
+        if (step.s - w.stuckAtS > STUCK_FORGIVEN_AFTER) w.stuck = 0;
+        if (driving && step.stuck) {
+          w.stuck += 1;
+          w.stuckAtS = step.s;
+          if (w.stuck >= STUCK_LIMIT) {
+            this.end('failed', { problem: 'STUCK', message: CANT_GET_PAST });
+            return null;
+          }
+          this.reroute(w);
+          return null; // this frame: stand; the next one follows the new route
+        }
+        if (step.offRoute && w.sinceReroute >= REROUTE_EVERY && !this.reroute(w)) return null;
+        this.draw(w, me.floor);
+        this.emitProgress(w, me.floor);
+        return driving ? { dirX: step.dirX, dirZ: step.dirZ, speed: step.speed, yaw: step.yaw } : null;
+      },
+    };
+  }
+}
+
+function defaultIdle(fn: () => void): void {
+  const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+  if (ric) ric(fn, { timeout: 1000 });
+  else setTimeout(fn, 30);
 }
