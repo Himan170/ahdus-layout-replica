@@ -27,7 +27,7 @@
  * front of a staircase's bottom step. Tests: navigation/__tests__/places.test.js.
  */
 
-import { floorAbove, stairDimsFor } from '../building';
+import { floorAbove, floorsInOrder, stairDimsFor } from '../building';
 import { roomOpenings, wallThicknessOf } from '../geometry';
 import { deskSeats, seatPose, isDesk, visitorSpot } from '../people';
 import { stairBottom } from './route';
@@ -123,7 +123,7 @@ const joinDetail = (...parts) => parts.filter(Boolean).join(' · ');
  * One index of everything that can be searched.
  * @param {{ rooms, objects, floors }} layout  store shape (v1 names)
  * @param {{ personId, deskId, name?, department? }[]} [people]  setPeople's list
- * @returns {{ places: Place[], byId: Map<string, Place> }}
+ * @returns {{ places: Place[], byId: Map<string, Place>, floors: { id: number, name: string }[] }}
  */
 export function buildPlaces(layout, people = []) {
   const floors = layout.floors ?? {};
@@ -154,7 +154,7 @@ export function buildPlaces(layout, people = []) {
     add({
       id: `room:${room.id}`, kind: facility ? 'facility' : 'room', group: facility ? 'facilities' : 'rooms',
       name, detail: joinDetail(facility ? FACILITIES[facility].label : typeLabel, dept !== name ? dept : '', floorName(floor)),
-      floor, roomId: room.id, roomName: name, department: dept || null, facility,
+      floor, roomId: room.id, roomName: name, department: dept || null, facility, roomType: room.type ?? null,
       entityId: room.id, highlight: [room.id], x: room.x, z: room.z, goals,
     }, name, [typeLabel, dept, ...(facility ? FACILITIES[facility].words : [])]);
   }
@@ -201,7 +201,7 @@ export function buildPlaces(layout, people = []) {
     }
     add({
       id: `item:${o.id}`, kind: 'facility', group: 'facilities', name, detail,
-      floor, roomId: room?.id ?? null, roomName: roomName(room), department: null, facility,
+      floor, roomId: room?.id ?? null, roomName: roomName(room), department: null, facility, assetType: o.assetType,
       entityId: o.id, highlight: [o.id], x: o.x, z: o.z, goals: [{ ...goal, floor }],
     }, name, [ITEM_LABEL[o.assetType], ...FACILITIES[facility].words]);
   }
@@ -228,7 +228,9 @@ export function buildPlaces(layout, people = []) {
     }, name, [dept]);
   }
 
-  return { places, byId: new Map(places.map((p) => [p.id, p])) };
+  // the floors, lowest first (the browse menu's By floor)
+  const floorList = floorsInOrder(floors).map((f) => ({ id: f.id, name: floorName(f.id) }));
+  return { places, byId: new Map(places.map((p) => [p.id, p])), floors: floorList };
 }
 
 /** BEHIND_SEAT behind a seated (or standing) person: facing them from the aisle. */
@@ -380,6 +382,8 @@ export function flatResults(result) {
  * @property {string} roomName
  * @property {string | null} department
  * @property {string | null} facility  a FACILITIES key
+ * @property {string | null} [roomType]  a room's type (rooms only)
+ * @property {string} [assetType]  an item's type (item facilities only)
  * @property {string} [personId]
  * @property {string} [deskId]
  * @property {string} entityId  the room or item to fly to (LayoutEngine.focusOn)

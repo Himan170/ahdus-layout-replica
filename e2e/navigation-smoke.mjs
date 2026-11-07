@@ -308,10 +308,10 @@ log('…climbing the stairs, never inside a wall or furniture (every frame)', m2
 await p.click('[aria-label="Close"]').catch(() => {});
 await clearNav();
 if (!(await p.$('[data-place-search]'))) await p.click('[data-place-search-button]');
-await p.fill('[data-place-search] input[role="combobox"]', ''); // the quick picks show while the box is empty
+await p.fill('[data-place-search] input[role="combobox"]', ''); // the browse menu shows while the box is empty
+// walking, the chip is the nearest washroom and the walk there (v0.14.2): "Nearest washroom · 8 m"
+const washChip = await p.textContent('[data-quick="Washroom"]', { timeout: 20000 });
 await p.click('[data-quick="Washroom"]');
-await p.waitForSelector('[data-place^="nearest:"]', { timeout: 20000 });
-await p.click('[data-place^="nearest:"]');
 await p.waitForSelector('[data-place-shown]', { timeout: 20000 });
 const nearestCard = await p.textContent('[data-place-shown]');
 await p.click('[data-route="auto"]');
@@ -327,7 +327,7 @@ const inWashroom = await p.evaluate(async () => {
     && Math.abs(v.x - r.x) <= r.width / 2 && Math.abs(v.z - r.z) <= r.depth / 2 && r.type !== 'CORRIDOR');
   return room ? `${room.name} (${room.type})` : 'none';
 });
-log('the nearest washroom: Take me there walks into a restroom', /Nearest washroom/.test(nearestCard) && wc?.state === 'arrived'
+log('the nearest washroom: Take me there walks into a restroom', /^Nearest washroom · \d+ m$/.test(washChip) && /Nearest washroom/.test(nearestCard) && wc?.state === 'arrived'
   && /RESTROOM/.test(inWashroom) && m3.min > INSIDE, `${wc?.state}, in ${inWashroom}, closest ${m3.min.toFixed(3)} m`);
 
 // ── 4. Esc ends it; Stop ends it; free walking stays as it was ──

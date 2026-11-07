@@ -236,9 +236,39 @@ const opened = await p.evaluate(() => {
   const a = document.activeElement;
   return { focus: a?.getAttribute('role'), label: a?.getAttribute('aria-label'), quick: [...document.querySelectorAll('[data-quick]')].map((q) => q.textContent) };
 });
-log('the toolbar button opens the search box, the focus in it (a combobox), with quick picks',
-  opened.focus === 'combobox' && opened.label === 'Find a person, room or place' && opened.quick.join() === 'Washroom,Meeting room,Reception,Stairs',
+log('the toolbar button opens the search box, the focus in it (a combobox), with quick picks of the kinds there are (no washroom here)',
+  opened.focus === 'combobox' && opened.label === 'Find a person, room or place' && opened.quick.join() === 'Meeting room,Reception,Stairs',
   JSON.stringify(opened));
+// The browse menu (v0.14.2): built from the layout and the seats; the keys work through it
+const browse = await p.evaluate(() => ({
+  view: document.querySelector('[data-browse]')?.dataset.browse,
+  groups: [...document.querySelectorAll('[data-browse-group]')].map((g) => g.dataset.browseGroup).filter((g) => g !== 'recent'),
+  open: [...document.querySelectorAll('[data-browse-open]')].map((o) => `${o.dataset.browseOpen}=${o.innerText.split('\n').slice(0, 2).join(' · ')}`),
+}));
+log('an empty box is a browse menu: departments (from the seats), places by kind, by floor; nothing this layout lacks',
+  browse.view === 'home' && browse.groups.join() === 'quick,departments,kinds,floors' && browse.open.join() === [
+    'department:engineering=Engineering · Ground Floor · 1 person', 'department:hr=HR · Ground Floor · 1 person',
+    'kind:OFFICE=Offices · Ground Floor', 'kind:MEETING=Meeting rooms · Floor 1', 'kind:RECEPTION=Reception · Ground Floor',
+    'kind:STAIRCASE=Stairs · Ground Floor', 'floor:0=Ground Floor · 2 rooms', 'floor:1=Floor 1 · 1 room'].join(), JSON.stringify(browse));
+for (let i = 0; i < 3; i++) await p.keyboard.press('ArrowDown'); // past the 3 chips: Engineering
+await p.keyboard.press('Enter');
+const dept = await p.evaluate(() => {
+  const input = document.querySelector('[data-place-search] input');
+  return {
+    view: document.querySelector('[data-browse]')?.dataset.browse, head: document.querySelector('[data-browse-head]')?.innerText.replace(/\n/g, ' | '),
+    active: document.getElementById(input.getAttribute('aria-activedescendant'))?.dataset.place,
+    status: document.querySelector('[data-search-status]').textContent,
+  };
+});
+await p.keyboard.press('Escape');
+const back = await p.evaluate(() => {
+  const input = document.querySelector('[data-place-search] input');
+  return { view: document.querySelector('[data-browse]')?.dataset.browse, active: document.getElementById(input.getAttribute('aria-activedescendant'))?.dataset.browseOpen };
+});
+log('↓ Enter opens Engineering (its people, Asha chosen; the status says what it is); Esc goes back to it, the box stays open',
+  dept.view === 'department' && dept.head === 'Engineering | Ground Floor · 1 person' && dept.active === 'person:p_asha' &&
+  dept.status === 'Engineering: Ground Floor · 1 person' && back.view === 'home' && back.active === 'department:engineering',
+  JSON.stringify({ dept, back }));
 await p.keyboard.type('kav');
 const kav = await p.evaluate(() => {
   const input = document.querySelector('[data-place-search] input');
@@ -303,6 +333,9 @@ await p.click('button[aria-label="Clear the place found"]');
 const cleared = await p.evaluate(() => ({ lit: window.__ahdusViewer.highlights.ids().length, shown: !!document.querySelector('[data-place-shown]') }));
 log('"Clear" takes the outline away', cleared.lit === 0 && !cleared.shown, JSON.stringify(cleared));
 await p.click(`button${SEARCH}`);
+const recent = await p.evaluate(() => ({ list: [...document.querySelectorAll('[data-recent]')].map((o) => o.dataset.place), kept: localStorage.getItem('ahdus.findRecent') }));
+log('the recent searches: newest first, kept in this browser', recent.list.join() === 'person:p_asha,room:room_meeting' &&
+  recent.kept === '["person:p_asha","room:room_meeting"]', JSON.stringify(recent));
 await p.fill('[data-place-search] input', 'zzzz');
 const none = await p.locator('[data-search-status]').textContent();
 await p.keyboard.press('Escape');
@@ -327,12 +360,16 @@ log('walking: W / S typed in the box don\'t move you; picking Kavya outlines her
   /^Kavya Iyer \| HR · Ground Floor, Reception \| \d+ m walk, about \d+ (s|min) \| Show route \| Take me there$/.test(walkInfo.text ?? '') && walkInfo.lit.join() === 'obj_reception_desk',
   JSON.stringify({ startPos, stillPos, ...walkInfo }));
 await p.click(`button${SEARCH}`);
+const chips = await p.evaluate(() => [...document.querySelectorAll('[data-quick]')].map((q) => q.textContent));
+log('walking, the chips are the nearest of each kind and the walk there ("Nearest stairs · 7 m")',
+  chips.length === 3 && /^Nearest meeting room · \d+ m$/.test(chips[0]) && /^Nearest reception · \d+ m$/.test(chips[1]) && /^Nearest stairs · \d+ m$/.test(chips[2]),
+  JSON.stringify(chips));
 await p.fill('[data-place-search] input', 'meeting');
 await p.keyboard.press('Enter');
 await frames(3);
 const upstairs = await p.locator('[data-place-shown] [data-walk]').textContent().catch(() => '');
-log('walking: "meeting" + Enter = the nearest meeting room; upstairs with no stairs that arrive: a clear answer, named',
-  upstairs === 'No walking route to Meeting room: no stairs lead to Floor 1', upstairs);
+log('walking: "meeting" + Enter = the nearest meeting room, upstairs: the walk there, by the stairs (the sample has a route to every room)',
+  /^\d+ m walk, about \d+ (s|min) · by the stairs$/.test(upstairs), upstairs);
 await shot('viewer-search-walking.png');
 await p.click('button:has-text("View")'); await frames(3);
 

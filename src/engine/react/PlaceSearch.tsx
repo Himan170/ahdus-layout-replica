@@ -9,6 +9,12 @@
  * it is outlined; walking, it is outlined and the walk there is measured
  * ("Nearest washroom" = the nearest by walking from where you stand).
  *
+ * While the box is empty it is a browse menu (v0.14.2, engine.navigation.browse,
+ * play/navigation/browse.js): chips for the facility kinds this workplace has
+ * (walking: "Nearest washroom · 8 m"), My desk, recent searches (per browser),
+ * departments ("Engineering · 2 rooms · Floor 1 · 92 people", + the page's
+ * description), places by kind and by floor; opening one lists its places.
+ *
  * The card of the place shown has "Show route" (a line on the floor, you walk)
  * and "Take me there" (your character walks it): engine.navigation.routeTo,
  * from above walking starts at the entrance (v0.13.4). While a route is
@@ -16,34 +22,42 @@
  * movement key: "Press G to continue" + Continue); then "You have arrived" or
  * why it stopped.
  *
- * Keyboard: ↑ ↓ choose, Enter picks, Esc closes (the focus goes back to the
- * button). A combobox + listbox for screen readers, with a live status line.
- * The AHDUS look (white panel, AHDUS green), inline styles: the viewer brings
- * no stylesheet of its own. Full width on a phone (the toolbar's width).
+ * Keyboard: ↑ ↓ choose, Enter picks or opens, ← / Backspace (empty box) or Esc
+ * in a list goes back, Esc closes (the focus goes back to the button). A
+ * combobox + listbox for screen readers, with a live status line. The AHDUS
+ * look (white panel, AHDUS green), inline styles: the viewer brings no
+ * stylesheet of its own. Full width on a phone (the toolbar's width).
  */
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 
 import type { LayoutEngine } from '../LayoutEngine';
-import type { PlaceResult, SearchGroups, ShowResult, NavigationEvent, WalkMode } from '../systems/NavigationSystem';
+import type { BrowseMenu, PlaceResult, SearchGroups, ShowResult, NavigationEvent, WalkMode } from '../systems/NavigationSystem';
+import { addRecent, RECENT_MAX } from '../../play/navigation/browse';
 
 const GROUP_TITLES = { people: 'People', rooms: 'Rooms', facilities: 'Facilities' } as const;
-/** Shown before anything is typed: one tap fills the box. */
-const QUICK = ['Washroom', 'Meeting room', 'Reception', 'Stairs'];
 export const SEARCH_LABEL = 'Find a person, room or place';
+/** The recent searches (place ids, newest first), per browser. */
+export const RECENT_KEY = 'ahdus.findRecent';
 
 export interface PlaceSearchProps {
   engine: LayoutEngine | null;
   walking: boolean;
   /** Changes when the people change (a new search then). */
   people?: unknown;
+  /** Changes when the departments' descriptions change (a new menu then). */
+  departments?: unknown;
+  /** The signed-in person's personId ("My desk"); changes make a new menu. */
+  me?: string | null;
   /** The toolbar's other buttons (walking: the keys hint, Back to entrance), before the search button. */
   children?: ReactNode;
   /** Give the view the keys (after Show route / Take me there: W pauses, G continues, Esc stops). */
   focusView?: () => void;
   /** A touch screen (v0.14.1): the strip says "the joystick" and "Continue", not keys. */
   touch?: boolean;
+  /** The box opened or closed (the viewer keeps its one-time hint out of the way meanwhile). */
+  onOpenChange?: (open: boolean) => void;
 }
 
 /** "Going to Kavya Iyer · 42 m · Floor 1": the strip's line (the floor when it isn't yours). */
@@ -68,13 +82,125 @@ export function walkLine(shown: ShowResult): string | null {
   return `${Math.round(length)} m walk, ${walkTime(seconds)}${stairs}`;
 }
 
-export function PlaceSearch({ engine, walking, people, children, focusView, touch = false }: PlaceSearchProps) {
+// ── The browse menu (v0.14.2): its lists as sections of entries ──
+
+/** Where the menu is: the start, or one department / kind / floor opened. */
+export type BrowseView = { type: 'home' } | { type: 'department' | 'kind' | 'floor'; id: string };
+type Chip = BrowseMenu['chips'][number];
+export type BrowseEntry =
+  | { type: 'place'; key: string; place: PlaceResult; name?: string; detail?: string; tag?: 'my-desk' | 'recent' }
+  | { type: 'open'; key: string; view: BrowseView; name: string; detail: string; description?: string | null; count?: number }
+  | { type: 'back'; key: string }
+  | { type: 'chip'; key: string; chip: Chip; name: string };
+export interface BrowseSection { key: string; title?: string; chips?: boolean; entries: BrowseEntry[] }
+export interface BrowseScreen {
+  view: BrowseView;
+  /** A list opened: its name, a line about it and the description (a department's). */
+  head: { name: string; detail: string; description?: string | null } | null;
+  sections: BrowseSection[];
+  /** What the status line says (screen readers). */
+  status: string;
+}
+
+const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** A chip's words: walking, "Nearest washroom · 8 m"; else the kind ("Washroom"). */
+export function chipLabel(chip: Chip, walking: boolean): string {
+  if (walking && chip.nearest) return `${chip.nearest.place.name} · ${Math.max(1, Math.round(chip.nearest.length))} m`;
+  return chip.label;
+}
+
+/** What the menu shows for a view (the start if what was opened is gone). PURE: tested. */
+export function browseScreen(menu: BrowseMenu, view: BrowseView, { walking = false } = {}): BrowseScreen {
+  const place = (key: string, p: PlaceResult, more: Partial<Extract<BrowseEntry, { type: 'place' }>> = {}): BrowseEntry =>
+    ({ type: 'place', key: `${key}:${p.id}`, place: p, ...more });
+  const back: BrowseEntry = { type: 'back', key: 'back' };
+  const total = (sections: BrowseSection[]) => sections.reduce((n, s) => n + s.entries.filter((e) => e.type !== 'back').length, 0);
+
+  if (view.type === 'department') {
+    const d = menu.departments.find((x) => x.id === view.id);
+    if (d) {
+      const sections: BrowseSection[] = [{ key: 'back', entries: [back] }];
+      if (d.place?.kind === 'department') {
+        sections.push({ key: 'all', entries: [place('all', d.place, { name: `All of ${d.name}`, detail: d.place.detail })] });
+      }
+      if (d.rooms.length) sections.push({ key: 'rooms', title: d.rooms.length === 1 ? 'Room' : 'Rooms', entries: d.rooms.map((p) => place('room', p)) });
+      if (d.people.length) sections.push({ key: 'people', title: `People (${d.people.length})`, entries: d.people.map((p) => place('person', p)) });
+      return { view, head: { name: d.name, detail: d.detail, description: d.description }, sections, status: `${d.name}: ${d.detail}` };
+    }
+  } else if (view.type === 'kind') {
+    const k = menu.kinds.find((x) => x.id === view.id);
+    if (k) {
+      const sections: BrowseSection[] = [{ key: 'back', entries: [back] }];
+      for (const f of k.floors) sections.push({ key: `floor-${f.floorId}`, title: f.floorName, entries: f.places.map((p) => place(`k${f.floorId}`, p)) });
+      return { view, head: { name: k.name, detail: `${k.count} · ${k.detail}` }, sections, status: `${k.name}: ${k.count}, ${k.detail}` };
+    }
+  } else if (view.type === 'floor') {
+    const f = menu.floors.find((x) => x.id === view.id);
+    if (f) {
+      const sections: BrowseSection[] = [{ key: 'back', entries: [back] }, { key: 'rooms', entries: f.places.map((p) => place('f', p)) }];
+      return { view, head: { name: f.name, detail: f.detail }, sections, status: `${f.name}: ${f.detail}` };
+    }
+  }
+
+  // The start
+  const sections: BrowseSection[] = [];
+  if (menu.chips.length) {
+    sections.push({ key: 'quick', title: walking ? 'Nearest' : 'Quick picks', chips: true,
+      entries: menu.chips.map((c) => ({ type: 'chip', key: `chip:${c.facility}`, chip: c, name: chipLabel(c, walking) })) });
+  }
+  const mine: BrowseEntry[] = [];
+  if (menu.myDesk) {
+    mine.push(place('mine', menu.myDesk, { name: 'My desk', detail: [menu.myDesk.floorName, menu.myDesk.roomName].filter(Boolean).join(', '), tag: 'my-desk' }));
+  }
+  if (mine.length) sections.push({ key: 'mine', entries: mine });
+  if (menu.recent.length) sections.push({ key: 'recent', title: 'Recent', entries: menu.recent.map((p) => place('recent', p, { tag: 'recent' })) });
+  if (menu.departments.length) {
+    sections.push({ key: 'departments', title: 'Departments', entries: menu.departments.map((d) => ({
+      type: 'open', key: d.id, view: { type: 'department', id: d.id }, name: d.name, detail: d.detail, description: d.description,
+    })) });
+  }
+  if (menu.kinds.length) {
+    sections.push({ key: 'kinds', title: 'Places', entries: menu.kinds.map((k) => ({
+      type: 'open', key: k.id, view: { type: 'kind', id: k.id }, name: k.name, detail: k.detail, count: k.count,
+    })) });
+  }
+  if (menu.floors.length) {
+    sections.push({ key: 'floors', title: 'By floor', entries: menu.floors.map((f) => ({
+      type: 'open', key: f.id, view: { type: 'floor', id: f.id }, name: f.name, detail: f.detail,
+    })) });
+  }
+  const n = total(sections);
+  return {
+    view: { type: 'home' }, head: null, sections,
+    status: n ? `Type to search, or choose from ${count(n, 'item')} below` : 'Type a name to search',
+  };
+}
+
+function readRecent(): string[] {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(RECENT_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string').slice(0, RECENT_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecent(ids: string[]): void {
+  try { window.localStorage.setItem(RECENT_KEY, JSON.stringify(ids)); } catch { /* private window: kept for this visit only */ }
+}
+
+export function PlaceSearch({ engine, walking, people, departments, me = null, children, focusView, touch = false, onOpenChange }: PlaceSearchProps) {
   const touchRef = useRef(touch);
   touchRef.current = touch;
   const uid = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
+  const [view, setView] = useState<BrowseView>({ type: 'home' });
+  const [recent, setRecent] = useState<string[]>(readRecent);
+  // after the menu changes, the entry to choose (the one opened, when going back)
+  const chooseRef = useRef<string | null>(null);
   const [shown, setShown] = useState<(ShowResult & { nearest?: string }) | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -105,8 +231,9 @@ export function PlaceSearch({ engine, walking, people, children, focusView, touc
     });
   }, [engine]);
 
+  const typed = query.trim() !== '';
   const result: SearchGroups | null = useMemo(() => {
-    if (!engine || !open || !query.trim()) return null;
+    if (!engine || !open || !typed) return null;
     const t0 = performance.now();
     const r = engine.navigation.search(query);
     const ms = performance.now() - t0;
@@ -114,17 +241,41 @@ export function PlaceSearch({ engine, walking, people, children, focusView, touc
     queueMicrotask(() => panelRef.current?.setAttribute('data-search-ms', ms.toFixed(2)));
     return r;
     // walking changes "nearest first"; people change who can be found
-  }, [engine, open, query, walking, people]);
+  }, [engine, open, query, typed, walking, people]);
+
+  // The browse menu (the box empty): made when it opens, and when what it shows changes
+  const menu: BrowseMenu | null = useMemo(() => {
+    if (!engine || !open || typed) return null;
+    return engine.navigation.browse({ recent });
+  }, [engine, open, typed, walking, people, departments, me, recent]);
+  const screen = useMemo(() => (menu ? browseScreen(menu, view, { walking }) : null), [menu, view, walking]);
+  const entries = useMemo(() => (screen ? screen.sections.flatMap((s) => s.entries) : []), [screen]);
 
   // the order shown (Rooms first for "Engineering"): up / down follow it
   const options = useMemo(() => (result ? result.order.flatMap((g) => result.groups[g]) : []), [result]);
+  const optionCount = typed ? options.length : entries.length;
   useEffect(() => { setActive(0); }, [result]);
+  useEffect(() => {
+    const key = chooseRef.current;
+    chooseRef.current = null;
+    const i = key ? entries.findIndex((e) => e.key === key) : -1;
+    // a list opened: its first entry after Back
+    setActive(i >= 0 ? i : entries[0]?.type === 'back' && entries.length > 1 ? 1 : 0);
+  }, [entries]);
 
   // A new layout or engine: nothing is shown any more
   useEffect(() => () => { setShown(null); }, [engine]);
 
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
   useEffect(() => {
-    if (open) inputRef.current?.focus({ preventScroll: true });
+    if (open) {
+      inputRef.current?.focus({ preventScroll: true });
+      setRecent(readRecent()); // another tab of this browser may have added some
+    } else {
+      setView({ type: 'home' }); // opening again starts at the start
+    }
+    onOpenChangeRef.current?.(open);
   }, [open]);
 
   // Keep the chosen option in view
@@ -143,7 +294,40 @@ export function PlaceSearch({ engine, walking, people, children, focusView, touc
     const r = engine.navigation.show(place.id);
     if (!r) return;
     setShown({ ...r, nearest: place.kind === 'nearest' ? place.name : undefined });
+    // found: Find opens on its menu next time (with this place under Recent); Esc keeps what was typed
+    setQuery('');
+    // a recent search: the place itself ("Nearest washroom" = the one it chose)
+    setRecent((was) => {
+      const next = addRecent(was, r.place.id);
+      saveRecent(next);
+      return next;
+    });
     close();
+  };
+
+  const openView = (next: BrowseView) => {
+    setView(next);
+    inputRef.current?.focus({ preventScroll: true });
+  };
+  const goBack = () => {
+    if (view.type === 'home') return false;
+    chooseRef.current = view.id; // the entry that opened it
+    openView({ type: 'home' });
+    return true;
+  };
+
+  /** Enter or a click on an entry of the menu. */
+  const activate = (entry: BrowseEntry | undefined) => {
+    if (!entry) return;
+    if (entry.type === 'back') goBack();
+    else if (entry.type === 'open') openView(entry.view);
+    else if (entry.type === 'place') pick(entry.place);
+    else if (entry.type === 'chip') {
+      const c = entry.chip;
+      if (walking && c.nearest) pick(c.nearest.place); // "Nearest washroom · 8 m": the nearest by walking
+      else if (c.place) pick(c.place); // the only one
+      else openView({ type: 'kind', id: `kind:${c.kind}` });
+    }
   };
 
   const clearShown = () => {
@@ -175,25 +359,78 @@ export function PlaceSearch({ engine, walking, people, children, focusView, touc
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      if (!options.length) return;
+      if (!optionCount) return;
       const step = e.key === 'ArrowDown' ? 1 : -1;
-      setActive((a) => (a + step + options.length) % options.length);
+      setActive((a) => (a + step + optionCount) % optionCount);
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      pick(options[active] ?? options[0]);
+      if (typed) pick(options[active] ?? options[0]);
+      else activate(entries[active] ?? entries[0]);
+    } else if ((e.key === 'ArrowLeft' || e.key === 'Backspace') && !query && view.type !== 'home') {
+      e.preventDefault();
+      goBack();
     } else if (e.key === 'Escape') {
       // ours, not the walkthrough's (Esc there gives the keys back to the page)
       e.preventDefault();
       e.stopPropagation();
+      if (!typed && goBack()) return; // in a list: back to the start
       close();
     }
   };
 
-  const status = !query.trim() ? ''
+  const status = !typed ? (screen?.status ?? '')
     : !result?.total ? `Nothing found for “${query.trim()}”`
       : `${result.total} ${result.total === 1 ? 'result' : 'results'}`;
-  const activeId = options.length ? `${uid}-opt-${active}` : undefined;
+  const activeId = optionCount ? `${uid}-opt-${Math.min(active, optionCount - 1)}` : undefined;
   let n = -1;
+
+  /** One option of the menu (an entry). */
+  const entryOption = (entry: BrowseEntry, i: number) => {
+    const on = i === active;
+    const common = {
+      id: `${uid}-opt-${i}`, role: 'option', 'aria-selected': on,
+      onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault(), // the focus stays in the box
+      onMouseEnter: () => setActive(i),
+      onClick: () => activate(entry),
+    } as const;
+    if (entry.type === 'chip') {
+      return (
+        <div key={entry.key} {...common} data-quick={entry.chip.label} data-quick-nearest={walking && entry.chip.nearest ? '' : undefined}
+          style={{ ...styles.chip, ...(on ? styles.chipOn : null) }}>
+          {entry.name}
+        </div>
+      );
+    }
+    if (entry.type === 'back') {
+      return (
+        <div key={entry.key} {...common} data-browse-back aria-label="Back to all" style={{ ...styles.option, ...styles.back, ...(on ? styles.optionOn : null) }}>
+          <span style={styles.backText}><ChevronIcon left /> All</span>
+        </div>
+      );
+    }
+    if (entry.type === 'open') {
+      return (
+        <div key={entry.key} {...common} data-browse-open={entry.key} style={{ ...styles.option, ...styles.openRow, ...(on ? styles.optionOn : null) }}>
+          <span style={{ minWidth: 0, flex: 1 }}>
+            <span style={styles.name}>{entry.name}</span>
+            {entry.detail && <span style={styles.detail}>{entry.detail}</span>}
+            {entry.description && <span data-description style={styles.description}>{entry.description}</span>}
+          </span>
+          {entry.count !== undefined && <span aria-hidden style={styles.count}>{entry.count}</span>}
+          <span style={styles.srOnly}>, opens a list</span>
+          <ChevronIcon />
+        </div>
+      );
+    }
+    return (
+      <div key={entry.key} {...common} data-place={entry.place.id} data-my-desk={entry.tag === 'my-desk' ? '' : undefined}
+        data-recent={entry.tag === 'recent' ? '' : undefined}
+        style={{ ...styles.option, ...(on ? styles.optionOn : null) }}>
+        <span style={styles.name}>{entry.name ?? entry.place.name}</span>
+        <span style={styles.detail}>{entry.detail ?? entry.place.detail}</span>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -230,7 +467,7 @@ export function PlaceSearch({ engine, walking, people, children, focusView, touc
               type="text"
               role="combobox"
               aria-label={SEARCH_LABEL}
-              aria-expanded={options.length > 0}
+              aria-expanded={optionCount > 0}
               aria-controls={`${uid}-list`}
               aria-autocomplete="list"
               aria-activedescendant={activeId}
@@ -248,23 +485,20 @@ export function PlaceSearch({ engine, walking, people, children, focusView, touc
             </button>
           </div>
 
-          {!query.trim() && (
-            <div style={styles.hint}>
-              <div>Type a name, a department or a room.</div>
-              <div style={styles.quick}>
-                {QUICK.map((q) => (
-                  <button key={q} type="button" data-quick={q} style={styles.chip}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => { setQuery(q); inputRef.current?.focus(); }}>
-                    {q}
-                  </button>
-                ))}
-              </div>
+          {!typed && screen?.view.type === 'home' && (
+            <div style={styles.hint}>Type a name, a department or a room, or choose below.</div>
+          )}
+          {!typed && screen?.head && (
+            <div data-browse-head style={styles.head}>
+              <span style={styles.headName}>{screen.head.name}</span>
+              <span style={styles.detail}>{screen.head.detail}</span>
+              {screen.head.description && <span data-description style={styles.headDescription}>{screen.head.description}</span>}
             </div>
           )}
 
-          <div id={`${uid}-list`} role="listbox" aria-label="Search results" style={styles.list}>
-            {result && result.order.map((g) => {
+          <div id={`${uid}-list`} role="listbox" aria-label={typed ? 'Search results' : (screen?.head?.name ?? 'Browse')}
+            data-browse={!typed && screen ? screen.view.type : undefined} style={styles.list}>
+            {typed && result && result.order.map((g) => {
               const items = result.groups[g];
               const title = GROUP_TITLES[g];
               if (!items.length) return null;
@@ -299,8 +533,21 @@ export function PlaceSearch({ engine, walking, people, children, focusView, touc
                 </div>
               );
             })}
+            {!typed && screen && screen.sections.map((s) => {
+              const titleId = `${uid}-b-${s.key}`;
+              return (
+                <div key={s.key} role="group" aria-labelledby={s.title ? titleId : undefined} aria-label={s.title ? undefined : s.key === 'mine' ? 'My desk' : undefined}
+                  data-browse-group={s.key} style={s.chips ? styles.quick : undefined}>
+                  {s.title && <div id={titleId} role="presentation" style={s.chips ? styles.chipsTitle : styles.groupTitle}>{s.title}</div>}
+                  {s.entries.map((entry) => {
+                    n += 1;
+                    return entryOption(entry, n);
+                  })}
+                </div>
+              );
+            })}
           </div>
-          {query.trim() && !result?.total && <div style={styles.hint}>Nothing found. Try another name, or “washroom”.</div>}
+          {typed && !result?.total && <div style={styles.hint}>Nothing found. Try another name, or “washroom”.</div>}
           <div aria-live="polite" role="status" style={styles.srOnly} data-search-status>{status}</div>
         </div>
       )}
@@ -408,6 +655,15 @@ function CloseIcon() {
   );
 }
 
+function ChevronIcon({ left = false }: { left?: boolean }) {
+  return (
+    <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+      style={{ flex: 'none', color: '#55625a' }}>
+      <path d={left ? 'm15 18-6-6 6-6' : 'm9 18 6-6-6-6'} />
+    </svg>
+  );
+}
+
 // The AHDUS look (src/ui/theme.css tokens, as values: the viewer has no stylesheet)
 const C = {
   panel: '#ffffff', text: '#25382f', muted: '#55625a', border: '#e3e8e0', hover: '#f0f3ed',
@@ -438,23 +694,43 @@ const styles: Record<string, CSSProperties> = {
     pointerEvents: 'auto', flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
     width: 32, height: 32, border: 'none', borderRadius: 8, background: 'transparent', color: C.muted, cursor: 'pointer',
   },
-  hint: { padding: '10px 12px', color: C.muted, fontSize: 13 },
-  quick: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  chip: {
-    height: 30, padding: '0 12px', border: `1px solid ${C.border}`, borderRadius: 999, background: C.accentSoft,
-    color: C.accent, font: `600 13px/1 ${C.font}`, cursor: 'pointer',
+  hint: { padding: '10px 12px 4px', color: C.muted, fontSize: 13 },
+  head: { display: 'flex', flexDirection: 'column', gap: 1, padding: '10px 12px 6px', borderBottom: `1px solid ${C.border}` },
+  headName: { display: 'block', fontWeight: 700, fontSize: 15, color: C.text, overflowWrap: 'anywhere' },
+  headDescription: { display: 'block', marginTop: 4, fontSize: 13, color: C.text, overflowWrap: 'anywhere' },
+  quick: { display: 'flex', flexWrap: 'wrap', gap: 6, padding: '6px 12px 8px' },
+  chipsTitle: {
+    flexBasis: '100%', color: C.muted, font: `600 11px/1.2 ${C.font}`, letterSpacing: '0.06em', textTransform: 'uppercase', paddingTop: 4,
   },
-  list: { overflowY: 'auto', minHeight: 0, flex: '0 1 auto' },
+  chip: {
+    display: 'inline-flex', alignItems: 'center', height: 30, padding: '0 12px', boxSizing: 'border-box',
+    border: `1px solid ${C.border}`, borderRadius: 999, background: C.accentSoft,
+    color: C.accent, font: `600 13px/1 ${C.font}`, cursor: 'pointer', whiteSpace: 'nowrap', maxWidth: '100%',
+  },
+  // the chip ↑ ↓ is on (Enter picks it): a ring, not "pressed"
+  chipOn: { border: `1px solid ${C.accent}`, boxShadow: `0 0 0 2px ${C.accent}33` },
+  list: { overflowY: 'auto', minHeight: 0, flex: '0 1 auto', paddingBottom: 4 },
   groupTitle: {
     padding: '10px 12px 4px', color: C.muted, font: `600 11px/1.2 ${C.font}`, letterSpacing: '0.06em', textTransform: 'uppercase',
   },
   option: {
-    display: 'flex', flexDirection: 'column', gap: 1, padding: '8px 12px', minHeight: 40, boxSizing: 'border-box',
+    position: 'relative', display: 'flex', flexDirection: 'column', gap: 1, padding: '8px 12px', minHeight: 40, boxSizing: 'border-box',
     justifyContent: 'center', cursor: 'pointer', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: 'transparent',
   },
   optionOn: { background: C.accentSoft, borderLeftColor: C.accent },
+  openRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  back: { minHeight: 36, borderBottom: `1px solid ${C.border}` },
+  backText: { display: 'inline-flex', alignItems: 'center', gap: 4, color: C.accent, fontWeight: 600 },
+  count: {
+    flex: 'none', minWidth: 24, height: 22, padding: '0 7px', boxSizing: 'border-box', borderRadius: 999,
+    background: C.hover, color: C.text, font: `600 12px/22px ${C.font}`, textAlign: 'center',
+  },
   name: { display: 'block', fontWeight: 600, color: C.text, overflowWrap: 'anywhere' },
   detail: { display: 'block', fontSize: 12.5, color: C.muted, overflowWrap: 'anywhere' },
+  description: {
+    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+    marginTop: 2, fontSize: 12.5, color: C.text, overflowWrap: 'anywhere',
+  },
   more: { padding: '4px 12px 8px 15px', fontSize: 12.5, color: C.muted, fontStyle: 'italic' },
   shown: {
     pointerEvents: 'auto', marginTop: 8, width: '100%', maxWidth: 400, boxSizing: 'border-box',

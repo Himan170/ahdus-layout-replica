@@ -12,6 +12,8 @@
  *                                       'guide' = Show route (a line on the floor, you walk),
  *                                       'auto' = Take me there (your character walks it)
  *   engine.navigation.stop()          → the route ends
+ *   engine.navigation.browse()        → the Find box's menu while it is empty (v0.14.2): facility chips, My desk,
+ *                                       departments, places by kind, by floor (play/navigation/browse.js)
  *   engine.on('navigation', (e) => …) → { state: 'started' | 'progress' | 'arrived' | 'stopped' | 'failed', … }
  *
  * The index (play/navigation/places.js, pure) is made again when the layout's
@@ -24,6 +26,7 @@
 
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 import { buildPlaces, searchPlaces, publicPlace, flatResults, FACILITIES } from '../../play/navigation/places';
+import { browsePlaces, recentPlaces } from '../../play/navigation/browse';
 import { findNearestRoute, roomAt } from '../../play/navigation/route';
 import { createWalkMapCache } from '../../play/navigation/walkMap';
 import { entranceSpawn } from '../../play/navigation/entrance';
@@ -61,6 +64,39 @@ export interface SearchGroups {
   total: number;
   /** The groups in the order shown: People, Rooms, Facilities; Rooms first when a room or department name matches better than any person's. */
   order: ('people' | 'rooms' | 'facilities')[];
+}
+
+/** A department you can give a description to (LayoutEngine.setDepartments; AHDUS: GET /api/teams/departments). */
+export interface DepartmentInfo {
+  name: string;
+  description?: string;
+}
+
+/** The Find box's browse menu (browse()): only what this workplace has. */
+export interface BrowseMenu {
+  /** The facility kinds that exist. Walking: the nearest one and the walk to it ("Nearest washroom · 8 m"). */
+  chips: {
+    facility: string; label: string; count: number; kind: string;
+    /** The only one of its kind (a pick shows it at once). */
+    place: PlaceResult | null;
+    /** Walking: "Nearest washroom" ('nearest:RESTROOM') and how far it is by walking; null from above or with no route. */
+    nearest: { place: PlaceResult; length: number; seconds: number } | null;
+  }[];
+  /** The signed-in person's seat (setPlayer's personId), if they have one. */
+  myDesk: PlaceResult | null;
+  /** The recent searches (browse({ recent }): place ids, newest first) that still exist. */
+  recent: PlaceResult[];
+  /** "Engineering · 2 rooms · Floor 1 · 92 people", by name. */
+  departments: {
+    id: string; name: string; description: string | null; detail: string;
+    /** What a pick of the whole department shows (its rooms outlined; one room: that room); null: people only. */
+    place: PlaceResult | null;
+    rooms: PlaceResult[]; people: PlaceResult[];
+  }[];
+  /** Offices, Meeting rooms, Washrooms, Reception, Stairs, then other room types: each with its places by floor. */
+  kinds: { id: string; key: string; name: string; count: number; detail: string; floors: { floorId: number; floorName: string; places: PlaceResult[] }[] }[];
+  /** "Ground Floor · 13 rooms" → its rooms. */
+  floors: { id: string; floorId: number; name: string; count: number; detail: string; places: PlaceResult[] }[];
 }
 
 /** What show() did: the place shown and, walking, how far it is (or why you can't walk there). */
@@ -153,6 +189,8 @@ interface Hooks {
   /** The route line (RouteLineSystem). */
   routeLine?: () => RouteLine | null;
   emit?: (event: NavigationEvent) => void;
+  /** The signed-in person (setPlayer's personId): "My desk". */
+  getMe?: () => string | null;
   /** When idle work runs (default requestIdleCallback, else a short timeout); tests pass their own. */
   idle?: (fn: () => void) => void;
 }
@@ -179,7 +217,7 @@ const ARRIVE_PITCH = -0.18;
 
 // places.js is plain JS: its places are read as loose records here
 type Place = Record<string, any>;
-type Index = { places: Place[]; byId: Map<string, Place> };
+type Index = { places: Place[]; byId: Map<string, Place>; floors: { id: number; name: string }[] };
 type Route = {
   problem?: string; message?: string; length: number; seconds: number;
   legs: { floor: number; points: { x: number; z: number }[] }[]; goalIndex?: number;
@@ -211,6 +249,7 @@ const list = <T,>(v: unknown): T[] => (Array.isArray(v) ? v : Object.values((v ?
 export class NavigationSystem {
   private hooks: Hooks;
   private people: { personId: string; deskId: string; name?: string; department?: string }[] = [];
+  private departments: DepartmentInfo[] = [];
   private index: Index | null = null;
   private indexKey: unknown[] = [];
   /** The walk maps (one per floor), shared with the walkthrough's controller (playController's walkMaps option). */
@@ -231,6 +270,52 @@ export class NavigationSystem {
       department: typeof p?.department === 'string' ? p.department : undefined,
     })).filter((p) => p.personId && p.deskId);
     this.index = null;
+  }
+
+  /**
+   * Descriptions of departments (replaces the list before): [{ name, description }]. Shown in the
+   * Find box's menu under a department of that name that exists here (rooms' departmentRef or
+   * people's departments); text only, at most 280 characters.
+   */
+  setDepartments(departments: { name?: unknown; description?: unknown }[] | null | undefined): void {
+    this.departments = (Array.isArray(departments) ? departments : [])
+      .filter((d) => d && typeof d.name === 'string')
+      .map((d) => ({ name: d.name as string, ...(typeof d.description === 'string' ? { description: d.description } : {}) }));
+  }
+
+  /**
+   * The Find box's menu while it is empty (v0.14.2): the facility chips that exist (walking: the
+   * nearest one and the walk there), My desk, the recent searches (`recent`: place ids, newest
+   * first) that still exist, departments, places by kind and by floor. Built from the same index
+   * as search, so only what this workplace has.
+   */
+  browse({ recent = [] }: { recent?: string[] } = {}): BrowseMenu {
+    const index = this.places();
+    const menu = browsePlaces(index, { departments: this.departments, me: this.hooks.getMe?.() ?? null });
+    const pub = (p: Place | null | undefined) => (p ? (publicPlace(p) as PlaceResult) : null);
+    const pubs = (list: Place[]) => list.map((p) => publicPlace(p) as PlaceResult);
+    const walker = this.hooks.getWalker();
+    return {
+      chips: menu.chips.map((c: Place) => {
+        let nearest: BrowseMenu['chips'][number]['nearest'] = null;
+        if (walker) {
+          const place = this.place(`nearest:${c.facility}`);
+          const route = place ? this.routeFrom(walker, place) : null;
+          if (place && route && !route.problem) nearest = { place: publicPlace(place) as PlaceResult, length: route.length, seconds: route.seconds };
+        }
+        return { facility: c.facility, label: c.label, count: c.count, kind: c.kind, place: pub(c.only), nearest };
+      }),
+      myDesk: pub(menu.myDesk),
+      recent: pubs(recentPlaces(index, recent)),
+      departments: menu.departments.map((d: Place) => ({
+        id: d.id, name: d.name, description: d.description, detail: d.detail, place: pub(d.place), rooms: pubs(d.rooms), people: pubs(d.people),
+      })),
+      kinds: menu.kinds.map((k: Place) => ({
+        id: k.id, key: k.key, name: k.name, count: k.count, detail: k.detail,
+        floors: k.floors.map((g: Place) => ({ floorId: g.floor, floorName: g.floorName, places: pubs(g.places) })),
+      })),
+      floors: menu.floors.map((f: Place) => ({ id: f.id, floorId: f.floor, name: f.name, count: f.count, detail: f.detail, places: pubs(f.places) })),
+    };
   }
 
   /** The index, made again when the layout or the people changed. */

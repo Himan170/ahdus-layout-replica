@@ -77,6 +77,7 @@ import { LayoutEditor, LayoutViewer } from '@engine/react';   // later: '@ahdus/
   onError={(error) => { ... }}    // the layout could not be loaded
   people={people}                 // who sits where: [{ personId, deskId, name, department, character }]
   search={true}                   // the "Find a person, room or place" box (default true; false hides it)
+  departments={[{ name: 'Engineering', description: 'Builds the product' }]} // descriptions in its menu (v0.14.2)
 />
 ```
 
@@ -133,6 +134,10 @@ engine.navigation.search('washroom'); // the same, grouped: { groups: { people, 
 engine.navigation.show(result.id);   // from above: its floor, the camera flies to it, outlined; walking: outlined
                                      // + { route: { length, seconds, floors } } or { problem, message }
 engine.navigation.clear();           // the outline goes
+engine.navigation.browse({ recent }); // the Find box's menu while it is empty (v0.14.2): { chips, myDesk, recent,
+                                     //   departments, kinds, floors }: only what this layout and the people have;
+                                     //   walking, each chip's nearest: { place, length, seconds }
+engine.setDepartments([{ name, description }]); // descriptions of departments, shown in that menu
 
 // --- Going there (v0.13.4): Show route / Take me there ---
 engine.navigation.routeTo('person:42', { walk: 'guide' }); // Show route: the line on the floor, you walk
