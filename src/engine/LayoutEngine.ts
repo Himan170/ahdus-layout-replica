@@ -48,6 +48,8 @@ import type { Layout, Anchor, LayoutObject, AnchorKind } from './model/schema';
 import { loadLayout as parseLayout } from './model/migrate';
 import { toV1, storeFloorIds, mergeV2Extras } from './model/toV1';
 import { NavigationSystem } from './systems/NavigationSystem';
+import type { NavigationEvent } from './systems/NavigationSystem';
+import { RouteLineSystem } from './systems/RouteLineSystem';
 import { CommandHistory } from './commands/CommandHistory';
 import type { Command } from './commands/CommandHistory';
 import { createLayoutScene } from './systems/SceneSetup';
@@ -148,7 +150,13 @@ type EventMap = {
   hud: unknown;
   /** How far building the layout is (after loadLayout, and big changes); allBuilt: everything is drawn. */
   progress: BuildProgress;
+  /** Show route / Take me there: started, progress, arrived, stopped, failed (v0.13.4). */
+  navigation: NavigationEvent;
+  /** The mode changed (setMode, or "Take me there" from above starting a walk). */
+  mode: { mode: EngineMode };
 };
+
+export type { NavigationEvent };
 
 export type { BuildProgress };
 export type { Person, PlacedPerson, CharacterFile };
@@ -209,8 +217,11 @@ export class LayoutEngine {
   readonly highlights: HighlightSystem;
   /** People at their desks (null with quality 'low': no people at all). */
   readonly characters: CharacterSystem | null;
-  /** Search and show places (find, show, clear): v0.13.3. */
+  /** Search, show and go to places (find, show, clear: v0.13.3; routeTo, stop: v0.13.4). */
   readonly navigation: NavigationSystem;
+  /** The route line of Show route / Take me there (made when first shown). */
+  private _routeLine: RouteLineSystem | null = null;
+  private _warmed: Promise<void> = Promise.resolve();
   /** Builds the layout in slices (progressive loading). */
   private _builder: SceneBuilder;
 
@@ -296,6 +307,13 @@ export class LayoutEngine {
       focusOn: (id, options) => this.focusOn(id, options),
       highlight: (ids, color) => this.highlight(ids, color),
       clearHighlights: () => this.clearHighlights(),
+      // From above, a route starts a walk at the entrance (walkthrough mode)
+      startWalking: () => {
+        if (this._mode !== 'walkthrough') this.setMode('walkthrough');
+        return this._walkthrough?.isActive() ? this._walkthrough : null;
+      },
+      routeLine: () => (this._routeLine ??= new RouteLineSystem(this.scene)),
+      emit: (event) => this.emit('navigation', event),
     });
     this._builder = new SceneBuilder({
       rooms: this.rooms,
@@ -353,6 +371,7 @@ export class LayoutEngine {
     } finally {
       this._loading = false;
     }
+    this.navigation.stop(); // a route through the old layout means nothing in this one
     this._loaded = v2;
     this._cachedLayout = null;
     this.history.clear();
@@ -361,7 +380,19 @@ export class LayoutEngine {
     this.highlights.apply();
     // Walking through: start at this layout's entrance
     if (this._walkthrough?.isActive()) this._walkthrough.respawn();
+    // Then, in idle time, the walk maps: the first route or "Take me there" doesn't freeze
+    const own = this._store;
+    const rooms = own.getState().rooms;
+    this._warmed = this._builder.whenBuilt().then(() => {
+      if (own.getState().rooms === rooms && !this.scene.isDisposed) return this.navigation.warm();
+      return undefined;
+    });
     this._emitChange('loadLayout', 'root');
+  }
+
+  /** Resolves when the walk maps of the layout loaded last are built (in idle time, after whenBuilt). */
+  whenNavigationReady(): Promise<void> {
+    return this._warmed;
   }
 
   /**
@@ -511,11 +542,18 @@ export class LayoutEngine {
     return this.characters?.pickPerson(x, y) ?? null;
   }
 
-  /** Walking through: the person the character stands next to (within `radius` m on its floor), or null. */
-  personNearWalker(radius = 1.8): PlacedPerson | null {
+  /**
+   * Walking through: the person the character stands next to (within `radius` m on its floor), or null.
+   * With `personId`: that person only (the viewer keeps the card of the person a walk arrived at).
+   */
+  personNearWalker(radius = 1.8, personId: string | null = null): PlacedPerson | null {
     const walk = this._walkthrough;
     if (!this.characters || !walk?.isActive()) return null;
-    return this.characters.personAt(walk.getPosition(), walk.getLevel(), radius);
+    if (personId === null) return this.characters.personAt(walk.getPosition(), walk.getLevel(), radius);
+    // one person (the one a walk arrived at): within radius on your floor
+    const at = walk.getPosition();
+    const p = this.characters.getPlaced().find((q) => q.personId === personId);
+    return p && p.floor === walk.getLevel() && Math.hypot(p.x - at.x, p.z - at.z) <= radius ? p : null;
   }
 
   // ── Querying ───────────────────────────────────────────────────────────
@@ -559,6 +597,7 @@ export class LayoutEngine {
     if (mode === this._mode) return;
     this._mode = mode;
     this._applyMode();
+    this.emit('mode', { mode });
   }
 
   /** The walkthrough (character, its room and floor); null until walkthrough mode is first used. */
@@ -648,8 +687,11 @@ export class LayoutEngine {
   dispose(): void {
     this._playerToken++; // a character still loading is dropped
     this._builder.dispose();
+    this.navigation.stop();
     this._walkthrough?.dispose();
     this._walkthrough = null;
+    this._routeLine?.dispose();
+    this._routeLine = null;
     this.characters?.dispose();
     this._unsubscribe();
     this._unsubscribeFloor();
@@ -685,6 +727,7 @@ export class LayoutEngine {
       if (this._view === '2d') this.setView('3d'); // walking is always 3D
       this._ensureWalkthrough().activate();
     } else if (this._walkthrough?.isActive()) {
+      this.navigation.stop(); // a route is walked, never followed from above
       this._walkthrough.deactivate();
       // Back to the view from above, on the floor you walked to (its floorChange came from onLevelChange)
       this.floors.setFloor(this._store.getState().currentFloor);
@@ -748,6 +791,7 @@ export class LayoutEngine {
         describeInteraction: (target) => this.describeInteraction?.(target) ?? null,
       },
       this._focusTarget,
+      this.navigation.walkMaps,
     );
     return this._walkthrough;
   }

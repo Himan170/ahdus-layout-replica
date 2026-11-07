@@ -13,6 +13,8 @@
  *                                      // character (characters.walkClipUrl); their card offers characters.chooseUrl
  *   workplace.find('Kavya');           // search people, rooms and places (the viewer's "Find" box does the same;
  *                                      // option navigation: { search: false } hides the box)
+ *   workplace.goTo('Kavya Iyer', { walk: 'auto' });  // walk there: 'guide' = Show route (a line on the floor),
+ *                                      // 'auto' = Take me there; onEvent('navigation', { state, … }); stopRoute()
  *
  * `npm run build:embed` (vite.embed.config.js) makes one IIFE file with React
  * and Babylon inside. It shows <LayoutViewer /> and works through layoutBridge
@@ -241,6 +243,14 @@ export function mount(element, options = {}) {
         point: ev.position, distance: ev.distance,
       }, context))),
       store.subscribe((s) => s.currentFloor, (floorId) => emit('floorChange', floor(floorId))),
+      // Show route / Take me there: started, progress, arrived, stopped, failed
+      e.on('navigation', (ev) => emit('navigation', { ...ev })),
+      // "Take me there" from above starts walking: the page's mode follows
+      e.on('mode', ({ mode: next }) => {
+        if (next === mode || next === 'edit') return;
+        mode = next;
+        render();
+      }),
     );
     const s = store.getState();
     emit('ready', {
@@ -389,6 +399,29 @@ export function mount(element, options = {}) {
     find(query, { limit } = {}) {
       if (!engine || closed) return [];
       return engine.navigation.find(String(query ?? ''), { limit });
+    },
+
+    /**
+     * Go to a person, room or place: a search result's id ('person:p1', 'room:room_a', 'nearest:RESTROOM'),
+     * { personId }, { roomId }, { deskId }, { type: 'RESTROOM' } or a name ('Kavya Iyer', the first search result).
+     * walk 'guide' (default) = Show route: a line on the floor, you walk; 'auto' = Take me there: you are walked
+     * there (a movement key pauses, G goes on, Esc stops). From above it starts walking at the entrance.
+     * Answers { place, walk, length, seconds, floors } or { problem, message }; undefined until ready.
+     * onEvent('navigation', { state: 'started' | 'progress' | 'arrived' | 'stopped' | 'failed', place, remaining, … }).
+     */
+    goTo(target, { walk } = {}) {
+      return whenReady(() => {
+        let to = target;
+        if (typeof to === 'string' && !/^(person|room|item|department|nearest|spot):/.test(to)) {
+          to = engine.navigation.find(to, { limit: 1 })[0]?.id ?? to;
+        }
+        return engine.navigation.routeTo(to, { walk: walk === 'auto' ? 'auto' : 'guide' });
+      });
+    },
+
+    /** End Show route / Take me there (false: there was none). */
+    stopRoute() {
+      return whenReady(() => engine.navigation.stop());
     },
 
     /** Remove the viewer: the element, the 3D engine, its actions and listeners. */

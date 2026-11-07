@@ -38,7 +38,7 @@ import type { CSSProperties } from 'react';
 import { LayoutEngine } from '../LayoutEngine';
 import type {
   EngineMode, QualityLevel, InteractEvent, EnterRoomEvent, ExitRoomEvent, BuildProgress, Person, PlacedPerson,
-  CharacterFile,
+  CharacterFile, NavigationEvent,
 } from '../LayoutEngine';
 import { progressPercent } from '../../play/buildSchedule';
 import { connectEngine } from '../../integration/layoutBridge';
@@ -85,6 +85,13 @@ export interface LayoutViewerProps {
   onError?: (error: Error) => void;
   /** A card was shown (the default card of E, layoutBridge.showCard): to show it in your own panel too. */
   onCard?: (card: { title: string; body?: string; text?: string; duration?: number }) => void;
+  /**
+   * The mode changed inside the viewer: "Show route" / "Take me there" from above starts a walk
+   * ('walkthrough'). Keep your `mode` prop in step with it.
+   */
+  onModeChange?: (mode: Exclude<EngineMode, 'edit'>) => void;
+  /** Show route / Take me there: { state: 'started' | 'progress' | 'arrived' | 'stopped' | 'failed', place, … }. */
+  onNavigation?: (event: NavigationEvent) => void;
   className?: string;
   style?: CSSProperties;
 }
@@ -105,6 +112,8 @@ interface Hud {
 /** How often the person under the pointer (or next to the walker) is looked up (ms). */
 const PERSON_EVERY_MS = 50;
 const NEAR_EVERY_MS = 250;
+/** After a walk arrives at a person, their card stays while you are this close (m; across a counter too). */
+const ARRIVED_CARD_M = 3;
 /** A click or tap, not a drag of the view: at most this far (px) and this long (ms) from press to release. */
 const TAP_PX = 8;
 const TAP_MS = 600;
@@ -142,11 +151,15 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [hud, setHud] = useState<Hud | null>(null);
   const [card, setCard] = useState<Card | null>(null);
   const [progress, setProgress] = useState<BuildProgress | null>(null);
+  // the engine's mode: the prop, or a walk started from above (Show route / Take me there)
+  const [shownMode, setShownMode] = useState<EngineMode>(mode);
   // the person pointed at (view) or walked up to (walkthrough); at: the cursor in the box (px);
   // pinned: clicked or tapped (stays until the next click or tap, and its link can be clicked)
   const [person, setPerson] = useState<{ who: PlacedPerson; at: { x: number; y: number } | null; pinned?: boolean } | null>(null);
   // the latest callbacks, so the engine's handlers never call stale ones
   const propsRef = useRef(props);
+  /** The person the last walk (Take me there / Show route) arrived at, while you stay near them. */
+  const arrivedRef = useRef<string | null>(null);
   propsRef.current = props;
   const readyFor = useRef<LayoutEngine | null>(null); // onReady once per engine
 
@@ -179,6 +192,15 @@ export function LayoutViewer(props: LayoutViewerProps) {
         e.on('enterRoom', (ev) => propsRef.current.onEnterRoom?.(ev)),
         e.on('exitRoom', (ev) => propsRef.current.onExitRoom?.(ev)),
         e.on('hud', (info) => setHud(info as Hud)),
+        e.on('mode', ({ mode: m }) => {
+          setShownMode(m);
+          if (m !== 'edit') propsRef.current.onModeChange?.(m);
+        }),
+        e.on('navigation', (ev) => {
+          if (ev.state === 'arrived') arrivedRef.current = ev.place?.personId != null ? String(ev.place.personId) : null;
+          else if (ev.state === 'started') arrivedRef.current = null;
+          propsRef.current.onNavigation?.(ev);
+        }),
         e.on('progress', (p) => {
           setProgress(p);
           propsRef.current.onProgress?.(p);
@@ -231,6 +253,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
 
   useEffect(() => {
     engine?.setMode(mode);
+    if (engine) setShownMode(engine.mode);
   }, [engine, mode]);
 
   const { people } = props;
@@ -254,9 +277,13 @@ export function LayoutViewer(props: LayoutViewerProps) {
     const canvas = canvasRef.current;
     if (!engine || !canvas || !people?.length) { setPerson(null); return undefined; }
     const same = (a: PlacedPerson | null | undefined, b: PlacedPerson | null | undefined) => (a?.personId ?? null) === (b?.personId ?? null);
-    if (mode === 'walkthrough') {
+    if (shownMode === 'walkthrough') {
       const timer = setInterval(() => {
-        const who = engine.personNearWalker();
+        let who = engine.personNearWalker();
+        if (!who && arrivedRef.current !== null) {
+          who = engine.personNearWalker(ARRIVED_CARD_M, arrivedRef.current);
+          if (!who) arrivedRef.current = null; // walked away: back to the usual 1.8 m
+        }
         setPerson((was) => (same(was?.who, who) ? was : who ? { who, at: null } : null));
       }, NEAR_EVERY_MS);
       return () => { clearInterval(timer); setPerson(null); };
@@ -314,9 +341,9 @@ export function LayoutViewer(props: LayoutViewerProps) {
       canvas.removeEventListener('pointerleave', onLeave);
       setPerson(null);
     };
-  }, [engine, mode, people]);
+  }, [engine, shownMode, people]);
 
-  const walking = mode === 'walkthrough';
+  const walking = shownMode === 'walkthrough';
   const engaged = !!(hud?.engaged ?? hud?.locked);
   // Their own card, no character chosen yet: "Choose your character"
   const me = props.player?.personId;
@@ -328,7 +355,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
       ref={boxRef}
       className={className}
       style={{ position: 'relative', overflow: 'hidden', outline: 'none', ...style }}
-      data-layout-viewer={mode}
+      data-layout-viewer={shownMode}
       // Walking through: one Tab stop; focus in it gives the view the keys (WalkthroughSystem)
       tabIndex={walking ? 0 : undefined}
       role={walking ? 'application' : undefined}
@@ -375,7 +402,13 @@ export function LayoutViewer(props: LayoutViewerProps) {
         if (search && engine && !error) {
           return (
             <div style={styles.topLeft} data-viewer-toolbar>
-              <PlaceSearch engine={engine} walking={walking} people={people}>{walkBar}</PlaceSearch>
+              <PlaceSearch engine={engine} walking={walking} people={people}
+                focusView={() => {
+                  // from above the box is no Tab stop yet (walking starts this moment): make it one, then focus it
+                  const box = boxRef.current;
+                  if (box && box.tabIndex < 0) box.tabIndex = 0;
+                  box?.focus({ preventScroll: true });
+                }}>{walkBar}</PlaceSearch>
             </div>
           );
         }

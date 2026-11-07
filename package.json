@@ -1,7 +1,7 @@
 {
   "name": "company-digital-twin",
   "private": true,
-  "version": "0.13.3",
+  "version": "0.13.4",
   "type": "module",
   "engines": {
     "node": ">=20.19"
@@ -30,6 +30,7 @@
     "e2e:perf": "node e2e/perf-smoke.mjs",
     "e2e:nested-rooms": "node e2e/nested-rooms-smoke.mjs",
     "e2e:viewer": "node e2e/viewer-smoke.mjs",
+    "e2e:navigation": "node e2e/navigation-smoke.mjs",
     "e2e:embed": "node e2e/embed-smoke.mjs",
     "e2e:characters": "node e2e/characters-smoke.mjs",
     "e2e:seats": "node e2e/seats-smoke.mjs",

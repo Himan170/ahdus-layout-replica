@@ -122,4 +122,14 @@ describe('where the character stands', () => {
   it('outside any room you stand on the ground', () => {
     expect(supportHeight({ ...ctx, x: 30, z: 0, y: 5 })).toBe(0);
   });
+
+  it('upstairs, the doorway between two rooms back to back holds you up (the floor reaches under their wall)', () => {
+    // two rooms 0.15 m apart (one shared wall): the strip between them is under the wall, not in either room
+    const a = { id: 'a', floor: 1, x: 0, z: 0, width: 4, depth: 3 };      // z -1.5 … 1.5
+    const b = { id: 'b', floor: 1, x: 0, z: 3.15, width: 4, depth: 3 };   // z 1.65 … 4.65
+    const c = { floors, rooms: [ground, a, b], stairs: [] };
+    expect(supportHeight({ ...c, x: 0, z: 1.575, y: 3.52 })).toBeCloseTo(3.52);
+    expect(supportHeight({ ...c, x: 0, z: 1.75, y: 3.52 })).toBeCloseTo(3.52);
+    expect(supportHeight({ ...c, x: 0, z: 4.8, y: 3.52 })).toBeLessThan(1); // past the wall: nothing upstairs
+  });
 });

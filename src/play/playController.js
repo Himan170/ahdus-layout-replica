@@ -139,6 +139,9 @@ export function createPlayController(scene, canvas, {
   // Start at the entrance every time walking starts (LayoutEngine's walkthrough). Preview
   // (false) starts there the first time, then keeps your place between Studio and Preview.
   respawnOnActivate = false,
+  // The walk maps (navigation/walkMap.js createWalkMapCache) to use: LayoutEngine shares one cache
+  // between its search, its routes and this controller. Default: a cache of its own.
+  walkMaps: sharedWalkMaps = null,
 }) {
   const onPage = typeof isEngaged === 'function';
   /** Do the keys move the character now? (Preview: while the mouse is captured.) */
@@ -196,6 +199,9 @@ export function createPlayController(scene, canvas, {
   let currentLevel = 0;      // floor (id) the character is on, from its height
   let lastView = null;       // { inside, level } last sent to onViewChange
   let promptTarget = null;   // what E would interact with right now
+  // "Show route" / "Take me there" (LayoutEngine's NavigationSystem, v0.13.4): asked every frame
+  // where to go; null = free walking, exactly as before. See setAutopilot.
+  let pilot = null;
   const keys = new Set();
 
   // ─────────────────────────────────────────────────────────────────────
@@ -220,7 +226,7 @@ export function createPlayController(scene, canvas, {
   };
   const floorName = (id) => Object.values(state().floors).find((f) => f.id === id)?.name ?? 'This floor';
   // Where the body fits (navigation/walkMap.js), per floor, built when first needed, kept until the layout changes
-  const walkMaps = createWalkMapCache({ catalog: ASSET_TYPES });
+  const walkMaps = sharedWalkMaps ?? createWalkMapCache({ catalog: ASSET_TYPES });
   const walkMap = (floorId) => {
     const st = state();
     return walkMaps.get({ rooms: st.rooms, objects: st.objects, floors: st.floors }, floorId);
@@ -994,6 +1000,12 @@ export function createPlayController(scene, canvas, {
       return;
     }
 
+    // A route is being followed: G continues it, Esc ends it (free walking: neither does anything)
+    if (pilot && (e.code === 'KeyG' || e.code === 'Escape') && pilot.key?.(e.code)) {
+      if (e.code === 'KeyG') e.preventDefault();
+      return;
+    }
+
     switch (e.code) {
       case 'Tab':
         if (onPage) break; // moves focus on the page as always
@@ -1184,7 +1196,24 @@ export function createPlayController(scene, canvas, {
     }
     const running = keys.has('ShiftLeft') || keys.has('ShiftRight');
     const speed = flying ? FLY : running ? RUN : WALK;
-    if (move.lengthSquared() > 0) move.normalize().scaleInPlace(speed * dt);
+    const userMoving = move.lengthSquared() > 0;
+    if (userMoving) move.normalize().scaleInPlace(speed * dt);
+
+    // Following a route: where to go this frame (Take me there), unless your keys move you (that
+    // pauses it). Same collisions as the keys: moveWithSteps below.
+    if (pilot) {
+      const p = collider.position;
+      const drive = pilot.drive(dt, { x: p.x, z: p.z, y: p.y, floor: currentLevel, yaw, userMoving, flying });
+      if (drive && !userMoving) {
+        if (flying) { flying = false; vy = 0; } // stairs are walked, not flown
+        if (drive.yaw !== undefined) yaw = drive.yaw;
+        if (drive.pitch !== undefined) pitch = drive.pitch;
+        const len = Math.hypot(drive.dirX ?? 0, drive.dirZ ?? 0);
+        if (len > 1e-6 && drive.speed > 0) {
+          move.set((drive.dirX / len) * drive.speed * dt, 0, (drive.dirZ / len) * drive.speed * dt);
+        }
+      }
+    }
 
     const before = collider.position.clone();
     // Step up (stairs, room floors) after every small move, so climbing works at any frame rate
@@ -1466,6 +1495,18 @@ export function createPlayController(scene, canvas, {
 
     /** Turn the view by a mouse-movement amount (used by tests and touch controls) */
     lookBy,
+
+    /**
+     * Follow a route (LayoutEngine's NavigationSystem; null = free walking, as before).
+     * pilot.drive(dt, { x, z, y, floor, yaw, userMoving, flying }) is asked every frame:
+     * null = your keys move you; { dirX, dirZ, speed, yaw?, pitch? } = walk that way (through
+     * moveWithSteps, the same collisions as the keys) unless a movement key is held. pilot.key(code)
+     * gets G and Esc first (true = taken).
+     */
+    setAutopilot(next) {
+      pilot = next ?? null;
+    },
+    getAutopilot: () => pilot,
 
     /** Go to a floor at the same spot (standing on a room there, or flying). */
     goToFloor,

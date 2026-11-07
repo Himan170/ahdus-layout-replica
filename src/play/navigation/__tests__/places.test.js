@@ -140,8 +140,14 @@ describe('buildPlaces on the Meridian-shaped layout', () => {
       if (r.problem) problems.push(`${p.id}: ${r.message}`);
     }
     expect(problems).toEqual([]);
-    // Kavya (reception, no chair: standing behind the counter): the walk ends right there
-    const kavya = index.byId.get('person:u_kavya').goals[0];
+    // Kavya sits behind the reception counter (corridor side): the walk ends in front of it, on the entrance
+    // side, facing her across it; right there, not behind the counter
+    const kavyaPlace = index.byId.get('person:u_kavya');
+    const kavya = kavyaPlace.goals[0];
+    const desk = layout.objects.find((o) => o.id === 'obj_f0_reception');
+    expect(kavyaPlace.z).toBeGreaterThan(desk.z);                 // she sits on the corridor side
+    expect(kavya.z).toBeLessThan(desk.z - 0.425 - 0.34);          // the goal: in front, the body clear of the counter
+    expect(Math.abs(kavya.x - desk.x)).toBeLessThan(0.01);        // in the middle of it
     const end = findRoute(layout, spawn, kavya, { maps }).to;
     expect(Math.hypot(end.x - kavya.x, end.z - kavya.z)).toBeLessThan(0.5);
   });

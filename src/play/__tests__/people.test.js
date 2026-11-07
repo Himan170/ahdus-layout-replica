@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DESK_SIZES, SEAT_REACH, deskSeat, deskSeats, seatPose, personNear, chooseFullCharacters, MAX_FULL_CHARACTERS,
   normaliseBoneName, canonicalBoneName, BONE_TABLE, SEATED_POSE, STANDING_POSE, breathing, phaseOf,
-  playerEyeHeight, walkRatio, clipSpeed, MIN_WALK_RATIO, MAX_WALK_RATIO,
+  playerEyeHeight, walkRatio, clipSpeed, MIN_WALK_RATIO, MAX_WALK_RATIO, visitorSpot, COUNTER_GAP,
 } from '../people';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 
@@ -106,6 +106,22 @@ describe('seatPose', () => {
   it('is null for an unknown id or something that is not a desk', () => {
     expect(seatPose('nope', [desk('d', 0, 0)], floors)).toBeNull();
     expect(seatPose('c', [chair('c', 0, 0, 0)], floors)).toBeNull();
+  });
+});
+
+describe('visitorSpot', () => {
+  it('a reception desk: in front of its counter, opposite its person, turned with it; other desks: none', () => {
+    const half = DESK_SIZES.RECEPTION_DESK.depth / 2;
+    // turned 0: the person works at local −Z, visitors come to +Z
+    expect(visitorSpot({ assetType: 'RECEPTION_DESK', x: 2, z: 3, rotationY: 0 })).toEqual({ x: 2, z: 3 + half + COUNTER_GAP });
+    // turned π (the seed's counter facing the entrance at −Z): visitors on −Z
+    const turned = visitorSpot({ assetType: 'RECEPTION_DESK', x: -25, z: -7.65, rotationY: Math.PI });
+    expect(turned.x).toBeCloseTo(-25);
+    expect(turned.z).toBeCloseTo(-7.65 - half - COUNTER_GAP);
+    // scaled deeper: still clear of its front
+    expect(visitorSpot({ assetType: 'RECEPTION_DESK', x: 0, z: 0, scaleZ: 2 }).z).toBeCloseTo(2 * half + COUNTER_GAP);
+    expect(visitorSpot({ assetType: 'DESK_STANDARD', x: 0, z: 0 })).toBeNull();
+    expect(visitorSpot(null)).toBeNull();
   });
 });
 

@@ -131,6 +131,19 @@ engine.navigation.show(result.id);   // from above: its floor, the camera flies 
                                      // + { route: { length, seconds, floors } } or { problem, message }
 engine.navigation.clear();           // the outline goes
 
+// --- Going there (v0.13.4): Show route / Take me there ---
+engine.navigation.routeTo('person:42', { walk: 'guide' }); // Show route: the line on the floor, you walk
+engine.navigation.routeTo({ type: 'RESTROOM' }, { walk: 'auto' }); // Take me there: walked there (keys pause, G, Esc)
+                                     // target: a result id, { personId } { roomId } { deskId } { type } { x, z, floor };
+                                     // from view mode it starts walking at the entrance;
+                                     // → { place, walk, length, seconds, floors } or { problem, message }
+engine.navigation.walking;           // { place, walk, paused, remaining, elapsed } or null
+engine.navigation.resume();          // G: walk on (from Show route too)
+engine.navigation.stop();            // end it (false: nothing to stop)
+engine.on('navigation', (e) => { ... }); // { state: started | progress | arrived | stopped | failed, walk, place,
+                                     //   remaining, length?, seconds?, floor?, paused?, rerouted?, problem?, message? }
+await engine.whenNavigationReady();  // the walk maps, built in idle time after loadLayout (the first route is quick)
+
 // --- Querying ---
 engine.getAnchors(): Anchor[];                    // Get all anchors in the layout
 engine.getAnchors({ kind: 'seat' }): Anchor[];    // Filter by kind
@@ -142,6 +155,7 @@ engine.on('select', (entity) => { ... });           // Object or room was select
 engine.on('change', (event) => { ... });            // Any state mutation happened
 engine.on('enterRoom', ({ roomId }) => { ... });    // Walkthrough: entered a room
 engine.on('interact', ({ anchorId, objectId }) => { ... }); // E key / click in walkthrough
+engine.on('mode', ({ mode }) => { ... });           // the mode changed (setMode, or a route started from above)
 
 // --- Mode and edits ---
 engine.setMode('walkthrough');       // "edit" | "view" | "walkthrough"

@@ -358,7 +358,7 @@ const boxShown = await p.evaluate(() => ({
   email: /asha@example\.com/.test(document.getElementById('workplace').innerHTML),
 }));
 log('the search box: "asha" + Enter shows Asha Patel, her desk outlined; no email in the page',
-  /^Asha Patel \| Engineering · Ground Floor, Office 1$/.test(boxShown.shown ?? '') && boxShown.lit[0] === 'obj_desk_1' && !boxShown.email,
+  /^Asha Patel \| Engineering · Ground Floor, Office 1 \| Show route \| Take me there$/.test(boxShown.shown ?? '') && boxShown.lit[0] === 'obj_desk_1' && !boxShown.email,
   JSON.stringify(boxShown));
 // A phone: the view is full width, so is the search box (12 px from each side), nothing off-screen
 await p.setViewportSize({ width: 390, height: 844 });
@@ -378,6 +378,24 @@ await shot('embed-search-phone.png');
 await p.keyboard.press('Escape');
 await p.setViewportSize({ width: 1280, height: 720 });
 await p.evaluate(() => window.workplace.highlight([]));
+
+// ── 5c. Show route from the page: workplace.goTo / stopRoute, the 'navigation' event (v0.13.4) ──
+const going = await p.evaluate(async () => {
+  const w = window.workplace;
+  const before = window.embedEvents.length;
+  const answer = w.goTo('Asha Patel', { walk: 'guide' });
+  await new Promise((r) => setTimeout(r, 1500));
+  const strip = document.querySelector('#workplace [data-nav-going]')?.textContent ?? '';
+  const modeWhile = w.mode;
+  const stopped = w.stopRoute();
+  const events = window.embedEvents.slice(before).filter((x) => x.name === 'navigation').map((x) => x.data.state);
+  const nobody = w.goTo('zzzz');
+  w.setMode('view');
+  return { place: answer?.place?.name, walk: answer?.walk, length: Math.round(answer?.length ?? 0), modeWhile, strip, stopped, events, nobody: nobody?.problem };
+});
+log('workplace.goTo(name, { walk: "guide" }) from above starts walking with the route; stopRoute ends it',
+  going.place === 'Asha Patel' && going.walk === 'guide' && going.length > 0 && /^Going to Asha Patel/.test(going.strip) && going.modeWhile === 'walkthrough' &&
+  going.stopped === true && going.events[0] === 'started' && going.events.at(-1) === 'stopped' && going.events.slice(1, -1).every((s) => s === 'progress') && going.nobody === 'NOT_FOUND', JSON.stringify(going));
 await frames(3);
 
 // ── 6. A layout that can't be loaded: onError, the element left empty ──

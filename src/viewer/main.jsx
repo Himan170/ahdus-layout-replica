@@ -77,6 +77,9 @@ function ViewerPage() {
       });
     }
   }, []);
+  const onNavigation = useCallback((event) => {
+    if (import.meta.env.DEV) (window.__viewerNav ??= []).push(event);
+  }, []);
   const onCard = useCallback((card) => {
     if (import.meta.env.DEV) (window.__ahdusCards ??= []).push({ title: card.title, text: card.body ?? card.text ?? '' });
   }, []);
@@ -98,6 +101,7 @@ function ViewerPage() {
         <LayoutViewer
           layout={layout} companyId={companyId} layoutId={layoutId} mode={mode} people={people}
           search={params.get('search') !== '0'}
+          onModeChange={setMode} onNavigation={onNavigation}
           onReady={onReady} onCard={onCard} style={{ flex: 1, minWidth: 0 }}
         />
         <aside style={styles.aside} aria-label="Bridge events">

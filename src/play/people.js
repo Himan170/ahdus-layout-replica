@@ -36,6 +36,9 @@ export const STAND_GAP = 0.35;
  */
 export const DESK_WORK_SIDE = { DESK_STANDARD: 1, DESK_CORNER: 1, RECEPTION_DESK: -1 };
 
+/** A visitor at a reception desk stands this far in front of its counter (m): the body clear of it. */
+export const COUNTER_GAP = 0.45;
+
 export const isDesk = (type) => Object.hasOwn(DESK_SIZES, type ?? '');
 export const isChair = (type) => typeof type === 'string' && type.startsWith('CHAIR');
 
@@ -154,6 +157,16 @@ export function seatPose(deskId, objects, floors, seats = null) {
     deskId, chairId: null, seated: false, floor,
     x: at.x, y: elevation + (desk.y ?? 0), z: at.z, yaw, seatHeight: 0,
   };
+}
+
+/**
+ * Where a visitor stands at a desk that has a front for visitors (the reception desk): the side opposite its
+ * person (DESK_WORK_SIDE), COUNTER_GAP from the counter, in the middle; turned with the desk. Null for other desks.
+ */
+export function visitorSpot(desk) {
+  if (desk?.assetType !== 'RECEPTION_DESK') return null;
+  const { d } = halfSize(desk);
+  return toWorld(desk, 0, -DESK_WORK_SIDE[desk.assetType] * (d + COUNTER_GAP));
 }
 
 /**

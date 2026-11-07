@@ -40,6 +40,8 @@ vi.mock('../../utils/lockIndicator', () => ({
 // Preview's controller needs a browser window; e2e/viewer-smoke.mjs walks for real.
 // Here: what the engine gives it and does with what it reports.
 const controllers = vi.hoisted(() => [] as any[]);
+// where a new walkthrough's character stands (tests of routes set it before walking starts)
+const walkerStart = vi.hoisted(() => ({ x: 1, y: 0, z: 2, floor: 0 }));
 vi.mock('../../play/playController', () => ({
   createPlayController: vi.fn((_scene: unknown, _canvas: unknown, options: any) => {
     const c: any = {
@@ -50,9 +52,11 @@ vi.mock('../../play/playController', () => ({
       respawn: vi.fn(),
       setPose: vi.fn(),
       getRoomId: () => null,
-      getLevel: () => 0,
+      pos: { ...walkerStart },
+      getLevel: () => c.pos.floor ?? 0,
       getYaw: () => 0.5,
-      getPosition: () => ({ x: 1, y: 0, z: 2 }),
+      getPosition: () => ({ x: c.pos.x, y: c.pos.y, z: c.pos.z }),
+      setAutopilot: vi.fn((p: any) => { c.pilot = p; }),
       stepFloor: vi.fn(),
       setCharacter: vi.fn((ch: any, opts: any) => { c.character = ch; c.eyeHeight = opts?.eyeHeight; }),
       getCharacter: () => c.character ?? null,
@@ -75,6 +79,7 @@ vi.mock('../systems/PlayerCharacter', () => ({
 }));
 
 const { LayoutEngine, READ_ONLY } = await import('../LayoutEngine');
+const { CANT_GET_PAST } = await import('../systems/NavigationSystem');
 const { loadLayout } = await import('../model/migrate');
 const { useWorkspaceStore } = await import('../../store/workspaceStore');
 const { createLighting } = await import('../../utils/lightingSetup');
@@ -515,6 +520,134 @@ describe('navigation: search and show places (v0.13.3)', () => {
     expect(engine.scene.activeCamera).toBe(camera);
     // walking, "washroom"-like words offer the nearest one first (here: the only meeting room)
     expect(engine.navigation.find('meeting')[0]).toMatchObject({ kind: 'nearest', name: 'Nearest meeting room', places: ['room:room_b'] });
+  });
+});
+
+describe('navigation: going there (v0.13.4)', () => {
+  const people = [{ personId: 'p1', deskId: 'obj_desk', name: 'Asha Patel', department: 'Engineering' }];
+  const outside = { x: -1.5, y: 0, z: -5, floor: 0 }; // in front of Office 1's door (south wall)
+
+  function walking(options: Record<string, unknown> = { mode: 'view' }) {
+    controllers.length = 0;
+    Object.assign(walkerStart, outside);
+    const engine = makeEngine({ quality: 'low', ...options });
+    engine.loadLayout(save());
+    engine.setPeople(people as any);
+    const events: any[] = [];
+    engine.on('navigation', (e) => events.push(e));
+    const modes: string[] = [];
+    engine.on('mode', (e) => modes.push(e.mode));
+    return { engine, events, modes, controller: () => controllers[controllers.length - 1] };
+  }
+  const frame = (c: any, more: Record<string, unknown> = {}) => ({ ...c.pos, yaw: c.yaw ?? 0, userMoving: false, flying: false, ...more });
+  /** Walk as the controller would: the pilot's direction and speed, dt at a time (no collisions here). */
+  function follow(c: any, frames = 400, dt = 1 / 20) {
+    let last = null;
+    for (let i = 0; i < frames && c.pilot; i++) {
+      const d = c.pilot.drive(dt, frame(c));
+      last = d;
+      if (!d) continue;
+      if (d.yaw !== undefined) c.yaw = d.yaw;
+      c.pos.x += d.dirX * d.speed * dt;
+      c.pos.z += d.dirZ * d.speed * dt;
+    }
+    return last;
+  }
+  const states = (events: any[]) => events.map((e) => e.state).filter((st, i, a) => st !== a[i - 1]);
+
+  it('from above, Show route starts walking at the entrance and draws the line; walking there yourself arrives', () => {
+    const { engine, events, modes, controller } = walking();
+    const answer = engine.navigation.routeTo('person:p1', { walk: 'guide' });
+    expect(answer).toMatchObject({ walk: 'guide', place: { name: 'Asha Patel' } });
+    expect(answer.length).toBeGreaterThan(2);
+    expect(modes).toEqual(['walkthrough']);
+    expect(engine.mode).toBe('walkthrough');
+    const c = controller();
+    expect(c.pilot).toBeTruthy();
+    expect(events[0]).toMatchObject({ state: 'started', walk: 'guide', remaining: answer.length });
+    expect((engine as any)._routeLine.counts.markers).toBe(1);
+    expect((engine as any)._routeLine.counts.chevrons).toBeGreaterThan(0);
+    expect(engine.highlights.ids()).toEqual(['obj_desk']);
+    // Show route: you walk (the pilot moves nothing)
+    expect(c.pilot.drive(0.1, frame(c))).toBeNull();
+    expect(engine.navigation.walking!.walk).toBe('guide');
+    // there: where the route ends (beside the desk)
+    const points = (engine.navigation as any).active.follower.path.points;
+    const end = points[points.length - 1];
+    Object.assign(c.pos, { x: end.x + 0.3, z: end.z });
+    for (let i = 0; i < 3 && c.pilot; i++) c.pilot.drive(0.1, frame(c));
+    expect(states(events)).toEqual(['started', 'arrived']);
+    expect(c.setAutopilot).toHaveBeenLastCalledWith(null);
+    expect((engine as any)._routeLine.counts).toEqual({ chevrons: 0, markers: 0 });
+    expect(engine.highlights.ids()).toEqual(['obj_desk']); // still outlined
+  });
+
+  it('Take me there walks it, arrives within 1 m, turns to face them and stops', () => {
+    const { engine, events, controller } = walking({ mode: 'walkthrough' });
+    const answer = engine.navigation.routeTo({ deskId: 'obj_desk' }, { walk: 'auto' });
+    expect(answer.walk).toBe('auto');
+    const c = controller();
+    expect(c.pilot.drive(0.05, frame(c)).speed).toBeGreaterThan(0);
+    const last = follow(c);
+    expect(c.pilot ?? null).toBeNull();
+    expect(events[0].state).toBe('started');
+    expect(events[events.length - 1]).toMatchObject({ state: 'arrived', remaining: 0, place: { name: 'Asha Patel' } });
+    expect(last).toMatchObject({ speed: 0, pitch: expect.any(Number) });
+    expect(Math.hypot(c.pos.x - 1, c.pos.z - 1)).toBeLessThan(2);
+    expect(engine.navigation.walking).toBeNull();
+  });
+
+  it('a movement key pauses it (Press G to continue), G goes on, Esc ends it', () => {
+    const { engine, events, controller } = walking({ mode: 'walkthrough' });
+    engine.navigation.routeTo('room:room_a', { walk: 'auto' });
+    const c = controller();
+    expect(c.pilot.drive(0.05, frame(c, { userMoving: true }))).toBeNull();
+    expect(events[events.length - 1]).toMatchObject({ state: 'progress', paused: true });
+    expect(engine.navigation.walking!.paused).toBe(true);
+    expect(c.pilot.drive(0.05, frame(c))).toBeNull(); // still paused
+    expect(c.pilot.key('KeyG')).toBe(true);
+    expect(events[events.length - 1]).toMatchObject({ state: 'progress', paused: false });
+    expect(c.pilot.drive(0.05, frame(c)).speed).toBeGreaterThan(0);
+    c.pilot.key('Escape');
+    expect(events[events.length - 1]).toMatchObject({ state: 'stopped' });
+    expect(c.pilot).toBeNull();
+    expect(engine.highlights.ids()).toEqual([]);
+    expect(engine.navigation.stop()).toBe(false); // nothing to stop: free walking
+  });
+
+  it('stuck (no progress in 1.5 s): a new route; stuck twice: the walk stops', () => {
+    const { engine, events, controller } = walking({ mode: 'walkthrough' });
+    engine.navigation.routeTo('room:room_a', { walk: 'auto' });
+    const c = controller();
+    for (let i = 0; i < 60 && c.pilot; i++) c.pilot.drive(0.1, frame(c));
+    expect(events.some((e) => e.state === 'progress' && e.rerouted)).toBe(true);
+    expect(events[events.length - 1]).toMatchObject({ state: 'failed', problem: 'STUCK', message: CANT_GET_PAST });
+    expect(c.pilot).toBeNull();
+  });
+
+  it('nothing to go to, or no way there: a clear answer; leaving the walk stops the route', () => {
+    const { engine, events, controller } = walking({ mode: 'walkthrough' });
+    expect(engine.navigation.routeTo('person:nobody')).toMatchObject({ problem: 'NOT_FOUND' });
+    const noDoor = engine.navigation.routeTo('room:room_b', { walk: 'auto' });
+    expect(noDoor.problem).toBeTruthy();
+    expect(events[events.length - 1]).toMatchObject({ state: 'failed', message: noDoor.message });
+    // a kind of place, and a spot
+    expect(engine.navigation.routeTo({ type: 'STAIRS' })).toMatchObject({ walk: 'guide', place: { id: 'item:obj_stairs' } });
+    expect(engine.navigation.routeTo({ x: 0, z: -1, floor: 0 })).toMatchObject({ place: { name: 'Office 1' } });
+    engine.setMode('view');
+    expect(events[events.length - 1]).toMatchObject({ state: 'stopped' });
+    expect(controller().pilot).toBeNull();
+  });
+
+  it('the walk maps are one cache, shared with walking, built in idle time after a layout loads', async () => {
+    const { engine, controller } = walking({ mode: 'walkthrough' });
+    expect(controller().options.walkMaps).toBe(engine.navigation.walkMaps);
+    await engine.whenNavigationReady();
+    const s = engine.getStore().getState();
+    const t0 = performance.now();
+    engine.navigation.walkMaps.get(s, 0);
+    engine.navigation.walkMaps.get(s, 1);
+    expect(performance.now() - t0).toBeLessThan(5); // already built
   });
 });
 

@@ -96,6 +96,8 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `setPeople(list)` | Who sits at which desk (section 4b). Replaces the list before; `setPeople([])` = nobody. Returns a promise of how many people were given (after the manifest is read). Can be called before `ready`. |
 | `setPlayer({ personId, assetReference } \| null)` | The person looking (the signed-in user), as the `player` option. Returns a promise, done when their character is known (after the manifest is read). |
 | `find(query, { limit? })` | Search people (name and department), rooms, departments and facilities (section 4d). `[]` until `ready`. |
+| `goTo(target, { walk? })` | Go to a person, room or place (section 4e): `walk: 'guide'` (default) = **Show route**, `'auto'` = **Take me there**. From `view` it starts walking at the entrance. Returns `{ place, walk, length, seconds, floors }` or `{ problem, message }`. |
+| `stopRoute()` | Ends Show route / Take me there (`false`: there was none). |
 | `destroy()` | Removes the viewer: the element is as you gave it, the 3D engine, its keys and its actions are gone. Safe to call twice. |
 
 Calls made before `ready` (`setFloor`, `focusOn`, `highlight`) wait for it and return `undefined`. After `destroy()` every call returns `false` (or `[]`).
@@ -234,8 +236,8 @@ as wide as the view.
 - **Picking a result** in `view`: its floor is shown, the camera flies to it and it is outlined in green (a person:
   their desk and chair). In `walkthrough` it is outlined and the box says how far it is to walk ("42 m walk, about
   10 s · by the stairs") or why you can't ("No walking route to Server Room: it has no door"). There, "washroom"
-  offers **Nearest washroom** first: the nearest by walking from where you stand. Walking there by itself comes in
-  a later version.
+  offers **Nearest washroom** first: the nearest by walking from where you stand.
+- **The card's buttons:** **Show route** and **Take me there** (section 4e).
 
 ```js
 workplace.find('Kavya');
@@ -248,6 +250,35 @@ workplace.focusOn(first.entityId); workplace.highlight(first.entityId); // show 
 
 `kind` is `person`, `room`, `department` or `facility` (in `walkthrough` also `nearest`: "Nearest washroom",
 with `places`, the ids it chooses from). At most 6 results per group (`{ limit }` to change it).
+
+### 4e. Show route and Take me there (`goTo`, `stopRoute`, the `navigation` event)
+
+From the search card, or from your page with `goTo`. Both start walking (from `view`: at the entrance).
+
+- **Show route** (`walk: 'guide'`): a green line of chevrons on the floor you are on (a blue ring at the stairs to
+  take, a green ring at the goal), and a strip "Going to Kavya Iyer · 42 m" with **Stop**. You walk yourself; the
+  line follows you, and a new route is made when you are more than 3 m off it. `G` (or the strip's "Take me there")
+  walks you the rest.
+- **Take me there** (`walk: 'auto'`): the character walks the route by itself at walking speed, through the same
+  collisions as the keys, turning smoothly, keeping about 0.44 m from furniture where there is room, up or down the
+  stairs. Stuck (less than 0.3 m in 1.5 s): a new route; stuck twice: it stops with "Can't get past here".
+  **Any movement key pauses it** ("Press G to continue"); **G** continues; **Esc** or **Stop** ends it.
+- **Arriving** (within 1 m): it stops, faces the person or room, and shows "You have arrived" (and the person's
+  card). The place stays outlined until the strip is closed.
+- Walking without a route is exactly as before.
+
+```js
+workplace.goTo('Kavya Iyer', { walk: 'auto' });       // a name: the first search result
+workplace.goTo({ personId: '42' });                    // Show route to a person's desk
+workplace.goTo({ type: 'RESTROOM' }, { walk: 'auto' }); // the nearest washroom
+workplace.goTo('room:room_f0_08');                     // a search result's id; also { roomId }, { deskId }, { x, z, floor }
+workplace.stopRoute();
+```
+
+`target`: a search result's `id` (`person:…`, `room:…`, `department:…`, `item:…`, `nearest:RESTROOM`), a name or
+words to search for, `{ personId }`, `{ roomId }`, `{ deskId }` / `{ objectId }`, `{ type: 'RESTROOM' | 'MEETING' |
+'RECEPTION' | 'STAIRS' }` (the nearest by walking) or a spot `{ x, z, floor, name? }`. A problem is
+`{ problem, message }`: `NOT_FOUND`, `NOT_WALKING` (walking could not start), or a route problem ("No walking route to Server Room: it has no door").
 
 ---
 
@@ -262,6 +293,7 @@ with `places`, the ids it chooses from). At most 6 results per group (`{ limit }
 | `interact` | E was pressed on an item, door or window | the target (section 4) |
 | `floorChange` | The floor shown or walked on changed | `{ floorId, name }` |
 | `card` | The viewer showed a card (E with no action for it) | `{ title, body }` |
+| `navigation` | Show route / Take me there (section 4e) | `{ state, walk, place, remaining, length?, seconds?, floor?, paused?, rerouted?, problem?, message? }`; `state`: `started`, `progress` (about every metre or second; `paused: true` after a movement key), `arrived`, `stopped`, `failed` |
 
 `room` is `{ id, name, type, typeLabel, floorId, center: { x, z }, width, depth }`. Floors are numbered `0` (ground), `1`, `2`, … Positions are in metres, `y` is up.
 

@@ -66,7 +66,9 @@ export function meridianLike({ spawnPoint = true } = {}) {
       }
     }
   }
-  objects.push({ id: 'obj_f0_reception', assetType: 'RECEPTION_DESK', floor: 0, roomId: 'room_f0_02', x: -25, y: 0, z: -6.65, rotationY: 0 });
+  // as the seed (7 Nov): the counter faces the main entrance (−Z), the receptionist sits behind it (corridor side)
+  objects.push({ id: 'obj_f0_reception', assetType: 'RECEPTION_DESK', floor: 0, roomId: 'room_f0_02', x: -25, y: 0, z: -7.65, rotationY: Math.PI });
+  objects.push({ id: 'obj_f0_reception_chair', assetType: 'CHAIR_OFFICE', floor: 0, roomId: 'room_f0_02', x: -25, y: 0, z: -6.8, rotationY: Math.PI });
   objects.push({ id: 'obj_f0_stairs', assetType: 'STAIRCASE', floor: 0, roomId: 'room_f0_06', x: -31, y: 0, z: 5.15, rotationY: 0 });
   if (spawnPoint) {
     objects.push({ id: 'obj_f0_spawn', assetType: 'SPAWN_POINT', floor: 0, roomId: null, x: -25, y: 0, z: -19.15, rotationY: 0, label: 'Main entrance' });
