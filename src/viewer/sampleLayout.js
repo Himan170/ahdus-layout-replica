@@ -36,3 +36,12 @@ export const SAMPLE_LAYOUT = {
   ],
   anchorData: {},
 };
+
+/**
+ * Two people for the sample company (viewer.html?people=1: the search box finds them). The emails are
+ * there to show they never reach the viewer's cards or search.
+ */
+export const SAMPLE_PEOPLE = [
+  { personId: 'p_asha', deskId: 'obj_desk', name: 'Asha Patel', department: 'Engineering', character: null, email: 'asha@example.com' },
+  { personId: 'p_kavya', deskId: 'obj_reception_desk', name: 'Kavya Iyer', department: 'HR', character: null, email: 'kavya@example.com' },
+];

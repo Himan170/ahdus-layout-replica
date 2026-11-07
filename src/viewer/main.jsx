@@ -5,6 +5,8 @@
  *   …/viewer.html?mode=view                                orbit instead
  *   …/viewer.html?companyId=…&layoutId=…                   a layout saved in this browser
  *   …/viewer.html?demoModules=1                            with the teammates' demo modules
+ *   …/viewer.html?people=1                                 two people at the sample's desks (search finds them)
+ *   …/viewer.html?search=0                                 no search box
  *   …/viewer.html?mode=view&debug=walkmap                  the walk map + a route (viewer/walkMapDebug.js;
  *                                                          &to=x,z,floor, &from=x,z,floor)
  *
@@ -17,7 +19,7 @@ import { createRoot } from 'react-dom/client';
 
 import { LayoutViewer } from '../engine/react/LayoutViewer';
 import { layoutBridge } from '../integration/layoutBridge';
-import { SAMPLE_LAYOUT } from './sampleLayout';
+import { SAMPLE_LAYOUT, SAMPLE_PEOPLE } from './sampleLayout';
 
 const params = new URLSearchParams(window.location.search);
 const companyId = params.get('companyId') ?? undefined;
@@ -39,6 +41,9 @@ function ViewerPage() {
   const [mode, setMode] = useState(params.get('mode') === 'view' ? 'view' : 'walkthrough');
   const [log, setLog] = useState([]);
   const [anchors, setAnchors] = useState([]);
+  const [people, setPeople] = useState(layout && params.has('people') ? SAMPLE_PEOPLE : undefined);
+  // tests and the console: other people (e.g. after __ahdusViewer.loadLayout(another layout))
+  if (import.meta.env.DEV) window.__ahdusSetPeople = setPeople;
   const mainRef = useRef(null);
   const debugRef = useRef(null);
   useEffect(() => () => debugRef.current?.then((d) => d?.dispose()), []);
@@ -91,7 +96,8 @@ function ViewerPage() {
       </header>
       <main style={styles.main} ref={mainRef}>
         <LayoutViewer
-          layout={layout} companyId={companyId} layoutId={layoutId} mode={mode}
+          layout={layout} companyId={companyId} layoutId={layoutId} mode={mode} people={people}
+          search={params.get('search') !== '0'}
           onReady={onReady} onCard={onCard} style={{ flex: 1, minWidth: 0 }}
         />
         <aside style={styles.aside} aria-label="Bridge events">

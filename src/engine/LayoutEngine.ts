@@ -47,6 +47,7 @@ import type { Scene } from '@babylonjs/core/scene';
 import type { Layout, Anchor, LayoutObject, AnchorKind } from './model/schema';
 import { loadLayout as parseLayout } from './model/migrate';
 import { toV1, storeFloorIds, mergeV2Extras } from './model/toV1';
+import { NavigationSystem } from './systems/NavigationSystem';
 import { CommandHistory } from './commands/CommandHistory';
 import type { Command } from './commands/CommandHistory';
 import { createLayoutScene } from './systems/SceneSetup';
@@ -208,6 +209,8 @@ export class LayoutEngine {
   readonly highlights: HighlightSystem;
   /** People at their desks (null with quality 'low': no people at all). */
   readonly characters: CharacterSystem | null;
+  /** Search and show places (find, show, clear): v0.13.3. */
+  readonly navigation: NavigationSystem;
   /** Builds the layout in slices (progressive loading). */
   private _builder: SceneBuilder;
 
@@ -281,6 +284,18 @@ export class LayoutEngine {
     this.characters = this._quality === 'low' ? null : new CharacterSystem(this.scene, {
       getLayout: () => this._store.getState(),
       getObjectMesh: (id) => this.objects.getObjectMesh(id),
+    });
+    this.navigation = new NavigationSystem({
+      getLayout: () => this._store.getState(),
+      getWalker: () => {
+        const walk = this._walkthrough;
+        if (!walk?.isActive()) return null;
+        const p = walk.getPosition();
+        return { x: p.x, z: p.z, floor: walk.getLevel() };
+      },
+      focusOn: (id, options) => this.focusOn(id, options),
+      highlight: (ids, color) => this.highlight(ids, color),
+      clearHighlights: () => this.clearHighlights(),
     });
     this._builder = new SceneBuilder({
       rooms: this.rooms,
@@ -392,14 +407,21 @@ export class LayoutEngine {
   /**
    * Fly the camera to a room, an item or an anchor (300 ms; animate: false
    * jumps). Shows its floor as setFloor does, so nothing above hides it.
+   * `around`: show at least this far (m) around an item or anchor (search: a
+   * person's desk among its neighbours); `beta`: look down at least this
+   * steeply (rad from straight down), so walls don't hide it.
    * @returns false if no room, item or anchor has this id
    */
-  focusOn(entityId: string, { animate = true } = {}): boolean {
+  focusOn(entityId: string, { animate = true, around: margin = 0, beta }: { animate?: boolean; around?: number; beta?: number } = {}): boolean {
     const { rooms, objects, floors } = this._store.getState();
     const anchor = rooms[entityId] || objects[entityId] ? undefined : this.getAnchors().find((a) => a.id === entityId);
     const room = rooms[entityId];
     const obj = objects[anchor?.objectId ?? entityId];
     const around = (x: number, z: number, d: number): GroundBox => ({ min: { x: x - d, z: z - d }, max: { x: x + d, z: z + d } });
+    const grow = (b: GroundBox, x: number, z: number, d: number): GroundBox => ({
+      min: { x: Math.min(b.min.x, x - d), z: Math.min(b.min.z, z - d) },
+      max: { x: Math.max(b.max.x, x + d), z: Math.max(b.max.z, z + d) },
+    });
 
     let floor: number;
     let box: () => GroundBox;
@@ -411,10 +433,10 @@ export class LayoutEngine {
       });
     } else if (obj) {
       floor = obj.floor ?? 0;
-      box = () => boundsOf(this.objects.getObjectMesh(obj.id)) ?? around(obj.x, obj.z, 0.5);
+      box = () => grow(boundsOf(this.objects.getObjectMesh(obj.id)) ?? around(obj.x, obj.z, 0.5), obj.x, obj.z, margin);
     } else if (anchor) {
       floor = storeFloorIds(this._loaded!.floors)(anchor.floorId);
-      box = () => around(anchor.position.x, anchor.position.z, 1);
+      box = () => grow(around(anchor.position.x, anchor.position.z, 1), anchor.position.x, anchor.position.z, margin);
     } else {
       return false;
     }
@@ -423,7 +445,7 @@ export class LayoutEngine {
     const camera = this._layoutScene.camera;
     if (camera) {
       camera.target.y = elevationOf(floors, floor);
-      flyTo(camera, this.scene, box(), { duration: animate ? 300 : 0 });
+      flyTo(camera, this.scene, box(), { duration: animate ? 300 : 0, beta });
     }
     return true;
   }
@@ -465,6 +487,7 @@ export class LayoutEngine {
    */
   setPeople(people: Person[]): void {
     this.characters?.setPeople(people);
+    this.navigation.setPeople(people); // searched by name and department (also with quality 'low')
   }
 
   /**

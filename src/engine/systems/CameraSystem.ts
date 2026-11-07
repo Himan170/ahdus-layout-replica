@@ -49,15 +49,18 @@ export function framing(camera: ArcRotateCamera, { min, max }: GroundBox) {
 
 /**
  * Fly the camera so the box fills the view (300 ms, easing out). With
- * `duration: 0` it jumps there at once.
+ * `duration: 0` it jumps there at once. `beta` (3D only): tilt to at most
+ * this angle from straight down (rad), so walls don't hide what is inside.
  */
-export function flyTo(camera: ArcRotateCamera, scene: Scene, box: GroundBox, { duration = 300 } = {}): void {
-  const from = { x: camera.target.x, z: camera.target.z, r: camera.radius, top: camera.orthoTop ?? 0 };
+export function flyTo(camera: ArcRotateCamera, scene: Scene, box: GroundBox, { duration = 300, beta }: { duration?: number; beta?: number } = {}): void {
+  const from = { x: camera.target.x, z: camera.target.z, r: camera.radius, top: camera.orthoTop ?? 0, beta: camera.beta };
   const ortho = camera.mode === Camera.ORTHOGRAPHIC_CAMERA;
   const to = framing(camera, box);
+  const toBeta = beta !== undefined && !ortho ? Math.min(from.beta, beta) : from.beta;
   const step = (k: number) => {
     camera.target.x = from.x + (to.x - from.x) * k;
     camera.target.z = from.z + (to.z - from.z) * k;
+    if (toBeta !== from.beta) camera.beta = from.beta + (toBeta - from.beta) * k;
     if (ortho) {
       const top = from.top + (to.top - from.top) * k;
       const aspect = scene.getEngine().getAspectRatio(camera);

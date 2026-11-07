@@ -202,7 +202,7 @@ export function buildPlaces(layout, people = []) {
       id: `item:${o.id}`, kind: 'facility', group: 'facilities', name, detail,
       floor, roomId: room?.id ?? null, roomName: roomName(room), department: null, facility,
       entityId: o.id, highlight: [o.id], x: o.x, z: o.z, goals: [{ ...goal, floor }],
-    }, name, [ITEM_LABEL[o.assetType], roomName(room), ...FACILITIES[facility].words]);
+    }, name, [ITEM_LABEL[o.assetType], ...FACILITIES[facility].words]);
   }
 
   // People at their desks: name and department only
@@ -266,7 +266,7 @@ export function facilitiesNamed(query) {
 
 /**
  * Search the index.
- * @param {{ places: Place[] }} index  buildPlaces
+ * @param {{ places: any[] }} index  buildPlaces (its Place records)
  * @param {string} query
  * @param {{ from?: { x?: number, z?: number, floor?: number } | null, limit?: number }} [options]
  *   from: where you are (walking: x, z and floor; from above: the floor shown), for "nearest first";

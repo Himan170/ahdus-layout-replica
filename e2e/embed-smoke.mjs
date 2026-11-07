@@ -337,6 +337,49 @@ log('"Show the CNC machine": setMode("view"), anchors({ kind }), highlight and f
 await frames(4);
 await shot('embed-view.png');
 
+// ── 5b. Search: workplace.find() and the search box (v0.13.3) ──
+await p.evaluate(() => window.workplace.setPeople([
+  { personId: 'p_asha', deskId: 'obj_desk_1', name: 'Asha Patel', department: 'Engineering', email: 'asha@example.com', assetReference: null },
+]));
+const found = await p.evaluate(() => {
+  const w = window.workplace;
+  return { asha: w.find('asha'), offices: w.find('office').map((r) => `${r.kind}:${r.name}`), reception: w.find('reception').map((r) => `${r.group}:${r.name}`), none: w.find('zzzz') };
+});
+log('workplace.find(): people (name and department only), rooms, facilities',
+  found.asha.length === 1 && found.asha[0].name === 'Asha Patel' && found.asha[0].deskId === 'obj_desk_1' && found.asha[0].floorName === 'Ground Floor' &&
+  !('email' in found.asha[0]) && found.offices.join() === 'room:Office 1,room:Office 2' && found.reception.includes('facilities:Reception') &&
+  found.none.length === 0, JSON.stringify(found));
+await p.click('#workplace button[aria-label="Find a person, room or place"]');
+await p.keyboard.type('asha');
+await p.keyboard.press('Enter');
+await frames(6);
+const boxShown = await p.evaluate(() => ({
+  shown: document.querySelector('#workplace [data-place-shown]')?.innerText.replace(/\n/g, ' | '), lit: window.workplace._engine.highlights.ids(),
+  email: /asha@example\.com/.test(document.getElementById('workplace').innerHTML),
+}));
+log('the search box: "asha" + Enter shows Asha Patel, her desk outlined; no email in the page',
+  /^Asha Patel \| Engineering · Ground Floor, Office 1$/.test(boxShown.shown ?? '') && boxShown.lit[0] === 'obj_desk_1' && !boxShown.email,
+  JSON.stringify(boxShown));
+// A phone: the view is full width, so is the search box (12 px from each side), nothing off-screen
+await p.setViewportSize({ width: 390, height: 844 });
+await wait(500);
+await p.locator('#workplace').scrollIntoViewIfNeeded();
+await p.click('#workplace button[aria-label="Find a person, room or place"]');
+await p.keyboard.type('o');
+await wait(300);
+const phone = await p.evaluate(() => {
+  const view = document.getElementById('workplace').getBoundingClientRect();
+  const panel = document.querySelector('#workplace [data-place-search]').getBoundingClientRect();
+  return { view: Math.round(view.width), panel: Math.round(panel.width), left: Math.round(panel.left - view.left), right: Math.round(panel.right), scroll: document.documentElement.scrollWidth };
+});
+log('on a 390 px phone the search box is full width (the view less 12 px each side), nothing off-screen',
+  phone.view === 390 && phone.panel === 366 && phone.left === 12 && phone.right <= 378 && phone.scroll <= 390, JSON.stringify(phone));
+await shot('embed-search-phone.png');
+await p.keyboard.press('Escape');
+await p.setViewportSize({ width: 1280, height: 720 });
+await p.evaluate(() => window.workplace.highlight([]));
+await frames(3);
+
 // ── 6. A layout that can't be loaded: onError, the element left empty ──
 const missing = await mountExtra({ layoutUrl: 'missing.json', mode: 'view' });
 log('a layoutUrl that answers 404: onError "HTTP 404", the element is empty',
@@ -383,11 +426,18 @@ log('destroy(): the element is empty, the engine disposed, no canvas, no styles,
 const v2 = JSON.parse(before);
 const fromV2 = await mountExtra({ layout: v2, mode: 'view' });
 const v2Rooms = await p.evaluate(() => window.extra?._engine?.rooms.meshes.size ?? 0);
+const withSearch = await p.evaluate(() => document.querySelectorAll('#extra [aria-label="Find a person, room or place"]').length);
 log('layout: v2 JSON (getLayout()) shows the same office', !fromV2.error && fromV2.seen.includes('ready') && v2Rooms === 4, JSON.stringify({ ...fromV2, v2Rooms }));
 await removeExtra();
 const requestsBeforeLow = requests.length;
-const low = await mountExtra({ layout: v2, mode: 'view', quality: 'low' });
+const low = await mountExtra({ layout: v2, mode: 'view', quality: 'low', navigation: { search: false } });
 await p.waitForTimeout(3000);
+const searchButtons = await p.evaluate(() => ({
+  extra: document.querySelectorAll('#extra [aria-label="Find a person, room or place"]').length,
+  find: window.extra?.find('office').length,
+}));
+log('option navigation: { search: false } hides the search box (find() still works)',
+  searchButtons.extra === 0 && withSearch === 1 && searchButtons.find === 2, JSON.stringify({ ...searchButtons, withSearch }));
 const lowLook = await p.evaluate(() => {
   const sc = window.extra?._engine?.scene;
   return {
