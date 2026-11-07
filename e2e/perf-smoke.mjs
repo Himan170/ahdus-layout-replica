@@ -157,6 +157,43 @@ log('100 people at their desks (seated), at most 12 as full characters', people.
 log(`Studio 3D, ground floor: ≤ ${MAX_DRAW_CALLS} draw calls and ≤ ${MAX_MESHES} meshes`,
   ground.drawCalls <= MAX_DRAW_CALLS && ground.meshes <= MAX_MESHES, JSON.stringify(ground));
 
+// ── A route shown (v0.13.4): the line of Show route across the ground floor, as the viewer draws it ──
+// (RouteLineSystem + routeMarks, the code NavigationSystem uses): 2 meshes, at most 2 more draw calls
+const routeSetup = await p.evaluate(async () => {
+  const [{ RouteLineSystem }, { routePath, routeMarks }, { findRoute }, { createWalkMapCache }, { ASSET_TYPES }] = await Promise.all([
+    import('/src/engine/systems/RouteLineSystem.ts'), import('/src/play/navigation/follow.js'),
+    import('/src/play/navigation/route.js'), import('/src/play/navigation/walkMap.js'), import('/src/utils/assetCatalog.js'),
+  ]);
+  const s = window.__ahdusStore.getState();
+  // the front row's two end offices; each office's desk row spans its width, so the part you can walk to is the
+  // strip by its south door: from just inside one door, out, along the front and in through the other
+  const front = Object.values(s.rooms).filter((r) => r.floor === 0 && r.id.endsWith('_0'));
+  const xs = front.map((r) => r.x);
+  const from = front[xs.indexOf(Math.min(...xs))];
+  const to = front[xs.indexOf(Math.max(...xs))];
+  const byDoor = (r) => ({ x: r.x - 1.5, z: r.z - r.depth / 2 + 0.6, floor: 0 });
+  const maps = createWalkMapCache({ catalog: ASSET_TYPES });
+  const t0 = performance.now();
+  const route = findRoute(s, byDoor(from), byDoor(to), { maps });
+  const ms = performance.now() - t0;
+  if (route.problem) return { problem: route.message };
+  const { chevrons, markers } = routeMarks(routePath(route), 0, 0);
+  const line = new RouteLineSystem(window.__ahdusScene);
+  line.show(chevrons.map((c) => ({ ...c, y: 0.02 })), markers.map((m) => ({ ...m, y: 0.02 })));
+  window.__perfRouteLine = line;
+  return { length: Math.round(route.length), chevrons: chevrons.length, markers: markers.length, ms: Math.round(ms) };
+});
+await frames(3);
+const before = await measure(); // the same frame twice: what changes is the line only
+const withRoute = await measure();
+await p.evaluate(() => { window.__perfRouteLine?.hide(); }); await frames(2);
+const withoutRoute = await measure();
+await p.evaluate(() => { window.__perfRouteLine?.dispose(); window.__perfRouteLine = null; });
+log(`a route shown (${routeSetup.length ?? '?'} m, ${routeSetup.chevrons ?? 0} chevrons): still ≤ ${MAX_DRAW_CALLS} draw calls, ≤ ${MAX_MESHES} meshes; the line is ≤ 2 draw calls`,
+  !routeSetup.problem && routeSetup.chevrons > 10 && withRoute.drawCalls <= MAX_DRAW_CALLS && withRoute.meshes <= MAX_MESHES &&
+  withRoute.drawCalls - withoutRoute.drawCalls <= 2,
+  `${JSON.stringify(routeSetup)} | with ${withRoute.drawCalls} draw calls / ${withRoute.meshes} meshes, without ${withoutRoute.drawCalls} (first frame ${before.drawCalls})`);
+
 await p.evaluate(() => window.__ahdusStore.getState().selectFloor(2)); await frames(3);
 await p.click('[aria-label="Fit view"]'); await p.waitForTimeout(800); await frames(3);
 const top = await measure();
