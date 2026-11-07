@@ -1,6 +1,6 @@
 // Drag to look, and a click told from a drag (v0.14.0, private-docs/EXPERIENCE_PLAN.md 3.2): ≤ 6 px and ≤ 250 ms = a click.
 import { describe, expect, it, vi } from 'vitest';
-import { createDragLook, isClick, CLICK_PX, CLICK_MS, DOUBLE_CLICK_MS } from '../dragLook';
+import { createDragLook, isClick, stickVector, CLICK_PX, CLICK_MS, DOUBLE_CLICK_MS, TAP_PX, TAP_MS, STICK_DEAD } from '../dragLook';
 
 function tracker() {
   const look = vi.fn();
@@ -28,7 +28,7 @@ describe('createDragLook', () => {
     d.down({ x: 50, y: 60, t: 0, button: 0 });
     expect(d.move({ x: 53, y: 62 })).toBe(false); // jitter: still a click
     expect(d.up({ x: 53, y: 62, t: 120 })).toBe('click');
-    expect(click).toHaveBeenCalledWith({ x: 53, y: 62, button: 0 });
+    expect(click).toHaveBeenCalledWith({ x: 53, y: 62, button: 0, touch: false });
     expect(look).not.toHaveBeenCalled();
   });
 
@@ -38,10 +38,10 @@ describe('createDragLook', () => {
     d.move({ x: 54, y: 50 });
     expect(look).not.toHaveBeenCalled();
     expect(d.move({ x: 60, y: 48 })).toBe(true);
-    expect(look).toHaveBeenLastCalledWith(10, -2); // from the press
+    expect(look).toHaveBeenLastCalledWith(10, -2, false); // from the press
     expect(d.dragging).toBe(true);
     d.move({ x: 75, y: 50 });
-    expect(look).toHaveBeenLastCalledWith(15, 2);
+    expect(look).toHaveBeenLastCalledWith(15, 2, false);
     // even a quick drag that ends near where it started is a drag
     d.move({ x: 51, y: 50 });
     expect(d.up({ x: 51, y: 50, t: 100 })).toBe('drag');
@@ -63,7 +63,7 @@ describe('createDragLook', () => {
     d.down({ x: 12, y: 11, t: 200 });
     expect(d.up({ x: 12, y: 11, t: 260 })).toBe('double');
     expect(click).toHaveBeenCalledTimes(1);
-    expect(doubleClick).toHaveBeenCalledWith({ x: 12, y: 11, button: 0 });
+    expect(doubleClick).toHaveBeenCalledWith({ x: 12, y: 11, button: 0, touch: false });
     // a third click starts over
     d.down({ x: 12, y: 11, t: 300 });
     expect(d.up({ x: 12, y: 11, t: 320 })).toBe('click');
@@ -95,6 +95,64 @@ describe('createDragLook', () => {
     const { click, d } = tracker();
     d.down({ x: 0, y: 0, t: 0, button: 2 });
     d.up({ x: 0, y: 0, t: 10 });
-    expect(click).toHaveBeenCalledWith({ x: 0, y: 0, button: 2 });
+    expect(click).toHaveBeenCalledWith({ x: 0, y: 0, button: 2, touch: false });
+  });
+});
+
+describe('touch (v0.14.1)', () => {
+  it('a tap may wander up to 10 px and last up to 500 ms (fingers are never quite still)', () => {
+    expect(TAP_PX).toBe(10);
+    expect(TAP_MS).toBe(500);
+    const down = { x: 100, y: 100, t: 0, touch: true };
+    expect(isClick(down, { x: 108, y: 100, t: 400 })).toBe(true); // too far / long for a mouse click
+    expect(isClick({ ...down, touch: false }, { x: 108, y: 100, t: 400 })).toBe(false);
+    expect(isClick(down, { x: 111, y: 100, t: 100 })).toBe(false);
+    expect(isClick(down, { x: 100, y: 100, t: 501 })).toBe(false);
+  });
+
+  it('a finger that moves more than 10 px drags to look (touch passed on); a tap is a click with touch', () => {
+    const { look, click, d } = tracker();
+    d.down({ id: 7, x: 50, y: 50, t: 0, touch: true });
+    expect(d.move({ id: 7, x: 58, y: 50 })).toBe(false); // 8 px: still a tap
+    expect(d.move({ id: 7, x: 70, y: 50 })).toBe(true);
+    expect(look).toHaveBeenLastCalledWith(20, 0, true);
+    expect(d.up({ id: 7, x: 70, y: 50, t: 200 })).toBe('drag');
+    d.down({ id: 8, x: 30, y: 30, t: 1000, touch: true });
+    expect(d.up({ id: 8, x: 36, y: 34, t: 1400 })).toBe('click');
+    expect(click).toHaveBeenCalledWith({ x: 36, y: 34, button: 0, touch: true });
+  });
+
+  it('two quick taps are two taps, never a double click (nothing captures a phone mouse)', () => {
+    const { click, doubleClick, d } = tracker();
+    for (let i = 0; i < 2; i++) { d.down({ x: 10, y: 10, t: i * 100, touch: true }); d.up({ x: 10, y: 10, t: i * 100 + 50 }); }
+    expect(click).toHaveBeenCalledTimes(2);
+    expect(doubleClick).not.toHaveBeenCalled();
+  });
+});
+
+describe('stickVector (the joystick)', () => {
+  it('up is forward, right is right; push further = faster; the ring holds the knob', () => {
+    const r = 64;
+    expect(stickVector(0, 0, r)).toMatchObject({ x: 0, y: 0, magnitude: 0 });
+    const up = stickVector(0, -r, r);
+    expect(up.y).toBeCloseTo(1);
+    expect(up.x).toBeCloseTo(0);
+    const right = stickVector(r, 0, r);
+    expect(right.x).toBeCloseTo(1);
+    const half = stickVector(0, r / 2, r); // pulled back half way: slower, backwards
+    expect(half.y).toBeLessThan(0);
+    expect(half.magnitude).toBeGreaterThan(0.3);
+    expect(half.magnitude).toBeLessThan(0.5);
+    const far = stickVector(300, -400, r); // past the ring: full speed, knob on the ring
+    expect(far.magnitude).toBe(1);
+    expect(Math.hypot(far.knobX, far.knobY)).toBeCloseTo(r);
+    expect(Math.hypot(far.x, far.y)).toBeCloseTo(1);
+  });
+
+  it('a resting thumb in the middle does nothing (the dead zone)', () => {
+    const r = 64;
+    expect(stickVector(0, -r * STICK_DEAD * 0.9, r).magnitude).toBe(0);
+    expect(stickVector(0, -r * (STICK_DEAD + 0.05), r).magnitude).toBeGreaterThan(0);
+    expect(stickVector(5, 5, 0).magnitude).toBe(0); // no ring yet
   });
 });

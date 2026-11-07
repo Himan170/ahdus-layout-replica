@@ -2,6 +2,7 @@
 // Easy controls in a viewer's walkthrough (v0.14.0, private-docs/EXPERIENCE_PLAN.md 3.2): the keys work
 // as soon as walking starts and after the view's own buttons, never while typing; drag to look; a plain
 // click is a click; double-click / L = mouse look, the first Esc releases the mouse, the next the keys.
+// Touch (v0.14.1): a finger drags to look, a tap is a click, the joystick (setStick) walks.
 // The real controller (play/playController.js) on a NullEngine scene. e2e/controls-smoke.mjs does it in Chrome.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
@@ -213,17 +214,6 @@ describe('the mouse (v0.14.0)', () => {
     expect(click.walkTo.z).toBeLessThan(-15);
   });
 
-  it('touch is left for v0.14.1: a touch press neither looks nor clicks', () => {
-    const onPointClick = vi.fn();
-    const w = walk({ onPointClick });
-    const yaw = w.getYaw();
-    pointer('pointerdown', 100, 100, { pointerType: 'touch' });
-    pointer('pointermove', 200, 100, { pointerType: 'touch' });
-    pointer('pointerup', 200, 100, { pointerType: 'touch' });
-    expect(w.getYaw()).toBe(yaw);
-    expect(onPointClick).not.toHaveBeenCalled();
-  });
-
   it('double-click: mouse-look mode (the mouse is captured); the first Esc releases it, the keys stay; the next Esc gives them back', () => {
     const onDoubleClick = vi.fn();
     const w = walk({ onDoubleClick });
@@ -262,6 +252,102 @@ describe('the mouse (v0.14.0)', () => {
     key('Escape');
     expect(pilot.key).toHaveBeenCalledWith('Escape');
     expect(document.activeElement).toBe(box);
+  });
+});
+
+describe('touch (v0.14.1)', () => {
+  it('a finger drags to look (further than with the mouse per pixel); it is not a click, nothing is captured', () => {
+    const onPointClick = vi.fn();
+    const w = walk({ onPointClick });
+    const yaw = w.getYaw();
+    pointer('pointerdown', 100, 100, { pointerType: 'touch' });
+    pointer('pointermove', 140, 100, { pointerType: 'touch' });
+    pointer('pointermove', 200, 100, { pointerType: 'touch' });
+    pointer('pointerup', 200, 100, { pointerType: 'touch' });
+    const touchTurn = w.getYaw() - yaw;
+    expect(touchTurn).toBeGreaterThan(0.3);
+    expect(onPointClick).not.toHaveBeenCalled();
+    expect(lockEl).toBeNull();
+    const before = w.getYaw();
+    pointer('pointerdown', 100, 100);
+    pointer('pointermove', 140, 100);
+    pointer('pointermove', 200, 100);
+    pointer('pointerup', 200, 100);
+    expect(w.getYaw() - before).toBeLessThan(touchTurn); // the mouse turns less per pixel
+  });
+
+  it('a tap is a click (the floor: where to walk); two taps never capture the mouse', () => {
+    const onPointClick = vi.fn();
+    const onDoubleClick = vi.fn();
+    walk({ onPointClick, onDoubleClick });
+    scene.render();
+    const x = engine.getRenderWidth() / 2;
+    const y = engine.getRenderHeight() - 5;
+    for (let i = 0; i < 2; i++) {
+      pointer('pointerdown', x, y, { pointerType: 'touch' });
+      pointer('pointerup', x + 4, y + 3, { pointerType: 'touch' }); // a finger wanders a little
+    }
+    expect(onPointClick).toHaveBeenCalledTimes(2);
+    expect(onPointClick.mock.calls[0][0]).toMatchObject({ kind: 'ground', walkTo: { floor: 0 } });
+    expect(onDoubleClick).not.toHaveBeenCalled();
+    expect(lockEl).toBeNull();
+  });
+
+  it('the joystick walks: forward, further = faster, let go = stop', () => {
+    const w = walk();
+    const go = (x: number, y: number, frames = 5) => {
+      const from = w.getPosition();
+      w.setStick(x, y);
+      for (let i = 0; i < frames; i++) scene.render();
+      const to = w.getPosition();
+      return { d: Math.hypot(to.x - from.x, to.z - from.z), dz: to.z - from.z, dx: to.x - from.x };
+    };
+    scene.render();
+    const full = go(0, 1);
+    expect(full.dz).toBeGreaterThan(1.5); // yaw 0 = +Z: forward; 4.2 m/s for 0.5 s
+    const half = go(0, 0.5);
+    expect(half.d).toBeGreaterThan(0.5);
+    expect(half.d).toBeLessThan(full.d * 0.7);
+    expect(go(1, 0).dx).toBeGreaterThan(1.5); // right
+    expect(go(0, 0).d).toBeLessThan(0.01); // let go
+    w.setStick(5, 5); // too far: as far as it goes
+    expect(Math.hypot(w.getStick().x, w.getStick().y)).toBeCloseTo(1);
+  });
+
+  it('the joystick works without the keys (a phone has none) and counts as moving: a route pauses', () => {
+    const w = walk();
+    (document.activeElement as HTMLElement | null)?.blur();
+    const frames: { userMoving: boolean }[] = [];
+    w.setAutopilot({ drive: (_dt: number, me: { userMoving: boolean }) => { frames.push(me); return null; }, key: () => false } as any);
+    const from = w.getPosition();
+    w.setStick(0, 1);
+    scene.render();
+    expect(frames.at(-1)?.userMoving).toBe(true);
+    expect(w.getPosition().z).toBeGreaterThan(from.z);
+    w.setStick(0, 0);
+    scene.render();
+    expect(frames.at(-1)?.userMoving).toBe(false);
+  });
+
+  it('touch words: the HUD line says joystick, drag, tap', () => {
+    const huds: any[] = [];
+    const w = walk({ onHud: (h: unknown) => huds.push(h) });
+    scene.render();
+    expect(huds.at(-1).hint.detail).toMatch(/W A S D/);
+    w.setTouch(true);
+    scene.render();
+    expect(huds.at(-1).hint.detail).toMatch(/^Joystick to walk, drag to look, tap the floor/);
+    expect(huds.at(-1).hint.detail).not.toMatch(/W A S D|click|E uses/);
+    w.setTouch(false);
+    scene.render();
+    expect(huds.at(-1).hint.detail).toMatch(/W A S D/);
+  });
+
+  it('walking ends: the joystick is let go', () => {
+    const w = walk();
+    w.setStick(0, 1);
+    w.deactivate();
+    expect(w.getStick()).toEqual({ x: 0, y: 0 });
   });
 });
 

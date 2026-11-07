@@ -166,6 +166,9 @@ engine.on('walkClick', (e) => { ... });   // walkthrough (v0.14.0), a plain clic
                                           // person = their card; interact = a machine in reach with a handled action
                                           // (as E); walk = a route there, walk 'auto', source 'click'
 engine.on('mode', ({ mode }) => { ... });           // the mode changed (setMode, or a route started from above)
+// Touch (v0.14.1, <LayoutViewer> draws the joystick on touch screens): engine.walkthrough.setStick(x, y) walks
+// (x right, y forward, −1…1, the length = how fast; 0, 0 = stop), setTouch(true) = the HUD line in touch words.
+// A finger on the canvas drags to look; a tap (≤ 10 px, ≤ 500 ms) is a click (walkClick), never a double-click.
 
 // --- Mode and edits ---
 engine.setMode('walkthrough');       // "edit" | "view" | "walkthrough"

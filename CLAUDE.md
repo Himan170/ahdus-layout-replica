@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (908, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (918, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -89,6 +89,13 @@ npm run e2e:seats    # 24 checks   e2e/seats-smoke.mjs     (NO dev server: start
                      #                                       search, move / replace questions, not in undo, People
                      #                                       without a desk, the Publish warning, editors read-only,
                      #                                       phone; SHOTS=<dir>: screenshots)
+npm run e2e:touch   # 14 checks   e2e/touch-smoke.mjs     (viewer.html on a phone: 390 × 844, hasTouch + isMobile,
+                     #                                       fingers through CDP touch events: the joystick (push =
+                     #                                       walk, further = faster, let go = stop), drag to look, two
+                     #                                       thumbs, tap the floor (the line), the joystick ends it, tap
+                     #                                       a person, buttons / Find / Take me there by tap (the joystick
+                     #                                       pauses: "Tap Continue"), touch words (hint, HUD line, "?"),
+                     #                                       a mouse = mouse words again; SHOTS=<dir>: phone screenshots)
 npm run e2e:controls # 17 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
                      #                                       to look (cursor stays), Back to entrance / ? / Find / Clear give
                      #                                       the keys back, click the floor walks there, a key ends it, a
@@ -223,7 +230,9 @@ src/utils/measurements.js          PURE: distance, room area, wall runs to label
 src/ui/MeasurementOverlay.jsx      Distance / wall-length labels over the canvas (HTML, like RoomLabels)
 src/play/playController.js         Preview: movement, camera, aiming, every hotbar tool, Stretch, Edit item, stairs, levels;
                                    look: 'drag' (viewer / embed: drag to look, clickTarget, L) or 'lock' (Studio)
-src/play/dragLook.js               PURE (v0.14.0): click vs drag vs double-click (6 px, 250 ms), the drag's look deltas
+src/play/dragLook.js               PURE (v0.14.0): click vs drag vs double-click (6 px, 250 ms), the drag's look deltas;
+                                   touch (v0.14.1): a tap (10 px, 500 ms, never a double), stickVector (the joystick)
+src/engine/react/TouchControls.tsx The viewer's touch joystick (v0.14.1): bottom left, walkthrough.setStick
 src/planner/plannerTools.js        Studio mouse tools: draw room / wall, door / window, drag a wall to resize
 src/utils/buildPreview.js          Blue/red build previews shared by both modes
 src/play/navigation/               PURE (v0.13.0): walkMap.js (the walk map of a floor: 0.1 m cells, walls with door gaps,
@@ -567,11 +576,11 @@ Preview has no search box).
 
 ## Easy controls (v0.14.0, how they work)
 
-Section 3.2 of `private-docs/EXPERIENCE_PLAN.md` (decisions in its section 6), touch excepted (v0.14.1). Viewer / embed
+Section 3.2 of `private-docs/EXPERIENCE_PLAN.md` (decisions in its section 6); touch: see "Touch controls". Viewer / embed
 walkthrough only: **Studio's Preview keeps pointer lock exactly as before** (playController option `look`, default
 `'lock'`; `WalkthroughSystem` passes `'drag'`).
-- **Drag to look** (`src/play/dragLook.js`, PURE + tested): a press (left or right button, a mouse or pen; touch is
-  ignored for now) that moves more than `CLICK_PX` 6 px is a drag and turns the view (`DRAG_SENS` 0.0035 rad / px);
+- **Drag to look** (`src/play/dragLook.js`, PURE + tested): a press (left or right button, a mouse or pen; a finger:
+  see "Touch controls") that moves more than `CLICK_PX` 6 px is a drag and turns the view (`DRAG_SENS` 0.0035 rad / px);
   the pointer is captured to the canvas (`setPointerCapture`), never locked: the cursor stays visible. A press of
   ≤ 6 px and ≤ `CLICK_MS` 250 ms is a **click**; two clicks within 400 ms / 10 px a **double-click**.
 - **A click** (`playController.clickTarget(x, y)`: the ray from the camera, items / room parts / the ground only, not
@@ -594,7 +603,7 @@ walkthrough only: **Studio's Preview keeps pointer lock exactly as before** (pla
   releases it; the next Esc (> 400 ms later, `ESC_AFTER_UNLOCK_MS`: the browser's own Esc never counts twice) gives
   the keys back (blur). An Esc that a route takes (stops it) does nothing else (defaultPrevented).
 - **Hint + help** (`LayoutViewer`): the first walk in a browser shows `WALK_HINT` "W A S D to walk · drag to look ·
-  click the floor to go there" for 6 s (localStorage `ahdus.walkHintSeen`, try / catch; not on touch-only devices);
+  click the floor to go there" for 6 s (localStorage `ahdus.walkHintSeen`, try / catch; touch screens: their own hint, see "Touch controls");
   the "?" button (`data-hud="help"`, aria-label `Keys and mouse`) opens `WALK_HELP` (14 rows, `data-walk-help`), Esc or a
   press outside closes it. While the hint shows, the HUD's own keys line under the room name is hidden (not the same words
   twice; a message still shows). The pill "Mouse look · Esc to release" (`data-hud="keys"`) shows only in mouse look;
@@ -605,6 +614,32 @@ walkthrough only: **Studio's Preview keeps pointer lock exactly as before** (pla
   on the canvas's WebGL context while the second started, and the second one's first sky face (+X) decoded black.
 - Tests: `play/__tests__/dragLook.test.js`, `engine/__tests__/WalkthroughSystem.test.ts` (jsdom, the real controller on
   a NullEngine), `LayoutEngine.test.ts` (walkClick), `e2e/controls-smoke.mjs`.
+
+## Touch controls (v0.14.1, how they work)
+
+The Touch row of `private-docs/EXPERIENCE_PLAN.md` 3.2. Viewer / embed walkthrough only (look 'drag'); **Studio's
+Preview ignores touch as before** (look 'lock' listens to mousedown only).
+- **The joystick** (`engine/react/TouchControls.tsx`, `data-touch-joystick` = idle | held): a 128 px ring 16 px from
+  the box's bottom left (`STICK_SIZE`, `STICK_MARGIN`), its pointer captured; `dragLook.stickVector` (PURE): up =
+  forward, a dead zone of 15 % (`STICK_DEAD`), then push further = faster. → `walkthrough.setStick(x, y)` →
+  `playController.setStick`: in `update` when no movement key is held (keys win), `(flying ? FLY : WALK) × length`,
+  through the same `moveWithSteps`, and it counts as `userMoving` (pauses Take me there, ends a tapped walk). Works
+  without the keys being engaged (a phone has none). Let go / pointercancel / page hidden / walking ends = 0, 0.
+- **A finger on the canvas** (`playController.onPointerDown`, `touch`): drag to look (`TOUCH_DRAG_SENS` 0.005 rad / px:
+  a phone is narrow); a **tap** (`TAP_PX` 10, `TAP_MS` 500: fingers wander) = a click (`clickTarget` →
+  `_walkClick`: walk there / a person's card / a machine's action); two taps are never a double-click (no lock on
+  touch). The joystick is a DOM element over the canvas, so a second finger on the canvas looks while it walks.
+- **Touch words** (`LayoutViewer` `touchUI`): true when the last pointerdown was a finger, false on any mouse pointer
+  event; before any, `(pointer: coarse)`. Then: the joystick shows; `WALK_HINT_TOUCH` "Joystick to walk · drag to look
+  · tap the floor to go there" (its own localStorage key `ahdus.walkHintSeen.touch`, shown at 40 % height); the HUD line
+  (`walkthrough.setTouch` → the controller's readOnly hint: "Joystick to walk, drag to look, tap the floor to go
+  there, tap a person for their card"); the screen readers' line; the "?" help = `WALK_HELP_TOUCH` (9 rows), its
+  button / dialog named "Touch controls" (`data-walk-help` = touch | mouse); the E prompt reads "Tap it: …";
+  PlaceSearch (`touch`) says "Paused · Tap Continue to walk on" / "the joystick pauses". The HUD moves above the
+  joystick, the walking person card above the HUD.
+- Tests: `dragLook.test.js` (taps, stickVector), `WalkthroughSystem.test.ts` ("touch (v0.14.1)": drag, taps, the
+  stick's speed, keys not needed, the route pauses, touch words), `e2e/touch-smoke.mjs` (hides viewer.html's
+  bridge-events panel so the view is a phone's full width).
 
 ## Progressive loading (how it works)
 
@@ -761,7 +796,9 @@ site on the server (local mode renames the layout), the leave check. Saving, und
 - viewer.html's dev hooks: `__ahdusViewer` (the LayoutEngine; `.walkthrough.setPose`), `__ahdusScene`, `ahdus`,
   `__viewerEvents` (bridge events), `__ahdusCards`, `__ahdusWalkDebug` (only with `&debug=walkmap`), `__ahdusSetPeople`
   (the people prop; `?people=1` = two sample people, `?search=0` = no search box), `__viewerNav` (every 'navigation'
-  event). Take me there's time is GAME time (`navigation.walking.elapsed`): SwiftShader frames are capped at 0.25 s. The search's Find button sits at the
+  event). On a touch screen (v0.14.1, the last press a finger) the "?" button and its dialog are named `Touch controls`
+  (`Keys and mouse` with a mouse); `walkthrough.getStick()` = the joystick now. viewer.html gives the view only 60 % of
+  a phone (its bridge-events `aside`): e2e:touch hides it. Take me there's time is GAME time (`navigation.walking.elapsed`): SwiftShader frames are capped at 0.25 s. The search's Find button sits at the
   viewer's top left (12, 12): raw clicks / taps meant for the canvas must avoid it. Since v0.14.0 a viewer's walk
   needs no click (the keys are its own at once) and never locks the mouse except on a double-click or L; a plain click
   on its canvas WALKS THERE (or pins a person's card, or runs a machine's action), a drag turns the view, so tests that
@@ -952,9 +989,10 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Take me there: no lifts, no running; the line is drawn on the floor you are on only (the stairs marker shows where
   to go up); a route through a door narrower than ~0.9 m keeps the body on its centre line (slow there). Studio's
   Preview has no search box, so no Show route there.
-- Easy controls (v0.14.0): touch is not done yet (v0.14.1): touch keeps its v0.13 behaviour (no drag look or tap to walk by touch),
-  and the hint, the HUD line and the "?" help still use mouse words on touch screens (v0.14.1: joystick, drag, tap).
-  A click on a wall walks to the spot in front of it; there is no "walk to the room behind this wall".
+- Touch (v0.14.1): no pinch to zoom, no flying or floor buttons by touch (Find + Take me there, or the stairs); the
+  joystick has no run speed. The joystick is hidden from screen readers (Find + Take me there cover them).
+  In viewer.html's sample layout Asha's desk has no walking route from the entrance (e2e:touch uses Reception).
+- A click on a wall walks to the spot in front of it; there is no "walk to the room behind this wall".
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).
 
@@ -1026,6 +1064,12 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: touch controls (v0.14.1, 7 Nov 2026, branch `feature/touch-controls`)
+
+The Touch row of private-docs/EXPERIENCE_PLAN.md 3.2: the joystick, drag to look and tap by finger, touch words in
+the hint, the HUD line and the "?" help (see "Touch controls"); e2e:touch. A mouse and Studio's Preview are
+unchanged. Phone screenshots (390 × 844): private-docs/screenshots/v0.14.1/ (not in git).
 
 ## DONE: easy controls (v0.14.0, 7 Nov 2026, branch `feature/easy-controls`)
 

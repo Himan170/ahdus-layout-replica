@@ -42,6 +42,8 @@ export interface PlaceSearchProps {
   children?: ReactNode;
   /** Give the view the keys (after Show route / Take me there: W pauses, G continues, Esc stops). */
   focusView?: () => void;
+  /** A touch screen (v0.14.1): the strip says "the joystick" and "Continue", not keys. */
+  touch?: boolean;
 }
 
 /** "Going to Kavya Iyer · 42 m · Floor 1": the strip's line (the floor when it isn't yours). */
@@ -66,7 +68,9 @@ export function walkLine(shown: ShowResult): string | null {
   return `${Math.round(length)} m walk, ${walkTime(seconds)}${stairs}`;
 }
 
-export function PlaceSearch({ engine, walking, people, children, focusView }: PlaceSearchProps) {
+export function PlaceSearch({ engine, walking, people, children, focusView, touch = false }: PlaceSearchProps) {
+  const touchRef = useRef(touch);
+  touchRef.current = touch;
   const uid = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -93,7 +97,7 @@ export function PlaceSearch({ engine, walking, people, children, focusView }: Pl
         if (e.state === 'started') setSaid(`Going to ${e.place.name}`);
         else if (e.state === 'arrived') setSaid(`You have arrived: ${e.place.name}`);
         else if (e.state === 'failed') setSaid(e.message ?? 'The route stopped');
-        else if (e.paused && !was?.paused) setSaid('Paused. Press G to continue');
+        else if (e.paused && !was?.paused) setSaid(touchRef.current ? 'Paused. Tap Continue to walk on' : 'Paused. Press G to continue');
         else if (!e.paused && was?.paused) setSaid(`Going to ${e.place.name}`);
         return e;
       });
@@ -356,7 +360,10 @@ export function PlaceSearch({ engine, walking, people, children, focusView }: Pl
               <>
                 <span data-nav-going style={styles.name}>{goingLine(nav, nav.place.floorName)}</span>
                 {nav.paused ? (
-                  <span style={styles.walk}>Paused · Press <kbd style={styles.kbd}>G</kbd> to continue</span>
+                  touch ? <span style={styles.walk}>Paused · Tap Continue to walk on</span>
+                    : <span style={styles.walk}>Paused · Press <kbd style={styles.kbd}>G</kbd> to continue</span>
+                ) : touch ? (
+                  <span style={styles.detail}>{nav.walk === 'auto' ? 'Walking there · the joystick pauses' : 'Follow the line'}</span>
                 ) : (
                   <span style={styles.detail}>{nav.walk === 'auto' ? 'Walking there · a movement key pauses' : 'Follow the line · G walks you there'}</span>
                 )}
