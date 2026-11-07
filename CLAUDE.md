@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (880, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (908, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -62,8 +62,8 @@ npm run e2e:viewer   # 29 checks   e2e/viewer-smoke.mjs    (viewer.html: <Layout
                      #                                       refused, Page Up, view mode, a saved layout; search: the
                      #                                       box, keys, a keystroke < 50 ms, show / clear, walking: W in
                      #                                       the box does not walk, the walk measured, search=0)
-npm run e2e:embed    # 32 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
-                     #                                       in it (no Supabase), serves embed-test.html itself; keys are the page's until the view is engaged, walk in,
+npm run e2e:embed    # 34 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
+                     #                                       in it (no Supabase), serves embed-test.html itself; keys at once, the page's own field / button, hover, Esc, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
                      #                                       with cookies, destroy(), assets next to the script, quality low,
                      #                                       find(), the search box (no email), full width at 390 px,
@@ -89,6 +89,11 @@ npm run e2e:seats    # 24 checks   e2e/seats-smoke.mjs     (NO dev server: start
                      #                                       search, move / replace questions, not in undo, People
                      #                                       without a desk, the Publish warning, editors read-only,
                      #                                       phone; SHOTS=<dir>: screenshots)
+npm run e2e:controls # 15 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
+                     #                                       to look (cursor stays), Back to entrance / ? / Find / Clear give
+                     #                                       the keys back, click the floor walks there, a key ends it, a
+                     #                                       desk = the card, the CNC = its action, double-click / L / Esc;
+                     #                                       SHOTS=<dir>: 1440×900 + 390×844 screenshots)
 npm run e2e          # all of them (Himan's laptop once hung on this: run the scripts ONE AT A TIME)
 node e2e/real-assets-shots.mjs before|after   # screenshots of one sample layout: e2e/screens/real-assets-<tag>-*.png
 ```
@@ -215,7 +220,9 @@ src/floorplan/                     Plan view (Anshu, S1): FloorPlanView.jsx (SVG
                                    screen, walls + openings, planDrop; tests in src/floorplan/__tests__/)
 src/utils/measurements.js          PURE: distance, room area, wall runs to label (Anish, A5; tests in src/utils/__tests__/)
 src/ui/MeasurementOverlay.jsx      Distance / wall-length labels over the canvas (HTML, like RoomLabels)
-src/play/playController.js         Preview: movement, camera, aiming, every hotbar tool, Stretch, Edit item, stairs, levels
+src/play/playController.js         Preview: movement, camera, aiming, every hotbar tool, Stretch, Edit item, stairs, levels;
+                                   look: 'drag' (viewer / embed: drag to look, clickTarget, L) or 'lock' (Studio)
+src/play/dragLook.js               PURE (v0.14.0): click vs drag vs double-click (6 px, 250 ms), the drag's look deltas
 src/planner/plannerTools.js        Studio mouse tools: draw room / wall, door / window, drag a wall to resize
 src/utils/buildPreview.js          Blue/red build previews shared by both modes
 src/play/navigation/               PURE (v0.13.0): walkMap.js (the walk map of a floor: 0.1 m cells, walls with door gaps,
@@ -557,6 +564,41 @@ Preview has no search box).
 - **Embed:** `workplace.goTo(target, { walk })` (a name = the first search result), `stopRoute()`, the 'navigation'
   event; the handle's `mode` follows the engine's 'mode' event.
 
+## Easy controls (v0.14.0, how they work)
+
+Section 3.2 of `private-docs/EXPERIENCE_PLAN.md` (decisions in its section 6), touch excepted (v0.14.1). Viewer / embed
+walkthrough only: **Studio's Preview keeps pointer lock exactly as before** (playController option `look`, default
+`'lock'`; `WalkthroughSystem` passes `'drag'`).
+- **Drag to look** (`src/play/dragLook.js`, PURE + tested): a press (left or right button, a mouse or pen; touch is
+  ignored for now) that moves more than `CLICK_PX` 6 px is a drag and turns the view (`DRAG_SENS` 0.0035 rad / px);
+  the pointer is captured to the canvas (`setPointerCapture`), never locked: the cursor stays visible. A press of
+  ≤ 6 px and ≤ `CLICK_MS` 250 ms is a **click**; two clicks within 400 ms / 10 px a **double-click**.
+- **A click** (`playController.clickTarget(x, y)`: the ray from the camera, items / room parts / the ground only, not
+  the player, ghosts or door panes; the floor under a desk = the desk) goes to `LayoutEngine._walkClick`, in this order:
+  a person (`pickPerson`) = their card, pinned (it stays until another click or 4 m of walking); an item within
+  `INTERACT_REACH` 3.5 m whose action is handled (`describeInteraction`) = 'interact', as E; else **walk there**:
+  `navigation.routeTo({ x, z, floor }, { walk: 'auto', source: 'click' })` (a hit on a wall or item: the spot 0.4 m
+  back towards you). No route = the problem as a short HUD message (`walk.say`). Event `walkClick` { action: person |
+  interact | walk | none, at, person?, objectId?, to?, problem?, message? }.
+- **A click's walk** (`source: 'click'`): no highlight, no strip (PlaceSearch ignores its events), a movement key or a
+  double-click ends it ('stopped', no "Press G"), arrival ends it without turning. The line shows as for Take me there.
+- **The keys** (`WalkthroughSystem.isEngaged`): the view's while it has pointer lock, the focus is in its box, or the
+  mouse is over it (pointerenter / leave; touch ignored) unless Esc released it while there. Walking starts with the
+  focus in the box (`takeFocus`: no ring, `data-auto-focus` while it focuses itself), unless a text field has it. A
+  mouse click on one of the view's own buttons (button, link, option, role=button; never a text field) gives the focus
+  back to the box 30 ms later (`onBoxClick`), unless a text field took it. `isTextField` (inputs that take text,
+  textarea, select, contenteditable): playController ignores keys there. Arrows / Space are preventDefault'ed only
+  while engaged. The focus ring shows only when the focus came by Tab (LayoutViewer `tabbedRef`: the last key before it was Tab, no press since; `:focus-visible` is not enough: after typing in Find, Chrome counts the view's own focus as keyboard focus).
+- **Mouse look:** double-click or L = `lockPointer` (a crosshair, "Mouse look · Esc to release"); L again or Esc
+  releases it; the next Esc (> 400 ms later, `ESC_AFTER_UNLOCK_MS`: the browser's own Esc never counts twice) gives
+  the keys back (blur). An Esc that a route takes (stops it) does nothing else (defaultPrevented).
+- **Hint + help** (`LayoutViewer`): the first walk in a browser shows `WALK_HINT` "W A S D to walk · drag to look ·
+  click the floor to go there" for 6 s (localStorage `ahdus.walkHintSeen`, try / catch; not on touch-only devices);
+  the "?" button (`data-hud="help"`, aria-label `Keys and mouse`) opens `WALK_HELP` (14 rows, `data-walk-help`), Esc or a
+  press outside closes it. Pill: "Click the view to walk" / "Esc to release" / "Mouse look · Esc to release".
+- Tests: `play/__tests__/dragLook.test.js`, `engine/__tests__/WalkthroughSystem.test.ts` (jsdom, the real controller on
+  a NullEngine), `LayoutEngine.test.ts` (walkClick), `e2e/controls-smoke.mjs`.
+
 ## Progressive loading (how it works)
 
 Opening a layout never freezes the page: `engine/systems/SceneBuilder` builds the rooms and items in slices of
@@ -713,11 +755,15 @@ site on the server (local mode renames the layout), the leave check. Saving, und
   `__viewerEvents` (bridge events), `__ahdusCards`, `__ahdusWalkDebug` (only with `&debug=walkmap`), `__ahdusSetPeople`
   (the people prop; `?people=1` = two sample people, `?search=0` = no search box), `__viewerNav` (every 'navigation'
   event). Take me there's time is GAME time (`navigation.walking.elapsed`): SwiftShader frames are capped at 0.25 s. The search's Find button sits at the
-  viewer's top left (12, 12): raw clicks / taps meant for the canvas must avoid it. A viewer captures the mouse on pointerdown (Babylon prevents
-  the default of pointerdown, so the browser sends no mousedown; Studio captures it from its button).
+  viewer's top left (12, 12): raw clicks / taps meant for the canvas must avoid it. Since v0.14.0 a viewer's walk
+  needs no click (the keys are its own at once) and never locks the mouse except on a double-click or L; a plain click
+  on its canvas WALKS THERE (or pins a person's card, or runs a machine's action), a drag turns the view, so tests that
+  only want the keys must not click the canvas (aim at the sky, or move the mouse over it). The focus may be on the
+  canvas, inside the box. Two Esc presses for mouse look need > 400 ms between them. Babylon prevents the default of
+  pointerdown (no mousedown arrives): use pointer events.
 - embed-test.html's hooks (also in production: it's a plain page): `window.workplace` (the handle; `._engine` = its
   LayoutEngine, for tests only), `window.embedEvents` (every onEvent call). A viewer's walkthrough doesn't capture the
-  mouse by itself: click its canvas first (Preview still does, and headless Chromium grants it without a click).
+  mouse (see above; Preview still does, and headless Chromium grants it without a click).
 - People: `__ahdusCharacters` (Studio, dev: the CharacterSystem: `setPeople`, `getPlaced()`, `whenSettled()`,
   `fullCount`); viewer / embed: `engine.characters`. Simple figures are the meshes `people_seated` / `people_standing`
   (`thinInstanceCount`), full characters `person_<id>` nodes (meshes with `metadata.personId`).
@@ -899,6 +945,8 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Take me there: no lifts, no running; the line is drawn on the floor you are on only (the stairs marker shows where
   to go up); a route through a door narrower than ~0.9 m keeps the body on its centre line (slow there). Studio's
   Preview has no search box, so no Show route there.
+- Easy controls (v0.14.0): touch is not done yet (v0.14.1): touch keeps its v0.13 behaviour (no drag look or tap to walk by touch).
+  A click on a wall walks to the spot in front of it; there is no "walk to the room behind this wall".
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).
 
@@ -954,7 +1002,7 @@ Babylon inside, global `AHDUSWorkplace`; it injects its own small stylesheet).
   save or other JSON is an error). Loading fails → our box is removed, then `onError`, so the page shows its fallback.
 - Events (`ready`, `enterRoom`, `exitRoom`, `interact`, `floorChange`, `card`) come from that viewer's engine in
   layoutBridge's payload shapes; `registerAction(match, { label, run })` is a bridge interaction limited to its viewer.
-- **Keys (fix/embed-keys):** in a viewer's walkthrough (`<LayoutViewer>`, the embed) the keys are the page's until the
+- **Keys (fix/embed-keys; changed in v0.14.0, see "Easy controls"):** in a viewer's walkthrough (`<LayoutViewer>`, the embed) the keys are the page's until the
   view is **engaged**: its canvas has pointer lock or focus is in its box (`tabIndex 0`, one Tab stop, focus ring;
   `LayoutEngine` option `focusTarget`). Not engaged: no preventDefault, no movement. Click = focus + pointer lock;
   Esc or losing the lock = blur. Tab never calls onExit there. `WalkthroughSystem` passes `isEngaged` to the
@@ -970,6 +1018,13 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: easy controls (v0.14.0, 7 Nov 2026, branch `feature/easy-controls`)
+
+Section 3.2 of private-docs/EXPERIENCE_PLAN.md without touch (that is v0.14.1): drag to look, a click walks there /
+opens a person's card / uses a machine, keys with no click, mouse look on double-click or L, the hint and the "?" help
+(see "Easy controls"); e2e:controls. Screenshots (desktop 1440×900 + phone 390×844): private-docs/screenshots/v0.14.0/
+(not in git).
 
 ## DONE: Take me there (v0.13.4, 7 Nov 2026, branch `feature/take-me-there`)
 

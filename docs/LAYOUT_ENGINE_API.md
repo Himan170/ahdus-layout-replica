@@ -94,8 +94,9 @@ const engine = await LayoutEngine.create(canvas, {
   mode: 'edit',        // "edit" | "view" | "walkthrough"
   quality: 'high',     // "high" (real models, photo textures, sky) | "low" (simple look, no downloads)
   assetBaseUrl: '/assets/', // where models/, textures/, env/ are (default: the app's public/assets/)
-  focusTarget: box,    // walkthrough: the keys are the page's until the canvas has the mouse
-                       // or focus is in this element (default the canvas); Esc gives them back
+  focusTarget: box,    // walkthrough: the keys are the view's when walking starts, while the mouse is over this
+                       // element or focus is in it (default the canvas), never while a text field has the focus;
+                       // Esc gives them back (v0.14.0; before: only after a click / with pointer lock)
   buildBudgetMs: 10,   // progressive loading: time per build piece (Infinity = everything at once)
 });
 
@@ -137,7 +138,9 @@ engine.navigation.routeTo({ type: 'RESTROOM' }, { walk: 'auto' }); // Take me th
                                      // target: a result id, { personId } { roomId } { deskId } { type } { x, z, floor };
                                      // from view mode it starts walking at the entrance;
                                      // → { place, walk, length, seconds, floors } or { problem, message }
-engine.navigation.walking;           // { place, walk, paused, remaining, elapsed } or null
+engine.navigation.walking;           // { place, walk, paused, remaining, elapsed, source? } or null
+                                     // source 'click' = a click on the floor (v0.14.0): no highlight, no strip,
+                                     // a movement key or a double-click ends it, no turn on arrival
 engine.navigation.resume();          // G: walk on (from Show route too)
 engine.navigation.stop();            // end it (false: nothing to stop)
 engine.on('navigation', (e) => { ... }); // { state: started | progress | arrived | stopped | failed, walk, place,
@@ -155,6 +158,11 @@ engine.on('select', (entity) => { ... });           // Object or room was select
 engine.on('change', (event) => { ... });            // Any state mutation happened
 engine.on('enterRoom', ({ roomId }) => { ... });    // Walkthrough: entered a room
 engine.on('interact', ({ anchorId, objectId }) => { ... }); // E key / click in walkthrough
+engine.on('walkClick', (e) => { ... });   // walkthrough (v0.14.0), a plain click (≤ 6 px, ≤ 250 ms; a drag looks):
+                                          // { action: 'person' | 'interact' | 'walk' | 'none', at: { x, y },
+                                          //   person?, objectId?, to?: { x, z, floor }, problem?, message? }
+                                          // person = their card; interact = a machine in reach with a handled action
+                                          // (as E); walk = a route there, walk 'auto', source 'click'
 engine.on('mode', ({ mode }) => { ... });           // the mode changed (setMode, or a route started from above)
 
 // --- Mode and edits ---
