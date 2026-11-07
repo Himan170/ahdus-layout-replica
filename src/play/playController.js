@@ -7,8 +7,10 @@
  *   Move          W A S D (Shift = run), Space = jump
  *   Look          mouse (click the view to capture the mouse, Esc to release). A viewer's
  *                 walkthrough (option look: 'drag', v0.14.0): drag to look, the cursor stays;
- *                 a click = onPointClick (interact, or walk there); double-click / L = capture
- *   Fly           F toggles flying; Space = up, C = down
+ *                 a click = onPointClick (interact, or walk there); double-click / L = capture.
+ *                 Touch (v0.14.1, look 'drag' only): a finger drags to look, a tap = a click;
+ *                 the viewer's joystick walks (setStick). Preview ignores touch, as before
+ *   Fly          F toggles flying; Space = up, C = down
  *   Camera        V switches third-person / first-person
  *   Use tool      Left-click
  *   Remove        Right-click (cancels a half-drawn room/wall first)
@@ -115,6 +117,8 @@ const TOP_EDGE = 0.35; // aiming this close to the top of a wall grabs its top (
 const SPAWN_PITCH = -0.12; // starting to walk: looking at the entrance, a little down
 // look: 'drag' (a viewer's walkthrough, v0.14.0): radians per pixel dragged (pointer lock keeps MOUSE_SENS)
 const DRAG_SENS = 0.0035;
+// …and per pixel a finger drags (v0.14.1): a phone is narrow, a swipe across it turns ~110°
+const TOUCH_DRAG_SENS = 0.005;
 // A click on something that isn't a floor: walk to this far in front of it (m, towards the camera)
 const CLICK_STAND_OFF = 0.4;
 const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
@@ -220,6 +224,11 @@ export function createPlayController(scene, canvas, {
   // where to go; null = free walking, exactly as before. See setAutopilot.
   let pilot = null;
   const keys = new Set();
+  // The touch joystick (v0.14.1, look 'drag'): { x: right, y: forward }, each −1…1, length = how far
+  // it is pushed (dragLook.stickVector). Moves like the keys (it pauses a route); 0, 0 = let go.
+  let stick = { x: 0, y: 0 };
+  // The words the walking hint uses: 'mouse' (keys and mouse) or 'touch' (joystick, drag, tap): setTouch
+  let touchWords = false;
 
   // ─────────────────────────────────────────────────────────────────────
   //  Helpers
@@ -1137,6 +1146,7 @@ export function createPlayController(scene, canvas, {
 
   function onBlur() {
     keys.clear();
+    stick = { x: 0, y: 0 };
   }
 
   // ── look 'drag' (v0.14.0): drag to look, click = onPointClick, double-click = mouse-look mode ──
@@ -1146,7 +1156,11 @@ export function createPlayController(scene, canvas, {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
   const drag = createDragLook({
-    look: (dx, dy) => lookBy(dx * (DRAG_SENS / MOUSE_SENS), dy * (DRAG_SENS / MOUSE_SENS)),
+    look: (dx, dy, touch) => {
+      const k = (touch ? TOUCH_DRAG_SENS : DRAG_SENS) / MOUSE_SENS;
+      lookBy(dx * k, dy * k);
+    },
+    // a tap (touch) is a click: the floor walks there, a person shows their card, a machine its action
     click: ({ x, y, button }) => {
       if (button !== 0 || !active) return;
       // mouse-look mode: the crosshair (the middle of the view) is what you click
@@ -1161,10 +1175,11 @@ export function createPlayController(scene, canvas, {
   });
 
   function onPointerDown(e) {
-    if (!active || e.pointerType === 'touch') return; // touch controls: v0.14.1
-    if (e.button !== 0 && e.button !== 2) return;
+    if (!active) return;
+    const touch = e.pointerType === 'touch'; // v0.14.1: a finger drags to look, a tap is a click
+    if (!touch && e.button !== 0 && e.button !== 2) return;
     const at = canvasPoint(e);
-    drag.down({ id: e.pointerId, x: at.x, y: at.y, t: performance.now(), button: e.button });
+    drag.down({ id: e.pointerId, x: at.x, y: at.y, t: performance.now(), button: touch ? 0 : e.button, touch });
     try { canvas.setPointerCapture?.(e.pointerId); } catch { /* not captured: moves outside the view are missed */ }
   }
 
@@ -1312,8 +1327,17 @@ export function createPlayController(scene, canvas, {
     }
     const running = keys.has('ShiftLeft') || keys.has('ShiftRight');
     const speed = flying ? FLY : running ? RUN : WALK;
-    const userMoving = move.lengthSquared() > 0;
+    let userMoving = move.lengthSquared() > 0;
     if (userMoving) move.normalize().scaleInPlace(speed * dt);
+    else {
+      // the touch joystick (keys win): push further = faster, up to walking speed (flying: flying speed)
+      const pushed = Math.min(1, Math.hypot(stick.x, stick.y));
+      if (pushed > 0) {
+        move.addInPlace(forward.scale(stick.y)).addInPlace(right.scale(stick.x));
+        move.normalize().scaleInPlace((flying ? FLY : WALK) * pushed * dt);
+        userMoving = true;
+      }
+    }
 
     // Following a route: where to go this frame (Take me there), unless your keys move you (that
     // pauses it). Same collisions as the keys: moveWithSteps below.
@@ -1419,7 +1443,9 @@ export function createPlayController(scene, canvas, {
     if (readOnly) {
       hint = {
         title: 'Walking through',
-        detail: dragMode
+        detail: dragMode && touchWords
+          ? 'Joystick to walk, drag to look, tap the floor to go there, tap a person for their card'
+          : dragMode
           ? 'W A S D walk, drag to look, click the floor to go there, E uses, Page Up / Down changes floor'
           : 'W A S D walk, mouse looks, E uses, Page Up / Down changes floor',
       };
@@ -1573,6 +1599,7 @@ export function createPlayController(scene, canvas, {
         if (from) onRoomChange(from, null);
       }
       keys.clear();
+      stick = { x: 0, y: 0 };
       clearGhost();
       clearPreview();
       collider.setEnabled(false);
@@ -1630,6 +1657,24 @@ export function createPlayController(scene, canvas, {
 
     /** Turn the view by a mouse-movement amount (used by tests and touch controls) */
     lookBy,
+
+    /**
+     * The touch joystick (v0.14.1; a viewer's walkthrough): x = right, y = forward, each −1…1; the
+     * length (at most 1) is how fast (1 = walking speed). 0, 0 = let go: you stop. Moves like the keys:
+     * through moveWithSteps, and it pauses a route (a tapped walk ends). Keys held win over it.
+     */
+    setStick(x = 0, y = 0) {
+      const fx = Number.isFinite(x) ? x : 0;
+      const fy = Number.isFinite(y) ? y : 0;
+      const len = Math.hypot(fx, fy);
+      stick = len > 1 ? { x: fx / len, y: fy / len } : { x: fx, y: fy };
+    },
+    getStick: () => ({ ...stick }),
+
+    /** The walking hint in touch words (joystick, drag, tap) or keys and mouse words (look 'drag'). */
+    setTouch(on) {
+      touchWords = !!on;
+    },
 
     /** What a click at (x, y) on the view (CSS px) would be on (look 'drag'; tests): see clickTarget. */
     clickTarget,

@@ -34,6 +34,12 @@
  * card. A double-click or L captures the mouse (mouse-look mode, a crosshair);
  * Esc releases it, the next Esc gives the keys back to the page. A one-time
  * hint says so; the "?" button lists every key. Tab to the view: a focus ring.
+ *
+ * Touch (v0.14.1): a joystick at the bottom left walks (push further = faster, let go =
+ * stop), a finger dragging anywhere else looks around, a tap on the floor walks there, on a
+ * person opens their card. The hint, the HUD line and the "?" help then use touch words. Touch
+ * words show while the last press was a finger (or, before any press, on a device whose main
+ * pointer is coarse); a mouse brings back the keys and mouse words at once.
  */
 
 import { useEffect, useId, useRef, useState } from 'react';
@@ -50,6 +56,7 @@ import { connectEngine } from '../../integration/layoutBridge';
 import { readSavedLayout } from '../../services/savedLayouts';
 import { PlaceSearch } from './PlaceSearch';
 import { AUTO_FOCUS_ATTR } from '../systems/WalkthroughSystem';
+import { TouchControls, STICK_SIZE, STICK_MARGIN } from './TouchControls';
 
 export interface LayoutViewerProps {
   /** The layout: a save, an exported layout file or v2 JSON. */
@@ -127,7 +134,11 @@ const PINNED_WALK_M = 4;
 
 /** The one-time hint when walking starts (per browser; shown again if storage is blocked). */
 export const WALK_HINT = 'W A S D to walk · drag to look · click the floor to go there';
+/** …on a touch screen (v0.14.1). */
+export const WALK_HINT_TOUCH = 'Joystick to walk · drag to look · tap the floor to go there';
 const WALK_HINT_KEY = 'ahdus.walkHintSeen';
+/** Seen apart from the mouse one: a laptop with a touch screen gets each once. */
+const WALK_HINT_TOUCH_KEY = 'ahdus.walkHintSeen.touch';
 /** The hint stays this long (ms), then fades out over HINT_FADE_MS. */
 const HINT_MS = 6000;
 const HINT_FADE_MS = 800;
@@ -150,12 +161,34 @@ export const WALK_HELP: [string, string][] = [
   ['Esc', 'Stop a route · give the keys back to the page'],
 ];
 
-/** Has this browser seen the walking hint? (storage blocked: no) */
-function walkHintSeen(): boolean {
-  try { return window.localStorage.getItem(WALK_HINT_KEY) === '1'; } catch { return false; }
+/** The "?" help on a touch screen (v0.14.1). */
+export const WALK_HELP_TOUCH: [string, string][] = [
+  ['Joystick (bottom left)', 'Walk · push further to go faster'],
+  ['Let go of the joystick', 'Stop'],
+  ['Drag anywhere else', 'Look around'],
+  ['Tap the floor', 'Walk there'],
+  ['Tap a person', 'Their name card'],
+  ['Tap a machine near you', 'Use it'],
+  ['Find', 'A person, room or place'],
+  ['Back to entrance', 'Start again at the entrance'],
+  ['Joystick on a route', 'Pauses it (Continue walks on)'],
+];
+/** The help's name: keys and mouse, or touch. */
+const HELP_TITLE = 'Keys and mouse';
+const HELP_TITLE_TOUCH = 'Touch controls';
+
+/** Does this device point with a finger first (before any press tells)? */
+function coarsePointer(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    && window.matchMedia('(pointer: coarse)').matches;
 }
-function markWalkHintSeen(): void {
-  try { window.localStorage.setItem(WALK_HINT_KEY, '1'); } catch { /* shown again next time */ }
+
+/** Has this browser seen the walking hint (the touch one: touch)? (storage blocked: no) */
+function walkHintSeen(touch: boolean): boolean {
+  try { return window.localStorage.getItem(touch ? WALK_HINT_TOUCH_KEY : WALK_HINT_KEY) === '1'; } catch { return false; }
+}
+function markWalkHintSeen(touch: boolean): void {
+  try { window.localStorage.setItem(touch ? WALK_HINT_TOUCH_KEY : WALK_HINT_KEY, '1'); } catch { /* shown again next time */ }
 }
 
 /** A link the page gave: only http(s), absolute or relative to the page (never javascript: and the like). */
@@ -200,6 +233,22 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [hint, setHint] = useState<'shown' | 'fading' | null>(null);
   const helpButtonRef = useRef<HTMLButtonElement>(null);
+  // touch words and the joystick (v0.14.1): the last press was a finger (before any: a coarse main pointer)
+  const [touchUI, setTouchUI] = useState(coarsePointer);
+  const touchRef = useRef(touchUI);
+  touchRef.current = touchUI;
+  useEffect(() => {
+    const onPointer = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') setTouchUI(true);
+      else if (e.pointerType === 'mouse') setTouchUI(false);
+    };
+    window.addEventListener('pointerdown', onPointer, true);
+    window.addEventListener('pointermove', onPointer, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', onPointer, true);
+      window.removeEventListener('pointermove', onPointer, { capture: true });
+    };
+  }, []);
   /** Did the last key or press before a focus come from Tab? The focus ring is for Tab only (not :focus-visible:
    *  after typing in Find, Chrome counts the view's own focus as a keyboard focus). */
   const tabbedRef = useRef(false);
@@ -426,16 +475,21 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const engaged = !!(hud?.engaged ?? hud?.locked);
   const floorReady = !progress || progress.currentFloorReady;
 
-  // The one-time hint, when walking starts and the floor shows (once per browser; StrictMode-safe)
-  const hintRef = useRef<{ show: boolean | null; done: boolean }>({ show: null, done: false });
+  // The HUD's walking line in the same words (the controller writes it)
+  useEffect(() => {
+    if (walking) engine?.walkthrough?.setTouch(touchUI);
+  }, [engine, walking, touchUI]);
+
+  // The one-time hint, when walking starts and the floor shows (once per browser, the touch one apart; StrictMode-safe)
+  const hintRef = useRef<{ show: boolean | null; done: boolean; touch: boolean }>({ show: null, done: false, touch: false });
   useEffect(() => {
     const h = hintRef.current;
     if (!walking || error || !engine || !floorReady || h.done) return undefined;
     if (h.show === null) {
-      // a touch-only device has no keys or mouse to tell about (its own hint comes with touch controls, v0.14.1)
-      const touchOnly = typeof window.matchMedia === 'function' && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-      h.show = !touchOnly && !walkHintSeen();
-      if (h.show) markWalkHintSeen();
+      // in the words of how you walk now: keys and mouse, or the joystick (touch, v0.14.1)
+      h.touch = touchRef.current;
+      h.show = !walkHintSeen(h.touch);
+      if (h.show) markWalkHintSeen(h.touch);
     }
     if (!h.show) return undefined;
     setHint('shown');
@@ -475,6 +529,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
   // Their own card, no character chosen yet: "Choose your character"
   const me = props.player?.personId;
   const chooseUrl = safeLink(props.chooseCharacterUrl);
+  const touchWalk = walking && touchUI;
+  const helpTitle = touchUI ? HELP_TITLE_TOUCH : HELP_TITLE;
   const offerChoice = !!(person && chooseUrl && me != null && String(me) === person.who.personId
     && !(person.who.characterChosen ?? !!person.who.character));
   return (
@@ -519,7 +575,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
             {/* the view's description for screen readers (always); the pill shows only in mouse look (v0.14.0):
                 the cursor is gone then, and Esc is how to get it back. Otherwise Esc still releases the keys */}
             <span id={keysHintId} data-hud="keys-state" style={styles.srOnly}>
-              {hud.locked ? 'Mouse look · Esc to release' : engaged ? 'Esc to release' : 'Click the view to walk'}
+              {touchUI ? 'Use the joystick to walk, drag to look, tap the floor to go there'
+                : hud.locked ? 'Mouse look · Esc to release' : engaged ? 'Esc to release' : 'Click the view to walk'}
             </span>
             {hud.locked && <div aria-hidden data-hud="keys" style={styles.keys}>Mouse look · Esc to release</div>}
             <button
@@ -535,10 +592,10 @@ export function LayoutViewer(props: LayoutViewerProps) {
               ref={helpButtonRef}
               type="button"
               data-hud="help"
-              aria-label="Keys and mouse"
+              aria-label={helpTitle}
               aria-expanded={helpOpen}
               aria-controls={helpOpen ? `${keysHintId}-help` : undefined}
-              title="Keys and mouse"
+              title={helpTitle}
               style={{ ...styles.button, ...styles.helpButton }}
               onClick={() => setHelpOpen((o) => !o)}
             >
@@ -549,9 +606,9 @@ export function LayoutViewer(props: LayoutViewerProps) {
         const help = walking && helpOpen && !error ? (
           <div
             id={`${keysHintId}-help`}
-            data-walk-help
+            data-walk-help={touchUI ? 'touch' : 'mouse'}
             role="dialog"
-            aria-label="Keys and mouse"
+            aria-label={helpTitle}
             style={styles.help}
             onKeyDown={(e) => {
               if (e.key !== 'Escape') return;
@@ -563,12 +620,12 @@ export function LayoutViewer(props: LayoutViewerProps) {
             }}
           >
             <div style={styles.helpHead}>
-              <strong>Keys and mouse</strong>
-              <button type="button" aria-label="Close keys and mouse" title="Close (Esc)" style={styles.helpClose}
+              <strong>{helpTitle}</strong>
+              <button type="button" aria-label={`Close ${helpTitle.toLowerCase()}`} title="Close (Esc)" style={styles.helpClose}
                 onClick={() => setHelpOpen(false)}>×</button>
             </div>
             <dl style={styles.helpList}>
-              {WALK_HELP.map(([key, what]) => (
+              {(touchUI ? WALK_HELP_TOUCH : WALK_HELP).map(([key, what]) => (
                 <div key={key} style={styles.helpRow}>
                   <dt style={styles.helpKey}>{key}</dt>
                   <dd style={styles.helpWhat}>{what}</dd>
@@ -580,7 +637,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
         if (search && engine && !error) {
           return (
             <div style={styles.topLeft} data-viewer-toolbar>
-              <PlaceSearch engine={engine} walking={walking} people={people}
+              <PlaceSearch engine={engine} walking={walking} people={people} touch={touchUI}
                 focusView={() => {
                   // from above the box is no Tab stop yet (walking starts this moment): make it one, then focus it
                   const box = boxRef.current;
@@ -598,17 +655,23 @@ export function LayoutViewer(props: LayoutViewerProps) {
           {/* mouse-look mode: what a click or E is on (dragging to look needs none: the cursor is there) */}
           {hud.locked && <div aria-hidden data-crosshair style={styles.crosshair}>+</div>}
           {hint && (
-            <div role="status" data-walk-hint={hint}
-              style={{ ...styles.walkHint, opacity: hint === 'fading' ? 0 : 1, transition: reducedMotion ? 'none' : `opacity ${HINT_FADE_MS}ms ease` }}>
-              {WALK_HINT}
+            <div role="status" data-walk-hint={hint} data-walk-hint-words={hintRef.current.touch ? 'touch' : 'mouse'}
+              style={{
+                ...styles.walkHint, ...(hintRef.current.touch ? styles.walkHintTouch : null),
+                opacity: hint === 'fading' ? 0 : 1, transition: reducedMotion ? 'none' : `opacity ${HINT_FADE_MS}ms ease`,
+              }}>
+              {hintRef.current.touch ? WALK_HINT_TOUCH : WALK_HINT}
             </div>
           )}
-          <div style={styles.hud} aria-live="polite">
+          {touchWalk && engine && <TouchControls engine={engine} />}
+          <div style={{ ...styles.hud, ...(touchWalk ? styles.hudTouch : null) }} aria-live="polite">
             <span data-hud="room"><strong>{hud.roomName}</strong></span>
             {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · {hud.floor.name ?? `Floor ${hud.floor.index}`}</span>}
             {/* while the one-time hint shows, the keys aren't said twice (a message still shows) */}
             {(hud.message ?? (hint ? null : hud.hint?.detail)) && <div data-hud="hint">{hud.message ?? hud.hint?.detail}</div>}
-            {engaged && hud.prompt && (
+            {touchWalk && hud.prompt ? (
+              <div data-hud="prompt">Tap it: {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</div>
+            ) : engaged && hud.prompt && (
               <div data-hud="prompt"><kbd style={styles.key}>E</kbd> {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</div>
             )}
           </div>
@@ -622,7 +685,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
           data-pinned={person.pinned ? '' : undefined}
           style={{
             ...styles.person,
-            ...(person.at ? personSpot(person.at, boxRef.current, offerChoice ? 80 : 56) : styles.personNear),
+            ...(person.at ? personSpot(person.at, boxRef.current, offerChoice ? 80 : 56)
+              : touchWalk ? { ...styles.personNear, ...styles.personNearTouch } : styles.personNear),
             ...(person.pinned ? { pointerEvents: 'auto' } : null),
           }}
         >
@@ -664,6 +728,8 @@ const styles: Record<string, CSSProperties> = {
     color: '#fff', font: '22px/1 system-ui, sans-serif', textShadow: '0 0 3px #000', pointerEvents: 'none',
   },
   hud: { ...panel, left: 12, bottom: 12, maxWidth: 'calc(100% - 24px)' },
+  // touch: above the joystick
+  hudTouch: { bottom: STICK_MARGIN + STICK_SIZE + 12 },
   // a column: the toolbar row, then the search panel (as wide as the box allows, so full width on a phone)
   topLeft: {
     position: 'absolute', left: 12, right: 12, top: 12, bottom: 12, display: 'flex', flexDirection: 'column',
@@ -705,12 +771,16 @@ const styles: Record<string, CSSProperties> = {
     ...panel, left: '50%', bottom: 64, transform: 'translateX(-50%)', textAlign: 'center', padding: '8px 14px',
     maxWidth: 'calc(100% - 24px)', boxSizing: 'border-box', width: 'max-content',
   },
+  // touch: clear of the joystick and the HUD above it
+  walkHintTouch: { bottom: 'auto', top: '40%' },
   quiet: { ...panel, right: 12, bottom: 12, padding: '4px 10px', fontSize: 12, opacity: 0.8 },
   key: { border: '1px solid #fff8', borderRadius: 4, padding: '0 5px', marginRight: 4 },
   person: { ...panel, maxWidth: 220, padding: '6px 10px', fontSize: 13, overflowWrap: 'anywhere' },
   link: { display: 'block', marginTop: 4, color: '#a7f3d0', textDecoration: 'underline', fontWeight: 600 },
   // walking up to a desk: above the HUD, in the middle
   personNear: { left: '50%', bottom: 96, transform: 'translateX(-50%)', textAlign: 'center' },
+  // touch: above the HUD, which sits above the joystick
+  personNearTouch: { bottom: STICK_MARGIN + STICK_SIZE + 96 },
 };
 
 export default LayoutViewer;

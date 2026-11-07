@@ -442,6 +442,24 @@ export class WalkthroughSystem {
     return this.controller.isLocked();
   }
 
+  /**
+   * The touch joystick (v0.14.1, the viewer's TouchControls): x = right, y = forward, each −1…1, the
+   * length how fast (1 = walking speed); 0, 0 = let go. Moves like the keys (a route pauses).
+   */
+  setStick(x: number, y: number): void {
+    this.controller.setStick(x, y);
+  }
+
+  /** Where the joystick is now ({ x, y }; tests). */
+  getStick(): { x: number; y: number } {
+    return this.controller.getStick();
+  }
+
+  /** The HUD's walking line in touch words (joystick, drag, tap), or in keys and mouse words. */
+  setTouch(on: boolean): void {
+    this.controller.setTouch(on);
+  }
+
   dispose(): void {
     this.stopListening();
     this.controller.dispose();
