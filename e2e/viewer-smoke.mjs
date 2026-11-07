@@ -278,7 +278,7 @@ const shownMeeting = await p.evaluate(() => ({
   focus: document.activeElement?.getAttribute('aria-label'),
 }));
 log('Enter shows it: its floor (Floor 1), outlined; the box closes, the focus back on the button',
-  shownMeeting.shown === 'Meeting room | Meeting room · Floor 1' && !shownMeeting.panel && shownMeeting.floor === 1 &&
+  shownMeeting.shown === 'Meeting room | Meeting room · Floor 1 | Show route | Take me there' && !shownMeeting.panel && shownMeeting.floor === 1 &&
   shownMeeting.lit.join() === 'room_meeting' && shownMeeting.focus === 'Find a person, room or place', JSON.stringify(shownMeeting));
 await p.click(`button${SEARCH}`);
 await p.fill('[data-place-search] input', 'Engineering');
@@ -323,7 +323,7 @@ await frames(3);
 const walkInfo = await p.evaluate(() => ({ text: document.querySelector('[data-place-shown]')?.innerText.replace(/\n/g, ' | '), lit: window.__ahdusViewer.highlights.ids(), mode: window.__ahdusViewer.mode }));
 log('walking: W / S typed in the box don\'t move you; picking Kavya outlines her desk and says how far it is to walk',
   Math.hypot(stillPos.x - startPos.x, stillPos.z - startPos.z) < 0.05 && walkInfo.mode === 'walkthrough' &&
-  /^Kavya Iyer \| HR · Ground Floor, Reception \| \d+ m walk, about \d+ (s|min)$/.test(walkInfo.text ?? '') && walkInfo.lit.join() === 'obj_reception_desk',
+  /^Kavya Iyer \| HR · Ground Floor, Reception \| \d+ m walk, about \d+ (s|min) \| Show route \| Take me there$/.test(walkInfo.text ?? '') && walkInfo.lit.join() === 'obj_reception_desk',
   JSON.stringify({ startPos, stillPos, ...walkInfo }));
 await p.click(`button${SEARCH}`);
 await p.fill('[data-place-search] input', 'meeting');
