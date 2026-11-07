@@ -85,6 +85,8 @@ export type QualityLevel = 'high' | 'low';
 
 export interface EngineOptions {
   mode?: EngineMode;
+  /** create(): aborted before the engine is ready = it is disposed at once and create() rejects (an AbortError). */
+  signal?: AbortSignal;
   /** 'high' (default): realistic look (real furniture models, photo textures, HDRI sky); 'low': simple models and materials. */
   quality?: QualityLevel;
   /** Where the real assets are (models/, textures/, env/). Default: the app's public/assets/. */
@@ -208,6 +210,13 @@ type EventHandler<K extends keyof EventMap> = (event: EventMap[K]) => void;
 /** An engine's own workspace store (the app's store shape, v1 field names). */
 export type WorkspaceStore = ReturnType<typeof createWorkspaceStore>;
 
+/** create() was aborted (options.signal). */
+function abortError(): Error {
+  const err = new Error('The engine was not needed any more (aborted)');
+  err.name = 'AbortError';
+  return err;
+}
+
 // ── LayoutEngine ─────────────────────────────────────────────────────────
 
 export class LayoutEngine {
@@ -278,10 +287,22 @@ export class LayoutEngine {
     canvas: HTMLCanvasElement,
     options: EngineOptions = {},
   ): Promise<LayoutEngine> {
+    const { signal } = options;
+    if (signal?.aborted) throw abortError();
     const engine = new LayoutEngine(createLayoutScene(canvas, { quality: options.quality, assetBaseUrl: options.assetBaseUrl }), options);
-    // Allow one frame for the scene to initialise
-    await new Promise<void>((resolve) => {
-      engine.scene.executeWhenReady(() => resolve());
+    // Allow one frame for the scene to initialise. Aborted meanwhile (React StrictMode unmounts at once): disposed
+    // NOW, not when ready. Two engines on one canvas share its WebGL context: one still drawing (or decoding the
+    // sky) while the next starts breaks the next one's first sky face (v0.14.0: a black part of the sky in dev).
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        engine.dispose();
+        reject(abortError());
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      engine.scene.executeWhenReady(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      });
     });
     return engine;
   }

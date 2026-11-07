@@ -98,6 +98,8 @@ const engine = await LayoutEngine.create(canvas, {
                        // element or focus is in it (default the canvas), never while a text field has the focus;
                        // Esc gives them back (v0.14.0; before: only after a click / with pointer lock)
   buildBudgetMs: 10,   // progressive loading: time per build piece (Infinity = everything at once)
+  signal,              // an AbortSignal: aborted before ready = disposed at once, create() rejects (AbortError);
+                       // React: abort it on unmount, so two engines never share the canvas (StrictMode)
 });
 
 // --- Loading & Reading Data ---

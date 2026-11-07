@@ -231,8 +231,11 @@ export function LayoutViewer(props: LayoutViewerProps) {
     let disconnect: (() => void) | null = null;
     let cardTimer: ReturnType<typeof setTimeout> | undefined;
     const offs: (() => void)[] = [];
+    // unmounted before the engine is ready (StrictMode): it is disposed at once, so it never shares the canvas's
+    // WebGL context with the next one (that broke the next one's sky: a black part in dev)
+    const abort = new AbortController();
 
-    LayoutEngine.create(canvas, { mode, quality, assetBaseUrl, focusTarget: boxRef.current }).then((e) => {
+    LayoutEngine.create(canvas, { mode, quality, assetBaseUrl, focusTarget: boxRef.current, signal: abort.signal }).then((e) => {
       if (disposed) {
         e.dispose();
         return;
@@ -287,6 +290,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
 
     return () => {
       disposed = true;
+      abort.abort();
       clearTimeout(cardTimer);
       offs.forEach((off) => off());
       disconnect?.();
