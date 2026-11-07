@@ -54,6 +54,8 @@ export const ITEM_MARGIN = 0.02;
 export const ITEM_CLEARANCE = BODY_RADIUS + ITEM_MARGIN;
 /** On the ground floor you can walk this far around the building (the street in front of the entrance). */
 export const STREET = 10;
+/** Keep this far (m) from the edge of a stair opening (v0.13.4: the body's centre over it falls). */
+export const HOLE_MARGIN = 0.15;
 /** Skirting sticks out of the wall this much on each side (roomBuilder: wall thickness + 0.03), and collides. */
 export const SKIRTING_OUT = 0.015;
 /** A bigger floor gets bigger cells, so a map stays ≤ ~2.5 MB. */
@@ -296,6 +298,10 @@ export function buildWalkMap(layout, floorId, options = {}) {
     for (const s of stairs.filter((o) => floorOf(o) === below.id)) {
       const hole = stairOpening(s, stairDimsFor(floors, s));
       forBox(hole, (k, x, z) => { if (rectContains(hole, x, z)) cells[k] = VOID; });
+      // …and its edge: a cell's centre just outside the hole can have the body's centre over it
+      // (the walker then falls down the stairs). HOLE_MARGIN of floor around it is not walked on.
+      const edge = { x0: hole.x0 - HOLE_MARGIN, x1: hole.x1 + HOLE_MARGIN, z0: hole.z0 - HOLE_MARGIN, z1: hole.z1 + HOLE_MARGIN };
+      forBox(edge, (k, x, z) => { if (cells[k] === FREE && rectContains(edge, x, z)) cells[k] = BLOCKED; });
     }
   }
   // 3. Staircases starting on this floor: walkable, not a place to start

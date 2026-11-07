@@ -417,7 +417,11 @@ export function stairNeedsRoomAbove(stair, floors, rooms) {
 export function supportHeight({ x, z, y, floors, rooms, stairs = [] }) {
   const surfaces = [0]; // the site ground
   for (const room of rooms) {
-    if (!rectContains(roomRect(room), x, z)) continue;
+    // a room's floor reaches under its walls (the slab does): no gap to fall into in the doorway between
+    // two rooms upstairs (back to back, the strip under their shared wall belongs to neither rectangle)
+    const r = roomRect(room);
+    const t = wallThicknessOf(room) / 2 + 0.02;
+    if (!rectContains({ x0: r.x0 - t, x1: r.x1 + t, z0: r.z0 - t, z1: r.z1 + t }, x, z)) continue;
     const elev = elevationOf(floors, room.floor);
     // An opening for stairs coming up from the floor below?
     const below = floorBelow(floors, room.floor);

@@ -229,6 +229,10 @@ describe('floors', () => {
     expect(up.at(-3, -2)).toBe(FREE);
     expect(up.at(0, -6)).toBe(VOID);  // outside the building, upstairs: nothing to stand on
     expect(up.at(2, 0)).toBe(VOID);   // the stair opening
+    // its edge (HOLE_MARGIN 0.15 m round the opening, x 1.35 to 2.65): not walked on, the body would fall
+    expect(up.at(2.72, 0)).toBe(BLOCKED);
+    expect(up.at(1.28, 0)).toBe(BLOCKED);
+    expect(up.at(2.95, 0)).toBe(FREE);
     const ground = map(rooms, [stairs], 0);
     expect(ground.ground).toBe(true);
     expect(ground.at(2, 0)).toBe(STAIRS); // the flight: walkable, not a place to start
