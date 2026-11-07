@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (943, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (967, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -56,7 +56,7 @@ npm run e2e:shared-walls  # 17     e2e/shared-walls-smoke.mjs (one wall + one do
 npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
                           #                                    rooms drawn inside sharing walls with each other and
                           #                                    the outer wall, doors, picks, upper floor, save + reopen)
-npm run e2e:viewer   # 33 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
+npm run e2e:viewer   # 34 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
                      #                                       the vite build), where walking starts (no room events) + Home, setPose
                      #                                       into a machine, walk in, E + a module's action, edits
                      #                                       refused, Page Up, view mode, a saved layout; search: the
@@ -64,7 +64,8 @@ npm run e2e:viewer   # 33 checks   e2e/viewer-smoke.mjs    (viewer.html: <Layout
                      #                                       the box does not walk, the walk measured, search=0;
                      #                                       v0.14.2: the browse menu (chips of the kinds there are,
                      #                                       departments, kinds, floors; ↓ Enter / Esc), recent
-                     #                                       searches, walking chips "Nearest stairs · 7 m")
+                     #                                       searches, walking chips "Nearest stairs · 7 m");
+                     #                                       v0.14.3: ?debug=tour (the plan, its panel, its route)
 npm run e2e:embed    # 35 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
                      #                                       in it (no Supabase), serves embed-test.html itself; keys at once, the page's own field / button, hover, Esc, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
@@ -245,8 +246,9 @@ src/play/navigation/               PURE (v0.13.0): walkMap.js (the walk map of a
                                    solid items, grown by the body; createWalkMapCache) + entrance.js (entranceSpawn: where
                                    walking starts; outsideDoors / mainEntrance; nearestFree) + route.js (v0.13.2: findRoute,
                                    findNearestRoute, floorLinks) + places.js (v0.13.3: buildPlaces, searchPlaces: what the
-                                   search finds) + browse.js (v0.14.2: browsePlaces, the Find box's menu; recent searches). Tests in navigation/__tests__/ (meridianLike.js, randomLayouts.js:
-                                   shared test layouts)
+                                   search finds) + browse.js (v0.14.2: browsePlaces, the Find box's menu; recent searches) + tour.js (v0.14.3: planTour, the
+                                   company tour's plan; its 0.3 m ordering grid). Tests in navigation/__tests__/ (meridianLike.js,
+                                   randomLayouts.js: shared test layouts)
 src/engine/systems/NavigationSystem.ts  engine.navigation: find / search / show / clear (v0.13.3), routeTo / stop / resume +
                                    the 'navigation' event (v0.13.4: the pilot that Show route / Take me there give the walker),
                                    the shared walk maps (walkMaps) and warm() (built in idle time after loadLayout)
@@ -295,7 +297,8 @@ src/engine/                        Embeddable engine (H2): LayoutEngine (own sto
                                    FloorSystem (Studio uses these four), CameraSystem, HighlightSystem, WalkthroughSystem
                                    (Placement/Selection still stubs); react/: <LayoutViewer />, <LayoutEditor />
 viewer.html + src/viewer/          Blank test page for <LayoutViewer /> (sample company, bridge event list);
-                                   walkMapDebug.js: ?mode=view&debug=walkmap (the walk map + a route, loaded only then)
+                                   walkMapDebug.js: ?mode=view&debug=walkmap (the walk map + a route, loaded only then);
+                                   tourDebug.js: ?mode=view&debug=tour (the tour's plan drawn, v0.14.3; loaded only then)
 src/embed/                         The one-file embed for plain HTML pages: index.jsx (AHDUSWorkplace.mount → <LayoutViewer />
                                    + layoutBridge), embedLayout.js (pure: layout / layoutUrl, action matching), embed.css;
                                    built by vite.embed.config.js. embed-test.html + embed-sample.ahdus.json: its test page
@@ -604,6 +607,42 @@ Preview has no search box).
 - **Embed:** `workplace.goTo(target, { walk })` (a name = the first search result), `stopRoute()`, the 'navigation'
   event; the handle's `mode` follows the engine's 'mode' event.
 
+## The tour's plan (v0.14.3, how it works)
+
+Section 3.5 of `private-docs/EXPERIENCE_PLAN.md` (decisions in its section 6). PURE planning, **no UI yet** (the tour
+itself, TourSystem + its panel, is the next step). `src/play/navigation/tour.js`, tests in `__tests__/tour.test.js`.
+- **`planTour(layout, people, departments, { catalog | maps, speed, pause, backToReception })`** (engine:
+  `engine.navigation.planTour(options)`, with its walk maps, people and departments) → `{ stops, floors, length,
+  seconds, walkSeconds, pauseSeconds, minutes, mentions, skipped, missed, ms }`. Nothing to author: made from the
+  layout and the seats.
+- **Stops, in order:** the main entrance (`entranceSpawn`), the reception (a RECEPTION_DESK's `visitorSpot`, facing
+  it, else just inside its door); each department once (`room.departmentRef` by `words`; its rooms on one floor
+  grouped, on several floors it stops where most of them are, the others in "Also on Floor 1: …"); ONE washroom and
+  ONE meeting room per floor (`TOUR_FACILITIES`: the one that adds the least walking, `insertBest`); floor by floor,
+  ground floor first, then up by the stairs (`floorLinks`); back to reception (`backToReception`, default true).
+- **Order within a floor:** walking distances from a Dijkstra field per stop on a COARSE copy of the walk map (0.3 m
+  cells, a cell free if any of its 9 is; `coarseField`, Float64: Float32 broke the heap), nearest neighbour, then 2-opt
+  (`twoOpt`: an open path, ending at the stairs up when a floor above is visited; the best stairs chosen). Each leg is
+  then a real `findRoute` between two stops' spots: never through a wall. Meridian: ~150 ms with warm walk maps.
+- **Each stop:** `{ id ('entrance' | 'reception' | 'department:<key>' | 'room:<id>' | 'return'), n, kind, facility,
+  name, floor, floorName, roomId, rooms, department, description (≤ 280), spot { x, z, floor }, yaw, people, names
+  ([{ name, department }], at most 3: NOTHING else from the seats), lines, text, leg }`. `lines`: "Engineering · 2
+  rooms: … · Floor 1", the description, "92 people work here", "Among them: …".
+- **The leg:** `{ legs (findRoute's), length, seconds, directions, steps, mentions }`. Directions from the rooms along
+  the route (samples every 0.25 m, runs under 1 m dropped): "Out of Reception, turn right along the corridor. Sales is
+  the second door on your right." (`doorOrdinal`), "the stairs on your left, up to Floor 1".
+- **Passing mentions:** a room whose door the route passes within `MENTION_DISTANCE` 4 m, in sight (`cellsClear` to
+  the spot in front of it), not a stop, not walked through, once per tour: "On your left: Restrooms" / "Ahead: …" at
+  that point (`at`, `door`, `side`: facing +Z, +X is on your right). `missed` = rooms neither stopped at nor mentioned.
+- **Skipped:** a room no walk reaches (another walkable area than the floor's arrival point, `areaOf`) is left out
+  with findRoute's reason (`NO_DOOR` "…: it has no door", `NO_STAIRS`, …).
+- **Time:** walking at `speed` (WALK_SPEED) + `pause` (`STOP_PAUSE` 20 s) at each stop; `minutes` rounded (at least 1).
+- **Debug view:** `viewer.html?mode=view&debug=tour` (`src/viewer/tourDebug.js`): the current floor's legs (orange,
+  drawn over the walls), numbered stop discs with a stick the way they face, mentions (yellow, a line to the door), and
+  a panel (`[data-tour-debug]`: `data-tour-stops`, `data-tour-length`, `data-tour-ms`, `data-tour-stop`,
+  `data-tour-skipped`) with every stop, its directions and mentions. Planned again when the layout, the people or the
+  departments change. Dev hook `window.__ahdusTourDebug` ({ plan, replan, dispose }).
+
 ## Easy controls (v0.14.0, how they work)
 
 Section 3.2 of `private-docs/EXPERIENCE_PLAN.md` (decisions in its section 6); touch: see "Touch controls". Viewer / embed
@@ -826,7 +865,7 @@ site on the server (local mode renames the layout), the leave check. Saving, und
   e2e scripts pick a tool with `pick(tile, option)`: it opens the tile's library unless it is open (a click on an open
   tile closes it), then clicks the option; Rooms = "Draw your own size". Furniture: drag the tile onto the floor.
 - viewer.html's dev hooks: `__ahdusViewer` (the LayoutEngine; `.walkthrough.setPose`), `__ahdusScene`, `ahdus`,
-  `__viewerEvents` (bridge events), `__ahdusCards`, `__ahdusWalkDebug` (only with `&debug=walkmap`), `__ahdusSetPeople`
+  `__viewerEvents` (bridge events), `__ahdusCards`, `__ahdusWalkDebug` (only with `&debug=walkmap`), `__ahdusTourDebug` (only with `&debug=tour`), `__ahdusSetPeople`
   (the people prop; `?people=1` = two sample people, `?search=0` = no search box), `__viewerNav` (every 'navigation'
   event). On a touch screen (v0.14.1, the last press a finger) the "?" button and its dialog are named `Touch controls`
   (`Keys and mouse` with a mouse); `walkthrough.getStick()` = the joystick now. viewer.html gives the view only 60 % of
@@ -1021,6 +1060,9 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Take me there: no lifts, no running; the line is drawn on the floor you are on only (the stairs marker shows where
   to go up); a route through a door narrower than ~0.9 m keeps the body on its centre line (slow there). Studio's
   Preview has no search box, so no Show route there.
+- Tour plan (v0.14.3): no tour UI yet (the plan only). Mentions are made at doors only (within 4 m, in sight); a
+  room with a door the route never comes near is `missed`. A department on several floors has one stop. The order is
+  planned on a 0.3 m grid, so it can differ a little from the shortest by real routes. No lifts.
 - Touch (v0.14.1): no pinch to zoom, no flying or floor buttons by touch (Find + Take me there, or the stairs); the
   joystick has no run speed. The joystick is hidden from screen readers (Find + Take me there cover them).
 - A click on a wall walks to the spot in front of it; there is no "walk to the room behind this wall".
@@ -1095,6 +1137,13 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: tour planning (v0.14.3, 8 Nov 2026, branch `feature/tour-plan`)
+
+private-docs/EXPERIENCE_PLAN.md 3.5, pure code, no UI: `navigation/tour.js` `planTour` (stops, order, texts, directions,
+passing mentions, skipped rooms, time), `engine.navigation.planTour()`, `?debug=tour` (see "The tour's plan"). Meridian:
+20 stops on both floors, every department once, 0 skipped, ~322 m, about 8 min. Screenshots (the sample; Meridian's
+ground floor and Floor 1): private-docs/screenshots/v0.14.3/ (not in git).
 
 ## DONE: Find browse menu (v0.14.2, 7 Nov 2026, branch `feature/find-browse`)
 

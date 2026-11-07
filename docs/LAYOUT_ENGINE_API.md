@@ -139,6 +139,20 @@ engine.navigation.browse({ recent }); // the Find box's menu while it is empty (
                                      //   walking, each chip's nearest: { place, length, seconds }
 engine.setDepartments([{ name, description }]); // descriptions of departments, shown in that menu
 
+// --- The company tour's plan (v0.14.3): pure planning, no UI yet ---
+engine.navigation.planTour({ speed, pause, backToReception }); // → { stops, floors, length, seconds, walkSeconds,
+                                     //   pauseSeconds, minutes, mentions, skipped, missed, ms }
+                                     // stops: the main entrance, reception, each department once (its rooms grouped),
+                                     //   one washroom + one meeting room per floor, ground floor first, then up the
+                                     //   stairs; the shortest walking order on each floor; back to reception (default).
+                                     // Each stop: { id, n, kind, name, floor, floorName, roomId, rooms, department,
+                                     //   description, spot: { x, z, floor }, yaw, people, names: [{ name, department }],
+                                     //   lines, text, leg }; leg: { legs, length, seconds, directions ("Out of
+                                     //   Reception, along the corridor. Sales is the second door on your right."),
+                                     //   steps, mentions: [{ name, side, text: "On your left: Restrooms", at, door }] }
+                                     // skipped: rooms no walk reaches, with the reason ({ problem, message }); missed:
+                                     //   rooms neither stopped at nor passed within 4 m of their door
+
 // --- Going there (v0.13.4): Show route / Take me there ---
 engine.navigation.routeTo('person:42', { walk: 'guide' }); // Show route: the line on the floor, you walk
 engine.navigation.routeTo({ type: 'RESTROOM' }, { walk: 'auto' }); // Take me there: walked there (keys pause, G, Esc)

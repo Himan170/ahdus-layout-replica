@@ -9,6 +9,7 @@
  *   …/viewer.html?search=0                                 no search box
  *   …/viewer.html?mode=view&debug=walkmap                  the walk map + a route (viewer/walkMapDebug.js;
  *                                                          &to=x,z,floor, &from=x,z,floor)
+ *   …/viewer.html?mode=view&debug=tour                     the company tour's plan (viewer/tourDebug.js)
  *
  * Only the viewer, a mode switch and a live list of the bridge's events and
  * anchors: no Workplace Studio code is loaded (e2e/viewer-smoke.mjs checks).
@@ -27,6 +28,7 @@ const layoutId = params.get('layoutId') ?? undefined;
 const layout = companyId && layoutId ? undefined : SAMPLE_LAYOUT;
 const EVENTS = ['enterRoom', 'exitRoom', 'interact'];
 const WALK_MAP_DEBUG = params.get('debug') === 'walkmap';
+const TOUR_DEBUG = params.get('debug') === 'tour';
 
 if (params.has('demoModules')) {
   import('../integration/demoModules').then((m) => m.installDemoModules(layoutBridge));
@@ -74,6 +76,14 @@ function ViewerPage() {
         return m.installWalkMapDebug(engine, mainRef.current, {
           from: m.parseSpot(params.get('from')), to: m.parseSpot(params.get('to')),
         });
+      });
+    }
+    if (TOUR_DEBUG) {
+      const previous = debugRef.current;
+      debugRef.current = import('./tourDebug').then(async (m) => {
+        (await previous)?.dispose(); // StrictMode: the first viewer's engine is gone
+        await engine.whenBuilt();
+        return m.installTourDebug(engine, mainRef.current);
       });
     }
   }, []);
