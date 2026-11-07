@@ -28,7 +28,7 @@ import { createRoot } from 'react-dom/client';
 import { LayoutViewer } from '../engine/react/LayoutViewer';
 import { layoutBridge } from '../integration/layoutBridge';
 import { anchorsFromStore } from '../integration/anchorsFromStore';
-import { readLayout, modeProblem, actionMatcher, filterAnchors } from './embedLayout';
+import { readLayout, modeProblem, actionMatcher, filterAnchors, cleanDepartments } from './embedLayout';
 import { readManifest, resolvePeople, resolvePlayer, walkClipUrlOf } from './characterManifest';
 import css from './embed.css?inline';
 
@@ -98,6 +98,7 @@ function call(fn, ...args) {
  *   player?: { personId?: string, assetReference?: string | null }, // the signed-in person (setPlayer): walking
  *                                     // through they are their own character; "Choose your character" on their card
  *   navigation?: { search?: boolean }, // search: the "Find a person, room or place" box (default true; false hides it)
+ *   departments?: { name: string, description?: string }[], // descriptions in the Find box's menu (setDepartments)
  *   onEvent?: (name: string, data: object) => void,
  *   onError?: (error: Error) => void,
  * }} [options]
@@ -126,6 +127,7 @@ export function mount(element, options = {}) {
   let player = resolvePlayer(playerGiven, new Map()); // …as the viewer takes it ({ personId, character, walk })
   const walkClipUrl = walkClipUrlOf(options.characters, document.baseURI);
   const search = options.navigation?.search !== false;
+  let departments = cleanDepartments(options.departments); // descriptions in the Find box's menu (setDepartments)
 
   let resolveReady;
   let rejectReady;
@@ -208,7 +210,7 @@ export function mount(element, options = {}) {
       <LayoutViewer
         layout={layout} mode={mode} quality={quality} assetBaseUrl={assetBaseUrl} people={people}
         player={player} chooseCharacterUrl={options.characters?.chooseUrl} walkClipUrl={walkClipUrl ?? undefined}
-        search={search} onReady={onReady} onError={fail} onProgress={onProgress}
+        search={search} departments={departments} onReady={onReady} onError={fail} onProgress={onProgress}
         onCard={(card) => emit('card', { title: card.title, body: card.body ?? card.text ?? '' })}
         style={{ width: '100%', height: '100%' }}
       />,
@@ -387,6 +389,19 @@ export function mount(element, options = {}) {
      */
     setPlayer(next) {
       return updatePlayer(next ?? null);
+    },
+
+    /**
+     * Descriptions of the departments for the Find box's menu: [{ name, description }] (replaces the
+     * list before; AHDUS: GET /api/teams/departments). Shown under each department of that name that
+     * exists in the layout (rooms' departmentRef) or among the people (setPeople). Text only.
+     * @returns {number} how many were taken
+     */
+    setDepartments(list) {
+      if (closed) return 0;
+      departments = cleanDepartments(list);
+      render();
+      return departments.length;
     },
 
     /**

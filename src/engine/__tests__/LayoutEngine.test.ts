@@ -524,6 +524,53 @@ describe('navigation: search and show places (v0.13.3)', () => {
   });
 });
 
+describe('navigation: the Find box browse menu (v0.14.2)', () => {
+  const people = [{ personId: 'p1', deskId: 'obj_desk', name: 'Asha Patel', department: 'Engineering', email: 'asha@example.com' }];
+
+  it('from above: chips, departments (+ the page description), kinds, floors, My desk, recent searches', () => {
+    const engine = makeEngine({ mode: 'view', quality: 'low' });
+    engine.loadLayout(save());
+    engine.setPeople(people as any);
+    engine.setDepartments([{ name: 'Engineering', description: 'Builds the product' }]);
+    let menu = engine.navigation.browse();
+    expect(menu.chips.map((c) => [c.label, c.count, c.place?.id ?? null, c.nearest])).toEqual([
+      ['Meeting room', 1, 'room:room_b', null], ['Stairs', 1, 'item:obj_stairs', null],
+    ]);
+    expect(menu.departments).toEqual([expect.objectContaining({
+      name: 'Engineering', description: 'Builds the product', detail: 'Ground Floor · 1 person', place: null,
+    })]);
+    expect(menu.kinds.map((k) => `${k.name} ${k.count}`)).toEqual(['Offices 1', 'Meeting rooms 1', 'Stairs 1']);
+    expect(menu.floors.map((f) => `${f.name} · ${f.detail}`)).toEqual(['Ground Floor · 1 room', 'Floor 1 · 1 room']);
+    expect(menu.myDesk).toBeNull();
+    expect(JSON.stringify(menu)).not.toMatch(/@example/);
+
+    engine.setPlayer({ personId: 'p1' });
+    menu = engine.navigation.browse({ recent: ['room:room_b', 'room:gone'] });
+    expect(menu.myDesk).toMatchObject({ id: 'person:p1', deskId: 'obj_desk' });
+    expect(menu.recent.map((p) => p.id)).toEqual(['room:room_b']);
+    engine.setDepartments(null);
+    expect(engine.navigation.browse().departments[0].description).toBeNull();
+  });
+
+  it('walking: each chip has the nearest one and the walk to it', () => {
+    controllers.length = 0;
+    const was = { ...walkerStart };
+    Object.assign(walkerStart, { x: -1.5, y: 0, z: -5, floor: 0 }); // in front of Office 1's door
+    try {
+      const engine = makeEngine({ mode: 'walkthrough', quality: 'low' });
+      engine.loadLayout(save());
+      const [meeting, stairs] = engine.navigation.browse().chips;
+      expect(stairs.nearest?.place).toMatchObject({ id: 'nearest:STAIRS', name: 'Nearest stairs' });
+      expect(stairs.nearest?.length).toBeGreaterThan(1);
+      expect(stairs.nearest?.seconds).toBeGreaterThan(0);
+      // no route (these stairs arrive outside Meeting 1): no nearest, the chip is just the kind
+      expect(meeting).toMatchObject({ label: 'Meeting room', nearest: null });
+    } finally {
+      Object.assign(walkerStart, was);
+    }
+  });
+});
+
 describe('navigation: going there (v0.13.4)', () => {
   const people = [{ personId: 'p1', deskId: 'obj_desk', name: 'Asha Patel', department: 'Engineering' }];
   const outside = { x: -1.5, y: 0, z: -5, floor: 0 }; // in front of Office 1's door (south wall)

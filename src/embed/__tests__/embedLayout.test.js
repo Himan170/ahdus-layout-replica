@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { readLayout, toLayout, modeProblem, actionMatcher, filterAnchors, EDIT_REFUSED, NOT_A_LAYOUT } from '../embedLayout';
+import { readLayout, toLayout, modeProblem, actionMatcher, filterAnchors, cleanDepartments, MAX_DEPARTMENTS, EDIT_REFUSED, NOT_A_LAYOUT } from '../embedLayout';
 import { migrateV1toV2 } from '../../engine/model/migrate';
 import { toV1 } from '../../engine/model/toV1';
 import { createWorkspaceStore } from '../../store/workspaceStore';
@@ -158,5 +158,17 @@ describe('filterAnchors', () => {
     expect(filterAnchors(all, { floorId: 1 })).toEqual(filterAnchors(all, { floorId: '1' }));
     expect(filterAnchors(all, { floorId: 1 }).every((a) => a.objectId === 'obj_desk')).toBe(true);
     expect(filterAnchors(all, { objectId: 'obj_cnc', kind: 'workstation' })).toEqual([]);
+  });
+});
+
+describe('cleanDepartments (v0.14.2)', () => {
+  it('names and descriptions only, strings only; not a list = none', () => {
+    expect(cleanDepartments([
+      { name: ' Engineering ', description: 'Builds the product', head: 'Someone', email: 'x@example.com' },
+      { name: 'Sales' }, { name: '' }, { name: 3 }, null, { description: 'no name' }, { name: 'HR', description: 7 },
+    ])).toEqual([{ name: 'Engineering', description: 'Builds the product' }, { name: 'Sales' }, { name: 'HR' }]);
+    expect(cleanDepartments('Engineering')).toEqual([]);
+    expect(cleanDepartments(undefined)).toEqual([]);
+    expect(cleanDepartments(Array.from({ length: 900 }, (_, i) => ({ name: `D${i}` })))).toHaveLength(MAX_DEPARTMENTS);
   });
 });

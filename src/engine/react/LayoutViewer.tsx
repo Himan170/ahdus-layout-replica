@@ -37,7 +37,8 @@
  *
  * Touch (v0.14.1): a joystick at the bottom left walks (push further = faster, let go =
  * stop), a finger dragging anywhere else looks around, a tap on the floor walks there, on a
- * person opens their card. The hint, the HUD line and the "?" help then use touch words. Touch
+ * person opens their card. The hint and the "?" help then use touch words, and the HUD is one short
+ * line beside the joystick ("Outside · Ground Floor", v0.14.2). Touch
  * words show while the last press was a finger (or, before any press, on a device whose main
  * pointer is coarse); a mouse brings back the keys and mouse words at once.
  */
@@ -86,6 +87,11 @@ export interface LayoutViewerProps {
   chooseCharacterUrl?: string;
   /** The search box ("Find a person, room or place", a toolbar button); false hides it. Default true. */
   search?: boolean;
+  /**
+   * Descriptions of departments for the search box's menu (v0.14.2): [{ name, description }] (AHDUS:
+   * GET /api/teams/departments). Shown under each department of that name that exists here.
+   */
+  departments?: { name: string; description?: string }[];
   /** The engine is ready and the layout is fully built (focusOn, highlight, getAnchors, …). */
   onReady?: (engine: LayoutEngine) => void;
   /** Building the layout: { done, total, floor, currentFloorReady, allBuilt } (the last one has allBuilt). */
@@ -232,6 +238,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
   // walking: the "?" help, and the one-time hint ('shown' → 'fading' → gone)
   const [helpOpen, setHelpOpen] = useState(false);
   const [hint, setHint] = useState<'shown' | 'fading' | null>(null);
+  // the Find box is open: the one-time hint waits under it (v0.14.2)
+  const [findOpen, setFindOpen] = useState(false);
   const helpButtonRef = useRef<HTMLButtonElement>(null);
   // touch words and the joystick (v0.14.1): the last press was a finger (before any: a coarse main pointer)
   const [touchUI, setTouchUI] = useState(coarsePointer);
@@ -379,10 +387,13 @@ export function LayoutViewer(props: LayoutViewerProps) {
     if (engine) setShownMode(engine.mode);
   }, [engine, mode]);
 
-  const { people } = props;
+  const { people, departments } = props;
   useEffect(() => {
     engine?.setPeople(people ?? []);
   }, [engine, people]);
+  useEffect(() => {
+    engine?.setDepartments(departments ?? []);
+  }, [engine, departments]);
 
   // You, walking through: your own character (the engine makes it when walking starts)
   const playerKey = JSON.stringify([
@@ -530,6 +541,10 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const me = props.player?.personId;
   const chooseUrl = safeLink(props.chooseCharacterUrl);
   const touchWalk = walking && touchUI;
+  // walking, the search panel stops above the joystick (touch) or the HUD (mouse): it never covers them
+  const toolbarStyle: CSSProperties = walking && !error
+    ? { ...styles.topLeft, bottom: touchWalk ? STICK_MARGIN + STICK_SIZE + 12 : TOOLBAR_BOTTOM_WALKING }
+    : styles.topLeft;
   const helpTitle = touchUI ? HELP_TITLE_TOUCH : HELP_TITLE;
   const offerChoice = !!(person && chooseUrl && me != null && String(me) === person.who.personId
     && !(person.who.characterChosen ?? !!person.who.character));
@@ -636,8 +651,9 @@ export function LayoutViewer(props: LayoutViewerProps) {
         ) : null;
         if (search && engine && !error) {
           return (
-            <div style={styles.topLeft} data-viewer-toolbar>
+            <div style={toolbarStyle} data-viewer-toolbar>
               <PlaceSearch engine={engine} walking={walking} people={people} touch={touchUI}
+                departments={departments} me={me == null ? null : String(me)} onOpenChange={setFindOpen}
                 focusView={() => {
                   // from above the box is no Tab stop yet (walking starts this moment): make it one, then focus it
                   const box = boxRef.current;
@@ -648,13 +664,13 @@ export function LayoutViewer(props: LayoutViewerProps) {
             </div>
           );
         }
-        return walkBar ? <div style={styles.topLeft} data-viewer-toolbar><div style={styles.row}>{walkBar}</div>{help}</div> : null;
+        return walkBar ? <div style={toolbarStyle} data-viewer-toolbar><div style={styles.row}>{walkBar}</div>{help}</div> : null;
       })()}
       {walking && !error && hud && (
         <>
           {/* mouse-look mode: what a click or E is on (dragging to look needs none: the cursor is there) */}
           {hud.locked && <div aria-hidden data-crosshair style={styles.crosshair}>+</div>}
-          {hint && (
+          {hint && !findOpen && (
             <div role="status" data-walk-hint={hint} data-walk-hint-words={hintRef.current.touch ? 'touch' : 'mouse'}
               style={{
                 ...styles.walkHint, ...(hintRef.current.touch ? styles.walkHintTouch : null),
@@ -664,17 +680,31 @@ export function LayoutViewer(props: LayoutViewerProps) {
             </div>
           )}
           {touchWalk && engine && <TouchControls engine={engine} />}
-          <div style={{ ...styles.hud, ...(touchWalk ? styles.hudTouch : null) }} aria-live="polite">
-            <span data-hud="room"><strong>{hud.roomName}</strong></span>
-            {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · {hud.floor.name ?? `Floor ${hud.floor.index}`}</span>}
-            {/* while the one-time hint shows, the keys aren't said twice (a message still shows) */}
-            {(hud.message ?? (hint ? null : hud.hint?.detail)) && <div data-hud="hint">{hud.message ?? hud.hint?.detail}</div>}
-            {touchWalk && hud.prompt ? (
-              <div data-hud="prompt">Tap it: {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</div>
-            ) : engaged && hud.prompt && (
-              <div data-hud="prompt"><kbd style={styles.key}>E</kbd> {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</div>
-            )}
-          </div>
+          {touchWalk ? (
+            // a touch screen (v0.14.2): ONE short line beside the joystick, never over it (a knob pushed
+            // forward rises above the ring): a message or what a tap does, else "Outside · Ground Floor".
+            // How to walk is in the hint, the "?" help and the screen readers' line.
+            <div data-hud-line="touch" style={styles.hudTouch} aria-live="polite">
+              {hud.message ? <span data-hud="hint">{hud.message}</span>
+                : hud.prompt ? <span data-hud="prompt">Tap it: {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</span>
+                  : (
+                    <>
+                      <span data-hud="room"><strong>{hud.roomName}</strong></span>
+                      {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · {hud.floor.name ?? `Floor ${hud.floor.index}`}</span>}
+                    </>
+                  )}
+            </div>
+          ) : (
+            <div style={styles.hud} aria-live="polite">
+              <span data-hud="room"><strong>{hud.roomName}</strong></span>
+              {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · {hud.floor.name ?? `Floor ${hud.floor.index}`}</span>}
+              {/* while the one-time hint shows, the keys aren't said twice (a message still shows) */}
+              {(hud.message ?? (hint ? null : hud.hint?.detail)) && <div data-hud="hint">{hud.message ?? hud.hint?.detail}</div>}
+              {engaged && hud.prompt && (
+                <div data-hud="prompt"><kbd style={styles.key}>E</kbd> {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</div>
+              )}
+            </div>
+          )}
         </>
       )}
       {walking && focused && <div aria-hidden data-focus-ring style={styles.focusRing} />}
@@ -716,6 +746,9 @@ function personSpot(at: { x: number; y: number }, box: HTMLElement | null, heigh
   return { left, top };
 }
 
+/** Walking with a mouse: the toolbar column (the search panel) ends this far from the bottom, above the HUD. */
+const TOOLBAR_BOTTOM_WALKING = 100;
+
 // Inline styles: the viewer brings no stylesheet of its own (the app shell has its own look)
 const panel: CSSProperties = {
   position: 'absolute', background: 'rgba(15, 23, 42, 0.78)', color: '#fff',
@@ -728,8 +761,13 @@ const styles: Record<string, CSSProperties> = {
     color: '#fff', font: '22px/1 system-ui, sans-serif', textShadow: '0 0 3px #000', pointerEvents: 'none',
   },
   hud: { ...panel, left: 12, bottom: 12, maxWidth: 'calc(100% - 24px)' },
-  // touch: above the joystick
-  hudTouch: { bottom: STICK_MARGIN + STICK_SIZE + 12 },
+  // touch (v0.14.2): one line to the right of the joystick, level with its bottom: the knob, pushed
+  // forward, rises half a knob above the ring, and a HUD above the ring hid it
+  hudTouch: {
+    ...panel, left: STICK_MARGIN + STICK_SIZE + 12, bottom: STICK_MARGIN, maxWidth: `calc(100% - ${STICK_MARGIN + STICK_SIZE + 24}px)`,
+    boxSizing: 'border-box', padding: '6px 10px', font: '13px/18px Inter, system-ui, sans-serif',
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  },
   // a column: the toolbar row, then the search panel (as wide as the box allows, so full width on a phone)
   topLeft: {
     position: 'absolute', left: 12, right: 12, top: 12, bottom: 12, display: 'flex', flexDirection: 'column',
@@ -771,7 +809,7 @@ const styles: Record<string, CSSProperties> = {
     ...panel, left: '50%', bottom: 64, transform: 'translateX(-50%)', textAlign: 'center', padding: '8px 14px',
     maxWidth: 'calc(100% - 24px)', boxSizing: 'border-box', width: 'max-content',
   },
-  // touch: clear of the joystick and the HUD above it
+  // touch: clear of the joystick and the HUD beside it
   walkHintTouch: { bottom: 'auto', top: '40%' },
   quiet: { ...panel, right: 12, bottom: 12, padding: '4px 10px', fontSize: 12, opacity: 0.8 },
   key: { border: '1px solid #fff8', borderRadius: 4, padding: '0 5px', marginRight: 4 },
@@ -779,8 +817,8 @@ const styles: Record<string, CSSProperties> = {
   link: { display: 'block', marginTop: 4, color: '#a7f3d0', textDecoration: 'underline', fontWeight: 600 },
   // walking up to a desk: above the HUD, in the middle
   personNear: { left: '50%', bottom: 96, transform: 'translateX(-50%)', textAlign: 'center' },
-  // touch: above the HUD, which sits above the joystick
-  personNearTouch: { bottom: STICK_MARGIN + STICK_SIZE + 96 },
+  // touch: above the joystick and its knob pushed forward (the HUD is beside it)
+  personNearTouch: { bottom: STICK_MARGIN + STICK_SIZE + 44 },
 };
 
 export default LayoutViewer;

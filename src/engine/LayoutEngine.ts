@@ -49,7 +49,7 @@ import type { Layout, Anchor, LayoutObject, AnchorKind } from './model/schema';
 import { loadLayout as parseLayout } from './model/migrate';
 import { toV1, storeFloorIds, mergeV2Extras } from './model/toV1';
 import { NavigationSystem } from './systems/NavigationSystem';
-import type { NavigationEvent } from './systems/NavigationSystem';
+import type { NavigationEvent, DepartmentInfo } from './systems/NavigationSystem';
 import { RouteLineSystem } from './systems/RouteLineSystem';
 import { CommandHistory } from './commands/CommandHistory';
 import type { Command } from './commands/CommandHistory';
@@ -354,6 +354,7 @@ export class LayoutEngine {
         return this._walkthrough?.isActive() ? this._walkthrough : null;
       },
       routeLine: () => (this._routeLine ??= new RouteLineSystem(this.scene)),
+      getMe: () => (this._player?.personId != null ? String(this._player.personId) : null),
       emit: (event) => this.emit('navigation', event),
     });
     this._builder = new SceneBuilder({
@@ -560,6 +561,15 @@ export class LayoutEngine {
   setPeople(people: Person[]): void {
     this.characters?.setPeople(people);
     this.navigation.setPeople(people); // searched by name and department (also with quality 'low')
+  }
+
+  /**
+   * Descriptions of the departments (replaces the list before): [{ name, description }] (AHDUS:
+   * GET /api/teams/departments). The Find box's menu shows one under each department of that name
+   * that exists in the layout or among the people. Not part of the layout (never saved).
+   */
+  setDepartments(departments: DepartmentInfo[] | null): void {
+    this.navigation.setDepartments(departments ?? []);
   }
 
   /**

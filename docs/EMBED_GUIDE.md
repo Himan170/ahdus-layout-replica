@@ -74,6 +74,7 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `characters` | object | `{ manifestUrl }`: where the **character manifest** is (section 4b), fetched with `credentials: 'include'` and `headers` on the first `setPeople`. Or `{ manifest }`: the manifest itself. Without it everyone is the neutral simple figure. Also `chooseUrl`: where people choose their character (http / https, or relative to the page), for the "Choose your character" link (section 4b), and `walkClipUrl`: the walk clip your own character walks with in `walkthrough` (section 4c). |
 | `player` | object | `{ personId, assetReference }`: the person looking, i.e. the signed-in user (the same `personId` and `assetReference` as in `setPeople`). In `walkthrough` they walk as their own character (section 4c); their own card offers "Choose your character" if they never chose one. Change it later with `setPlayer`. |
 | `navigation` | object | `{ search: true }` (default): a **Find** button in the view's toolbar opens the search box "Find a person, room or place" (section 4d). `{ search: false }` hides it (`find()` still works). |
+| `departments` | array | `[{ name, description }]`: a short description for each department (AHDUS: `GET /api/teams/departments`), shown in the Find box's menu under the department of that name (section 4d). Departments that aren't in the layout or among the people are left out; only `name` and `description` are kept (text, at most 280 characters shown). Change it later with `setDepartments`. |
 | `onEvent(name, data)` | function | Everything that happens (section 5). |
 | `onError(error)` | function | The layout could not be shown (section 7). Without it, the message goes to the console. |
 
@@ -95,6 +96,7 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `registerAction(match, { label, run, when? })` | A "Press E" action (below). Returns a function that removes it. |
 | `setPeople(list)` | Who sits at which desk (section 4b). Replaces the list before; `setPeople([])` = nobody. Returns a promise of how many people were given (after the manifest is read). Can be called before `ready`. |
 | `setPlayer({ personId, assetReference } \| null)` | The person looking (the signed-in user), as the `player` option. Returns a promise, done when their character is known (after the manifest is read). |
+| `setDepartments([{ name, description }])` | The departments' descriptions, as the `departments` option (replaces the list before). Returns how many were taken. |
 | `find(query, { limit? })` | Search people (name and department), rooms, departments and facilities (section 4d). `[]` until `ready`. |
 | `goTo(target, { walk? })` | Go to a person, room or place (section 4e): `walk: 'guide'` (default) = **Show route**, `'auto'` = **Take me there**. From `view` it starts walking at the entrance. Returns `{ place, walk, length, seconds, floors }` or `{ problem, message }`. |
 | `stopRoute()` | Ends Show route / Take me there (`false`: there was none). |
@@ -238,6 +240,20 @@ as wide as the view.
   10 s · by the stairs") or why you can't ("No walking route to Server Room: it has no door"). There, "washroom"
   offers **Nearest washroom** first: the nearest by walking from where you stand.
 - **The card's buttons:** **Show route** and **Take me there** (section 4e).
+- **Before typing** (v0.14.2) the box is a menu of this workplace, made from the layout and `setPeople` (never a fixed
+  list, so it offers only what is there):
+  - **chips** for the kinds of facility it has (Washroom, Meeting room, Reception, Stairs). In `walkthrough` each
+    is the nearest one and the walk there, "Nearest washroom · 8 m", and a tap shows it;
+  - **My desk** (the `player`'s seat, if they have one) and **Recent** searches (the last 5 places picked, kept in
+    this browser);
+  - **Departments**: rooms' `departmentRef` plus the people's departments, "Engineering · 2 rooms · Floor 1 · 92
+    people", with the description from the `departments` option. Opening one lists all of it, its rooms and its
+    people;
+  - **Places** by kind (Offices, Meeting rooms, Washrooms, Reception, Stairs, then other room types), each with a
+    count; opening one lists them by floor;
+  - **By floor**: "Ground Floor · 13 rooms" → its rooms.
+  Every place in it has the same card (Show route / Take me there). Keyboard: ↑ ↓, Enter opens or picks, ← or Esc
+  goes back.
 
 ```js
 workplace.find('Kavya');

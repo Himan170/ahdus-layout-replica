@@ -2,8 +2,9 @@
 // walkthrough on a phone (390 × 844, hasTouch + isMobile). A joystick at the bottom left walks (push further =
 // faster, let go = stop); a finger dragging anywhere else looks around (a second finger while the joystick is
 // held too); a tap on the floor walks there (the route line); a tap on a person's desk keeps their card; the
-// toolbar's buttons, Find and its card work by tap. The one-time hint, the HUD line, the screen readers' line
-// and the "?" help use touch words (joystick, drag, tap); a mouse brings back the keys and mouse words.
+// toolbar's buttons, Find and its card work by tap. The one-time hint, the screen readers' line and the "?"
+// help use touch words (joystick, drag, tap); the HUD is one short line beside the joystick, never under its
+// knob (v0.14.2); a mouse brings back the keys and mouse words.
 // The mouse and keys on a computer: e2e:controls (unchanged). Studio's Preview: e2e:play (unchanged).
 //
 // One-time setup:   npx playwright install chromium
@@ -75,7 +76,7 @@ const nav = () => p.evaluate(() => (window.__viewerNav ?? []).map((e) => ({ stat
 const walkingNow = () => p.evaluate(() => window.__ahdusViewer.navigation.walking);
 const hudLine = () => p.locator('[data-hud="hint"]').textContent({ timeout: 5000 }).catch(() => '');
 const keysState = () => p.locator('[data-hud="keys-state"]').textContent({ timeout: 5000 }).catch(() => '');
-const rect = (sel) => p.evaluate((s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom, cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width } : null; }, sel);
+const rect = (sel) => p.evaluate((s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom, cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width, h: r.height } : null; }, sel);
 /** Where a world point is on the page (px). */
 const onScreen = (x, y, z) => p.evaluate(({ x, y, z }) => {
   const sc = window.__ahdusScene;
@@ -129,19 +130,19 @@ log('walking starts on a phone with the joystick; the one-time hint says "Joysti
   start.words === 'touch' && start.seen === '1' && start.mouseSeen === null && start.help === 'Touch controls',
   JSON.stringify(start));
 await p.waitForSelector('[data-walk-hint]', { state: 'detached', timeout: 30000 }).catch(() => {});
-const line = await hudLine();
+await p.waitForFunction(() => !document.querySelector('[data-hud-line] [data-hud="hint"]'), null, { timeout: 15000 }).catch(() => {});
+const line = await p.locator('[data-hud-line]').innerText({ timeout: 5000 }).catch(() => '');
 const sr = await keysState();
-log('the HUD line and the screen readers\' line use touch words (no W A S D, no click, no E)',
-  /^Joystick to walk, drag to look, tap the floor to go there/.test(line) && !/W A S D|click|E uses/.test(line) &&
-  /joystick/.test(sr) && !/Click|Esc/.test(sr), `${line} | ${sr}`);
+log('the HUD is one short line ("Outside · Ground Floor"); the screen readers\' line uses touch words (no W A S D, no click, no E)',
+  line === 'Outside · Ground Floor' && /joystick/.test(sr) && !/Click|Esc/.test(sr), `${line} | ${sr}`);
 
-// The layout: the joystick at the bottom left, the HUD above it, nothing off-screen
-const layout = { stick: await rect('[data-touch-joystick]'), hud: await rect('[data-hud="room"]') };
-const fits = await p.evaluate(() => [...document.querySelectorAll('[data-viewer-toolbar] button, [data-touch-joystick], [data-hud="room"]')]
+// The layout: the joystick at the bottom left, the HUD one line to its right, nothing off-screen
+const layout = { stick: await rect('[data-touch-joystick]'), hud: await rect('[data-hud-line]') };
+const fits = await p.evaluate(() => [...document.querySelectorAll('[data-viewer-toolbar] button, [data-touch-joystick], [data-hud-line]')]
   .every((el) => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth + 0.5 && r.bottom <= innerHeight + 0.5; }));
-log('the joystick sits at the bottom left, the HUD above it (no overlap), nothing goes off-screen at 390 px',
+log('the joystick sits at the bottom left, the HUD one line to its right (no overlap), nothing goes off-screen at 390 px',
   !!layout.stick && layout.stick.left < 40 && layout.stick.bottom > 844 - 40 && layout.stick.w >= 100 &&
-  !!layout.hud && layout.hud.bottom <= layout.stick.top && fits, JSON.stringify(layout));
+  !!layout.hud && layout.hud.left >= layout.stick.right && layout.hud.h <= 34 && fits, JSON.stringify(layout));
 
 // ── 2. The joystick: push = walk that way, further = faster, let go = stop ──
 await pose(0, -14, 0, -0.2); // in the open, facing +Z (the building)
@@ -154,6 +155,10 @@ const full = await stick();
 const held = await p.locator('[data-touch-joystick="held"]').count();
 await frames(4);
 const walkedUp = await pos();
+// the knob pushed all the way forward rises above the ring: never under the HUD (v0.14.2)
+const knob = await rect('[data-touch-knob]');
+const hudNow = await rect('[data-hud-line]');
+const clear = !!knob && !!hudNow && (knob.right <= hudNow.left || knob.bottom <= hudNow.top || knob.top >= hudNow.bottom);
 if (SHOTS) await shot('touch-joystick.png');
 await fingerMove(1, ring.cx + radius * 0.45, ring.cy, 2); // half way to the right
 const half = await stick();
@@ -162,6 +167,7 @@ await frames(2);
 const letGo = { stick: await stick(), at: await pos(), idle: await p.locator('[data-touch-joystick="idle"]').count() };
 await frames(3);
 const still = distance(letGo.at, await pos());
+log('the knob pushed forward is never under the HUD', clear && knob.top < ring.top, JSON.stringify({ knob, hud: hudNow, ring: { top: ring.top } }));
 log('the joystick walks: pushed up = forward (+Z); half way = slower, that way; let go = stop at once',
   held === 1 && full.y > 0.99 && Math.abs(full.x) < 0.01 && walkedUp.z - from.z > 0.5 && Math.abs(walkedUp.x - from.x) < 0.3 &&
   half.x > 0.25 && half.x < 0.6 && Math.abs(half.y) < 0.05 && letGo.stick.x === 0 && letGo.stick.y === 0 && letGo.idle === 1 && still < 0.01,
@@ -263,7 +269,7 @@ log('"?" by tap: the touch help (joystick, drag, tap the floor, tap a person; no
 const SEARCH = 'button[aria-label="Find a person, room or place"]';
 await tapOn(SEARCH);
 await p.waitForSelector('[data-place-search] input', { timeout: 10000 });
-await p.fill('[data-place-search] input', 'Reception'); // reachable from the entrance in this sample layout (Asha's desk and the meeting room are not)
+await p.fill('[data-place-search] input', 'Asha'); // every desk and room of the sample has a route (src/viewer/__tests__/sampleLayout.test.js)
 await p.waitForSelector('[data-place-search] [role="option"]', { timeout: 10000 });
 await tapOn('[data-place-search] [role="option"]');
 await p.waitForSelector('[data-place-shown]', { timeout: 15000 }).catch(() => {});
@@ -287,7 +293,7 @@ await p.waitForFunction(() => window.__ahdusViewer.navigation.walking && !window
 const resumed = await walkingNow();
 await tapOn('[data-nav-stop]').catch(() => {});
 await p.waitForFunction(() => window.__ahdusViewer.navigation.walking === null, null, { timeout: 15000 }).catch(() => {});
-log('Find by tap: a result (reception) shows its card; Take me there walks; the joystick pauses it ("Tap Continue"); Continue and Stop by tap',
+log('Find by tap: a result (Asha) shows its card; Take me there walks; the joystick pauses it ("Tap Continue"); Continue and Stop by tap',
   shown === 1 && going?.walk === 'auto' && paused.walking?.paused === true && /Tap Continue/.test(paused.strip) && !/Press G/.test(paused.strip) &&
   resumed && !resumed.paused && (await walkingNow()) === null,
   JSON.stringify({ shown, going: !!going, paused: paused.walking?.paused, strip: paused.strip.replace(/\n/g, ' | '), resumed: !!resumed }));
@@ -304,11 +310,11 @@ await tapOn('[data-hud="help"]');
 await wait(300);
 await tapOn('[data-hud="help"]');
 await frames(2);
-await p.waitForFunction(() => /^Joystick to walk/.test(document.querySelector('[data-hud="hint"]')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
-const touchAgain = { joystick: await p.locator('[data-touch-joystick]').count(), line: await hudLine() };
+await p.waitForFunction(() => !!document.querySelector('[data-hud-line]'), null, { timeout: 15000 }).catch(() => {});
+const touchAgain = { joystick: await p.locator('[data-touch-joystick]').count(), line: await p.locator('[data-hud-line]').count() };
 log('a mouse: no joystick, the keys and mouse words; a finger again: the joystick and touch words',
   mouseWords.joystick === 0 && /^W A S D walk/.test(mouseWords.line) && mouseWords.help === 'Keys and mouse' &&
-  touchAgain.joystick === 1 && /^Joystick to walk/.test(touchAgain.line), JSON.stringify({ mouseWords, touchAgain }));
+  touchAgain.joystick === 1 && touchAgain.line === 1, JSON.stringify({ mouseWords, touchAgain }));
 
 // ── 8. The hint only once per browser (a reload) ──
 await p.reload();

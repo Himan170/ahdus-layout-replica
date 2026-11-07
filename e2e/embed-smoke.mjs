@@ -382,6 +382,20 @@ const boxShown = await p.evaluate(() => ({
 log('the search box: "asha" + Enter shows Asha Patel, her desk outlined; no email in the page',
   /^Asha Patel \| Engineering · Ground Floor, Office 1 \| Show route \| Take me there$/.test(boxShown.shown ?? '') && boxShown.lit[0] === 'obj_desk_1' && !boxShown.email,
   JSON.stringify(boxShown));
+// The browse menu (v0.14.2): setDepartments' descriptions under the departments that exist here
+const described = await p.evaluate(() => window.workplace.setDepartments([
+  { name: 'Engineering', description: 'Builds the product', head: 'not copied' }, { name: 'Nowhere', description: 'not here' },
+]));
+await p.click('#workplace button[aria-label="Find a person, room or place"]');
+await wait(300);
+const menu = await p.evaluate(() => ({
+  departments: [...document.querySelectorAll('#workplace [data-browse-open^="department:"]')].map((o) => o.innerText.replace(/\n/g, ' | ')),
+  quick: [...document.querySelectorAll('#workplace [data-quick]')].map((q) => q.textContent),
+}));
+await p.keyboard.press('Escape');
+log('setDepartments(): the Find menu shows the description under Engineering (from the seats); none for a department not here',
+  described === 2 && menu.departments.length === 1 && /^Engineering \| Ground Floor · 1 person \| Builds the product/.test(menu.departments[0]) &&
+  menu.quick.length > 0, JSON.stringify({ described, ...menu }));
 // A phone: the view is full width, so is the search box (12 px from each side), nothing off-screen
 await p.setViewportSize({ width: 390, height: 844 });
 await wait(500);

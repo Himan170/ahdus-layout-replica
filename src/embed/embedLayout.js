@@ -101,3 +101,21 @@ export function filterAnchors(anchors, { kind, roomId, floorId, objectId } = {})
     (floorId === undefined || String(a.floorId) === String(floorId)) &&
     (objectId === undefined || a.objectId === objectId));
 }
+
+/** At most this many departments are taken (setDepartments / the departments option). */
+export const MAX_DEPARTMENTS = 500;
+
+/**
+ * The page's department descriptions → [{ name, description }]: strings only (a name, a
+ * description or none), nothing else copied; a list that isn't one = none.
+ */
+export function cleanDepartments(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const d of list) {
+    if (!d || typeof d.name !== 'string' || !d.name.trim()) continue;
+    out.push(typeof d.description === 'string' ? { name: d.name.trim(), description: d.description } : { name: d.name.trim() });
+    if (out.length >= MAX_DEPARTMENTS) break;
+  }
+  return out;
+}

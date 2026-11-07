@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (918, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (943, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -56,18 +56,22 @@ npm run e2e:shared-walls  # 17     e2e/shared-walls-smoke.mjs (one wall + one do
 npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
                           #                                    rooms drawn inside sharing walls with each other and
                           #                                    the outer wall, doors, picks, upper floor, save + reopen)
-npm run e2e:viewer   # 29 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
+npm run e2e:viewer   # 33 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
                      #                                       the vite build), where walking starts (no room events) + Home, setPose
                      #                                       into a machine, walk in, E + a module's action, edits
                      #                                       refused, Page Up, view mode, a saved layout; search: the
                      #                                       box, keys, a keystroke < 50 ms, show / clear, walking: W in
-                     #                                       the box does not walk, the walk measured, search=0)
-npm run e2e:embed    # 34 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
+                     #                                       the box does not walk, the walk measured, search=0;
+                     #                                       v0.14.2: the browse menu (chips of the kinds there are,
+                     #                                       departments, kinds, floors; ↓ Enter / Esc), recent
+                     #                                       searches, walking chips "Nearest stairs · 7 m")
+npm run e2e:embed    # 35 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
                      #                                       in it (no Supabase), serves embed-test.html itself; keys at once, the page's own field / button, hover, Esc, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
                      #                                       with cookies, destroy(), assets next to the script, quality low,
                      #                                       find(), the search box (no email), full width at 390 px,
-                     #                                       navigation: { search: false }, goTo + stopRoute)
+                     #                                       navigation: { search: false }, goTo + stopRoute,
+                     #                                       setDepartments' description in the Find menu)
 npm run e2e:characters # 36     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
                      #                                       on 2 floors: the view from above (no roof: at the start,
                      #                                       after setFloor, after walking), simple figures, full characters near the
@@ -89,12 +93,14 @@ npm run e2e:seats    # 24 checks   e2e/seats-smoke.mjs     (NO dev server: start
                      #                                       search, move / replace questions, not in undo, People
                      #                                       without a desk, the Publish warning, editors read-only,
                      #                                       phone; SHOTS=<dir>: screenshots)
-npm run e2e:touch   # 14 checks   e2e/touch-smoke.mjs     (viewer.html on a phone: 390 × 844, hasTouch + isMobile,
+npm run e2e:touch   # 15 checks   e2e/touch-smoke.mjs     (viewer.html on a phone: 390 × 844, hasTouch + isMobile,
                      #                                       fingers through CDP touch events: the joystick (push =
                      #                                       walk, further = faster, let go = stop), drag to look, two
                      #                                       thumbs, tap the floor (the line), the joystick ends it, tap
                      #                                       a person, buttons / Find / Take me there by tap (the joystick
-                     #                                       pauses: "Tap Continue"), touch words (hint, HUD line, "?"),
+                     #                                       pauses: "Tap Continue"; Asha's desk), touch words (hint,
+                     #                                       "?"), the HUD one line beside the joystick, the knob pushed
+                     #                                       forward never under it,
                      #                                       a mouse = mouse words again; SHOTS=<dir>: phone screenshots)
 npm run e2e:controls # 17 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
                      #                                       to look (cursor stays), Back to entrance / ? / Find / Clear give
@@ -239,7 +245,7 @@ src/play/navigation/               PURE (v0.13.0): walkMap.js (the walk map of a
                                    solid items, grown by the body; createWalkMapCache) + entrance.js (entranceSpawn: where
                                    walking starts; outsideDoors / mainEntrance; nearestFree) + route.js (v0.13.2: findRoute,
                                    findNearestRoute, floorLinks) + places.js (v0.13.3: buildPlaces, searchPlaces: what the
-                                   search finds). Tests in navigation/__tests__/ (meridianLike.js, randomLayouts.js:
+                                   search finds) + browse.js (v0.14.2: browsePlaces, the Find box's menu; recent searches). Tests in navigation/__tests__/ (meridianLike.js, randomLayouts.js:
                                    shared test layouts)
 src/engine/systems/NavigationSystem.ts  engine.navigation: find / search / show / clear (v0.13.3), routeTo / stop / resume +
                                    the 'navigation' event (v0.13.4: the pilot that Show route / Take me there give the walker),
@@ -515,12 +521,36 @@ Step v0.13.3 of `private-docs/NAVIGATION_PLAN.md` (4.4, and the "not walking" pa
   a "Find" button (aria-label `Find a person, room or place`) in the viewer's top-left toolbar (walking: after the
   keys hint and Back to entrance); the panel below it, `width: 100%` of the toolbar column, max 400 px (a phone: the
   view less 12 px each side). Input = combobox + listbox (`aria-activedescendant`), groups, a live status ("1
-  result"), quick picks (Washroom, Meeting room, Reception, Stairs). ↑ ↓ Enter; Esc closes (stopPropagation: not the
-  walkthrough's Esc) and focuses the button. After a pick: a card (`data-place-shown`) with the name, detail, walking
+  result"). ↑ ↓ Enter; Esc closes (stopPropagation: not the walkthrough's Esc) and focuses the button. A pick
+  empties the box (Esc keeps what was typed). After a pick: a card (`data-place-shown`) with the name, detail, walking
   "42 m walk, about 10 s · by the stairs" or the problem, and Clear. The AHDUS look (white, AHDUS green) as inline
   styles (the viewer has no stylesheet; there is no separate "AHDUS mode" in the viewer / embed). Typing in the box
   never walks (playController ignores inputs); focus in it shows no focus ring.
 - **Embed:** `workplace.find(query, { limit })` ([] until ready); `navigation: { search: false }` hides the box.
+- **The browse menu** (v0.14.2, private-docs/EXPERIENCE_PLAN.md 3.3, decisions in its section 6): while the box is empty.
+  PURE `play/navigation/browse.js` `browsePlaces(index, { departments, me })` from the SAME index (`buildPlaces`, which
+  now also keeps rooms' `roomType` and the floors in order): `chips` = the FACILITIES that exist (`only`: the one of
+  its kind); `myDesk` = `person:<me>`; `departments` = rooms' `departmentRef` + people's departments (matched by
+  `words`, by name): "Engineering · 2 rooms · Floor 1 · 92 people", `place` = the department place (several rooms)
+  or its one room (people only: none), the description from the page (`DESCRIPTION_MAX` 280); `kinds` = room types
+  (+ item facilities under RECEPTION / STAIRCASE), `KIND_LABELS` (Offices, Meeting rooms, Washrooms, Reception,
+  Stairs first, then others by name; an unknown type "LAB_SPACE" = "Lab space") with their places by floor; `floors`
+  = "Ground Floor · 13 rooms" → its rooms (empty floors left out). `addRecent` / `recentPlaces`: place ids, newest
+  first, at most `RECENT_MAX` 5, only those that still exist. `engine.navigation.browse({ recent })` = that in the
+  public shape + walking, each chip's `nearest` ({ place: 'nearest:X', length, seconds } by `findNearestRoute`; null:
+  no route); `setDepartments` (`LayoutEngine.setDepartments`, `<LayoutViewer departments>`, the embed's
+  `departments` option + `setDepartments`, cleaned by `embedLayout.cleanDepartments`: name + description only); "me"
+  = `setPlayer`'s personId (`getMe` hook). UI (`PlaceSearch`, pure `browseScreen(menu, view, { walking })` +
+  `chipLabel`, tested in `engine/__tests__/PlaceSearch.test.ts`): the start = chips ("Quick picks"; walking "Nearest":
+  "Nearest washroom · 8 m", a tap shows it; else one of its kind = shown, several = its list), My desk, Recent,
+  Departments, Places (a count), By floor; a list opened = Back ("‹ All", `data-browse-back`), a head
+  (`data-browse-head`: name, detail, description) and its places (a department: "All of Engineering", Rooms, People
+  (n)). All of them options of the one listbox (`data-browse` = home | department | kind | floor; `data-browse-open`,
+  `data-quick` = the kind's label, `data-my-desk`, `data-recent`, `data-place`): ↑ ↓, Enter opens / picks, ← /
+  Backspace (empty box) / Esc go back (Esc at the start closes), back lands on the entry opened; the status line says
+  where you are. Recent: localStorage `ahdus.findRecent` (try / catch), read again on each open; a pick adds the
+  place shown ("Nearest washroom" = the one chosen). While Find is open the one-time walk hint waits (`onOpenChange`);
+  walking, the toolbar column (and so the panel) ends above the joystick (touch) or 100 px up (the HUD).
 - The card's buttons **Show route** / **Take me there**: v0.13.4, see "Going there".
 
 ## Going there: Show route and Take me there (v0.13.4, how it works)
@@ -631,12 +661,14 @@ Preview ignores touch as before** (look 'lock' listens to mousedown only).
   touch). The joystick is a DOM element over the canvas, so a second finger on the canvas looks while it walks.
 - **Touch words** (`LayoutViewer` `touchUI`): true when the last pointerdown was a finger, false on any mouse pointer
   event; before any, `(pointer: coarse)`. Then: the joystick shows; `WALK_HINT_TOUCH` "Joystick to walk · drag to look
-  · tap the floor to go there" (its own localStorage key `ahdus.walkHintSeen.touch`, shown at 40 % height); the HUD line
-  (`walkthrough.setTouch` → the controller's readOnly hint: "Joystick to walk, drag to look, tap the floor to go
-  there, tap a person for their card"); the screen readers' line; the "?" help = `WALK_HELP_TOUCH` (9 rows), its
+  · tap the floor to go there" (its own localStorage key `ahdus.walkHintSeen.touch`, shown at 40 % height); the
+  controller's readOnly hint (`walkthrough.setTouch`: "Joystick to walk, drag to look, …"; not drawn on touch since
+  v0.14.2, see below); the screen readers' line; the "?" help = `WALK_HELP_TOUCH` (9 rows), its
   button / dialog named "Touch controls" (`data-walk-help` = touch | mouse); the E prompt reads "Tap it: …";
-  PlaceSearch (`touch`) says "Paused · Tap Continue to walk on" / "the joystick pauses". The HUD moves above the
-  joystick, the walking person card above the HUD.
+  PlaceSearch (`touch`) says "Paused · Tap Continue to walk on" / "the joystick pauses". **The HUD (v0.14.2)** is ONE
+  short line (`data-hud-line="touch"`) to the right of the joystick, level with its bottom: a message, else "Tap it:
+  …", else "Outside · Ground Floor" (room · floor), cut with … (a knob pushed forward rises 28 px above the ring, and
+  the HUD above the ring hid it). The walking person card sits above the knob's reach (`personNearTouch`).
 - Tests: `dragLook.test.js` (taps, stickVector), `WalkthroughSystem.test.ts` ("touch (v0.14.1)": drag, taps, the
   stick's speed, keys not needed, the route pauses, touch words), `e2e/touch-smoke.mjs` (hides viewer.html's
   bridge-events panel so the view is a phone's full width).
@@ -991,7 +1023,6 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
   Preview has no search box, so no Show route there.
 - Touch (v0.14.1): no pinch to zoom, no flying or floor buttons by touch (Find + Take me there, or the stairs); the
   joystick has no run speed. The joystick is hidden from screen readers (Find + Take me there cover them).
-  In viewer.html's sample layout Asha's desk has no walking route from the entrance (e2e:touch uses Reception).
 - A click on a wall walks to the spot in front of it; there is no "walk to the room behind this wall".
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).
@@ -1064,6 +1095,17 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: Find browse menu (v0.14.2, 7 Nov 2026, branch `feature/find-browse`)
+
+private-docs/EXPERIENCE_PLAN.md 3.3: while Find's box is empty, a menu built from the layout and the seats (chips of
+the facility kinds there are, walking "Nearest washroom · 8 m"; My desk; recent searches; departments with counts and
+the `departments` option's descriptions; places by kind; by floor), see "Search". Two fixes with it: on a touch screen
+the HUD is one short line beside the joystick (the knob pushed forward went under it), and viewer.html's sample layout
+is walkable everywhere (Engineering's door no longer behind the CNC machine; the staircase's top inside the meeting
+room upstairs; `src/viewer/__tests__/sampleLayout.test.js`), so e2e:touch takes Asha again. Screenshots (the real
+Meridian, 13 departments, 319 people; a small layout with no meeting room; desktop 1440×900 + phone 390×844):
+private-docs/screenshots/v0.14.2/ (not in git).
 
 ## DONE: touch controls (v0.14.1, 7 Nov 2026, branch `feature/touch-controls`)
 
