@@ -75,6 +75,8 @@ import { LayoutEditor, LayoutViewer } from '@engine/react';   // later: '@ahdus/
   onExitRoom={({ roomId, toRoomId }) => { ... }}
   onCard={(card) => { ... }}      // a card was shown (to show it in your own panel)
   onError={(error) => { ... }}    // the layout could not be loaded
+  people={people}                 // who sits where: [{ personId, deskId, name, department, character }]
+  search={true}                   // the "Find a person, room or place" box (default true; false hides it)
 />
 ```
 
@@ -120,6 +122,14 @@ engine.fitView();                    // The whole building in view
 engine.highlight(entityIds, color?); // Highlight entities (e.g., for training,
                                      // explanations, or search results)
 engine.clearHighlights();            // Remove all highlights
+
+// --- Search (v0.13.3): people (name + department only), rooms, departments, facilities ---
+engine.navigation.find('Kavya');     // [{ id, kind, group, name, detail, floorId, floorName, roomId, roomName,
+                                     //    department, facility, entityId, personId?, deskId? }] (People, Rooms, Facilities)
+engine.navigation.search('washroom'); // the same, grouped: { groups: { people, rooms, facilities }, more, total }
+engine.navigation.show(result.id);   // from above: its floor, the camera flies to it, outlined; walking: outlined
+                                     // + { route: { length, seconds, floors } } or { problem, message }
+engine.navigation.clear();           // the outline goes
 
 // --- Querying ---
 engine.getAnchors(): Anchor[];                    // Get all anchors in the layout

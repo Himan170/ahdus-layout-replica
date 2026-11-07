@@ -73,6 +73,7 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `assetBaseUrl` | string | Where the realistic look's files are (the `assets/` folder: `models/`, `textures/`, `env/`). Default: `assets/` next to `ahdus-workplace.js`. Set it when you host them elsewhere, e.g. `'https://cdn.example.com/ahdus/assets/'`. A file that can't be loaded keeps the simple look for that item or surface (a warning in the console, never an error). |
 | `characters` | object | `{ manifestUrl }`: where the **character manifest** is (section 4b), fetched with `credentials: 'include'` and `headers` on the first `setPeople`. Or `{ manifest }`: the manifest itself. Without it everyone is the neutral simple figure. Also `chooseUrl`: where people choose their character (http / https, or relative to the page), for the "Choose your character" link (section 4b), and `walkClipUrl`: the walk clip your own character walks with in `walkthrough` (section 4c). |
 | `player` | object | `{ personId, assetReference }`: the person looking, i.e. the signed-in user (the same `personId` and `assetReference` as in `setPeople`). In `walkthrough` they walk as their own character (section 4c); their own card offers "Choose your character" if they never chose one. Change it later with `setPlayer`. |
+| `navigation` | object | `{ search: true }` (default): a **Find** button in the view's toolbar opens the search box "Find a person, room or place" (section 4d). `{ search: false }` hides it (`find()` still works). |
 | `onEvent(name, data)` | function | Everything that happens (section 5). |
 | `onError(error)` | function | The layout could not be shown (section 7). Without it, the message goes to the console. |
 
@@ -94,6 +95,7 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `registerAction(match, { label, run, when? })` | A "Press E" action (below). Returns a function that removes it. |
 | `setPeople(list)` | Who sits at which desk (section 4b). Replaces the list before; `setPeople([])` = nobody. Returns a promise of how many people were given (after the manifest is read). Can be called before `ready`. |
 | `setPlayer({ personId, assetReference } \| null)` | The person looking (the signed-in user), as the `player` option. Returns a promise, done when their character is known (after the manifest is read). |
+| `find(query, { limit? })` | Search people (name and department), rooms, departments and facilities (section 4d). `[]` until `ready`. |
 | `destroy()` | Removes the viewer: the element is as you gave it, the 3D engine, its keys and its actions are gone. Safe to call twice. |
 
 Calls made before `ready` (`setFloor`, `focusOn`, `highlight`) wait for it and return `undefined`. After `destroy()` every call returns `false` (or `[]`).
@@ -217,6 +219,34 @@ const workplace = AHDUSWorkplace.mount(el, {
 - **Your seated figure** (the `setPeople` entry with your `personId`) is hidden while you walk, and back in `view`.
 - `assetReference` `null` or unknown, a character file that fails, or `quality: 'low'`: the simple figure walks, as before.
 - Test files: `assets/characters/placeholder-walk.glb` next to `ahdus-workplace.js` (our own clip: 1.2 m a second).
+
+### 4d. Search: "Find a person, room or place" (`find`, option `navigation`)
+
+The view has a **Find** button (top left). It opens a search box; results come as you type (a few ms, even with
+hundreds of people), grouped **People**, **Rooms** and **Facilities**, each with its floor and room, e.g.
+"Kavya Iyer · HR · Ground Floor, Lobby & Reception". Keyboard: ↑ ↓ choose, Enter picks, Esc closes. On a phone it is
+as wide as the view.
+
+- **What it finds:** people from `setPeople` (their **name and department only**: nothing else you pass, such as an
+  email, is kept or shown), every room by its name (or type), departments (`departmentRef` of several rooms), and
+  facilities: washrooms (`washroom`, `restroom`, `toilet`, `WC`…), meeting rooms, reception, stairs.
+- **Picking a result** in `view`: its floor is shown, the camera flies to it and it is outlined in green (a person:
+  their desk and chair). In `walkthrough` it is outlined and the box says how far it is to walk ("42 m walk, about
+  10 s · by the stairs") or why you can't ("No walking route to Server Room: it has no door"). There, "washroom"
+  offers **Nearest washroom** first: the nearest by walking from where you stand. Walking there by itself comes in
+  a later version.
+
+```js
+workplace.find('Kavya');
+// [{ id: 'person:42', kind: 'person', group: 'people', name: 'Kavya Iyer', detail: 'HR · Ground Floor, Lobby & Reception',
+//    floorId: 0, floorName: 'Ground Floor', roomId: 'room_f0_02', roomName: 'Lobby & Reception', department: 'HR',
+//    facility: null, personId: '42', deskId: 'obj_f0_reception', entityId: 'obj_f0_reception' }]
+const [first] = workplace.find('washroom');            // kind 'facility', facility 'RESTROOM'
+workplace.focusOn(first.entityId); workplace.highlight(first.entityId); // show it yourself (view mode)
+```
+
+`kind` is `person`, `room`, `department` or `facility` (in `walkthrough` also `nearest`: "Nearest washroom",
+with `places`, the ids it chooses from). At most 6 results per group (`{ limit }` to change it).
 
 ---
 
