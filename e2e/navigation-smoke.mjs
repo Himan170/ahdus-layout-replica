@@ -361,7 +361,7 @@ await wait(1000);
 log('Stop ends Show route', !far.problem && (await lastNav())?.state === 'stopped' && !(await p.$('[data-nav-strip]')), far.problem ? far.message : far.place?.name);
 
 await clearNav();
-await p.click('[data-layout-viewer] canvas', { position: { x: 900, y: 500 } }).catch(() => {});
+// (no click on the view: v0.14.0 a click on the floor walks there; the keys need none)
 await p.evaluate(() => document.querySelector('[data-layout-viewer]').focus());
 const before = await p.evaluate(() => { const v = window.__ahdusViewer.walkthrough.getPosition(); return { x: v.x, z: v.z }; });
 await p.keyboard.down('KeyW');

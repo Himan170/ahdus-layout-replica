@@ -197,22 +197,31 @@ async function hold(key, n = 4) {
   return distance(from, await pos());
 }
 
-const atLoad = { lock: await p.evaluate(() => !!document.pointerLockElement), hint: await keysHint() };
+// v0.14.0: walking starts with the keys (the view takes the focus, no click); the mouse is never captured by itself
+const atLoad = {
+  lock: await p.evaluate(() => !!document.pointerLockElement), hint: await keysHint(), focus: await focusName(),
+  ring: await p.locator('[data-focus-ring]').count(),
+};
+await pose(0, -9, 0, 0);                                                // outside, facing the reception door: room to walk
+const loadWalk = await hold('KeyW');
+log('walking starts with the keys: the view has the focus at once (no click, no focus ring), W walks; the mouse is not captured',
+  !atLoad.lock && atLoad.hint === 'Esc to release' && atLoad.focus === 'viewer' && atLoad.ring === 0 && loadWalk > 0.1,
+  JSON.stringify({ atLoad, loadWalk: +loadWalk.toFixed(2) }));
 const start = await pos();
 await p.click('#page-note');
 await p.keyboard.type('Hello WASD');
 await frames(2);
 await p.keyboard.press('Tab');
-const typed = { value: await p.inputValue('#page-note'), focus: await focusName() };
+const typed = { value: await p.inputValue('#page-note'), focus: await focusName(), hint: await keysHint() };
 const onButton = await hold('KeyW');                                    // on the page's button, not a text field
 await p.keyboard.press('Space');                                        // presses the button
 const clicks = await p.textContent('#page-clicks');
 await p.keyboard.press('Tab');
 const afterTab = await focusName();
-log('not engaged: the view doesn\'t take the mouse at load; typing and Tab work; W on a button doesn\'t walk; Space presses it',
-  !atLoad.lock && atLoad.hint === 'Click to walk · Esc to release' && typed.value === 'Hello WASD' && typed.focus === 'page-button' &&
+log('the page\'s own field and button: typing (W A S D too) and Tab work; W on the page\'s button doesn\'t walk; Space presses it',
+  typed.value === 'Hello WASD' && typed.focus === 'page-button' && typed.hint === 'Click the view to walk' &&
   onButton < 0.01 && distance(start, await pos()) < 0.01 && clicks === 'clicked 1×' && afterTab !== 'page-button',
-  JSON.stringify({ atLoad, typed, onButton, clicks, afterTab }));
+  JSON.stringify({ typed, onButton, clicks, afterTab }));
 await p.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
 await p.keyboard.press('Space'); await scrolledBySpace();
 const pageScroll = await scrollY();
@@ -229,31 +238,43 @@ await p.keyboard.press('Escape'); await frames(2);
 const tabReleased = { focus: await focusName(), ring: await p.locator('[data-focus-ring]').count(), hint: await keysHint() };
 log('Tab to the view: a focus ring, and the keys are its own (W walks); Esc gives them back',
   tabbed.focus === 'viewer' && tabbed.ring === 1 && tabbed.hint === 'Esc to release' && tabWalk > 0.1 &&
-  tabReleased.focus !== 'viewer' && tabReleased.ring === 0 && tabReleased.hint === 'Click to walk · Esc to release',
+  tabReleased.focus !== 'viewer' && tabReleased.ring === 0 && tabReleased.hint === 'Click the view to walk',
   JSON.stringify({ tabbed, tabWalk: +tabWalk.toFixed(2), tabReleased }));
 
-await p.click('#workplace canvas'); await wait(500);
-const clicked = { lock: await p.evaluate(() => !!document.pointerLockElement), focus: await focusName(), hint: await keysHint() };
+// A click on the view (on the sky: a click on the floor would walk there) takes the keys, without capturing the mouse
+await pose(0, -9, 0, 0.5);                                              // looking up
+const skyBox = await p.locator('#workplace canvas').boundingBox();       // right of the toolbar (Find, keys, ?)
+await p.click('#workplace canvas', { position: { x: skyBox.width * 0.65, y: skyBox.height * 0.18 } }); await wait(500);
+const clicked = { lock: await p.evaluate(() => !!document.pointerLockElement), focus: await focusName(), hint: await keysHint(),
+  route: await p.evaluate(() => window.workplace._engine.navigation.walking) };
 await pose(0, -9, 0, 0);
 const clickWalk = await hold('KeyW');
 await p.keyboard.press('Space'); await frames(3);                       // jumps; the page stays put
+await p.keyboard.press('ArrowDown'); await frames(2);                   // walks back; the page stays put
 const engagedScroll = await scrollY();
 await p.keyboard.press('Escape'); await frames(2);
-const escaped = { lock: await p.evaluate(() => !!document.pointerLockElement), focus: await focusName() };
-await p.keyboard.press('Space'); await scrolledBySpace();
+const escaped = { lock: await p.evaluate(() => !!document.pointerLockElement), focus: await focusName(), walk: await hold('KeyW') };
+await p.keyboard.press('Space'); await scrolledBySpace();               // the mouse is still over the view: Esc said "the page's"
 const releasedScroll = await scrollY();
 await p.evaluate(() => window.scrollTo(0, 0)); await wait(300);
-log('click the view: mouse captured, W walks, Space doesn\'t scroll; after Esc, Space scrolls the page again',
-  clicked.lock && clicked.focus === 'viewer' && clicked.hint === 'Esc to release' && clickWalk > 0.1 && engagedScroll === 0 &&
-  !escaped.lock && escaped.focus !== 'viewer' && releasedScroll > 0,
+log('click the view: the keys (mouse not captured), W walks, Space and the arrows don\'t scroll; after Esc, Space scrolls the page again',
+  !clicked.lock && clicked.focus === 'viewer' && clicked.hint === 'Esc to release' && clicked.route === null && clickWalk > 0.1 &&
+  engagedScroll === 0 && !escaped.lock && escaped.focus !== 'viewer' && escaped.walk < 0.01 && releasedScroll > 0,
   JSON.stringify({ clicked, clickWalk: +clickWalk.toFixed(2), engagedScroll, escaped, releasedScroll }));
 await shot('embed-keys.png');
 
+// The mouse over the view: the keys are its own (no click); away from it they are the page's again
+await p.mouse.move(5, 5); await p.mouse.move(500, 360); await frames(2);
+const hoverWalk = await hold('KeyW');
+await p.mouse.move(5, 5); await frames(2);
+const awayWalk = await hold('KeyW');
+log('the mouse over the view gives it the keys (W walks, no click); away from it, W doesn\'t walk',
+  hoverWalk > 0.1 && awayWalk < 0.01, JSON.stringify({ hoverWalk: +hoverWalk.toFixed(2), awayWalk: +awayWalk.toFixed(2) }));
+
 // ── 2. Walk into the training room: enterRoom ──
-await p.mouse.move(500, 360);
-await p.click('#workplace canvas');
-await wait(500);
-log('clicking the view captures the mouse', await p.evaluate(() => document.pointerLockElement?.closest('#workplace') !== null && !!document.pointerLockElement));
+await p.mouse.move(500, 360); // over the view: its keys
+await frames(2);
+log('walking: the view never captures the mouse by itself', await p.evaluate(() => !document.pointerLockElement));
 await pose(12, -7, 0, 0); // outside, south of the training room's door (x = 12), facing it
 await walkUntil('KeyW', ({ z }) => z > -2); // through the door (south wall at z = -3)
 const at = await pos();
@@ -280,7 +301,7 @@ await shot('embed-action.png');
 await p.click('#video-close');
 
 // ── 4. Nothing can change the layout ──
-await p.click('#workplace canvas'); await wait(500); // capture the mouse again
+await p.mouse.move(500, 360); await wait(500); // over the view: the keys are its own
 const before = await layoutJson();
 await p.mouse.down({ button: 'right' }); await p.mouse.up({ button: 'right' }); await frames(3); // "remove" what you look at
 await p.keyboard.press('KeyN'); await frames(3);                                                // "add a floor"

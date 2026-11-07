@@ -82,6 +82,11 @@ export function PlaceSearch({ engine, walking, people, children, focusView }: Pl
   useEffect(() => {
     if (!engine) return undefined;
     return engine.on('navigation', (e) => {
+      // a click on the floor (v0.14.0): no strip (the line shows the way); it replaced a route shown here
+      if (e.source === 'click') {
+        if (e.state === 'started') setNav(null);
+        return;
+      }
       setNav((was) => {
         if (e.state === 'stopped') return null;
         // what changed is said once (not every metre)

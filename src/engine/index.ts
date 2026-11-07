@@ -6,7 +6,7 @@
 export { LayoutEngine, READ_ONLY } from './LayoutEngine';
 export type {
   EngineMode, ViewMode, QualityLevel, EngineOptions, LayoutEditorApi, WorkspaceStore,
-  SelectEvent, ChangeEvent, InteractEvent, EnterRoomEvent, ExitRoomEvent,
+  SelectEvent, ChangeEvent, InteractEvent, EnterRoomEvent, ExitRoomEvent, WalkClickEvent,
 } from './LayoutEngine';
 
 // Data model

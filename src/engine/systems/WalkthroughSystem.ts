@@ -7,6 +7,13 @@
  * (`readOnly`: right-click removes nothing, N adds no floor). Every edit the
  * controller could still ask for is refused here too.
  *
+ * Easy controls (v0.14.0, private-docs/EXPERIENCE_PLAN.md 3.2): the view takes
+ * the keys when walking starts and again after a click on its own buttons;
+ * they also work while the mouse is over it (never while typing in a text
+ * field). Drag to look, the cursor stays; a plain click is onPointClick.
+ * A double-click or L captures the mouse (mouse-look mode); the first Esc
+ * releases it, the next one gives the keys back to the page.
+ *
  * Tells its owner when the character walks into or out of a room, presses E
  * on something, or moves to another floor.
  */
@@ -16,7 +23,6 @@ import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import type { Vector3 } from '@babylonjs/core/Maths/math.vector';
 
 import { createPlayController } from '../../play/playController';
-import { lockPointer } from '../../utils/pointerLock';
 import type { LayoutRecords, V1Room } from './RoomSystem';
 import type { PlayCharacter } from './PlayerCharacter';
 import type { Pilot } from './NavigationSystem';
@@ -42,7 +48,42 @@ export interface WalkthroughCallbacks {
   onHud?: (info: unknown) => void;
   /** What E would do on a target, for the prompt; null: no prompt label. */
   describeInteraction?: (target: WalkthroughTarget) => { label: string; name: string; handled: boolean } | null;
+  /** A plain click on the view (not a drag): what is under it (LayoutEngine decides: a person, E, or walk there). */
+  onPointClick?: (click: WalkthroughClick) => void;
+  /** A double-click on the view: the mouse is being captured (mouse-look mode). */
+  onDoubleClick?: () => void;
 }
+
+/** A plain click on the walking view (playController.clickTarget). */
+export interface WalkthroughClick {
+  /** Where it was clicked, in CSS px from the canvas's top left (mouse-look mode: the crosshair). */
+  screen: { x: number; y: number };
+  /** The point hit, or null (the sky). */
+  point: { x: number; y: number; z: number } | null;
+  /** An item, door or window within reach (what E would use there), or null. */
+  target: WalkthroughTarget | null;
+  /** Where to walk: the spot on a floor, else a little in front of what was hit; null: nothing there. */
+  walkTo: { x: number; z: number; floor: number } | null;
+  kind: string | null;
+}
+
+/** A text field (typing there never walks; the view never takes the focus from it). */
+export function isTextField(el: Element | null | undefined): boolean {
+  if (!el) return false;
+  const h = el as HTMLElement;
+  if (h.isContentEditable) return true;
+  if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
+  if (el.tagName !== 'INPUT') return false;
+  const type = ((el as HTMLInputElement).type || 'text').toLowerCase();
+  return !['button', 'submit', 'reset', 'checkbox', 'radio', 'range', 'color', 'file', 'image'].includes(type);
+}
+
+/** Esc this soon (ms) after the browser released the mouse is that release, not "give the keys back". */
+const ESC_AFTER_UNLOCK_MS = 400;
+/** After a click on one of the view's own buttons: the view takes the keys back this soon (ms). */
+const REFOCUS_MS = 30;
+/** On the view's box while the view focuses it itself (its focus listeners can tell that from Tab: no ring). */
+export const AUTO_FOCUS_ATTR = 'data-auto-focus';
 
 /** Where walking starts (play/navigation/entrance.js entranceSpawn). */
 export interface SpawnSpot {
@@ -79,45 +120,109 @@ export class WalkthroughSystem {
   private focusTarget: HTMLElement | null;
   private hadMouse = false;
   private savedTabIndex: number | null = null;
+  /** The mouse is over the view (v0.14.0: then the keys are its own too). */
+  private hovered = false;
+  /** Esc gave the keys back while the mouse was over the view: hovering doesn't take them again until it leaves. */
+  private hoverReleased = false;
+  /** When the browser last released the mouse (performance.now()). */
+  private unlockedAt = -Infinity;
+  private refocusTimer: ReturnType<typeof setTimeout> | undefined;
 
   /**
    * The view is "engaged" (the keys are its own, not the page's) while its
-   * canvas has the mouse (pointer lock) or its box has focus.
+   * canvas has the mouse (pointer lock), its box has focus, or the mouse is
+   * over it (v0.14.0). Walking starts with the focus in the view.
    */
   isEngaged = (): boolean => {
     if (!this.canvas) return false; // no page (unit tests: a NullEngine has no canvas)
-    return document.pointerLockElement === this.canvas || !!this.focusTarget?.contains(document.activeElement);
+    return document.pointerLockElement === this.canvas || !!this.focusTarget?.contains(document.activeElement)
+      || (this.hovered && !this.hoverReleased);
   };
 
   /**
-   * A click on the view takes the keys (focus) and captures the mouse.
-   * Preview's controller asks on mousedown, but Babylon prevents the default
-   * of pointerdown, so the browser never sends mousedown (nor moves focus).
+   * A press on the view takes the keys (focus). It never captures the mouse
+   * (v0.14.0: drag to look; a double-click or L does). Babylon prevents the
+   * default of pointerdown, so the browser itself moves no focus.
    */
   private onPointerDown = () => {
     if (!this.controller.isActive()) return;
-    if (!this.focusTarget?.contains(document.activeElement)) this.focusTarget?.focus({ preventScroll: true });
-    if (document.pointerLockElement !== this.canvas) void lockPointer(this.canvas);
+    this.hoverReleased = false;
+    if (!this.focusTarget?.contains(document.activeElement)) this.takeFocus();
   };
 
-  /** Esc gives the keys back to the page: the mouse and the focus. */
+  private onPointerEnter = (e: PointerEvent) => {
+    if (e.pointerType === 'touch') return;
+    this.hovered = true;
+  };
+
+  private onPointerLeave = (e: PointerEvent) => {
+    if (e.pointerType === 'touch') return;
+    this.hovered = false;
+    this.hoverReleased = false;
+  };
+
+  /**
+   * Esc: first it releases the mouse (mouse-look mode), then it gives the keys
+   * back to the page. A route stopped by Esc, or a box of ours that closed,
+   * has taken it (defaultPrevented) and nothing more happens.
+   */
   private onKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || !this.isEngaged()) return;
-    if (document.pointerLockElement === this.canvas) document.exitPointerLock?.();
+    if (e.key !== 'Escape' || e.defaultPrevented || !this.isEngaged()) return;
+    if (document.pointerLockElement === this.canvas) {
+      document.exitPointerLock?.();
+      return;
+    }
+    if (performance.now() - this.unlockedAt < ESC_AFTER_UNLOCK_MS) return; // this Esc released the mouse
     this.release();
   };
 
-  /** The mouse was released (Esc, or the browser): the keys go back to the page too. */
+  /** The mouse was released (Esc, L, or the browser): back to drag to look; the keys stay the view's. */
   private onPointerLockChange = () => {
     const hasMouse = document.pointerLockElement === this.canvas;
-    if (this.hadMouse && !hasMouse) this.release();
+    if (this.hadMouse && !hasMouse) this.unlockedAt = performance.now();
     this.hadMouse = hasMouse;
+  };
+
+  /**
+   * A click on one of the view's own buttons (Back to entrance, Find, a card's
+   * Close, a result): the keys come back to the view, unless the click put the
+   * focus in a text field (the search box). Keyboard presses (detail 0) keep
+   * the focus where it is, so Tab still goes on from that button.
+   */
+  private onBoxClick = (e: MouseEvent) => {
+    if (!this.controller.isActive() || e.detail === 0) return;
+    const el = e.target as Element | null;
+    if (!el?.closest?.('button, a[href], [role="option"], [role="button"]') || isTextField(el)) return;
+    clearTimeout(this.refocusTimer);
+    this.refocusTimer = setTimeout(() => {
+      if (!this.controller.isActive() || isTextField(document.activeElement)) return;
+      const focused = document.activeElement;
+      // the click moved the focus out of the view (a link to another page, the page's own code): leave it there
+      if (focused && focused !== document.body && !this.focusTarget?.contains(focused)) return;
+      this.takeFocus();
+    }, REFOCUS_MS);
   };
 
   /** Take focus out of the view, so the page has the keys again. */
   private release(): void {
+    if (this.hovered) this.hoverReleased = true;
     const focused = document.activeElement;
     if (focused instanceof HTMLElement && this.focusTarget?.contains(focused)) focused.blur();
+  }
+
+  /** The view takes the keys (focus, without scrolling the page or a focus ring). */
+  private takeFocus(): void {
+    const box = this.focusTarget;
+    if (!box) return;
+    // from above the view's box is no Tab stop (walking makes it one); a div needs one to take focus
+    if (box !== this.canvas && box.tabIndex < 0) box.tabIndex = 0;
+    // focus given by the view itself, not by Tab: no focus ring (a page's first focus() counts as :focus-visible)
+    box.setAttribute(AUTO_FOCUS_ATTR, '');
+    try {
+      box.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
+    } finally {
+      box.removeAttribute(AUTO_FOCUS_ATTR);
+    }
   }
 
   /**
@@ -159,6 +264,10 @@ export class WalkthroughSystem {
       describeInteraction: callbacks.describeInteraction,
       // The keys are the page's until the view is engaged (Preview's are always its own)
       isEngaged: this.isEngaged,
+      // Drag to look, the cursor always visible; a click = onPointClick (Preview keeps pointer lock)
+      look: 'drag',
+      onPointClick: callbacks.onPointClick,
+      onDoubleClick: callbacks.onDoubleClick,
       // Every walk starts at the entrance (the ground floor), wherever you were looking from above
       respawnOnActivate: true,
       // one cache of walk maps for the search, the routes and walking
@@ -168,16 +277,21 @@ export class WalkthroughSystem {
 
   /**
    * Take over the camera; the character starts at the entrance (play/navigation/entrance.js:
-   * the ground floor's spawn point, else 3 m outside the main entrance, facing it). The keys
-   * stay the page's until the user clicks the view or tabs to it.
+   * the ground floor's spawn point, else 3 m outside the main entrance, facing it). The view
+   * takes the keys at once (v0.14.0), unless the page's own text field has the focus.
    */
   activate(): void {
     this.controller.activate();
     if (!this.canvas) return; // no page
     this.canvas.addEventListener('pointerdown', this.onPointerDown);
+    this.focusTarget?.addEventListener('pointerenter', this.onPointerEnter);
+    this.focusTarget?.addEventListener('pointerleave', this.onPointerLeave);
+    this.focusTarget?.addEventListener('click', this.onBoxClick);
     window.addEventListener('keydown', this.onKeyDown);
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
     this.hadMouse = document.pointerLockElement === this.canvas;
+    this.hovered = !!this.focusTarget?.matches?.(':hover');
+    this.hoverReleased = false;
     // One Tab stop, the view's box: Babylon puts the canvas first in the page's
     // Tab order (tabIndex 1, set again on every pointer move)
     const engine = this.scene.getEngine();
@@ -186,6 +300,7 @@ export class WalkthroughSystem {
       engine.canvasTabIndex = -1;
       this.canvas.tabIndex = -1;
     }
+    if (!isTextField(document.activeElement)) this.takeFocus();
   }
 
   /** Give the camera back (the orbit camera). */
@@ -198,6 +313,11 @@ export class WalkthroughSystem {
   private stopListening(): void {
     if (!this.canvas) return;
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
+    this.focusTarget?.removeEventListener('pointerenter', this.onPointerEnter);
+    this.focusTarget?.removeEventListener('pointerleave', this.onPointerLeave);
+    this.focusTarget?.removeEventListener('click', this.onBoxClick);
+    clearTimeout(this.refocusTimer);
+    this.hovered = false;
     window.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
     if (this.savedTabIndex !== null) {
@@ -296,6 +416,30 @@ export class WalkthroughSystem {
   /** The floor above (+1) or below (−1), at the same spot: Page Up / Page Down. */
   stepFloor(dir: 1 | -1): void {
     this.controller.stepFloor(dir);
+  }
+
+  /** What a click at (x, y) on the view (CSS px from the canvas's top left) would be on (tests). */
+  clickTarget(x: number, y: number): WalkthroughClick {
+    return this.controller.clickTarget(x, y) as WalkthroughClick;
+  }
+
+  /** A short message in the HUD. */
+  say(text: string, ms = 3000): void {
+    this.controller.say(text, ms);
+  }
+
+  /** Mouse-look mode (the double-click or L): capture the mouse; Esc releases it. Resolves false if the browser refused. */
+  lockMouse(): Promise<boolean> {
+    return this.controller.lockMouse();
+  }
+
+  releaseMouse(): void {
+    this.controller.releaseMouse();
+  }
+
+  /** The mouse is captured (mouse-look mode). */
+  isMouseLocked(): boolean {
+    return this.controller.isLocked();
   }
 
   dispose(): void {

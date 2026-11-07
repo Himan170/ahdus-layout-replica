@@ -58,6 +58,7 @@ vi.mock('../../play/playController', () => ({
       getPosition: () => ({ x: c.pos.x, y: c.pos.y, z: c.pos.z }),
       setAutopilot: vi.fn((p: any) => { c.pilot = p; }),
       stepFloor: vi.fn(),
+      say: vi.fn(),
       setCharacter: vi.fn((ch: any, opts: any) => { c.character = ch; c.eyeHeight = opts?.eyeHeight; }),
       getCharacter: () => c.character ?? null,
       dispose: vi.fn(),
@@ -613,6 +614,94 @@ describe('navigation: going there (v0.13.4)', () => {
     expect(c.pilot).toBeNull();
     expect(engine.highlights.ids()).toEqual([]);
     expect(engine.navigation.stop()).toBe(false); // nothing to stop: free walking
+  });
+
+  it('Esc ends the route and is taken (the view keeps the keys, v0.14.0)', () => {
+    const { engine, controller } = walking({ mode: 'walkthrough' });
+    engine.navigation.routeTo('room:room_a', { walk: 'auto' });
+    expect(controller().pilot.key('Escape')).toBe(true);
+    expect(engine.navigation.walking).toBeNull();
+  });
+
+  // ── a click while walking (v0.14.0) ──
+  const clickOn = (more: Record<string, unknown> = {}) => ({
+    screen: { x: 300, y: 200 }, point: { x: -1.5, y: 0, z: -7 }, target: null, walkTo: { x: -1.5, z: -7, floor: 0 }, kind: 'ground', ...more,
+  });
+
+  it('a click on the floor walks there: Take me there to that spot, source "click", the outline left alone', () => {
+    const { engine, events, controller } = walking({ mode: 'walkthrough' });
+    engine.navigation.show('person:p1');
+    expect(engine.highlights.ids()).toEqual(['obj_desk']);
+    const clicks: any[] = [];
+    engine.on('walkClick', (e) => clicks.push(e));
+    const c = controller();
+    c.options.onPointClick(clickOn({ walkTo: { x: 1.5, z: -1, floor: 0 } })); // inside Office 1
+    expect(clicks).toEqual([expect.objectContaining({ action: 'walk', to: { x: 1.5, z: -1, floor: 0 } })]);
+    expect(events[0]).toMatchObject({ state: 'started', walk: 'auto', source: 'click' });
+    expect(engine.navigation.walking).toMatchObject({ walk: 'auto', source: 'click' });
+    expect(engine.highlights.ids()).toEqual(['obj_desk']);
+    expect(c.pilot.drive(0.05, frame(c)).speed).toBeGreaterThan(0);
+    const last = follow(c);
+    expect(events[events.length - 1]).toMatchObject({ state: 'arrived', source: 'click' });
+    expect(last).toBeNull(); // no turning to face a spot: it just stops
+    expect(Math.hypot(c.pos.x - 1.5, c.pos.z + 1)).toBeLessThan(1.1);
+    expect(engine.highlights.ids()).toEqual(['obj_desk']);
+  });
+
+  it('a movement key ends a click\'s walk (no "Press G"), and a double-click cancels the walk its first click started', () => {
+    const { engine, events, controller } = walking({ mode: 'walkthrough' });
+    const c = controller();
+    c.options.onPointClick(clickOn({ walkTo: { x: 1.5, z: -1, floor: 0 } }));
+    expect(c.pilot.drive(0.05, frame(c, { userMoving: true }))).toBeNull();
+    expect(events[events.length - 1]).toMatchObject({ state: 'stopped', source: 'click' });
+    expect(engine.navigation.walking).toBeNull();
+    c.options.onPointClick(clickOn({ walkTo: { x: 1.5, z: -1, floor: 0 } }));
+    expect(engine.navigation.walking).not.toBeNull();
+    c.options.onDoubleClick();
+    expect(engine.navigation.walking).toBeNull();
+    // a double-click leaves a route from search alone
+    engine.navigation.routeTo('room:room_a', { walk: 'auto' });
+    c.options.onDoubleClick();
+    expect(engine.navigation.walking).not.toBeNull();
+  });
+
+  it('a click where no one can walk says why in the HUD; on the sky it does nothing', () => {
+    const { engine, controller } = walking({ mode: 'walkthrough' });
+    const clicks: any[] = [];
+    engine.on('walkClick', (e) => clicks.push(e));
+    const c = controller();
+    c.options.onPointClick(clickOn({ walkTo: { x: 0, z: 0, floor: 1 } })); // upstairs: the stairs lead into a room with no door
+    c.options.onPointClick(clickOn({ point: null, walkTo: null, kind: null }));
+    expect(clicks.map((k) => k.action)).toEqual(['none', 'none']);
+    expect(clicks[0].problem).toBeTruthy();
+    expect(c.say).toHaveBeenCalledWith(clicks[0].message, expect.any(Number));
+    expect(clicks[1].problem).toBeUndefined();
+    expect(engine.navigation.walking).toBeNull();
+  });
+
+  it('a click on a person is their card; on something a module has an action for, within reach, that action (as E)', () => {
+    const { engine, controller } = walking({ mode: 'walkthrough' });
+    const clicks: any[] = [];
+    const interacts: any[] = [];
+    engine.on('walkClick', (e) => clicks.push(e));
+    engine.on('interact', (e) => interacts.push(e));
+    const c = controller();
+    const asha = { personId: 'p1', deskId: 'obj_desk', name: 'Asha Patel' } as any;
+    const pick = vi.spyOn(engine, 'pickPerson').mockReturnValue(asha);
+    c.options.onPointClick(clickOn());
+    expect(clicks[0]).toMatchObject({ action: 'person', person: asha, at: { x: 300, y: 200 } });
+    expect(pick).toHaveBeenCalledWith(300, 200);
+    pick.mockReturnValue(null);
+    const target = { objectId: 'obj_desk', point: { x: 1, y: 0.7, z: 1 }, distance: 2 };
+    // no module has an action for the desk: walk to it
+    engine.describeInteraction = () => ({ label: 'Details', name: 'Desk', handled: false });
+    c.options.onPointClick(clickOn({ target, walkTo: { x: 1, z: 0.5, floor: 0 }, kind: 'item' }));
+    expect(clicks[1].action).toBe('walk');
+    expect(interacts).toEqual([]);
+    engine.describeInteraction = () => ({ label: 'Book this desk', name: 'Desk', handled: true });
+    c.options.onPointClick(clickOn({ target, kind: 'item' }));
+    expect(clicks[2]).toMatchObject({ action: 'interact', objectId: 'obj_desk' });
+    expect(interacts[0]).toMatchObject({ objectId: 'obj_desk' });
   });
 
   it('stuck (no progress in 1.5 s): a new route; stuck twice: the walk stops', () => {

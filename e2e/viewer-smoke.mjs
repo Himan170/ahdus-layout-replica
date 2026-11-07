@@ -104,10 +104,11 @@ log('layoutBridge reads the viewer\'s layout (rooms, anchors, scene)',
   bridge.rooms.join() === 'Engineering,Meeting room,Reception' && bridge.machine === 'obj_cnc' && bridge.scene, JSON.stringify(bridge));
 
 // ── 2. Walk in through the door: enterRoom ──
+// v0.14.0: no click needed (a click on the floor would walk there): the view has the keys, the mouse stays free
 await p.mouse.move(500, 360);
-await p.click('canvas');
 await wait(500);
-log('clicking the view captures the mouse', await p.evaluate(() => !!document.pointerLockElement));
+log('walking: the view has the keys without a click, and never captures the mouse by itself',
+  await p.evaluate(() => !document.pointerLockElement && !!document.activeElement?.closest('[data-layout-viewer]')));
 
 // Where walking starts (v0.13.0): the ground floor, 3 m outside the main entrance (the Reception's door), facing it.
 // It is outside: the page opened walking, and no room event came before anything moved the character.
