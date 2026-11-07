@@ -27,9 +27,13 @@
  * Walking through, they are their own `player.character` (walking with the
  * clip at `walkClipUrl`; none: the simple figure) and their seated figure hides.
  *
- * Walking through, the keys are the page's until the view is engaged: clicked
- * (it captures the mouse) or focused (Tab; a focus ring shows). Esc gives
- * them back.
+ * Walking through (v0.14.0, easy controls): the view takes the keys when
+ * walking starts, and again after a click on its own buttons; they also work
+ * while the mouse is over it (never while typing in a text field). Drag to
+ * look (the cursor stays); click the floor to walk there, a person for their
+ * card. A double-click or L captures the mouse (mouse-look mode, a crosshair);
+ * Esc releases it, the next Esc gives the keys back to the page. A one-time
+ * hint says so; the "?" button lists every key. Tab to the view: a focus ring.
  */
 
 import { useEffect, useId, useRef, useState } from 'react';
@@ -45,6 +49,7 @@ import { connectEngine } from '../../integration/layoutBridge';
 // Not apiService: that would bundle saving (the Supabase client) into every viewer
 import { readSavedLayout } from '../../services/savedLayouts';
 import { PlaceSearch } from './PlaceSearch';
+import { AUTO_FOCUS_ATTR } from '../systems/WalkthroughSystem';
 
 export interface LayoutViewerProps {
   /** The layout: a save, an exported layout file or v2 JSON. */
@@ -117,6 +122,41 @@ const ARRIVED_CARD_M = 3;
 /** A click or tap, not a drag of the view: at most this far (px) and this long (ms) from press to release. */
 const TAP_PX = 8;
 const TAP_MS = 600;
+/** A card kept by a click while walking goes when you walk this far (m) from where you clicked. */
+const PINNED_WALK_M = 4;
+
+/** The one-time hint when walking starts (per browser; shown again if storage is blocked). */
+export const WALK_HINT = 'W A S D to walk · drag to look · click the floor to go there';
+const WALK_HINT_KEY = 'ahdus.walkHintSeen';
+/** The hint stays this long (ms), then fades out over HINT_FADE_MS. */
+const HINT_MS = 6000;
+const HINT_FADE_MS = 800;
+
+/** The "?" help: every key and mouse action while walking. */
+export const WALK_HELP: [string, string][] = [
+  ['W A S D / arrows', 'Walk'],
+  ['Shift', 'Run'],
+  ['Drag', 'Look around'],
+  ['Click the floor', 'Walk there'],
+  ['Click a person', 'Their name card'],
+  ['E', 'Use what you look at'],
+  ['Space', 'Jump'],
+  ['F', 'Fly (Space up, C down, F lands)'],
+  ['V', 'First / third person'],
+  ['Page Up / Page Down', 'Floor above / below'],
+  ['Home', 'Back to the entrance'],
+  ['G', 'Walk on along a route'],
+  ['Double-click or L', 'Mouse look (Esc releases)'],
+  ['Esc', 'Stop a route · give the keys back to the page'],
+];
+
+/** Has this browser seen the walking hint? (storage blocked: no) */
+function walkHintSeen(): boolean {
+  try { return window.localStorage.getItem(WALK_HINT_KEY) === '1'; } catch { return false; }
+}
+function markWalkHintSeen(): void {
+  try { window.localStorage.setItem(WALK_HINT_KEY, '1'); } catch { /* shown again next time */ }
+}
 
 /** A link the page gave: only http(s), absolute or relative to the page (never javascript: and the like). */
 function safeLink(url: unknown): string | null {
@@ -156,6 +196,25 @@ export function LayoutViewer(props: LayoutViewerProps) {
   // the person pointed at (view) or walked up to (walkthrough); at: the cursor in the box (px);
   // pinned: clicked or tapped (stays until the next click or tap, and its link can be clicked)
   const [person, setPerson] = useState<{ who: PlacedPerson; at: { x: number; y: number } | null; pinned?: boolean } | null>(null);
+  // walking: the "?" help, and the one-time hint ('shown' → 'fading' → gone)
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [hint, setHint] = useState<'shown' | 'fading' | null>(null);
+  const helpButtonRef = useRef<HTMLButtonElement>(null);
+  /** Did the last key or press before a focus come from Tab? The focus ring is for Tab only (not :focus-visible:
+   *  after typing in Find, Chrome counts the view's own focus as a keyboard focus). */
+  const tabbedRef = useRef(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (!['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) tabbedRef.current = e.key === 'Tab'; };
+    const onDown = () => { tabbedRef.current = false; };
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('pointerdown', onDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('pointerdown', onDown, true);
+    };
+  }, []);
+  /** Where the walker stood when a click kept a person's card (walking). */
+  const pinnedFromRef = useRef<{ x: number; z: number } | null>(null);
   // the latest callbacks, so the engine's handlers never call stale ones
   const propsRef = useRef(props);
   /** The person the last walk (Take me there / Show route) arrived at, while you stay near them. */
@@ -172,8 +231,11 @@ export function LayoutViewer(props: LayoutViewerProps) {
     let disconnect: (() => void) | null = null;
     let cardTimer: ReturnType<typeof setTimeout> | undefined;
     const offs: (() => void)[] = [];
+    // unmounted before the engine is ready (StrictMode): it is disposed at once, so it never shares the canvas's
+    // WebGL context with the next one (that broke the next one's sky: a black part in dev)
+    const abort = new AbortController();
 
-    LayoutEngine.create(canvas, { mode, quality, assetBaseUrl, focusTarget: boxRef.current }).then((e) => {
+    LayoutEngine.create(canvas, { mode, quality, assetBaseUrl, focusTarget: boxRef.current, signal: abort.signal }).then((e) => {
       if (disposed) {
         e.dispose();
         return;
@@ -196,6 +258,17 @@ export function LayoutViewer(props: LayoutViewerProps) {
           setShownMode(m);
           if (m !== 'edit') propsRef.current.onModeChange?.(m);
         }),
+        // A click while walking: on a person, their card stays (as a click from above); elsewhere it goes
+        e.on('walkClick', (ev) => {
+          if (ev.action === 'person' && ev.person) {
+            const p = e.walkthrough?.getPosition();
+            pinnedFromRef.current = p ? { x: p.x, z: p.z } : null;
+            setPerson({ who: ev.person, at: ev.at, pinned: true });
+          } else {
+            pinnedFromRef.current = null;
+            setPerson((was) => (was?.pinned ? null : was));
+          }
+        }),
         e.on('navigation', (ev) => {
           if (ev.state === 'arrived') arrivedRef.current = ev.place?.personId != null ? String(ev.place.personId) : null;
           else if (ev.state === 'started') arrivedRef.current = null;
@@ -217,6 +290,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
 
     return () => {
       disposed = true;
+      abort.abort();
       clearTimeout(cardTimer);
       offs.forEach((off) => off());
       disconnect?.();
@@ -279,14 +353,19 @@ export function LayoutViewer(props: LayoutViewerProps) {
     const same = (a: PlacedPerson | null | undefined, b: PlacedPerson | null | undefined) => (a?.personId ?? null) === (b?.personId ?? null);
     if (shownMode === 'walkthrough') {
       const timer = setInterval(() => {
+        // a card kept by a click stays until the next click, or until you walk away from it
+        const from = pinnedFromRef.current;
+        const me = engine.walkthrough?.getPosition();
+        if (from && me && Math.hypot(me.x - from.x, me.z - from.z) > PINNED_WALK_M) pinnedFromRef.current = null;
+        if (pinnedFromRef.current) return;
         let who = engine.personNearWalker();
         if (!who && arrivedRef.current !== null) {
           who = engine.personNearWalker(ARRIVED_CARD_M, arrivedRef.current);
           if (!who) arrivedRef.current = null; // walked away: back to the usual 1.8 m
         }
-        setPerson((was) => (same(was?.who, who) ? was : who ? { who, at: null } : null));
+        setPerson((was) => (same(was?.who, who) && !was?.pinned ? was : who ? { who, at: null } : null));
       }, NEAR_EVERY_MS);
-      return () => { clearInterval(timer); setPerson(null); };
+      return () => { clearInterval(timer); pinnedFromRef.current = null; setPerson(null); };
     }
     let last = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -345,6 +424,54 @@ export function LayoutViewer(props: LayoutViewerProps) {
 
   const walking = shownMode === 'walkthrough';
   const engaged = !!(hud?.engaged ?? hud?.locked);
+  const floorReady = !progress || progress.currentFloorReady;
+
+  // The one-time hint, when walking starts and the floor shows (once per browser; StrictMode-safe)
+  const hintRef = useRef<{ show: boolean | null; done: boolean }>({ show: null, done: false });
+  useEffect(() => {
+    const h = hintRef.current;
+    if (!walking || error || !engine || !floorReady || h.done) return undefined;
+    if (h.show === null) {
+      // a touch-only device has no keys or mouse to tell about (its own hint comes with touch controls, v0.14.1)
+      const touchOnly = typeof window.matchMedia === 'function' && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+      h.show = !touchOnly && !walkHintSeen();
+      if (h.show) markWalkHintSeen();
+    }
+    if (!h.show) return undefined;
+    setHint('shown');
+    const fade = setTimeout(() => setHint('fading'), HINT_MS);
+    const gone = setTimeout(() => { h.done = true; setHint(null); }, HINT_MS + HINT_FADE_MS);
+    return () => { clearTimeout(fade); clearTimeout(gone); setHint(null); };
+  }, [walking, engine, floorReady, error]);
+
+  // The "?" help closes when walking ends, or on a press anywhere else
+  useEffect(() => {
+    if (!walking) setHelpOpen(false);
+  }, [walking]);
+  useEffect(() => {
+    if (!helpOpen) return undefined;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node | null;
+      if (t && (helpButtonRef.current?.contains(t) || (t as Element).closest?.('[data-walk-help]'))) return;
+      setHelpOpen(false);
+    };
+    // Esc closes the help (wherever the focus is), and does nothing else: not the walkthrough's Esc
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setHelpOpen(false);
+      if (boxRef.current?.contains(document.activeElement)) helpButtonRef.current?.focus({ preventScroll: true });
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [helpOpen]);
+  const reducedMotion = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   // Their own card, no character chosen yet: "Choose your character"
   const me = props.player?.personId;
   const chooseUrl = safeLink(props.chooseCharacterUrl);
@@ -361,8 +488,12 @@ export function LayoutViewer(props: LayoutViewerProps) {
       role={walking ? 'application' : undefined}
       aria-label={walking ? 'Layout walkthrough' : undefined}
       aria-describedby={walking ? keysHintId : undefined}
-      // the search box is typing, not walking: no focus ring for it
-      onFocus={(e) => setFocused(!(e.target as HTMLElement).closest?.('[data-place-search]'))}
+      // the search box is typing, not walking: no focus ring for it; nor when walking or a click gave the
+      // view the keys (the ring is for Tab only: tabbedRef)
+      onFocus={(e) => {
+        const t = e.target as HTMLElement;
+        setFocused(!t.closest?.('[data-place-search]') && !t.hasAttribute?.(AUTO_FOCUS_ATTR) && tabbedRef.current);
+      }}
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false); }}
     >
       <canvas
@@ -385,9 +516,12 @@ export function LayoutViewer(props: LayoutViewerProps) {
         // The toolbar, top left: walking, the keys hint and Back to entrance; the search button
         const walkBar = walking && !error && hud ? (
           <>
-            <div id={keysHintId} data-hud="keys" style={styles.keys}>
-              {engaged ? 'Esc to release' : 'Click to walk · Esc to release'}
-            </div>
+            {/* the view's description for screen readers (always); the pill shows only in mouse look (v0.14.0):
+                the cursor is gone then, and Esc is how to get it back. Otherwise Esc still releases the keys */}
+            <span id={keysHintId} data-hud="keys-state" style={styles.srOnly}>
+              {hud.locked ? 'Mouse look · Esc to release' : engaged ? 'Esc to release' : 'Click the view to walk'}
+            </span>
+            {hud.locked && <div aria-hidden data-hud="keys" style={styles.keys}>Mouse look · Esc to release</div>}
             <button
               type="button"
               data-hud="entrance"
@@ -397,7 +531,51 @@ export function LayoutViewer(props: LayoutViewerProps) {
             >
               Back to entrance
             </button>
+            <button
+              ref={helpButtonRef}
+              type="button"
+              data-hud="help"
+              aria-label="Keys and mouse"
+              aria-expanded={helpOpen}
+              aria-controls={helpOpen ? `${keysHintId}-help` : undefined}
+              title="Keys and mouse"
+              style={{ ...styles.button, ...styles.helpButton }}
+              onClick={() => setHelpOpen((o) => !o)}
+            >
+              ?
+            </button>
           </>
+        ) : null;
+        const help = walking && helpOpen && !error ? (
+          <div
+            id={`${keysHintId}-help`}
+            data-walk-help
+            role="dialog"
+            aria-label="Keys and mouse"
+            style={styles.help}
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return;
+              // ours, not the walkthrough's (Esc there gives the keys back to the page)
+              e.preventDefault();
+              e.stopPropagation();
+              setHelpOpen(false);
+              helpButtonRef.current?.focus({ preventScroll: true });
+            }}
+          >
+            <div style={styles.helpHead}>
+              <strong>Keys and mouse</strong>
+              <button type="button" aria-label="Close keys and mouse" title="Close (Esc)" style={styles.helpClose}
+                onClick={() => setHelpOpen(false)}>×</button>
+            </div>
+            <dl style={styles.helpList}>
+              {WALK_HELP.map(([key, what]) => (
+                <div key={key} style={styles.helpRow}>
+                  <dt style={styles.helpKey}>{key}</dt>
+                  <dd style={styles.helpWhat}>{what}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         ) : null;
         if (search && engine && !error) {
           return (
@@ -407,20 +585,29 @@ export function LayoutViewer(props: LayoutViewerProps) {
                   // from above the box is no Tab stop yet (walking starts this moment): make it one, then focus it
                   const box = boxRef.current;
                   if (box && box.tabIndex < 0) box.tabIndex = 0;
-                  box?.focus({ preventScroll: true });
+                  box?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
                 }}>{walkBar}</PlaceSearch>
+              {help}
             </div>
           );
         }
-        return walkBar ? <div style={styles.topLeft} data-viewer-toolbar><div style={styles.row}>{walkBar}</div></div> : null;
+        return walkBar ? <div style={styles.topLeft} data-viewer-toolbar><div style={styles.row}>{walkBar}</div>{help}</div> : null;
       })()}
       {walking && !error && hud && (
         <>
-          {engaged && <div aria-hidden style={styles.crosshair}>+</div>}
+          {/* mouse-look mode: what a click or E is on (dragging to look needs none: the cursor is there) */}
+          {hud.locked && <div aria-hidden data-crosshair style={styles.crosshair}>+</div>}
+          {hint && (
+            <div role="status" data-walk-hint={hint}
+              style={{ ...styles.walkHint, opacity: hint === 'fading' ? 0 : 1, transition: reducedMotion ? 'none' : `opacity ${HINT_FADE_MS}ms ease` }}>
+              {WALK_HINT}
+            </div>
+          )}
           <div style={styles.hud} aria-live="polite">
             <span data-hud="room"><strong>{hud.roomName}</strong></span>
             {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · {hud.floor.name ?? `Floor ${hud.floor.index}`}</span>}
-            <div data-hud="hint">{hud.message ?? hud.hint?.detail}</div>
+            {/* while the one-time hint shows, the keys aren't said twice (a message still shows) */}
+            {(hud.message ?? (hint ? null : hud.hint?.detail)) && <div data-hud="hint">{hud.message ?? hud.hint?.detail}</div>}
             {engaged && hud.prompt && (
               <div data-hud="prompt"><kbd style={styles.key}>E</kbd> {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</div>
             )}
@@ -484,6 +671,10 @@ const styles: Record<string, CSSProperties> = {
   },
   row: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   keys: { ...panel, position: 'static', padding: '4px 10px', fontSize: 13 },
+  srOnly: {
+    position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)',
+    whiteSpace: 'nowrap', border: 0,
+  },
   button: {
     ...panel, position: 'static', padding: '4px 10px', fontSize: 13, pointerEvents: 'auto', cursor: 'pointer',
     border: '1px solid #fff6',
@@ -494,6 +685,26 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: 'inset 0 0 0 2px #fff, inset 0 0 0 4px #2563eb',
   },
   card: { ...panel, top: 12, right: 12, maxWidth: 320 },
+  helpButton: { minWidth: 30, fontWeight: 700, textAlign: 'center' },
+  // under the toolbar, as the search panel
+  help: {
+    ...panel, position: 'relative', pointerEvents: 'auto', marginTop: 8, width: '100%', maxWidth: 360, maxHeight: '100%',
+    boxSizing: 'border-box', overflowY: 'auto', padding: '8px 12px 10px', background: 'rgba(15, 23, 42, 0.9)',
+  },
+  helpHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 },
+  helpClose: {
+    border: 'none', background: 'transparent', color: '#fff', font: '20px/1 system-ui, sans-serif', cursor: 'pointer',
+    width: 28, height: 28, borderRadius: 6,
+  },
+  helpList: { margin: 0, display: 'grid', gap: 3, fontSize: 13 },
+  helpRow: { display: 'flex', gap: 10, justifyContent: 'space-between' },
+  helpKey: { fontWeight: 600, whiteSpace: 'nowrap' },
+  helpWhat: { margin: 0, textAlign: 'right', opacity: 0.9 },
+  // the one-time hint: over the middle of the view, near the bottom
+  walkHint: {
+    ...panel, left: '50%', bottom: 64, transform: 'translateX(-50%)', textAlign: 'center', padding: '8px 14px',
+    maxWidth: 'calc(100% - 24px)', boxSizing: 'border-box', width: 'max-content',
+  },
   quiet: { ...panel, right: 12, bottom: 12, padding: '4px 10px', fontSize: 12, opacity: 0.8 },
   key: { border: '1px solid #fff8', borderRadius: 4, padding: '0 5px', marginRight: 4 },
   person: { ...panel, maxWidth: 220, padding: '6px 10px', fontSize: 13, overflowWrap: 'anywhere' },

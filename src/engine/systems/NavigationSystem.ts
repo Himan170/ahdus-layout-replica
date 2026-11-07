@@ -115,7 +115,15 @@ export interface NavigationEvent {
   rerouted?: boolean;
   problem?: string;
   message?: string;
+  /** 'click': a click on the floor started it (v0.14.0); none: search, the page (routeTo / goTo). */
+  source?: RouteSource;
 }
+
+/**
+ * Who started a route. 'click' (a click on the floor while walking, v0.14.0): it touches no outline,
+ * a movement key ends it (no "Press G"), and it stops on arrival without turning.
+ */
+export type RouteSource = 'click';
 
 /** A walker's controller (playController via WalkthroughSystem): what navigation drives. */
 export interface PilotHost {
@@ -195,6 +203,7 @@ interface Walk {
   faceYaw: number | null;
   /** Walking time so far (s, the frames' time). */
   elapsed: number;
+  source?: RouteSource;
 }
 
 const list = <T,>(v: unknown): T[] => (Array.isArray(v) ? v : Object.values((v ?? {}) as Record<string, T>));
@@ -412,12 +421,13 @@ export class NavigationSystem {
   // ── Going there (v0.13.4) ──────────────────────────────────────────────
 
   /** The route being followed now, or null: { place, walk, paused, remaining, elapsed }. */
-  get walking(): { place: PlaceResult; walk: WalkMode; paused: boolean; remaining: number; elapsed: number } | null {
+  get walking(): { place: PlaceResult; walk: WalkMode; paused: boolean; remaining: number; elapsed: number; source?: RouteSource } | null {
     const w = this.active;
     if (!w) return null;
     return {
       place: publicPlace(w.place) as PlaceResult, walk: w.walk, paused: w.paused,
       remaining: Math.max(0, w.follower.length - w.follower.progress), elapsed: w.elapsed,
+      ...(w.source ? { source: w.source } : {}),
     };
   }
 
@@ -428,8 +438,9 @@ export class NavigationSystem {
    * target: an id or result from find(), { personId } | { deskId } | { roomId } | { objectId } |
    * { type: 'RESTROOM' | 'MEETING' | 'RECEPTION' | 'STAIRS' } (the nearest) | { x, z, floor }.
    */
-  routeTo(target: RouteTarget, { walk = 'guide' }: { walk?: WalkMode } = {}): RouteAnswer {
+  routeTo(target: RouteTarget, { walk = 'guide', source }: { walk?: WalkMode; source?: RouteSource } = {}): RouteAnswer {
     const mode: WalkMode = walk === 'auto' ? 'auto' : 'guide';
+    const from = source === 'click' ? { source } : {};
     if (!this.resolve(target)) return { problem: 'NOT_FOUND', message: 'Nothing found to go to' };
     if (this.active) this.end('stopped', { silent: true });
     const host = this.hooks.startWalking?.() ?? null;
@@ -440,24 +451,27 @@ export class NavigationSystem {
     const route = this.routeFrom(walker, place);
     if (route.problem) {
       const message = route.message ?? 'No walking route';
-      this.hooks.emit?.({ state: 'failed', walk: mode, place: publicPlace(place) as PlaceResult, problem: route.problem, message, floor: walker.floor });
+      this.hooks.emit?.({ state: 'failed', walk: mode, place: publicPlace(place) as PlaceResult, problem: route.problem, message, floor: walker.floor, ...from });
       return { place: publicPlace(place) as PlaceResult, problem: route.problem, message };
     }
     place = this.chosen(place, route);
     const w: Walk = {
       place, walk: mode, host, route, follower: this.follower(route), paused: false, stuck: 0, stuckAtS: 0,
       sinceReroute: 0, drawnS: -Infinity, drawnFloor: -1, emittedRemaining: route.length, sinceEmit: 0, faceYaw: null, elapsed: 0,
+      ...from,
     };
     this.active = w;
-    this.hooks.clearHighlights();
-    if (place.highlight?.length) this.hooks.highlight(place.highlight, SEARCH_HIGHLIGHT);
-    this.shown = place.id;
+    if (!w.source) { // a click's walk leaves what search outlined alone
+      this.hooks.clearHighlights();
+      if (place.highlight?.length) this.hooks.highlight(place.highlight, SEARCH_HIGHLIGHT);
+      this.shown = place.id;
+    }
     host.setAutopilot(this.pilot(w));
     this.draw(w, walker.floor, true);
     const floors = route.legs.map((l) => l.floor);
     this.hooks.emit?.({
       state: 'started', walk: mode, place: publicPlace(place) as PlaceResult, length: route.length, remaining: route.length,
-      seconds: route.seconds, floor: walker.floor,
+      seconds: route.seconds, floor: walker.floor, ...from,
     });
     return { place: publicPlace(place) as PlaceResult, walk: mode, length: route.length, seconds: route.seconds, floors };
   }
@@ -521,7 +535,7 @@ export class NavigationSystem {
     this.active = null;
     w.host.setAutopilot(null);
     this.hooks.routeLine?.()?.hide();
-    if (state !== 'arrived') { // arrived: the place stays outlined
+    if (state !== 'arrived' && !w.source) { // arrived: the place stays outlined; a click's walk outlined nothing
       this.hooks.clearHighlights();
       this.shown = null;
     }
@@ -530,6 +544,7 @@ export class NavigationSystem {
     this.hooks.emit?.({
       state, walk: w.walk, place: publicPlace(w.place) as PlaceResult, floor: me?.floor,
       ...(state === 'arrived' ? { remaining: 0 } : {}), ...(problem ? { problem } : {}), ...(message ? { message } : {}),
+      ...(w.source ? { source: w.source } : {}),
     });
   }
 
@@ -565,7 +580,7 @@ export class NavigationSystem {
     w.sinceEmit = 0;
     this.hooks.emit?.({
       state: 'progress', walk: w.walk, place: publicPlace(w.place) as PlaceResult, remaining, length: w.follower.length,
-      floor, paused: w.paused, ...(rerouted ? { rerouted } : {}),
+      floor, paused: w.paused, ...(rerouted ? { rerouted } : {}), ...(w.source ? { source: w.source } : {}),
     });
   }
 
@@ -574,7 +589,8 @@ export class NavigationSystem {
     return {
       key: (code) => {
         if (this.active !== w) return false;
-        if (code === 'Escape') { this.stop(); return false; } // Esc also gives the keys back to the page, as always
+        // Esc ends the route and nothing else (v0.14.0: the view keeps the keys; the next Esc gives them back)
+        if (code === 'Escape') { this.stop(); return true; }
         if (code === 'KeyG') return w.walk === 'guide' || w.paused ? this.resume() || true : true;
         return false;
       },
@@ -592,6 +608,8 @@ export class NavigationSystem {
           }
           return { dirX: 0, dirZ: 0, speed: 0, yaw };
         }
+        // a movement key ends a click's walk: you walk yourself now
+        if (w.source === 'click' && me.userMoving) { this.end('stopped'); return null; }
         // a movement key pauses Take me there ("Press G to continue")
         if (w.walk === 'auto' && !w.paused && me.userMoving) {
           w.paused = true;
@@ -600,6 +618,7 @@ export class NavigationSystem {
         const driving = w.walk === 'auto' && !w.paused && !me.userMoving;
         const step = w.follower.step({ x: me.x, z: me.z, floor: me.floor, yaw: me.yaw }, dt, { drive: driving });
         if (step.arrived) {
+          if (w.source === 'click') { this.end('arrived'); return null; } // there: no turning to face a spot
           const p = w.place;
           const far = Number.isFinite(p.x) && Math.hypot(p.x - me.x, p.z - me.z) > 0.2;
           w.faceYaw = far ? headingOf(p.x - me.x, p.z - me.z) : me.yaw;

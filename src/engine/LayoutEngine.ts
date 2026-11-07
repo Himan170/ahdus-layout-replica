@@ -37,8 +37,9 @@
  *   view         orbit camera; nothing can change the layout
  *   walkthrough  Preview's character (W A S D, mouse, E, Page Up / Down:
  *                systems/WalkthroughSystem); nothing can change the layout;
- *                fires enterRoom, exitRoom, interact. The keys are the page's
- *                until the view is clicked or focused (options.focusTarget)
+ *                fires enterRoom, exitRoom, interact, walkClick. The view takes
+ *                the keys when walking starts (options.focusTarget); drag to
+ *                look, click the floor to walk there (v0.14.0)
  */
 
 import type { Engine } from '@babylonjs/core/Engines/engine';
@@ -68,7 +69,7 @@ import { SceneBuilder } from './systems/SceneBuilder';
 import type { BuildProgress } from './systems/SceneBuilder';
 import { elevationOf } from '../play/building';
 import { WalkthroughSystem } from './systems/WalkthroughSystem';
-import type { WalkthroughTarget } from './systems/WalkthroughSystem';
+import type { WalkthroughTarget, WalkthroughClick } from './systems/WalkthroughSystem';
 import { createWorkspaceStore } from '../store/workspaceStore';
 import { createEditorHistory } from '../store/editorHistory';
 import { primaryAnchor } from '../integration/anchorsFromStore';
@@ -84,14 +85,17 @@ export type QualityLevel = 'high' | 'low';
 
 export interface EngineOptions {
   mode?: EngineMode;
+  /** create(): aborted before the engine is ready = it is disposed at once and create() rejects (an AbortError). */
+  signal?: AbortSignal;
   /** 'high' (default): realistic look (real furniture models, photo textures, HDRI sky); 'low': simple models and materials. */
   quality?: QualityLevel;
   /** Where the real assets are (models/, textures/, env/). Default: the app's public/assets/. */
   assetBaseUrl?: string;
   /**
-   * Walkthrough mode: the view's box. The keys are the page's until the view
-   * is engaged: its canvas has the mouse, or focus is in this element (make it
-   * focusable). Default: the canvas.
+   * Walkthrough mode: the view's box. The keys are the view's while it is
+   * engaged: its canvas has the mouse, focus is in this element, or the mouse
+   * is over it. Walking starts with the focus in it (it is made focusable).
+   * Default: the canvas.
    */
   focusTarget?: HTMLElement | null;
   /**
@@ -154,7 +158,25 @@ type EventMap = {
   navigation: NavigationEvent;
   /** The mode changed (setMode, or "Take me there" from above starting a walk). */
   mode: { mode: EngineMode };
+  /** A plain click on the walking view (v0.14.0): what it did. */
+  walkClick: WalkClickEvent;
 };
+
+/**
+ * A plain click (not a drag) on the walking view, and what it did (v0.14.0):
+ * 'person' (their card: the viewer pins it), 'interact' (a module's action, as E),
+ * 'walk' (a route there, walk 'auto', source 'click'), 'none' (nothing there, or no way there: message).
+ */
+export interface WalkClickEvent {
+  action: 'person' | 'interact' | 'walk' | 'none';
+  /** Where it was clicked (CSS px from the canvas's top left). */
+  at: { x: number; y: number };
+  person?: PlacedPerson;
+  objectId?: string | null;
+  to?: { x: number; z: number; floor: number };
+  problem?: string;
+  message?: string;
+}
 
 export type { NavigationEvent };
 
@@ -187,6 +209,13 @@ type EventHandler<K extends keyof EventMap> = (event: EventMap[K]) => void;
 
 /** An engine's own workspace store (the app's store shape, v1 field names). */
 export type WorkspaceStore = ReturnType<typeof createWorkspaceStore>;
+
+/** create() was aborted (options.signal). */
+function abortError(): Error {
+  const err = new Error('The engine was not needed any more (aborted)');
+  err.name = 'AbortError';
+  return err;
+}
 
 // ── LayoutEngine ─────────────────────────────────────────────────────────
 
@@ -258,10 +287,22 @@ export class LayoutEngine {
     canvas: HTMLCanvasElement,
     options: EngineOptions = {},
   ): Promise<LayoutEngine> {
+    const { signal } = options;
+    if (signal?.aborted) throw abortError();
     const engine = new LayoutEngine(createLayoutScene(canvas, { quality: options.quality, assetBaseUrl: options.assetBaseUrl }), options);
-    // Allow one frame for the scene to initialise
-    await new Promise<void>((resolve) => {
-      engine.scene.executeWhenReady(() => resolve());
+    // Allow one frame for the scene to initialise. Aborted meanwhile (React StrictMode unmounts at once): disposed
+    // NOW, not when ready. Two engines on one canvas share its WebGL context: one still drawing (or decoding the
+    // sky) while the next starts breaks the next one's first sky face (v0.14.0: a black part of the sky in dev).
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        engine.dispose();
+        reject(abortError());
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      engine.scene.executeWhenReady(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      });
     });
     return engine;
   }
@@ -789,11 +830,47 @@ export class LayoutEngine {
         onViewChange: ({ inside, level }) => this.floors.setView({ mode: inside ? 'inside' : 'outside', level }),
         onHud: (info) => this.emit('hud', info),
         describeInteraction: (target) => this.describeInteraction?.(target) ?? null,
+        onPointClick: (click) => this._walkClick(click),
+        // the double-click's first click started a walk there: mouse-look mode is what was meant
+        onDoubleClick: () => { if (this.navigation.walking?.source === 'click') this.navigation.stop(); },
       },
       this._focusTarget,
       this.navigation.walkMaps,
     );
     return this._walkthrough;
+  }
+
+  /**
+   * A plain click while walking (v0.14.0): on a person, their card; on something within reach that a
+   * module has an action for, that action (as E); else walk there (Take me there to that spot, ended
+   * by a movement key). The 'walkClick' event says which.
+   */
+  private _walkClick(click: WalkthroughClick): void {
+    const walk = this._walkthrough;
+    if (!walk?.isActive()) return;
+    const at = click.screen;
+    const person = this.pickPerson(at.x, at.y);
+    if (person) {
+      this.emit('walkClick', { action: 'person', at, person });
+      return;
+    }
+    if (click.target && this.describeInteraction?.(click.target)?.handled) {
+      this.emit('interact', this._interactEvent(click.target));
+      this.emit('walkClick', { action: 'interact', at, objectId: click.target.objectId ?? null });
+      return;
+    }
+    if (!click.walkTo) {
+      this.emit('walkClick', { action: 'none', at });
+      return;
+    }
+    const to = click.walkTo;
+    const r = this.navigation.routeTo({ x: to.x, z: to.z, floor: to.floor }, { walk: 'auto', source: 'click' });
+    if (r.problem) {
+      walk.say(r.message ?? 'No way to walk there', 2500);
+      this.emit('walkClick', { action: 'none', at, to, problem: r.problem, message: r.message });
+      return;
+    }
+    this.emit('walkClick', { action: 'walk', at, to });
   }
 
   /** E on an item (its main anchor, as layoutBridge picks it) or on a door / window. */
