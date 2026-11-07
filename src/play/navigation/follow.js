@@ -52,6 +52,9 @@ const TIGHT_LOOK = 0.2;
  */
 export const TIGHT_SPEED = 2.8;
 const TIGHT_STEP = 0.2;
+/** A step never ends closer than this to a wall or an item (m: the body + 4 cm); else it is halved, down to SAFE_STEP_MIN. */
+const SAFE_CLEARANCE = 0.36;
+const SAFE_STEP_MIN = 0.05;
 /** Slower near a sharp turn ahead (within this many metres) and at the end. */
 const CORNER_AHEAD = 1.4;
 const SLOW_END = 2;
@@ -213,6 +216,16 @@ export function itemDistance(map, x, z) {
   return d;
 }
 
+/** How far a point is from the nearest wall or item of the map (m; Infinity: nothing within 1.5 m). */
+export function obstacleDistance(map, x, z) {
+  let d = Infinity;
+  for (const o of map?.obstacles ?? []) {
+    if (Math.abs(o.x - x) > o.hw + o.hd + 1.5 || Math.abs(o.z - z) > o.hw + o.hd + 1.5) continue;
+    d = Math.min(d, distanceToRect(o, x, z));
+  }
+  return d;
+}
+
 /**
  * Follow a route.
  * @param {import('./route').Route} route
@@ -343,6 +356,13 @@ export function createFollower(route, options = {}) {
       if (Math.hypot(far.x - ahead.x, far.z - ahead.z) > 0.2) speed *= 1 - 0.35 * Math.min(1, turn / (Math.PI / 2));
       if (me.floor === end.floor && toEnd < SLOW_END) speed = Math.min(speed, Math.max(MIN_SPEED, walkSpeed * (toEnd / SLOW_END)));
       if (tight) speed = Math.min(speed, TIGHT_SPEED, TIGHT_STEP / Math.max(dt, 1e-3));
+      // a big step (a slow frame, the turn off the top of a flight) never ends closer to a wall or an item than
+      // SAFE_CLEARANCE, nor closer than you are now if you are closer already: it is halved instead
+      if (map && map.at(me.x, me.z) !== STAIRS) {
+        const need = Math.min(SAFE_CLEARANCE, obstacleDistance(map, me.x, me.z));
+        for (let i = 0; i < 4 && speed * dt > SAFE_STEP_MIN
+          && obstacleDistance(map, me.x + dx * speed * dt, me.z + dz * speed * dt) < need; i++) speed /= 2;
+      }
 
       // stuck: less than STUCK_PROGRESS along the route in STUCK_TIME
       windowTime += dt;
