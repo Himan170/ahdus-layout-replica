@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (833, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (856, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -56,14 +56,18 @@ npm run e2e:shared-walls  # 17     e2e/shared-walls-smoke.mjs (one wall + one do
 npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
                           #                                    rooms drawn inside sharing walls with each other and
                           #                                    the outer wall, doors, picks, upper floor, save + reopen)
-npm run e2e:viewer   # 18 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
+npm run e2e:viewer   # 29 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
                      #                                       the vite build), where walking starts (no room events) + Home, setPose
                      #                                       into a machine, walk in, E + a module's action, edits
-                     #                                       refused, Page Up, view mode, a saved layout)
-npm run e2e:embed    # 27 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
+                     #                                       refused, Page Up, view mode, a saved layout; search: the
+                     #                                       box, keys, a keystroke < 50 ms, show / clear, walking: W in
+                     #                                       the box does not walk, the walk measured, search=0)
+npm run e2e:embed    # 31 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
                      #                                       in it (no Supabase), serves embed-test.html itself; keys are the page's until the view is engaged, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
-                     #                                       with cookies, destroy(), assets next to the script, quality low)
+                     #                                       with cookies, destroy(), assets next to the script, quality low,
+                     #                                       find(), the search box (no email), full width at 390 px,
+                     #                                       navigation: { search: false })
 npm run e2e:characters # 36     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
                      #                                       on 2 floors: the view from above (no roof: at the start,
                      #                                       after setFloor, after walking), simple figures, full characters near the
@@ -210,8 +214,11 @@ src/utils/buildPreview.js          Blue/red build previews shared by both modes
 src/play/navigation/               PURE (v0.13.0): walkMap.js (the walk map of a floor: 0.1 m cells, walls with door gaps,
                                    solid items, grown by the body; createWalkMapCache) + entrance.js (entranceSpawn: where
                                    walking starts; outsideDoors / mainEntrance; nearestFree) + route.js (v0.13.2: findRoute,
-                                   findNearestRoute, floorLinks). Tests in navigation/__tests__/ (meridianLike.js,
-                                   randomLayouts.js: shared test layouts)
+                                   findNearestRoute, floorLinks) + places.js (v0.13.3: buildPlaces, searchPlaces: what the
+                                   search finds). Tests in navigation/__tests__/ (meridianLike.js, randomLayouts.js:
+                                   shared test layouts)
+src/engine/systems/NavigationSystem.ts  engine.navigation (v0.13.3): find / search / show / clear (places.js index, cached)
+src/engine/react/PlaceSearch.tsx   The viewer's search box "Find a person, room or place" (toolbar button, inline styles)
 src/play/people.js                 PURE: people at desks: deskSeat / deskSeats (the chair of a desk), seatPose,
                                    personNear, chooseFullCharacters (≤ 12 nearest), BONE_TABLE (Mixamo ↔ Unreal
                                    names), normaliseBoneName, SEATED_POSE / STANDING_POSE (tests in play/__tests__)
@@ -415,13 +422,13 @@ Step v0.13.0 of `private-docs/NAVIGATION_PLAN.md` (4.1, 4.2, 4.6). Pure maths in
   Preview's HUD "Entrance" (aria-label `Back to entrance`) + Home in its key list. The spawn point's marker (the blue
   disc) shows in Studio only (Preview too): LayoutEngine outside edit mode hides `STUDIO_ONLY_TYPES`
   (`ObjectSystem.setHiddenTypes`, FloorSystem never enables them; the item, its anchor and focusOn stay), v0.13.1.
-- Not yet: Studio hints ("No door leads outside…", "Spawn point is inside furniture…"); search and "Take me there"
-  are v0.13.3 / v0.13.4.
+- Not yet: Studio hints ("No door leads outside…", "Spawn point is inside furniture…"); "Take me there" is v0.13.4
+  (search is v0.13.3, see "Search").
 
 ## Routes (v0.13.2, how they work)
 
-Step v0.13.2 of `private-docs/NAVIGATION_PLAN.md` (4.3, 5.2). PURE: `src/play/navigation/route.js`. No UI yet: only
-the viewer's debug view uses it (search and "Take me there" will).
+Step v0.13.2 of `private-docs/NAVIGATION_PLAN.md` (4.3, 5.2). PURE: `src/play/navigation/route.js`. Used by the
+viewer's debug view and by search while walking (v0.13.3: how far, "Nearest washroom"); "Take me there" will.
 - `findRoute(layout, from, to, { catalog | maps, links, name })` → `{ legs: [{ floor, points, stairsAtEnd? }], length,
   seconds, from, to }` or `{ problem, message }`. Exact A* over the FREE cells of all floors (8 neighbours, no
   corner cutting, octile); floors joined by **links** (`floorLinks`: a staircase from the spot in front of its bottom
@@ -449,6 +456,40 @@ the viewer's debug view uses it (search and "Take me there" will).
   walk map (green free, red too close, blue stairs, yellow narrow-door cells), the route in orange, a panel
   (`[data-walkmap-debug]`, `data-route-problem`) with length / time / ms; click the floor = the goal, Shift + click =
   the start. Dev hook `window.__ahdusWalkDebug` ({ route(from, to), last, ms }).
+
+## Search (v0.13.3, how it works)
+
+Step v0.13.3 of `private-docs/NAVIGATION_PLAN.md` (4.4, and the "not walking" part of 4.5). No backend change.
+- **Index** (`src/play/navigation/places.js`, PURE): `buildPlaces(layout, people)` = people (setPeople: personId, deskId,
+  **name and department only**: nothing else is copied, so an email can never show or match; a desk not in the layout
+  = not found), rooms (name, else type label), departments (`room.departmentRef` of several rooms, or one room of
+  another name), facilities (`FACILITIES`: RESTROOM = washroom / restroom / toilet / WC / bathroom…, MEETING,
+  RECEPTION, STAIRS: rooms of those types, and RECEPTION_DESK / STAIRCASE items not in a room of their kind). Each
+  place: `detail` ("HR · Ground Floor, Lobby & Reception"), `entityId` (focusOn), `highlight` ids (a person: desk +
+  chair), `goals` (where a walk ends: just inside each door, 0.7 m behind a chair, in front of a stair's bottom step).
+- **Search** (`searchPlaces`): every query word must start a word of the place (name words first; 3+ letters also
+  inside a name word); whole names first; then the floor shown / where you stand. A query naming a facility
+  ("wash") lists all of them; walking (`from` with x, z) a "Nearest washroom" entry comes first. Groups People /
+  Rooms / Facilities (`order`, `groupOrder`: Rooms first when a room or department matches better than any person,
+  "Engineering", "Sales"; a tie keeps People first), `GROUP_LIMIT` 6 each, the rest counted ("and 84 more"). Meridian (319 people): 1–4 ms per
+  keystroke in the page, ~15 ms the first (the index is made then); remade when rooms / items / floors / people change.
+- **Engine** (`engine.navigation`, `systems/NavigationSystem.ts`): `find(q, { limit })` (flat, `publicPlace` shape),
+  `search(q)` (grouped), `show(id)`: from above `focusOn` (+ `around` 4 m for a person or item, `beta` ≤ 0.75:
+  looking down so walls don't hide it; `CameraSystem.flyTo` tilts) + `highlight` (`SEARCH_HIGHLIGHT` green);
+  walking: highlight + `findNearestRoute` from where you stand → `{ route: { length, seconds, floors } }` or
+  `{ problem, message }` (each goal named after its own place). `clear()`. People are kept here too, so search works
+  with quality 'low' (no CharacterSystem).
+- **UI** (`engine/react/PlaceSearch.tsx`, in `<LayoutViewer search>`, default true; embed option `navigation: { search }`):
+  a "Find" button (aria-label `Find a person, room or place`) in the viewer's top-left toolbar (walking: after the
+  keys hint and Back to entrance); the panel below it, `width: 100%` of the toolbar column, max 400 px (a phone: the
+  view less 12 px each side). Input = combobox + listbox (`aria-activedescendant`), groups, a live status ("1
+  result"), quick picks (Washroom, Meeting room, Reception, Stairs). ↑ ↓ Enter; Esc closes (stopPropagation: not the
+  walkthrough's Esc) and focuses the button. After a pick: a card (`data-place-shown`) with the name, detail, walking
+  "42 m walk, about 10 s · by the stairs" or the problem, and Clear. The AHDUS look (white, AHDUS green) as inline
+  styles (the viewer has no stylesheet; there is no separate "AHDUS mode" in the viewer / embed). Typing in the box
+  never walks (playController ignores inputs); focus in it shows no focus ring.
+- **Embed:** `workplace.find(query, { limit })` ([] until ready); `navigation: { search: false }` hides the box.
+- Not yet (v0.13.4): "Walk there" / "Show route" (no disabled button meanwhile), the route line, arrival card.
 
 ## Progressive loading (how it works)
 
@@ -603,7 +644,9 @@ site on the server (local mode renames the layout), the leave check. Saving, und
   e2e scripts pick a tool with `pick(tile, option)`: it opens the tile's library unless it is open (a click on an open
   tile closes it), then clicks the option; Rooms = "Draw your own size". Furniture: drag the tile onto the floor.
 - viewer.html's dev hooks: `__ahdusViewer` (the LayoutEngine; `.walkthrough.setPose`), `__ahdusScene`, `ahdus`,
-  `__viewerEvents` (bridge events), `__ahdusCards`, `__ahdusWalkDebug` (only with `&debug=walkmap`). A viewer captures the mouse on pointerdown (Babylon prevents
+  `__viewerEvents` (bridge events), `__ahdusCards`, `__ahdusWalkDebug` (only with `&debug=walkmap`), `__ahdusSetPeople`
+  (the people prop; `?people=1` = two sample people, `?search=0` = no search box). The search's Find button sits at the
+  viewer's top left (12, 12): raw clicks / taps meant for the canvas must avoid it. A viewer captures the mouse on pointerdown (Babylon prevents
   the default of pointerdown, so the browser sends no mousedown; Studio captures it from its button).
 - embed-test.html's hooks (also in production: it's a plain page): `window.workplace` (the handle; `._engine` = its
   LayoutEngine, for tests only), `window.embedEvents` (every onEvent call). A viewer's walkthrough doesn't capture the
@@ -856,7 +899,14 @@ Real furniture models, photo textures and an HDRI sky (private-docs/PROGRESS_REP
 Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?debug=walkmap` view (see "Routes"),
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
-**Next:** v0.13.3 search (`places.js`), then v0.13.4 "Take me there".
+Search followed as v0.13.3 (below).
+
+## DONE: search (v0.13.3, 7 Nov 2026, branch `feature/search`)
+
+Step v0.13.3 of private-docs/NAVIGATION_PLAN.md (4.4 + the "not walking" part of 4.5): `places.js`, `engine.navigation`,
+the viewer / embed search box, `workplace.find`, option `navigation` (see "Search"). Meridian every-desk route check
+with the fixed seed (corner desks): 359 of 359. Screenshots (Meridian, 319 people; desktop 1440×900 + phone 390×844):
+private-docs/screenshots/v0.13.3/ (not in git). **Next:** v0.13.4 "Take me there".
 
 ## DONE: the v0.13.0 review fixes (v0.13.1, 7 Nov 2026, branch `fix/v0.13.1`)
 

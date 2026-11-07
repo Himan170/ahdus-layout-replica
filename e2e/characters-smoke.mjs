@@ -544,7 +544,7 @@ log('no warnings about the manifest', !warnings.some((w) => /character manifest/
     await settleOn(t);
     await t.screenshot({ path: `${SHOTS}/phone-tap-card.png`, timeout: 180000 });
   }
-  await t.touchscreen.tap(20, 20);
+  await t.touchscreen.tap(6, 400); // (the search button is at the top left)
   const hidden = await t.waitForSelector('[data-person-card]', { state: 'detached', timeout: 10000 }).then(() => true).catch(() => false);
   log('phone: a tap elsewhere hides it', hidden);
   await t.evaluate(() => window.workplace.destroy());

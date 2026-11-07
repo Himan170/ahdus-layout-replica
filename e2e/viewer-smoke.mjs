@@ -225,5 +225,119 @@ await p.goto(new URL('viewer.html?companyId=co_viewer&layoutId=nope', base).href
 const alert = await p.locator('[role="alert"]').textContent({ timeout: 90000 }).catch(() => '');
 log('a layout that doesn\'t exist says so', /no longer exists/.test(alert), alert);
 
+// ── 8. Search: "Find a person, room or place" (v0.13.3) ──
+await p.goto(new URL('viewer.html?mode=view&people=1', base).href);
+await ready(3);
+await frames(3);
+const SEARCH = '[aria-label="Find a person, room or place"]';
+await p.click(`button${SEARCH}`);
+const opened = await p.evaluate(() => {
+  const a = document.activeElement;
+  return { focus: a?.getAttribute('role'), label: a?.getAttribute('aria-label'), quick: [...document.querySelectorAll('[data-quick]')].map((q) => q.textContent) };
+});
+log('the toolbar button opens the search box, the focus in it (a combobox), with quick picks',
+  opened.focus === 'combobox' && opened.label === 'Find a person, room or place' && opened.quick.join() === 'Washroom,Meeting room,Reception,Stairs',
+  JSON.stringify(opened));
+await p.keyboard.type('kav');
+const kav = await p.evaluate(() => {
+  const input = document.querySelector('[data-place-search] input');
+  const opts = [...document.querySelectorAll('[data-place-search] [role="option"]')];
+  return {
+    options: opts.map((o) => o.innerText.replace(/\n/g, ' | ')), selected: opts.map((o) => o.getAttribute('aria-selected')),
+    active: input.getAttribute('aria-activedescendant') === opts[0]?.id, status: document.querySelector('[data-search-status]').textContent,
+    groups: [...document.querySelectorAll('[data-place-search] [role="group"]')].map((g) => g.dataset.group),
+    email: /@example\.com/.test(document.body.innerHTML),
+  };
+});
+log('typing "kav" finds Kavya Iyer under People, with her department, floor and room; no email anywhere',
+  kav.options.join() === 'Kavya Iyer | HR · Ground Floor, Reception' && kav.selected.join() === 'true' && kav.active &&
+  kav.groups.join() === 'people' && kav.status === '1 result' && !kav.email, JSON.stringify(kav));
+// One keystroke: from the input event to the results in the page
+const keyMs = await p.evaluate(async () => {
+  const input = document.querySelector('[data-place-search] input');
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  const times = [];
+  for (const v of ['m', 'me', 'mee', 'meet', 'meeti', 'meetin', 'meeting']) {
+    const t0 = performance.now();
+    set.call(input, v);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    times.push(performance.now() - t0);
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  return Math.max(...times);
+});
+const meeting = await p.evaluate(() => [...document.querySelectorAll('[data-place-search] [role="group"]')]
+  .map((g) => `${g.dataset.group}: ${[...g.querySelectorAll('[role="option"]')].map((o) => o.innerText.replace(/\n/g, ' | ')).join(' ; ')}`));
+log('"meeting" lists the meeting room under Facilities; each keystroke well under 50 ms',
+  meeting.join() === 'facilities: Meeting room | Meeting room · Floor 1' && keyMs < 50, `${meeting.join()} | slowest key ${keyMs.toFixed(1)} ms`);
+await p.keyboard.press('Enter');
+await frames(8);
+const shownMeeting = await p.evaluate(() => ({
+  shown: document.querySelector('[data-place-shown]')?.innerText.replace(/\n/g, ' | '), panel: !!document.querySelector('[data-place-search]'),
+  floor: window.__ahdusViewer.getStore().getState().currentFloor, lit: window.__ahdusViewer.highlights.ids(),
+  focus: document.activeElement?.getAttribute('aria-label'),
+}));
+log('Enter shows it: its floor (Floor 1), outlined; the box closes, the focus back on the button',
+  shownMeeting.shown === 'Meeting room | Meeting room · Floor 1' && !shownMeeting.panel && shownMeeting.floor === 1 &&
+  shownMeeting.lit.join() === 'room_meeting' && shownMeeting.focus === 'Find a person, room or place', JSON.stringify(shownMeeting));
+await p.click(`button${SEARCH}`);
+await p.fill('[data-place-search] input', 'Engineering');
+await p.keyboard.press('ArrowDown');
+const eng = await p.evaluate(() => ({
+  options: [...document.querySelectorAll('[data-place-search] [role="option"]')].map((o) => `${o.getAttribute('aria-selected')}:${o.innerText.split('\n')[0]}`),
+}));
+log('"Engineering": the Engineering room (Rooms) first, then Asha Patel (People); ↓ chooses the next one',
+  eng.options.join() === 'false:Engineering,true:Asha Patel', JSON.stringify(eng));
+await p.keyboard.press('Enter');
+await frames(10);
+const asha = await p.evaluate(() => {
+  const v = window.__ahdusViewer; const t = v.scene.activeCamera.target;
+  return { floor: v.getStore().getState().currentFloor, lit: v.highlights.ids(), target: [+t.x.toFixed(1), +t.z.toFixed(1)], shown: document.querySelector('[data-place-shown]')?.innerText.split('\n')[0] };
+});
+log('picking Asha Patel: the ground floor, the camera on the desk, desk and chair outlined',
+  asha.floor === 0 && asha.lit.join() === 'obj_desk,obj_chair' && Math.hypot(asha.target[0] - 9.5, asha.target[1] + 0.8) < 1.5 && asha.shown === 'Asha Patel',
+  JSON.stringify(asha));
+await shot('viewer-search-shown.png');
+await p.click('button[aria-label="Clear the place found"]');
+const cleared = await p.evaluate(() => ({ lit: window.__ahdusViewer.highlights.ids().length, shown: !!document.querySelector('[data-place-shown]') }));
+log('"Clear" takes the outline away', cleared.lit === 0 && !cleared.shown, JSON.stringify(cleared));
+await p.click(`button${SEARCH}`);
+await p.fill('[data-place-search] input', 'zzzz');
+const none = await p.locator('[data-search-status]').textContent();
+await p.keyboard.press('Escape');
+const esc = await p.evaluate(() => ({ panel: !!document.querySelector('[data-place-search]'), focus: document.activeElement?.getAttribute('aria-label') }));
+log('nothing found says so; Esc closes the box (focus back on the button)',
+  /Nothing found for “zzzz”/.test(none) && !esc.panel && esc.focus === 'Find a person, room or place', `${none} | ${JSON.stringify(esc)}`);
+
+// Walking: typing in the box doesn't walk; picking measures the walk there
+await p.click('button:has-text("Walk through")'); await frames(6);
+await p.evaluate(() => document.exitPointerLock?.()); await wait(300);
+const startPos = await pos();
+await p.click(`button${SEARCH}`);
+await p.keyboard.type('wwwwsssskavya', { delay: 15 }); // W / S in the box: letters, not steps
+await frames(4);
+const stillPos = await pos();
+await p.fill('[data-place-search] input', 'Kavya');
+await p.keyboard.press('Enter');
+await frames(3);
+const walkInfo = await p.evaluate(() => ({ text: document.querySelector('[data-place-shown]')?.innerText.replace(/\n/g, ' | '), lit: window.__ahdusViewer.highlights.ids(), mode: window.__ahdusViewer.mode }));
+log('walking: W / S typed in the box don\'t move you; picking Kavya outlines her desk and says how far it is to walk',
+  Math.hypot(stillPos.x - startPos.x, stillPos.z - startPos.z) < 0.05 && walkInfo.mode === 'walkthrough' &&
+  /^Kavya Iyer \| HR · Ground Floor, Reception \| \d+ m walk, about \d+ (s|min)$/.test(walkInfo.text ?? '') && walkInfo.lit.join() === 'obj_reception_desk',
+  JSON.stringify({ startPos, stillPos, ...walkInfo }));
+await p.click(`button${SEARCH}`);
+await p.fill('[data-place-search] input', 'meeting');
+await p.keyboard.press('Enter');
+await frames(3);
+const upstairs = await p.locator('[data-place-shown] [data-walk]').textContent().catch(() => '');
+log('walking: "meeting" + Enter = the nearest meeting room; upstairs with no stairs that arrive: a clear answer, named',
+  upstairs === 'No walking route to Meeting room: no stairs lead to Floor 1', upstairs);
+await shot('viewer-search-walking.png');
+await p.click('button:has-text("View")'); await frames(3);
+
+await p.goto(new URL('viewer.html?mode=view&search=0', base).href);
+await ready(3);
+log('search={false} (viewer.html?search=0): no search button', (await p.locator(`button${SEARCH}`).count()) === 0);
+
 log('no page errors', errs.length === 0, errs[0] ?? '');
 await b.close();

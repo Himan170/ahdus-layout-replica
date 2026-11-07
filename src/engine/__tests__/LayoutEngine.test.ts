@@ -457,6 +457,67 @@ const EDITS: Record<string, unknown[]> = {
 };
 const HARMLESS = ['clear', 'endBurst']; // change nothing: allowed in every mode
 
+describe('navigation: search and show places (v0.13.3)', () => {
+  const people = [{ personId: 'p1', deskId: 'obj_desk', name: 'Asha Patel', department: 'Engineering', email: 'asha@example.com' }];
+
+  it('find: people (name and department only, also with quality low), rooms, facilities; the people can change', () => {
+    const engine = makeEngine({ mode: 'view', quality: 'low' });
+    engine.loadLayout(save());
+    engine.setPeople(people as any);
+    const [asha] = engine.navigation.find('asha');
+    expect(asha).toEqual({
+      id: 'person:p1', kind: 'person', group: 'people', name: 'Asha Patel', detail: 'Engineering · Ground Floor, Office 1',
+      floorId: 0, floorName: 'Ground Floor', roomId: 'room_a', roomName: 'Office 1', department: 'Engineering',
+      facility: null, personId: 'p1', deskId: 'obj_desk', entityId: 'obj_desk',
+    });
+    expect(engine.navigation.find('meeting').map((p) => `${p.group}:${p.name}:${p.floorName}`)).toEqual(['facilities:Meeting 1:Floor 1']);
+    expect(engine.navigation.find('office').map((p) => p.name)).toEqual(['Office 1']);
+    expect(engine.navigation.find('stairs').map((p) => p.id)).toEqual(['item:obj_stairs']);
+    engine.setPeople([]);
+    expect(engine.navigation.find('asha')).toEqual([]);
+  });
+
+  it('show from above: its floor, the camera on it (looking down), outlined; clear takes the outline away', () => {
+    const engine = makeEngine({ mode: 'view', quality: 'low' });
+    engine.loadLayout(save());
+    engine.setPeople(people as any);
+    const camera = engine.scene.activeCamera as ArcRotateCamera;
+    camera.beta = 1.2;
+    const shown = engine.navigation.show('room:room_b', { animate: false });
+    expect(shown?.place.name).toBe('Meeting 1');
+    expect(shown?.route).toBeUndefined();
+    expect(engine.getStore().getState().currentFloor).toBe(1);
+    expect(engine.highlights.ids()).toEqual(['room_b']);
+    expect(camera.target.y).toBeCloseTo(3.5);
+    expect(camera.beta).toBeLessThanOrEqual(0.75 + 1e-6);
+
+    engine.navigation.show('person:p1', { animate: false });
+    expect(engine.getStore().getState().currentFloor).toBe(0);
+    expect(engine.highlights.ids()).toEqual(['obj_desk']);
+    expect(camera.target.x).toBeCloseTo(1, 0);
+    expect(camera.target.z).toBeCloseTo(1, 0);
+    expect(engine.navigation.current).toBe('person:p1');
+
+    expect(engine.navigation.show('person:nobody')).toBeNull();
+    engine.navigation.clear();
+    expect(engine.highlights.ids()).toEqual([]);
+    expect(engine.navigation.current).toBeNull();
+  });
+
+  it('show while walking: outlined and the walk there measured; the camera is left alone', () => {
+    controllers.length = 0;
+    const engine = makeEngine({ mode: 'walkthrough', quality: 'low' });
+    engine.loadLayout(save());
+    const camera = engine.scene.activeCamera;
+    const shown = engine.navigation.show('room:room_a', { animate: false });
+    expect(engine.highlights.ids()).toEqual(['room_a']);
+    expect(shown?.route?.length ?? shown?.message).toBeTruthy();
+    expect(engine.scene.activeCamera).toBe(camera);
+    // walking, "washroom"-like words offer the nearest one first (here: the only meeting room)
+    expect(engine.navigation.find('meeting')[0]).toMatchObject({ kind: 'nearest', name: 'Nearest meeting room', places: ['room:room_b'] });
+  });
+});
+
 describe('modes: only edit mode can change the layout (H3)', () => {
   it('the list above has every editor command', () => {
     const engine = makeEngine();

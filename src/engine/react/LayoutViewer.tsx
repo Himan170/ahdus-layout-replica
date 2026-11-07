@@ -44,6 +44,7 @@ import { progressPercent } from '../../play/buildSchedule';
 import { connectEngine } from '../../integration/layoutBridge';
 // Not apiService: that would bundle saving (the Supabase client) into every viewer
 import { readSavedLayout } from '../../services/savedLayouts';
+import { PlaceSearch } from './PlaceSearch';
 
 export interface LayoutViewerProps {
   /** The layout: a save, an exported layout file or v2 JSON. */
@@ -71,6 +72,8 @@ export interface LayoutViewerProps {
   walkClipUrl?: string;
   /** Where people choose their character (http(s) or relative to the page); none = no link. */
   chooseCharacterUrl?: string;
+  /** The search box ("Find a person, room or place", a toolbar button); false hides it. Default true. */
+  search?: boolean;
   /** The engine is ready and the layout is fully built (focusOn, highlight, getAnchors, …). */
   onReady?: (engine: LayoutEngine) => void;
   /** Building the layout: { done, total, floor, currentFloorReady, allBuilt } (the last one has allBuilt). */
@@ -129,7 +132,7 @@ function layoutFrom({ layout, companyId, layoutId }: LayoutViewerProps): unknown
 }
 
 export function LayoutViewer(props: LayoutViewerProps) {
-  const { mode = 'view', quality = 'high', assetBaseUrl, className, style } = props;
+  const { mode = 'view', quality = 'high', assetBaseUrl, className, style, search = true } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
@@ -331,7 +334,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
       role={walking ? 'application' : undefined}
       aria-label={walking ? 'Layout walkthrough' : undefined}
       aria-describedby={walking ? keysHintId : undefined}
-      onFocus={() => setFocused(true)}
+      // the search box is typing, not walking: no focus ring for it
+      onFocus={(e) => setFocused(!(e.target as HTMLElement).closest?.('[data-place-search]'))}
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false); }}
     >
       <canvas
@@ -350,10 +354,10 @@ export function LayoutViewer(props: LayoutViewerProps) {
           Building the rest… {progressPercent(progress)} %
         </div>
       )}
-      {walking && !error && hud && (
-        <>
-          {engaged && <div aria-hidden style={styles.crosshair}>+</div>}
-          <div style={styles.topLeft}>
+      {(() => {
+        // The toolbar, top left: walking, the keys hint and Back to entrance; the search button
+        const walkBar = walking && !error && hud ? (
+          <>
             <div id={keysHintId} data-hud="keys" style={styles.keys}>
               {engaged ? 'Esc to release' : 'Click to walk · Esc to release'}
             </div>
@@ -366,7 +370,20 @@ export function LayoutViewer(props: LayoutViewerProps) {
             >
               Back to entrance
             </button>
-          </div>
+          </>
+        ) : null;
+        if (search && engine && !error) {
+          return (
+            <div style={styles.topLeft} data-viewer-toolbar>
+              <PlaceSearch engine={engine} walking={walking} people={people}>{walkBar}</PlaceSearch>
+            </div>
+          );
+        }
+        return walkBar ? <div style={styles.topLeft} data-viewer-toolbar><div style={styles.row}>{walkBar}</div></div> : null;
+      })()}
+      {walking && !error && hud && (
+        <>
+          {engaged && <div aria-hidden style={styles.crosshair}>+</div>}
           <div style={styles.hud} aria-live="polite">
             <span data-hud="room"><strong>{hud.roomName}</strong></span>
             {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · {hud.floor.name ?? `Floor ${hud.floor.index}`}</span>}
@@ -427,7 +444,12 @@ const styles: Record<string, CSSProperties> = {
     color: '#fff', font: '22px/1 system-ui, sans-serif', textShadow: '0 0 3px #000', pointerEvents: 'none',
   },
   hud: { ...panel, left: 12, bottom: 12, maxWidth: 'calc(100% - 24px)' },
-  topLeft: { position: 'absolute', left: 12, top: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', maxWidth: 'calc(100% - 24px)' },
+  // a column: the toolbar row, then the search panel (as wide as the box allows, so full width on a phone)
+  topLeft: {
+    position: 'absolute', left: 12, right: 12, top: 12, bottom: 12, display: 'flex', flexDirection: 'column',
+    alignItems: 'flex-start', pointerEvents: 'none',
+  },
+  row: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   keys: { ...panel, position: 'static', padding: '4px 10px', fontSize: 13 },
   button: {
     ...panel, position: 'static', padding: '4px 10px', fontSize: 13, pointerEvents: 'auto', cursor: 'pointer',

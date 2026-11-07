@@ -11,6 +11,8 @@
  *   workplace.setPeople([{ personId, deskId, name, department, assetReference }]);  // option characters: { manifestUrl }
  *   workplace.setPlayer({ personId, assetReference });  // the signed-in person: walking through they are their own
  *                                      // character (characters.walkClipUrl); their card offers characters.chooseUrl
+ *   workplace.find('Kavya');           // search people, rooms and places (the viewer's "Find" box does the same;
+ *                                      // option navigation: { search: false } hides the box)
  *
  * `npm run build:embed` (vite.embed.config.js) makes one IIFE file with React
  * and Babylon inside. It shows <LayoutViewer /> and works through layoutBridge
@@ -93,6 +95,7 @@ function call(fn, ...args) {
  *                                     // chooseUrl: where people choose their character; walkClipUrl: the walk clip
  *   player?: { personId?: string, assetReference?: string | null }, // the signed-in person (setPlayer): walking
  *                                     // through they are their own character; "Choose your character" on their card
+ *   navigation?: { search?: boolean }, // search: the "Find a person, room or place" box (default true; false hides it)
  *   onEvent?: (name: string, data: object) => void,
  *   onError?: (error: Error) => void,
  * }} [options]
@@ -120,6 +123,7 @@ export function mount(element, options = {}) {
   let playerGiven = options.player ?? null; // the signed-in person (setPlayer), as the page gave it
   let player = resolvePlayer(playerGiven, new Map()); // …as the viewer takes it ({ personId, character, walk })
   const walkClipUrl = walkClipUrlOf(options.characters, document.baseURI);
+  const search = options.navigation?.search !== false;
 
   let resolveReady;
   let rejectReady;
@@ -202,7 +206,7 @@ export function mount(element, options = {}) {
       <LayoutViewer
         layout={layout} mode={mode} quality={quality} assetBaseUrl={assetBaseUrl} people={people}
         player={player} chooseCharacterUrl={options.characters?.chooseUrl} walkClipUrl={walkClipUrl ?? undefined}
-        onReady={onReady} onError={fail} onProgress={onProgress}
+        search={search} onReady={onReady} onError={fail} onProgress={onProgress}
         onCard={(card) => emit('card', { title: card.title, body: card.body ?? card.text ?? '' })}
         style={{ width: '100%', height: '100%' }}
       />,
@@ -373,6 +377,18 @@ export function mount(element, options = {}) {
      */
     setPlayer(next) {
       return updatePlayer(next ?? null);
+    },
+
+    /**
+     * Search people (name and department), rooms, departments and facilities ("washroom", "meeting",
+     * "reception", "stairs"): the results in the order the search box shows them (People, Rooms,
+     * Facilities; at most `limit` per group, default 6), each { id, kind, group, name, detail, floorId,
+     * floorName, roomId, roomName, department, facility, entityId, personId?, deskId? }. [] until ready.
+     * Show one with focusOn(result.entityId) and highlight(result.entityId).
+     */
+    find(query, { limit } = {}) {
+      if (!engine || closed) return [];
+      return engine.navigation.find(String(query ?? ''), { limit });
     },
 
     /** Remove the viewer: the element, the 3D engine, its actions and listeners. */

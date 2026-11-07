@@ -9,6 +9,7 @@
 
     ?mode=view                     orbit instead of walking through
     ?layoutUrl=missing.json        a layout that can't be loaded: this page's own fallback
+    ?search=0                      no search box (option navigation: { search: false })
 
   e2e/embed-smoke.mjs tests it.
 -->
@@ -44,6 +45,12 @@
       .video[hidden] { display: none; }
       .video .screen { aspect-ratio: 16 / 9; display: grid; place-content: center; font-size: 40px; background: #1e293b; border-radius: 6px; }
       .video button { justify-self: end; }
+      /* a phone: the view full width, the events under it */
+      @media (max-width: 600px) {
+        main { flex-direction: column; height: auto; }
+        #workplace { flex: none; height: 75vh; }
+        aside { width: auto; max-width: none; border-left: none; border-top: 1px solid #e2e8f0; }
+      }
     </style>
   </head>
   <body>
@@ -148,6 +155,7 @@
           layoutUrl,
           mode,
           quality: 'high',
+          navigation: { search: params.get('search') !== '0' },
           onEvent(name, data) {
             logEvent(name, data);
             if (name === 'ready') showFloors(data.floors);
