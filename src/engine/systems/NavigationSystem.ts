@@ -27,6 +27,7 @@
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 import { buildPlaces, searchPlaces, publicPlace, flatResults, FACILITIES } from '../../play/navigation/places';
 import { browsePlaces, recentPlaces } from '../../play/navigation/browse';
+import { planTour } from '../../play/navigation/tour';
 import { findNearestRoute, roomAt } from '../../play/navigation/route';
 import { createWalkMapCache } from '../../play/navigation/walkMap';
 import { entranceSpawn } from '../../play/navigation/entrance';
@@ -70,6 +71,68 @@ export interface SearchGroups {
 export interface DepartmentInfo {
   name: string;
   description?: string;
+}
+
+type Spot = { x: number; z: number; floor: number };
+
+/** One stop of the tour (planTour()). */
+export interface TourStop {
+  id: string;
+  n: number;
+  kind: 'entrance' | 'reception' | 'department' | 'facility' | 'return';
+  facility: 'RESTROOM' | 'MEETING' | null;
+  name: string;
+  floor: number;
+  floorName: string;
+  roomId: string | null;
+  rooms: { id: string; name: string }[];
+  department: string | null;
+  description: string | null;
+  spot: Spot;
+  yaw: number;
+  look: { x: number; z: number } | null;
+  people: number;
+  names: { name: string; department: string | null }[];
+  lines: string[];
+  text: string;
+  leg: {
+    legs: { floor: number; points: { x: number; z: number }[]; stairsAtEnd?: { kind: string; objectId: string; direction: 'up' | 'down'; toFloor: number; length: number } }[];
+    length: number;
+    seconds: number;
+    directions: string;
+    steps: { text: string; floor: number; at: { x: number; z: number }; along: number }[];
+    mentions: TourMention[];
+    problem?: string;
+    message?: string;
+  } | null;
+}
+
+/** "On your left: Restrooms" at a point of a leg (a room passed within 4 m of its door). */
+export interface TourMention {
+  roomId: string;
+  name: string;
+  side: 'left' | 'right' | 'ahead' | 'behind';
+  text: string;
+  at: Spot;
+  door: { x: number; z: number };
+  distance: number;
+  along: number;
+  stop?: number;
+}
+
+/** The company tour's plan (planTour(), play/navigation/tour.js). */
+export interface TourPlan {
+  stops: TourStop[];
+  floors: number[];
+  length: number;
+  seconds: number;
+  walkSeconds: number;
+  pauseSeconds: number;
+  minutes: number;
+  mentions: (TourMention & { stop: number })[];
+  skipped: { roomId: string; name: string; floor: number; floorName: string; kind: string; problem: string; message: string }[];
+  missed: { roomId: string; name: string; floor: number }[];
+  ms: number;
 }
 
 /** The Find box's browse menu (browse()): only what this workplace has. */
@@ -316,6 +379,17 @@ export class NavigationSystem {
       })),
       floors: menu.floors.map((f: Place) => ({ id: f.id, floorId: f.floor, name: f.name, count: f.count, detail: f.detail, places: pubs(f.places) })),
     };
+  }
+
+  /**
+   * The company tour's plan (v0.14.3, play/navigation/tour.js): the stops in walking order, from the
+   * layout, the seats (setPeople) and the departments' descriptions (setDepartments), on the shared
+   * walk maps. Read-only: nothing walks yet (the tour itself is v0.14.4). Options as planTour's
+   * (speed, pause, backToReception).
+   */
+  planTour(options: { speed?: number; pause?: number; backToReception?: boolean } = {}): TourPlan {
+    const s = this.hooks.getLayout();
+    return planTour(s, this.people, this.departments, { ...options, maps: this.walkMaps, catalog: ASSET_TYPES }) as TourPlan;
   }
 
   /** The index, made again when the layout or the people changed. */

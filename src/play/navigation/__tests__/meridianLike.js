@@ -76,3 +76,22 @@ export function meridianLike({ spawnPoint = true } = {}) {
   const floors = { 0: { id: 0, name: 'Ground Floor', height: 3.5 }, 1: { id: 1, name: 'Floor 1', height: 3.5 } };
   return { rooms, objects, floors };
 }
+
+/** As the real Meridian (seed-big-company.py): 13 departments, Engineering in two rooms on Floor 1. */
+export const MERIDIAN_DEPARTMENTS = {
+  room_f0_03: 'Operations', room_f0_04: 'Customer Success', room_f0_05: 'Sales', room_f0_09: 'HR', room_f0_10: 'Finance',
+  room_f0_11: 'Legal', room_f0_12: 'Marketing', room_f1_02: 'Product', room_f1_03: 'Design', room_f1_04: 'Data & AI',
+  room_f1_05: 'Engineering', room_f1_09: 'Engineering', room_f1_10: 'IT & Security', room_f1_11: 'Executive',
+};
+
+/** The Meridian-shaped layout with its departments, and someone at every desk (Kavya at reception). */
+export function meridianWithPeople() {
+  const layout = meridianLike();
+  for (const r of layout.rooms) if (MERIDIAN_DEPARTMENTS[r.id]) r.departmentRef = MERIDIAN_DEPARTMENTS[r.id];
+  const desks = layout.objects.filter((o) => o.assetType === 'DESK_STANDARD');
+  const people = [{ personId: 'u_kavya', deskId: 'obj_f0_reception', name: 'Kavya Iyer', department: 'HR', email: 'kavya@meridian.example' }];
+  desks.forEach((d, i) => people.push({
+    personId: `u_${i}`, deskId: d.id, name: `Person ${i}`, department: MERIDIAN_DEPARTMENTS[d.roomId], email: `p${i}@meridian.example`,
+  }));
+  return { layout, people };
+}

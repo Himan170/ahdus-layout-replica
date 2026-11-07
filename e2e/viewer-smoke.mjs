@@ -377,5 +377,24 @@ await p.goto(new URL('viewer.html?mode=view&search=0', base).href);
 await ready(3);
 log('search={false} (viewer.html?search=0): no search button', (await p.locator(`button${SEARCH}`).count()) === 0);
 
+// v0.14.3: ?debug=tour draws the tour's plan: the sample = entrance, reception, the meeting room upstairs, back
+await p.goto(new URL('viewer.html?mode=view&debug=tour', base).href);
+await ready(3);
+await p.waitForFunction(() => window.__ahdusTourDebug?.plan, null, { timeout: 120000 });
+const tourDebug = await p.evaluate(() => {
+  const plan = window.__ahdusTourDebug.plan;
+  return {
+    stops: plan.stops.map((s) => s.name),
+    panel: document.querySelector('[data-tour-debug] [data-tour-stops]')?.textContent,
+    listed: document.querySelectorAll('[data-tour-debug] [data-tour-stop]').length,
+    meshes: window.__ahdusScene.meshes.filter((m) => m.metadata?.debug === 'tour').length,
+    skipped: plan.skipped.length,
+  };
+});
+log('?debug=tour: the plan (Main entrance, Reception, Meeting room, Reception), its panel and its route drawn',
+  tourDebug.stops.join() === 'Main entrance,Reception,Meeting room,Reception' && tourDebug.panel === '4 stops'
+    && tourDebug.listed === 4 && tourDebug.meshes > 4 && tourDebug.skipped === 0,
+  JSON.stringify(tourDebug));
+
 log('no page errors', errs.length === 0, errs[0] ?? '');
 await b.close();

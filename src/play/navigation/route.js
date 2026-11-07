@@ -724,6 +724,20 @@ function createBucketQueue() {
   };
 }
 
+// ── For the tour (v0.14.3) ────────────────────────────────────────────────
+
+/**
+ * Which walkable area of a floor a spot is in (cells joined by side; −1: not FREE). Two spots with the
+ * same area can be walked between on that floor.
+ */
+export function areaOf(map, x, z) {
+  const k = map.indexOf(x, z);
+  return k < 0 ? -1 : areasOf(map).label[k];
+}
+
+/** The length of a path of points (m). */
+export { pathLength };
+
 /**
  * The shortest route to the nearest of several places ("the nearest washroom"): routes are tried
  * nearest-first by straight-line distance, and stop as soon as no other place could be nearer (a
