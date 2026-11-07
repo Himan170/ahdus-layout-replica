@@ -50,6 +50,8 @@ export interface SearchGroups {
   /** How many more each group has than it shows. */
   more: { people: number; rooms: number; facilities: number };
   total: number;
+  /** The groups in the order shown: People, Rooms, Facilities; Rooms first when a room or department name matches better than any person's. */
+  order: ('people' | 'rooms' | 'facilities')[];
 }
 
 /** What show() did: the place shown and, walking, how far it is (or why you can't walk there). */
@@ -129,10 +131,11 @@ export class NavigationSystem {
       groups: { people: pub(r.groups.people), rooms: pub(r.groups.rooms), facilities: pub(r.groups.facilities) },
       more: { ...r.more },
       total: r.total,
+      order: [...r.order] as SearchGroups['order'],
     };
   }
 
-  /** Search: every result in the order shown (People, Rooms, Facilities), `limit` per group (default 6). */
+  /** Search: every result in the order shown (People, Rooms, Facilities; Rooms first for "Engineering"), `limit` per group (default 6). */
   find(query: string, options: { limit?: number } = {}): PlaceResult[] {
     const r = searchPlaces(this.places(), String(query ?? ''), { from: this.from(), limit: options.limit });
     return flatResults(r).map((p: Place) => publicPlace(p) as PlaceResult);

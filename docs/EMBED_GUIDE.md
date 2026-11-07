@@ -224,7 +224,8 @@ const workplace = AHDUSWorkplace.mount(el, {
 
 The view has a **Find** button (top left). It opens a search box; results come as you type (a few ms, even with
 hundreds of people), grouped **People**, **Rooms** and **Facilities**, each with its floor and room, e.g.
-"Kavya Iyer · HR · Ground Floor, Lobby & Reception". Keyboard: ↑ ↓ choose, Enter picks, Esc closes. On a phone it is
+"Kavya Iyer · HR · Ground Floor, Lobby & Reception". When the text matches a department or room name better than any
+person's name ("Engineering", "Sales"), **Rooms** comes first (the department, then its people). Keyboard: ↑ ↓ choose, Enter picks, Esc closes. On a phone it is
 as wide as the view.
 
 - **What it finds:** people from `setPeople` (their **name and department only**: nothing else you pass, such as an

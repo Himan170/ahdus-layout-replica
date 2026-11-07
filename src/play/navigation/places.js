@@ -272,15 +272,16 @@ export function facilitiesNamed(query) {
  *   from: where you are (walking: x, z and floor; from above: the floor shown), for "nearest first";
  *   limit: results per group (GROUP_LIMIT)
  * @returns {{ query: string, groups: { people: Result[], rooms: Result[], facilities: Result[] },
- *   more: { people: number, rooms: number, facilities: number }, total: number }}
- *   a Result is a Place (or a "nearest" entry: kind 'nearest', facility, goals of all of them)
+ *   more: { people: number, rooms: number, facilities: number }, total: number, order: string[] }}
+ *   a Result is a Place (or a "nearest" entry: kind 'nearest', facility, goals of all of them);
+ *   order: the groups in the order to show them (groupOrder)
  */
 export function searchPlaces(index, query, options = {}) {
   const { from = null, limit = GROUP_LIMIT } = options;
   const qs = words(query);
   const groups = { people: [], rooms: [], facilities: [] };
   const more = { people: 0, rooms: 0, facilities: 0 };
-  if (!qs.length) return { query: String(query ?? ''), groups, more, total: 0 };
+  if (!qs.length) return { query: String(query ?? ''), groups, more, total: 0, order: [...GROUPS] };
   const whole = qs.join(' ');
   const named = new Set(facilitiesNamed(query));
 
@@ -303,7 +304,9 @@ export function searchPlaces(index, query, options = {}) {
   }
   found.sort((a, b) => a.score - b.score || a.away - b.away || a.p.name.localeCompare(b.p.name));
 
-  for (const { p } of found) {
+  const best = { people: Infinity, rooms: Infinity, facilities: Infinity };
+  for (const { p, score } of found) {
+    if (score < best[p.group]) best[p.group] = score;
     const g = groups[p.group];
     if (g.length < limit) g.push(p);
     else more[p.group] += 1;
@@ -326,7 +329,17 @@ export function searchPlaces(index, query, options = {}) {
   }
 
   const total = GROUPS.reduce((n, g) => n + groups[g].length + more[g], 0);
-  return { query: String(query ?? ''), groups, more, total };
+  return { query: String(query ?? ''), groups, more, total, order: groupOrder(best) };
+}
+
+/**
+ * The groups in the order shown: People, Rooms, Facilities; Rooms first when
+ * a room or department matches better than any person ("Engineering",
+ * "Sales": the department, then its people). A tie keeps People first: a
+ * person whose name matches as well as a room's ("Sal") stays on top.
+ */
+export function groupOrder(best) {
+  return best.rooms < best.people ? ['rooms', 'people', 'facilities'] : [...GROUPS];
 }
 
 /** For sorting: other floors far away, then the straight line (0 when `from` has no point). */
@@ -348,9 +361,9 @@ export function publicPlace(p) {
   };
 }
 
-/** Every result of a search, in the order shown (People, Rooms, Facilities). */
+/** Every result of a search, in the order shown (result.order: People, Rooms, Facilities, or Rooms first). */
 export function flatResults(result) {
-  return GROUPS.flatMap((g) => result.groups[g]);
+  return (result.order ?? GROUPS).flatMap((g) => result.groups[g]);
 }
 
 /**

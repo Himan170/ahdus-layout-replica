@@ -286,16 +286,15 @@ await p.keyboard.press('ArrowDown');
 const eng = await p.evaluate(() => ({
   options: [...document.querySelectorAll('[data-place-search] [role="option"]')].map((o) => `${o.getAttribute('aria-selected')}:${o.innerText.split('\n')[0]}`),
 }));
-log('"Engineering": Asha Patel (People), the Engineering room (Rooms); ↓ chooses the next one',
-  eng.options.join() === 'false:Asha Patel,true:Engineering', JSON.stringify(eng));
-await p.keyboard.press('ArrowUp');
+log('"Engineering": the Engineering room (Rooms) first, then Asha Patel (People); ↓ chooses the next one',
+  eng.options.join() === 'false:Engineering,true:Asha Patel', JSON.stringify(eng));
 await p.keyboard.press('Enter');
 await frames(10);
 const asha = await p.evaluate(() => {
   const v = window.__ahdusViewer; const t = v.scene.activeCamera.target;
   return { floor: v.getStore().getState().currentFloor, lit: v.highlights.ids(), target: [+t.x.toFixed(1), +t.z.toFixed(1)], shown: document.querySelector('[data-place-shown]')?.innerText.split('\n')[0] };
 });
-log('picking Asha Patel: the ground floor, the camera on her desk, her desk and chair outlined',
+log('picking Asha Patel: the ground floor, the camera on the desk, desk and chair outlined',
   asha.floor === 0 && asha.lit.join() === 'obj_desk,obj_chair' && Math.hypot(asha.target[0] - 9.5, asha.target[1] + 0.8) < 1.5 && asha.shown === 'Asha Patel',
   JSON.stringify(asha));
 await shot('viewer-search-shown.png');

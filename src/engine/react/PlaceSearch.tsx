@@ -21,7 +21,7 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import type { LayoutEngine } from '../LayoutEngine';
 import type { PlaceResult, SearchGroups, ShowResult } from '../systems/NavigationSystem';
 
-const GROUPS = [['people', 'People'], ['rooms', 'Rooms'], ['facilities', 'Facilities']] as const;
+const GROUP_TITLES = { people: 'People', rooms: 'Rooms', facilities: 'Facilities' } as const;
 /** Shown before anything is typed: one tap fills the box. */
 const QUICK = ['Washroom', 'Meeting room', 'Reception', 'Stairs'];
 export const SEARCH_LABEL = 'Find a person, room or place';
@@ -71,7 +71,8 @@ export function PlaceSearch({ engine, walking, people, children }: PlaceSearchPr
     // walking changes "nearest first"; people change who can be found
   }, [engine, open, query, walking, people]);
 
-  const options = useMemo(() => (result ? GROUPS.flatMap(([g]) => result.groups[g]) : []), [result]);
+  // the order shown (Rooms first for "Engineering"): up / down follow it
+  const options = useMemo(() => (result ? result.order.flatMap((g) => result.groups[g]) : []), [result]);
   useEffect(() => { setActive(0); }, [result]);
 
   // A new layout or engine: nothing is shown any more
@@ -197,8 +198,9 @@ export function PlaceSearch({ engine, walking, people, children }: PlaceSearchPr
           )}
 
           <div id={`${uid}-list`} role="listbox" aria-label="Search results" style={styles.list}>
-            {result && GROUPS.map(([g, title]) => {
+            {result && result.order.map((g) => {
               const items = result.groups[g];
+              const title = GROUP_TITLES[g];
               if (!items.length) return null;
               return (
                 <div key={g} role="group" aria-labelledby={`${uid}-${g}`} data-group={g}>

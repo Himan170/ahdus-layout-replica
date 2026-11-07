@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-  buildPlaces, searchPlaces, words, facilitiesNamed, roomDoorSpots, publicPlace, flatResults, GROUP_LIMIT,
+  buildPlaces, searchPlaces, words, facilitiesNamed, roomDoorSpots, publicPlace, flatResults, groupOrder, GROUP_LIMIT,
 } from '../places';
 import { createWalkMapCache } from '../walkMap';
 import { findRoute, findNearestRoute } from '../route';
@@ -151,7 +151,7 @@ describe('searchPlaces', () => {
   const { layout, people } = meridianWithPeople();
   const index = buildPlaces(layout, people);
 
-  it('"Kavya": Kavya Iyer first, with her floor and room', () => {
+  it('"Kavya": Kavya Iyer first, with the floor and room', () => {
     const r = searchPlaces(index, 'Kavya');
     expect(r.groups.people[0]).toMatchObject({ name: 'Kavya Iyer', detail: 'HR · Ground Floor, Lobby & Reception' });
     expect(searchPlaces(index, 'kav').groups.people[0].name).toBe('Kavya Iyer');
@@ -210,6 +210,30 @@ describe('searchPlaces', () => {
     expect(r.groups.rooms[0].name).toBe('Sales');
     const lee = searchPlaces(index, 'lee');
     expect(lee.groups.people.every((p) => /\blee\b/i.test(p.name))).toBe(true);
+  });
+
+  it('groups: Rooms first when a department or room name matches better than any person ("Engineering", "Sales")', () => {
+    const order = (q, idx = index) => searchPlaces(idx, q).order;
+    const shown = (q, idx = index) => flatResults(searchPlaces(idx, q));
+    expect(order('Engineering')).toEqual(['rooms', 'people', 'facilities']);
+    expect(shown('Engineering')[0]).toMatchObject({ kind: 'department', name: 'Engineering' });
+    expect(shown('Engineering').slice(3).every((p) => p.group === 'people')).toBe(true);
+    expect(order('Sales')).toEqual(['rooms', 'people', 'facilities']);
+    expect(order('engin')).toEqual(['rooms', 'people', 'facilities']);
+    // a person's name: People first
+    expect(order('Kavya')).toEqual(['people', 'rooms', 'facilities']);
+    expect(shown('Kavya')[0].name).toBe('Kavya Iyer');
+    // "Lobby & Reception" is a reception (Facilities): nobody is called Lobby, so it is first anyway
+    expect(shown('Lobby')[0]).toMatchObject({ name: 'Lobby & Reception', group: 'facilities' });
+    // a name that matches as well as a department's ("Sal" and "Sales"): People stay first
+    const desk = people[0].deskId;
+    const withSal = buildPlaces(layout, [...people, { personId: 'p_sal', deskId: desk, name: 'Sal Moreno', department: 'HR' }]);
+    expect(order('sal', withSal)).toEqual(['people', 'rooms', 'facilities']);
+    expect(shown('sal', withSal)[0].name).toBe('Sal Moreno');
+    // a whole name beats a name's start: "Sales" is the department, even with a "Sales Smith"
+    const withSales = buildPlaces(layout, [...people, { personId: 'p_ss', deskId: desk, name: 'Sales Smith', department: 'HR' }]);
+    expect(order('sales', withSales)).toEqual(['rooms', 'people', 'facilities']);
+    expect(groupOrder({ people: Infinity, rooms: Infinity, facilities: 2.5 })).toEqual(['people', 'rooms', 'facilities']);
   });
 
   it('fast: one keystroke under 50 ms with 320 people (a few ms in practice)', () => {

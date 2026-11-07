@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (855, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (856, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -470,7 +470,8 @@ Step v0.13.3 of `private-docs/NAVIGATION_PLAN.md` (4.4, and the "not walking" pa
 - **Search** (`searchPlaces`): every query word must start a word of the place (name words first; 3+ letters also
   inside a name word); whole names first; then the floor shown / where you stand. A query naming a facility
   ("wash") lists all of them; walking (`from` with x, z) a "Nearest washroom" entry comes first. Groups People /
-  Rooms / Facilities, `GROUP_LIMIT` 6 each, the rest counted ("and 84 more"). Meridian (319 people): 1–4 ms per
+  Rooms / Facilities (`order`, `groupOrder`: Rooms first when a room or department matches better than any person,
+  "Engineering", "Sales"; a tie keeps People first), `GROUP_LIMIT` 6 each, the rest counted ("and 84 more"). Meridian (319 people): 1–4 ms per
   keystroke in the page, ~15 ms the first (the index is made then); remade when rooms / items / floors / people change.
 - **Engine** (`engine.navigation`, `systems/NavigationSystem.ts`): `find(q, { limit })` (flat, `publicPlace` shape),
   `search(q)` (grouped), `show(id)`: from above `focusOn` (+ `around` 4 m for a person or item, `beta` ≤ 0.75:

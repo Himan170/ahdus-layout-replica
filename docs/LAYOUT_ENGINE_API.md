@@ -125,8 +125,8 @@ engine.clearHighlights();            // Remove all highlights
 
 // --- Search (v0.13.3): people (name + department only), rooms, departments, facilities ---
 engine.navigation.find('Kavya');     // [{ id, kind, group, name, detail, floorId, floorName, roomId, roomName,
-                                     //    department, facility, entityId, personId?, deskId? }] (People, Rooms, Facilities)
-engine.navigation.search('washroom'); // the same, grouped: { groups: { people, rooms, facilities }, more, total }
+                                     //    department, facility, entityId, personId?, deskId? }] (People, Rooms, Facilities; Rooms first for "Engineering")
+engine.navigation.search('washroom'); // the same, grouped: { groups: { people, rooms, facilities }, more, total, order }
 engine.navigation.show(result.id);   // from above: its floor, the camera flies to it, outlined; walking: outlined
                                      // + { route: { length, seconds, floors } } or { problem, message }
 engine.navigation.clear();           // the outline goes
