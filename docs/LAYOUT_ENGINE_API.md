@@ -139,8 +139,11 @@ engine.navigation.browse({ recent }); // the Find box's menu while it is empty (
                                      //   walking, each chip's nearest: { place, length, seconds }
 engine.setDepartments([{ name, description }]); // descriptions of departments, shown in that menu
 
-// --- The company tour's plan (v0.14.3): pure planning, no UI yet ---
-engine.navigation.planTour({ speed, pause, backToReception }); // → { stops, floors, length, seconds, walkSeconds,
+// --- The company tour's plan (v0.14.3; v0.14.4: per-stop pauses, planned in idle time) ---
+engine.navigation.tourPlanReady;     // the plan made in idle time after the walk maps (null until then)
+engine.navigation.tourPlan();        // that plan (made now if it isn't yet; made again when the layout, the people
+                                     //   or the departments change)
+engine.navigation.planTour({ speed, pause, facilityPause, backToReception }); // → { stops, floors, length, seconds, walkSeconds,
                                      //   pauseSeconds, minutes, mentions, skipped, missed, ms }
                                      // stops: the main entrance, reception, each department once (its rooms grouped),
                                      //   one washroom + one meeting room per floor, ground floor first, then up the
@@ -152,6 +155,28 @@ engine.navigation.planTour({ speed, pause, backToReception }); // → { stops, f
                                      //   steps, mentions: [{ name, side, text: "On your left: Restrooms", at, door }] }
                                      // skipped: rooms no walk reaches, with the reason ({ problem, message }); missed:
                                      //   rooms neither stopped at nor passed within 4 m of their door
+                                     // each stop's pause: departments and reception `pause` (20 s), the entrance,
+                                     //   washrooms and meeting rooms `facilityPause` (8 s), back at reception 0
+
+// --- The company tour (v0.14.4): walking it ---
+engine.tour.start({ follow: 'auto' }); // from the main entrance (from view mode too: walking starts there);
+                                     //   follow 'auto' = "Walk me" (default), 'self' = "I'll walk" (the line shows the
+                                     //   way; getting there completes the stop). → { count, minutes, length } or
+                                     //   { problem, message } (NO_TOUR, NOT_WALKING)
+engine.tour.pause(); engine.tour.resume(); // also P; a movement key / the joystick pauses "Walk me"
+engine.tour.next(); engine.tour.previous(); engine.tour.skip(); // skip = "Skip the walk": there at once (a fade)
+engine.tour.goTo(index);             // a stop from the list (a fade)
+engine.tour.setFollow('self');       // switch at any time, also halfway along a walk
+engine.tour.restart();               // from stop 1, the ticks cleared
+engine.tour.stop();                  // also Esc; you stay where you are, walking
+engine.tour.status;                  // { state: 'idle' | 'walking' | 'stop' | 'paused' | 'done', pausedFrom, follow,
+                                     //   index, count, stop, plan, dwell, remaining, visited, mention, message }
+engine.tour.visitedNow();            // the stops ticked in this browser for this layout (localStorage
+                                     //   `ahdus.tourVisited`, try / catch: blocked storage = this visit only)
+engine.on('tour', (e) => {});        // { type: 'started' | 'walking' | 'arrived' | 'paused' | 'resumed' | 'follow' |
+                                     //   'mention' | 'progress' | 'done' | 'ended' | 'problem', ...status }
+                                     // Its walks are navigation routes with source 'tour' (no Find strip, no
+                                     //   navigation outline: the tour outlines the stop's rooms on arrival)
 
 // --- Going there (v0.13.4): Show route / Take me there ---
 engine.navigation.routeTo('person:42', { walk: 'guide' }); // Show route: the line on the floor, you walk

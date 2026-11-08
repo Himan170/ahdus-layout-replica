@@ -51,6 +51,8 @@ import { toV1, storeFloorIds, mergeV2Extras } from './model/toV1';
 import { NavigationSystem } from './systems/NavigationSystem';
 import type { NavigationEvent, DepartmentInfo } from './systems/NavigationSystem';
 import { RouteLineSystem } from './systems/RouteLineSystem';
+import { TourSystem, TOUR_HIGHLIGHT } from './systems/TourSystem';
+import type { TourEvent } from './systems/TourSystem';
 import { CommandHistory } from './commands/CommandHistory';
 import type { Command } from './commands/CommandHistory';
 import { createLayoutScene } from './systems/SceneSetup';
@@ -160,6 +162,8 @@ type EventMap = {
   mode: { mode: EngineMode };
   /** A plain click on the walking view (v0.14.0): what it did. */
   walkClick: WalkClickEvent;
+  /** The company tour (v0.14.4): started, walking, arrived, paused, resumed, follow, mention, progress, done, ended, problem. */
+  tour: TourEvent;
 };
 
 /**
@@ -178,7 +182,7 @@ export interface WalkClickEvent {
   message?: string;
 }
 
-export type { NavigationEvent };
+export type { NavigationEvent, TourEvent };
 
 export type { BuildProgress };
 export type { Person, PlacedPerson, CharacterFile };
@@ -248,6 +252,9 @@ export class LayoutEngine {
   readonly characters: CharacterSystem | null;
   /** Search, show and go to places (find, show, clear: v0.13.3; routeTo, stop: v0.13.4). */
   readonly navigation: NavigationSystem;
+  /** The company tour (v0.14.4): start({ follow }), pause, resume, next, previous, skip, stop; the 'tour' event. */
+  readonly tour: TourSystem;
+  private _tourTick: (() => void) | null = null;
   /** The route line of Show route / Take me there (made when first shown). */
   private _routeLine: RouteLineSystem | null = null;
   private _warmed: Promise<void> = Promise.resolve();
@@ -355,8 +362,40 @@ export class LayoutEngine {
       },
       routeLine: () => (this._routeLine ??= new RouteLineSystem(this.scene)),
       getMe: () => (this._player?.personId != null ? String(this._player.personId) : null),
-      emit: (event) => this.emit('navigation', event),
+      emit: (event) => {
+        this.tour.onNavigation(event); // the tour's own walks, or another one taking over
+        this.emit('navigation', event);
+      },
     });
+    const walker = () => {
+      const walk = this._walkthrough;
+      if (!walk?.isActive()) return null;
+      const p = walk.getPosition();
+      return { x: p.x, z: p.z, floor: walk.getLevel() };
+    };
+    this.tour = new TourSystem({
+      plan: () => this.navigation.tourPlan(),
+      startWalking: () => {
+        if (this._mode !== 'walkthrough') this.setMode('walkthrough');
+        return !!this._walkthrough?.isActive();
+      },
+      isWalking: () => this._mode === 'walkthrough' && !!this._walkthrough?.isActive(),
+      getWalker: walker,
+      setPose: (pose) => this._walkthrough?.setPose(pose),
+      routeTo: (spot, o) => this.navigation.routeTo(spot, { ...o, source: 'tour' }),
+      navigation: this.navigation,
+      highlight: (ids) => this.highlight(ids, TOUR_HIGHLIGHT),
+      clearHighlights: () => this.clearHighlights(),
+      setKeys: (handler) => this._walkthrough?.setKeyHandler(handler),
+      emit: (event) => this.emit('tour', event),
+      // the ticks of one layout: its name (and the building's): layouts carry no id of their own
+      layoutKey: () => [this._store.getState().layoutName, this._loaded?.building?.name].filter(Boolean).join(' · ') || 'layout',
+      reducedMotion: () => typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    });
+    // the tour's countdown at a stop and its passing mentions: every frame (a slow frame counts at most 0.25 s)
+    this._tourTick = () => this.tour.tick(Math.min(0.25, (this.babylonEngine.getDeltaTime?.() ?? 16) / 1000));
+    this.scene.onBeforeRenderObservable.add(this._tourTick);
     this._builder = new SceneBuilder({
       rooms: this.rooms,
       objects: this.objects,
@@ -413,6 +452,7 @@ export class LayoutEngine {
     } finally {
       this._loading = false;
     }
+    this.tour.stop(); // nor does a tour of it
     this.navigation.stop(); // a route through the old layout means nothing in this one
     this._loaded = v2;
     this._cachedLayout = null;
@@ -738,6 +778,7 @@ export class LayoutEngine {
   dispose(): void {
     this._playerToken++; // a character still loading is dropped
     this._builder.dispose();
+    this.tour.dispose();
     this.navigation.stop();
     this._walkthrough?.dispose();
     this._walkthrough = null;
@@ -778,6 +819,7 @@ export class LayoutEngine {
       if (this._view === '2d') this.setView('3d'); // walking is always 3D
       this._ensureWalkthrough().activate();
     } else if (this._walkthrough?.isActive()) {
+      this.tour.stop(); // a tour is walked
       this.navigation.stop(); // a route is walked, never followed from above
       this._walkthrough.deactivate();
       // Back to the view from above, on the floor you walked to (its floorChange came from onLevelChange)

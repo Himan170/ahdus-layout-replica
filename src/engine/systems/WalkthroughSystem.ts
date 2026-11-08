@@ -371,6 +371,11 @@ export class WalkthroughSystem {
     this.controller.setAutopilot(pilot);
   }
 
+  /** The company tour's keys (v0.14.4: P, Esc): handler(code) sees each key first; true = taken. null = none. */
+  setKeyHandler(handler: ((code: string) => boolean) | null): void {
+    this.controller.setKeyHandler(handler);
+  }
+
   getPosition(): Vector3 {
     return this.controller.getPosition();
   }

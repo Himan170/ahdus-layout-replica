@@ -223,6 +223,9 @@ export function createPlayController(scene, canvas, {
   // "Show route" / "Take me there" (LayoutEngine's NavigationSystem, v0.13.4): asked every frame
   // where to go; null = free walking, exactly as before. See setAutopilot.
   let pilot = null;
+  // The company tour (v0.14.4, LayoutEngine's TourSystem): sees each key first (P pauses, Esc ends the
+  // tour); true = taken (not walked, nothing else). null = none, exactly as before.
+  let keyHandler = null;
   const keys = new Set();
   // The touch joystick (v0.14.1, look 'drag'): { x: right, y: forward }, each −1…1, length = how far
   // it is pushed (dragLook.stickVector). Moves like the keys (it pauses a route); 0, 0 = let go.
@@ -1020,6 +1023,10 @@ export function createPlayController(scene, canvas, {
     if (!active || typing(e)) return;
     if (onPage && !isEngaged()) return; // the page's keys
     if (e.ctrlKey || e.metaKey) return; // Ctrl+Z / Ctrl+Y handled by the editor
+    if (keyHandler && !e.repeat && keyHandler(e.code)) {
+      e.preventDefault();
+      return;
+    }
     keys.add(e.code);
     if (editKey(e.code, e.shiftKey) || stretchKey(e.code)) {
       e.preventDefault();
@@ -1698,6 +1705,11 @@ export function createPlayController(scene, canvas, {
       pilot = next ?? null;
     },
     getAutopilot: () => pilot,
+
+    /** The company tour's keys (v0.14.4): handler(code) sees each key first; true = taken. null = none. */
+    setKeyHandler(handler) {
+      keyHandler = handler ?? null;
+    },
 
     /** Go to a floor at the same spot (standing on a room there, or flying). */
     goToFloor,

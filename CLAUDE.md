@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (967, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (998, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -109,6 +109,15 @@ npm run e2e:controls # 17 checks e2e/controls-smoke.mjs (viewer.html: keys with 
                      #                                       desk = the card, the CNC = its action, double-click / L / Esc,
                      #                                       the pill only in mouse look, no HUD line under the hint, the sky's 6 sides;
                      #                                       SHOTS=<dir>: 1440×900 + 390×844 screenshots)
+npm run e2e:tour     # 24 checks   e2e/tour-smoke.mjs      (viewer.html, the Meridian-shaped layout with its 13
+                     #                                       departments (MERIDIAN=<layout.json> MERIDIAN_PEOPLE=<people.json>
+                     #                                       = the real one): planned in idle time, Find's "Take the company
+                     #                                       tour · N stops" (every count the same), from above = at the
+                     #                                       entrance, the panel, narration off, Pause / P, Next, Previous
+                     #                                       (fade), Exit, Walk me to stop 3 (outlined), W pauses + P,
+                     #                                       I'll walk (the line; there = done), Skip the walk, ticks after
+                     #                                       a reload, Restart, Esc, phone (above the joystick, touch words);
+                     #                                       run it ALONE; SHOTS=<dir>: screenshots + a .webm recording)
 npm run e2e          # all of them (Himan's laptop once hung on this: run the scripts ONE AT A TIME)
 node e2e/real-assets-shots.mjs before|after   # screenshots of one sample layout: e2e/screens/real-assets-<tag>-*.png
 ```
@@ -256,6 +265,11 @@ src/play/navigation/follow.js      PURE (v0.13.4): following a route: routePath,
                                    clearance, speed, stuck, off route, arrival), routeMarks (the line's chevrons + markers)
 src/engine/systems/RouteLineSystem.ts  The route line: 2 thin-instance meshes (chevrons, markers), not pickable
 src/engine/react/PlaceSearch.tsx   The viewer's search box "Find a person, room or place" (toolbar button, inline styles)
+src/engine/systems/TourSystem.ts   engine.tour (v0.14.4): the company tour's state machine (idle / walking / stop / paused /
+                                   done), driving NavigationSystem.routeTo (source 'tour'), the 'tour' event
+src/engine/react/TourPanel.tsx     The tour's panel ("Stop 4 of 20 · Marketing", text, directions, controls, the stop list,
+                                   narration); pure stopTitle / stateLine / spokenText
+src/play/navigation/tourVisited.js PURE (v0.14.4): the tour's visited stops per browser + layout (localStorage, try / catch)
 src/play/people.js                 PURE: people at desks: deskSeat / deskSeats (the chair of a desk), seatPose,
                                    personNear, chooseFullCharacters (≤ 12 nearest), BONE_TABLE (Mixamo ↔ Unreal
                                    names), normaliseBoneName, SEATED_POSE / STANDING_POSE (tests in play/__tests__)
@@ -609,12 +623,14 @@ Preview has no search box).
 
 ## The tour's plan (v0.14.3, how it works)
 
-Section 3.5 of `private-docs/EXPERIENCE_PLAN.md` (decisions in its section 6). PURE planning, **no UI yet** (the tour
-itself, TourSystem + its panel, is the next step). `src/play/navigation/tour.js`, tests in `__tests__/tour.test.js`.
-- **`planTour(layout, people, departments, { catalog | maps, speed, pause, backToReception })`** (engine:
+Section 3.5 of `private-docs/EXPERIENCE_PLAN.md` (decisions in its section 6). PURE planning; the tour itself (TourSystem
++ its panel) is v0.14.4, see "The company tour". `src/play/navigation/tour.js`, tests in `__tests__/tour.test.js`.
+- **`planTour(layout, people, departments, { catalog | maps, speed, pause, facilityPause, backToReception })`** (engine:
   `engine.navigation.planTour(options)`, with its walk maps, people and departments) → `{ stops, floors, length,
   seconds, walkSeconds, pauseSeconds, minutes, mentions, skipped, missed, ms }`. Nothing to author: made from the
-  layout and the seats.
+  layout and the seats. **Planned in idle time** (v0.14.4): the last step of `navigation.warm()`, after the walk maps;
+  `navigation.tourPlanReady` (null until then), `tourPlan()` = that plan (cached, keyed on rooms, items, floors,
+  people and departments), so "Start tour" never waits.
 - **Stops, in order:** the main entrance (`entranceSpawn`), the reception (a RECEPTION_DESK's `visitorSpot`, facing
   it, else just inside its door); each department once (`room.departmentRef` by `words`; its rooms on one floor
   grouped, on several floors it stops where most of them are, the others in "Also on Floor 1: …"); ONE washroom and
@@ -624,6 +640,8 @@ itself, TourSystem + its panel, is the next step). `src/play/navigation/tour.js`
   cells, a cell free if any of its 9 is; `coarseField`, Float64: Float32 broke the heap), nearest neighbour, then 2-opt
   (`twoOpt`: an open path, ending at the stairs up when a floor above is visited; the best stairs chosen). Each leg is
   then a real `findRoute` between two stops' spots: never through a wall. Meridian: ~150 ms with warm walk maps.
+  A facility (washroom, meeting room) never comes right after reception when a department is about as near
+  (`notRightAfter`: within `NEAR_FACTOR` 1.5 × its distance + `NEAR_EXTRA` 4 m): it moves further along the way.
 - **Each stop:** `{ id ('entrance' | 'reception' | 'department:<key>' | 'room:<id>' | 'return'), n, kind, facility,
   name, floor, floorName, roomId, rooms, department, description (≤ 280), spot { x, z, floor }, yaw, people, names
   ([{ name, department }], at most 3: NOTHING else from the seats), lines, text, leg }`. `lines`: "Engineering · 2
@@ -636,12 +654,60 @@ itself, TourSystem + its panel, is the next step). `src/play/navigation/tour.js`
   that point (`at`, `door`, `side`: facing +Z, +X is on your right). `missed` = rooms neither stopped at nor mentioned.
 - **Skipped:** a room no walk reaches (another walkable area than the floor's arrival point, `areaOf`) is left out
   with findRoute's reason (`NO_DOOR` "…: it has no door", `NO_STAIRS`, …).
-- **Time:** walking at `speed` (WALK_SPEED) + `pause` (`STOP_PAUSE` 20 s) at each stop; `minutes` rounded (at least 1).
+- **Time:** walking at `speed` (WALK_SPEED) + each stop's `pause` (v0.14.4): departments and reception `pause`
+  (`STOP_PAUSE` 20 s), the entrance and facilities `facilityPause` (`FACILITY_PAUSE` 8 s), the return 0;
+  `minutes` rounded (at least 1). **Every count agrees:** stop 1's "The tour: N stops, about M min" (`tourSummary`) is
+  made from the final list, as are Find's entry and the panel's "Stop 4 of N".
 - **Debug view:** `viewer.html?mode=view&debug=tour` (`src/viewer/tourDebug.js`): the current floor's legs (orange,
   drawn over the walls), numbered stop discs with a stick the way they face, mentions (yellow, a line to the door), and
   a panel (`[data-tour-debug]`: `data-tour-stops`, `data-tour-length`, `data-tour-ms`, `data-tour-stop`,
   `data-tour-skipped`) with every stop, its directions and mentions. Planned again when the layout, the people or the
   departments change. Dev hook `window.__ahdusTourDebug` ({ plan, replan, dispose }).
+
+## The company tour (v0.14.4, how it works)
+
+Section 3.5 of `private-docs/EXPERIENCE_PLAN.md` (decisions in its section 6), from `planTour` (above). Viewer / embed
+only (Studio's Preview has no tour). Free walking, Find and Take me there are unchanged when no tour runs.
+- **`engine.tour`** (`systems/TourSystem.ts`, tested with fake hooks in `engine/__tests__/TourSystem.test.ts`, and in
+  `LayoutEngine.test.ts`): `start({ follow: 'auto' | 'self', from, pauseScale })` / `restart` / `pause` / `resume` /
+  `next` / `previous` / `skip` / `goTo(i)` / `setFollow` / `stop`, `status` ({ state, pausedFrom, follow, index,
+  count, stop, plan, dwell, remaining, visited, mention, message }), the **'tour' event** (started, walking, arrived,
+  paused, resumed, follow, mention, progress, done, ended, problem). States: idle, walking, stop (the stop's pause
+  counts down in game time: `tick(dt)` each frame, dt ≤ 0.25 s), paused (`pausedFrom` walking | stop), done.
+- **Start:** always the main entrance (stop 1): from above, walking starts there (`startWalking`); already walking,
+  a jump there. `pauseScale` shortens every stop's pause (tests, demos).
+- **Walks** are `navigation.routeTo(spot, { walk, source: 'tour', face })`: no Find strip, no navigation outline,
+  'auto' pauses on a movement key / the joystick like Take me there (the tour shows "Paused"), G or P walks on; on
+  arrival it turns to the stop's `yaw` (`face`, pitch −0.12) unless `turn: false`. "Walk me" = 'auto', "I'll walk" =
+  'guide' (the line; arriving within 1 m completes the stop); `setFollow` switches the walk in progress
+  (`navigation.setWalk`). Walking away from a stop (> 0.8 m): "I'll walk" goes on to the next, "Walk me" pauses.
+  A click on the floor (source 'click') pauses the tour; resume = a new route. A failed walk (stuck, no route) = a fade
+  there, and the panel says why. A route stopped by anything else (a new layout, leaving walkthrough) ends the tour.
+- **Jumps** (Skip the walk, Previous, a stop from the list) go through the viewer's fader (`tour.setFader`: 250 ms to
+  dark, `setPose` at the stop facing it, back; `[data-tour-fade="on"]`). **prefers-reduced-motion:** no turning on
+  arrival, a fade + `setPose` with the yaw instead.
+- **At a stop:** its rooms outlined (`TOUR_HIGHLIGHT` green), ticked, the panel shows it. Passing mentions ("On your
+  left: Store") within 2.5 m of their point of the route, once each (shown 6 s, `MENTION_MS`).
+- **Keys:** `playController.setKeyHandler` (WalkthroughSystem's `setKeyHandler`): the tour sees each key first while it
+  runs (only when the view has the keys, never in a text field): P = pause / resume, Esc = end. Nothing else changes.
+- **Visited** (`navigation/tourVisited.js`): localStorage `ahdus.tourVisited` = { [layoutName · building]: stop ids },
+  at most 20 layouts, all in try / catch (blocked: this visit only). Restart clears this layout's.
+- **UI** (`LayoutViewer` prop `tour`, default true; embed `navigation: { tour }`): the **Tour** button
+  (`data-tour-button`, aria-label `Company tour`, aria-pressed; running: opens / closes the stop list) after Find in the
+  toolbar; Find's menu starts with **"Take the company tour · 20 stops · about 8 min [· 3 visited]"** (`data-tour-offer`,
+  `tourDetail`, from `tourPlanReady`: never planned in the menu; hidden while a tour runs). **TourPanel**
+  (`[data-tour-panel]` = state, `data-tour-follow`, `data-tour-index`): top right, 360 px; a view under 640 px
+  (`data-tour-narrow`): full width at the bottom, above the joystick (touch) or the HUD, max 48 % high. Title "Stop 4 of
+  20 · Marketing" (`data-tour-title`), the state line (`data-tour-state`, touch words: "Tap Resume to go on"), the
+  stop's text (`data-tour-text`), a mention (`data-tour-mention`), the next leg's directions (`data-tour-directions`),
+  Walk me / I'll walk (`data-tour-mode` = auto | self), Pause / Resume (`data-tour-pause`), Previous, Next, Skip the
+  walk (`data-tour-previous` / `-next` / `-skip`), Exit (`data-tour-exit`), the speaker (`data-tour-speak`,
+  aria-pressed: **narration** with `speechSynthesis`, off by default), All stops (`data-tour-list-toggle`; the list
+  `data-tour-list`, items `data-tour-stop-item` = id + `data-visited`, Restart `data-tour-restart`), done: Restart. A
+  phone hides the walking person card under the panel while touring, and the one-time walk hint waits until the tour
+  ends (it would sit under the panel). Help rows: P (keys), Tour (touch).
+- **Embed:** `workplace.startTour({ follow })`, `stopTour()`, `onEvent('tour', { type, state, follow, index, count,
+  visited, remaining, message, mention, stop: { id, n, kind, name, floor, floorName, text } })` (not the plan).
 
 ## Easy controls (v0.14.0, how they work)
 
@@ -673,7 +739,7 @@ walkthrough only: **Studio's Preview keeps pointer lock exactly as before** (pla
   the keys back (blur). An Esc that a route takes (stops it) does nothing else (defaultPrevented).
 - **Hint + help** (`LayoutViewer`): the first walk in a browser shows `WALK_HINT` "W A S D to walk · drag to look ·
   click the floor to go there" for 6 s (localStorage `ahdus.walkHintSeen`, try / catch; touch screens: their own hint, see "Touch controls");
-  the "?" button (`data-hud="help"`, aria-label `Keys and mouse`) opens `WALK_HELP` (14 rows, `data-walk-help`), Esc or a
+  the "?" button (`data-hud="help"`, aria-label `Keys and mouse`) opens `WALK_HELP` (15 rows, `data-walk-help`), Esc or a
   press outside closes it. While the hint shows, the HUD's own keys line under the room name is hidden (not the same words
   twice; a message still shows). The pill "Mouse look · Esc to release" (`data-hud="keys"`) shows only in mouse look;
   who has the keys is the view's description for screen readers (`data-hud="keys-state"`, hidden: "Click the view to
@@ -702,7 +768,7 @@ Preview ignores touch as before** (look 'lock' listens to mousedown only).
   event; before any, `(pointer: coarse)`. Then: the joystick shows; `WALK_HINT_TOUCH` "Joystick to walk · drag to look
   · tap the floor to go there" (its own localStorage key `ahdus.walkHintSeen.touch`, shown at 40 % height); the
   controller's readOnly hint (`walkthrough.setTouch`: "Joystick to walk, drag to look, …"; not drawn on touch since
-  v0.14.2, see below); the screen readers' line; the "?" help = `WALK_HELP_TOUCH` (9 rows), its
+  v0.14.2, see below); the screen readers' line; the "?" help = `WALK_HELP_TOUCH` (10 rows), its
   button / dialog named "Touch controls" (`data-walk-help` = touch | mouse); the E prompt reads "Tap it: …";
   PlaceSearch (`touch`) says "Paused · Tap Continue to walk on" / "the joystick pauses". **The HUD (v0.14.2)** is ONE
   short line (`data-hud-line="touch"`) to the right of the joystick, level with its bottom: a message, else "Tap it:
@@ -865,7 +931,7 @@ site on the server (local mode renames the layout), the leave check. Saving, und
   e2e scripts pick a tool with `pick(tile, option)`: it opens the tile's library unless it is open (a click on an open
   tile closes it), then clicks the option; Rooms = "Draw your own size". Furniture: drag the tile onto the floor.
 - viewer.html's dev hooks: `__ahdusViewer` (the LayoutEngine; `.walkthrough.setPose`), `__ahdusScene`, `ahdus`,
-  `__viewerEvents` (bridge events), `__ahdusCards`, `__ahdusWalkDebug` (only with `&debug=walkmap`), `__ahdusTourDebug` (only with `&debug=tour`), `__ahdusSetPeople`
+  `__viewerEvents` (bridge events), `__ahdusCards`, `__ahdusWalkDebug` (only with `&debug=walkmap`), `__ahdusTourDebug` (only with `&debug=tour`; the tour itself: `__ahdusViewer.tour`), `__ahdusSetPeople`
   (the people prop; `?people=1` = two sample people, `?search=0` = no search box), `__viewerNav` (every 'navigation'
   event). On a touch screen (v0.14.1, the last press a finger) the "?" button and its dialog are named `Touch controls`
   (`Keys and mouse` with a mouse); `walkthrough.getStick()` = the joystick now. viewer.html gives the view only 60 % of
@@ -1060,9 +1126,12 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Take me there: no lifts, no running; the line is drawn on the floor you are on only (the stairs marker shows where
   to go up); a route through a door narrower than ~0.9 m keeps the body on its centre line (slow there). Studio's
   Preview has no search box, so no Show route there.
-- Tour plan (v0.14.3): no tour UI yet (the plan only). Mentions are made at doors only (within 4 m, in sight); a
-  room with a door the route never comes near is `missed`. A department on several floors has one stop. The order is
-  planned on a 0.3 m grid, so it can differ a little from the shortest by real routes. No lifts.
+- Tour plan (v0.14.3): mentions are made at doors only (within 4 m, in sight); a room with a door the route never
+  comes near is `missed`. A department on several floors has one stop. The order is planned on a 0.3 m grid, so it can
+  differ a little from the shortest by real routes. No lifts.
+- Tour (v0.14.4): visited ticks are per browser only (not per person on the server); narration uses the browser's own
+  voice (none in some browsers: the button does nothing there); the tour is not in Studio's Preview; no tour editing
+  (stops, order and texts all come from the layout and the seats).
 - Touch (v0.14.1): no pinch to zoom, no flying or floor buttons by touch (Find + Take me there, or the stairs); the
   joystick has no run speed. The joystick is hidden from screen readers (Find + Take me there cover them).
 - A click on a wall walks to the spot in front of it; there is no "walk to the room behind this wall".
@@ -1137,6 +1206,14 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: the company tour (v0.14.4, 8 Nov 2026, branch `feature/tour`)
+
+private-docs/EXPERIENCE_PLAN.md 3.5: three plan fixes (every count agrees; facility stops 8 s and kept on the way;
+planned in idle time), then `engine.tour` (TourSystem), the Tour button, Find's "Take the company tour", TourPanel
+(Walk me / I'll walk / Skip the walk, Pause / P, Previous, Next, Exit / Esc, the stop list with ticks, Restart,
+narration), the embed's `startTour` / `stopTour` / 'tour' event (see "The company tour"); e2e:tour. Screenshots and a
+recording (desktop 1440×900, phone 390×844): private-docs/screenshots/v0.14.4/ (not in git).
 
 ## DONE: tour planning (v0.14.3, 8 Nov 2026, branch `feature/tour-plan`)
 

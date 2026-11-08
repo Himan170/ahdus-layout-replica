@@ -15,6 +15,8 @@
  *   engine.navigation.browse()        → the Find box's menu while it is empty (v0.14.2): facility chips, My desk,
  *                                       departments, places by kind, by floor (play/navigation/browse.js)
  *   engine.on('navigation', (e) => …) → { state: 'started' | 'progress' | 'arrived' | 'stopped' | 'failed', … }
+ *   engine.navigation.tourPlan()      → the company tour's plan (v0.14.4: planned in idle time after the walk maps,
+ *                                       kept until the layout, the people or the departments change)
  *
  * The index (play/navigation/places.js, pure) is made again when the layout's
  * rooms, items or floors, or the people (setPeople), change. The walk maps are
@@ -92,6 +94,8 @@ export interface TourStop {
   yaw: number;
   look: { x: number; z: number } | null;
   people: number;
+  /** How long the tour stays here (s): a department or the reception 20, a washroom, a meeting room or the entrance 8, the end 0. */
+  pause: number;
   names: { name: string; department: string | null }[];
   lines: string[];
   text: string;
@@ -220,9 +224,14 @@ export interface NavigationEvent {
 
 /**
  * Who started a route. 'click' (a click on the floor while walking, v0.14.0): it touches no outline,
- * a movement key ends it (no "Press G"), and it stops on arrival without turning.
+ * a movement key ends it (no "Press G"), and it stops on arrival without turning. 'tour' (the company
+ * tour, v0.14.4: TourSystem): it touches no outline either (the tour outlines its stops), pauses like
+ * Take me there, and on arrival turns to the way the stop faces (routeTo's `face`).
  */
-export type RouteSource = 'click';
+export type RouteSource = 'click' | 'tour';
+
+/** routeTo's `face`: on arrival, turn to this yaw (and pitch); turn: false = at once (prefers-reduced-motion). */
+export interface FaceOnArrival { yaw: number; pitch?: number; turn?: boolean }
 
 /** A walker's controller (playController via WalkthroughSystem): what navigation drives. */
 export interface PilotHost {
@@ -302,6 +311,8 @@ interface Walk {
   sinceEmit: number;
   /** Arrived: turning to face it, then done. */
   faceYaw: number | null;
+  /** routeTo's face (the tour's stops). */
+  face?: FaceOnArrival;
   /** Walking time so far (s, the frames' time). */
   elapsed: number;
   source?: RouteSource;
@@ -320,6 +331,8 @@ export class NavigationSystem {
   private shown: string | null = null;
   private active: Walk | null = null;
   private warmToken = 0;
+  /** The tour's plan, kept while its inputs are the same (tourPlan()). */
+  private tour: { plan: TourPlan; key: unknown[] } | null = null;
 
   constructor(hooks: Hooks) {
     this.hooks = hooks;
@@ -344,6 +357,7 @@ export class NavigationSystem {
     this.departments = (Array.isArray(departments) ? departments : [])
       .filter((d) => d && typeof d.name === 'string')
       .map((d) => ({ name: d.name as string, ...(typeof d.description === 'string' ? { description: d.description } : {}) }));
+    this.tour = null; // the tour's texts have the descriptions
   }
 
   /**
@@ -387,9 +401,31 @@ export class NavigationSystem {
    * walk maps. Read-only: nothing walks yet (the tour itself is v0.14.4). Options as planTour's
    * (speed, pause, backToReception).
    */
-  planTour(options: { speed?: number; pause?: number; backToReception?: boolean } = {}): TourPlan {
+  planTour(options: { speed?: number; pause?: number; facilityPause?: number; backToReception?: boolean } = {}): TourPlan {
     const s = this.hooks.getLayout();
     return planTour(s, this.people, this.departments, { ...options, maps: this.walkMaps, catalog: ASSET_TYPES }) as TourPlan;
+  }
+
+  /**
+   * The tour's plan with the default options (v0.14.4, the tour itself: TourSystem): planned in idle time
+   * after the walk maps (warm()), so "Start the tour" never waits; planned now if it isn't ready (or the
+   * layout, the people or the departments changed since).
+   */
+  tourPlan(): TourPlan {
+    const key = this.tourKey();
+    if (!this.tour || key.some((k, i) => k !== this.tour!.key[i])) this.tour = { plan: this.planTour(), key };
+    return this.tour.plan;
+  }
+
+  /** The tour's plan if it is planned already for the layout now, else null (nothing is planned). */
+  get tourPlanReady(): TourPlan | null {
+    const key = this.tourKey();
+    return this.tour && key.every((k, i) => k === this.tour!.key[i]) ? this.tour.plan : null;
+  }
+
+  private tourKey(): unknown[] {
+    const s = this.hooks.getLayout();
+    return [s.rooms, s.objects, s.floors, this.people, this.departments];
   }
 
   /** The index, made again when the layout or the people changed. */
@@ -419,6 +455,8 @@ export class NavigationSystem {
       const goal = this.places().places.find((p) => p.goals?.length)?.goals[0];
       if (goal) findNearestRoute(s, { x: spawn.x, z: spawn.z, floor: spawn.floor }, [goal], { maps: this.walkMaps });
     });
+    // then the tour's plan (v0.14.4): "Start the tour" never waits for it
+    steps.push(() => { this.tourPlan(); });
     return new Promise((resolve) => {
       const next = () => {
         const now = this.hooks.getLayout();
@@ -597,9 +635,9 @@ export class NavigationSystem {
    * target: an id or result from find(), { personId } | { deskId } | { roomId } | { objectId } |
    * { type: 'RESTROOM' | 'MEETING' | 'RECEPTION' | 'STAIRS' } (the nearest) | { x, z, floor }.
    */
-  routeTo(target: RouteTarget, { walk = 'guide', source }: { walk?: WalkMode; source?: RouteSource } = {}): RouteAnswer {
+  routeTo(target: RouteTarget, { walk = 'guide', source, face }: { walk?: WalkMode; source?: RouteSource; face?: FaceOnArrival } = {}): RouteAnswer {
     const mode: WalkMode = walk === 'auto' ? 'auto' : 'guide';
-    const from = source === 'click' ? { source } : {};
+    const from = source === 'click' || source === 'tour' ? { source } : {};
     if (!this.resolve(target)) return { problem: 'NOT_FOUND', message: 'Nothing found to go to' };
     if (this.active) this.end('stopped', { silent: true });
     const host = this.hooks.startWalking?.() ?? null;
@@ -617,7 +655,7 @@ export class NavigationSystem {
     const w: Walk = {
       place, walk: mode, host, route, follower: this.follower(route), paused: false, stuck: 0, stuckAtS: 0,
       sinceReroute: 0, drawnS: -Infinity, drawnFloor: -1, emittedRemaining: route.length, sinceEmit: 0, faceYaw: null, elapsed: 0,
-      ...from,
+      ...from, ...(face && Number.isFinite(face.yaw) ? { face } : {}),
     };
     this.active = w;
     if (!w.source) { // a click's walk leaves what search outlined alone
@@ -639,6 +677,32 @@ export class NavigationSystem {
   stop(): boolean {
     if (!this.active) return false;
     this.end('stopped');
+    return true;
+  }
+
+  /**
+   * Pause Take me there (the tour's Pause, P): the character stops where it is, the line stays; resume()
+   * walks on. false: no route, or it is paused already.
+   */
+  pause(): boolean {
+    const w = this.active;
+    if (!w || w.paused || w.faceYaw !== null) return false;
+    w.paused = true;
+    this.emitProgress(w, this.hooks.getWalker()?.floor, { force: true });
+    return true;
+  }
+
+  /**
+   * The way the route is followed, switched while it is followed (the tour's "Walk me" / "I'll walk"):
+   * 'auto' = as resume(); 'guide' = the line only, you walk. false: no route.
+   */
+  setWalk(walk: WalkMode): boolean {
+    const w = this.active;
+    if (!w || w.faceYaw !== null) return false;
+    if (walk === 'auto') return w.walk === 'auto' && !w.paused ? true : this.resume();
+    w.walk = 'guide';
+    w.paused = false;
+    this.emitProgress(w, this.hooks.getWalker()?.floor, { force: true });
     return true;
   }
 
@@ -760,10 +824,12 @@ export class NavigationSystem {
         w.sinceEmit += dt;
         // arrived: turn to face the person or room, then the walk is over
         if (w.faceYaw !== null) {
+          const pitch = w.face?.pitch ?? ARRIVE_PITCH;
+          if (me.userMoving) { this.end('arrived'); return null; } // you walk on yourself: no turning
           const yaw = turnTowards(me.yaw, w.faceYaw, TURN_RATE * dt);
           if (Math.abs(yaw - w.faceYaw) < 0.02) {
             this.end('arrived');
-            return { dirX: 0, dirZ: 0, speed: 0, yaw: w.faceYaw, pitch: ARRIVE_PITCH };
+            return { dirX: 0, dirZ: 0, speed: 0, yaw: w.faceYaw, pitch };
           }
           return { dirX: 0, dirZ: 0, speed: 0, yaw };
         }
@@ -780,8 +846,16 @@ export class NavigationSystem {
           if (w.source === 'click') { this.end('arrived'); return null; } // there: no turning to face a spot
           const p = w.place;
           const far = Number.isFinite(p.x) && Math.hypot(p.x - me.x, p.z - me.z) > 0.2;
-          w.faceYaw = far ? headingOf(p.x - me.x, p.z - me.z) : me.yaw;
+          w.faceYaw = w.face ? w.face.yaw : far ? headingOf(p.x - me.x, p.z - me.z) : me.yaw;
           this.hooks.routeLine?.()?.hide();
+          // the tour's stop: turned to the way it faces (also when you walked there yourself), or at once
+          if (w.face) {
+            if (w.face.turn === false || me.userMoving) {
+              this.end('arrived');
+              return me.userMoving ? null : { dirX: 0, dirZ: 0, speed: 0, yaw: w.faceYaw, pitch: w.face.pitch ?? ARRIVE_PITCH };
+            }
+            return { dirX: 0, dirZ: 0, speed: 0, yaw: turnTowards(me.yaw, w.faceYaw, TURN_RATE * dt) };
+          }
           if (w.walk === 'guide' || w.paused) { this.end('arrived'); return null; } // you walked there yourself
           return { dirX: 0, dirZ: 0, speed: 0, yaw: turnTowards(me.yaw, w.faceYaw, TURN_RATE * dt) };
         }

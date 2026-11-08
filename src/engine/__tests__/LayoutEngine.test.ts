@@ -57,6 +57,7 @@ vi.mock('../../play/playController', () => ({
       getYaw: () => 0.5,
       getPosition: () => ({ x: c.pos.x, y: c.pos.y, z: c.pos.z }),
       setAutopilot: vi.fn((p: any) => { c.pilot = p; }),
+      setKeyHandler: vi.fn((h: any) => { c.keys = h; }),
       stepFloor: vi.fn(),
       say: vi.fn(),
       setCharacter: vi.fn((ch: any, opts: any) => { c.character = ch; c.eyeHeight = opts?.eyeHeight; }),
@@ -784,6 +785,74 @@ describe('navigation: going there (v0.13.4)', () => {
     engine.navigation.walkMaps.get(s, 0);
     engine.navigation.walkMaps.get(s, 1);
     expect(performance.now() - t0).toBeLessThan(5); // already built
+  });
+});
+
+describe('the company tour (v0.14.4)', () => {
+  // Office 1 is Engineering: a department to stop at (the stairs lead nowhere, so Floor 1 is skipped)
+  const tourSave = () => { const l = save(); (l.rooms[0] as any).departmentRef = 'Engineering'; return l; };
+  function touring(mode: 'view' | 'walkthrough' = 'view') {
+    controllers.length = 0;
+    Object.assign(walkerStart, { x: -1.5, y: 0, z: -5, floor: 0 });
+    const engine = makeEngine({ quality: 'low', mode });
+    engine.loadLayout(tourSave());
+    const events: any[] = [];
+    engine.on('tour', (e) => events.push(e));
+    return { engine, events, controller: () => controllers[controllers.length - 1] };
+  }
+
+  it('is planned in idle time after the walk maps, so starting never waits', async () => {
+    const { engine } = touring();
+    expect(engine.navigation.tourPlanReady).toBeNull();
+    await engine.whenNavigationReady();
+    const plan = engine.navigation.tourPlanReady!;
+    expect(plan.stops.length).toBeGreaterThan(1);
+    expect(plan.stops[0].text).toContain(`The tour: ${plan.stops.length} stops`);
+    expect(engine.navigation.tourPlan()).toBe(plan); // the same plan, not made again
+  });
+
+  it('from above: walking starts at the main entrance with stop 1; P / Esc are the tour’s keys; leaving walking ends it', async () => {
+    const { engine, events, controller } = touring();
+    await engine.whenNavigationReady();
+    const answer = engine.tour.start();
+    expect(answer).toMatchObject({ count: engine.navigation.tourPlanReady!.stops.length });
+    expect(engine.mode).toBe('walkthrough');
+    const c = controller();
+    expect(engine.tour.status).toMatchObject({ state: 'stop', index: 0, follow: 'auto' });
+    expect(engine.tour.status.stop!.kind).toBe('entrance');
+    expect(events.map((e) => e.type)).toEqual(['started', 'arrived']);
+    expect(c.keys).toBeTypeOf('function');
+    // on to stop 2: a tour route, its own panel (no navigation highlight)
+    engine.tour.next();
+    expect(engine.tour.status.state).toBe('walking');
+    expect(engine.navigation.walking).toMatchObject({ walk: 'auto' });
+    expect(c.pilot).toBeTruthy();
+    expect(c.keys('KeyP')).toBe(true);
+    expect(engine.tour.status.state).toBe('paused');
+    expect(c.keys('KeyP')).toBe(true);
+    expect(engine.tour.status.state).toBe('walking');
+    expect(c.keys('KeyW')).toBe(false);
+    expect(c.keys('Escape')).toBe(true);
+    expect(engine.tour.running).toBe(false);
+    expect(engine.navigation.walking).toBeNull();
+    expect(c.setKeyHandler).toHaveBeenLastCalledWith(null);
+    // again, then leaving walking ends it
+    engine.tour.start({ follow: 'self' });
+    expect(engine.tour.status.follow).toBe('self');
+    engine.setMode('view');
+    expect(engine.tour.running).toBe(false);
+    expect(events.at(-1)).toMatchObject({ type: 'ended', state: 'idle' });
+  });
+
+  it('a new layout ends a running tour; Find and Take me there are unchanged without one', async () => {
+    const { engine, controller } = touring('walkthrough');
+    engine.tour.start();
+    engine.loadLayout(tourSave());
+    expect(engine.tour.running).toBe(false);
+    expect(controller().keys ?? null).toBeNull();
+    const r = engine.navigation.routeTo({ deskId: 'obj_desk' }, { walk: 'auto' });
+    expect(r.walk).toBe('auto');
+    expect(engine.highlights.ids()).toEqual(['obj_desk']);
   });
 });
 

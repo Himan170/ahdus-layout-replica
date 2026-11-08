@@ -69,5 +69,12 @@ describe('browseScreen', () => {
     expect(chipLabel({ ...chip, nearest: null }, true)).toBe('Washroom');
     expect(titles(browseScreen(menu, { type: 'home' }, { walking: true }))[0]).toBe('Nearest');
   });
-});
 
+  it('the tour first (v0.14.4): one entry, then the rest as before; none without a tour', () => {
+    const home = browseScreen(menu, { type: 'home' }, { tour: { count: 20, minutes: 8, visited: 0 } });
+    expect(titles(home)[0]).toBe('(tour)');
+    expect(home.sections[0].entries).toEqual([{ type: 'tour', key: 'tour', name: 'Take the company tour', detail: '20 stops · about 8 min' }]);
+    expect(titles(home).slice(1)).toEqual(titles(browseScreen(menu, { type: 'home' })));
+    expect(titles(browseScreen(menu, { type: 'kind', id: 'kind:MEETING' }, { tour: { count: 20, minutes: 8, visited: 0 } }))[0]).toBe('(back)');
+  });
+});
