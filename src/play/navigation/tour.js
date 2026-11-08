@@ -7,7 +7,8 @@
  *
  * planTour(layout, people, departments, options) → the stops in order:
  *   1. the main entrance (where a walk starts: entranceSpawn), then the reception;
- *   2. each department once (`room.departmentRef`, its rooms on one floor grouped; a department on
+ *   2. each department once (`room.departmentRef`, else (v0.14.9) the department of most of the people seated in
+ *      the room: places.roomDepartments; its rooms on one floor grouped; a department on
  *      several floors stops where most of its rooms are), floor by floor: the ground floor first,
  *      then up by the stairs;
  *   3. one washroom and one meeting room per floor, not all of them: the one that adds the least
@@ -118,6 +119,8 @@ export function planTour(layout, people = [], departments = [], options = {}) {
 
   // who sits in which room (name and department only)
   const index = buildPlaces(layout, people);
+  // each room's department: departmentRef, else most of the people seated in it (v0.14.9: Studio's layouts)
+  const deptOf = (r) => index.roomDepartments.get(r.id) ?? '';
   const seated = new Map();
   for (const p of index.places) {
     if (p.kind !== 'person' || !p.roomId) continue;
@@ -158,7 +161,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
   // ── departments: their rooms, the floor where most of them are ──
   const byDept = new Map();
   for (const room of rooms) {
-    const name = room.departmentRef?.trim();
+    const name = deptOf(room);
     if (!name || room === receptionRoom) continue;
     const key = keyOf(name);
     if (!key) continue;
@@ -190,7 +193,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
   const stopRooms = new Set();
 
   /** Something to see on a floor: a department's room or a facility. */
-  const worthSeeing = (f) => rooms.some((r) => floorOf(r) === f && (r.departmentRef?.trim() || TOUR_FACILITIES.includes(r.type)));
+  const worthSeeing = (f) => rooms.some((r) => floorOf(r) === f && (deptOf(r) || TOUR_FACILITIES.includes(r.type)));
   /** The floors from `fi` up can't be walked to on the tour: their rooms are skipped, with the reason. */
   const unreachableFrom = (fi) => {
     for (const f of order.slice(fi)) for (const r of rooms) if (floorOf(r) === f) skip(r, 'room', whyNot(r));
@@ -303,7 +306,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
         if (!spot) continue;
         candidates.push({
           id: `room:${r.id}`, kind: 'facility', facility: type, name: roomName(r), floor, floorName: floorName(floor),
-          roomId: r.id, rooms: [{ id: r.id, name: roomName(r) }], department: r.departmentRef?.trim() || null,
+          roomId: r.id, rooms: [{ id: r.id, name: roomName(r) }], department: deptOf(r) || null,
           description: textOf(r.description), spot, yaw: faceYawOf(spot, r), look: { x: r.x, z: r.z },
           people: 0, names: [], lines: [], text: '', leg: null,
         });

@@ -478,7 +478,8 @@ describe('navigation: search and show places (v0.13.3)', () => {
       facility: null, personId: 'p1', deskId: 'obj_desk', entityId: 'obj_desk',
     });
     expect(engine.navigation.find('meeting').map((p) => `${p.group}:${p.name}:${p.floorName}`)).toEqual(['facilities:Meeting 1:Floor 1']);
-    expect(engine.navigation.find('office').map((p) => p.name)).toEqual(['Office 1']);
+    // v0.14.9: Office 1 is Engineering's (Asha sits there), so the department is found by its room too
+    expect(engine.navigation.find('office').map((p) => p.name)).toEqual(['Office 1', 'Engineering']);
     expect(engine.navigation.find('stairs').map((p) => p.id)).toEqual(['item:obj_stairs']);
     engine.setPeople([]);
     expect(engine.navigation.find('asha')).toEqual([]);
@@ -538,7 +539,9 @@ describe('navigation: the Find box browse menu (v0.14.2)', () => {
       ['Meeting room', 1, 'room:room_b', null], ['Stairs', 1, 'item:obj_stairs', null],
     ]);
     expect(menu.departments).toEqual([expect.objectContaining({
-      name: 'Engineering', description: 'Builds the product', detail: 'Ground Floor · 1 person', place: null,
+      // v0.14.9: Asha is the only one seated in Office 1, so it is Engineering's room
+      name: 'Engineering', description: 'Builds the product', detail: '1 room · Ground Floor · 1 person',
+      place: expect.objectContaining({ id: 'department:Engineering', roomId: 'room_a' }),
     })]);
     expect(menu.kinds.map((k) => `${k.name} ${k.count}`)).toEqual(['Offices 1', 'Meeting rooms 1', 'Stairs 1']);
     expect(menu.floors.map((f) => `${f.name} · ${f.detail}`)).toEqual(['Ground Floor · 1 room', 'Floor 1 · 1 room']);

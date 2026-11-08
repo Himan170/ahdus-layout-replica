@@ -256,14 +256,16 @@ describe('the tour of the Meridian-shaped layout', () => {
 describe("the tour of the viewer's sample company", () => {
   const maps = createWalkMapCache({ catalog: ASSET_TYPES });
 
-  it('the entrance, the reception, the meeting room upstairs (by the stairs), back to reception', () => {
+  it("the entrance, the reception, Engineering (from Asha's seat), the meeting room upstairs (by the stairs), back to reception", () => {
     const tour = plan(SAMPLE_LAYOUT, SAMPLE_PEOPLE, [], { maps });
+    // v0.14.9: no departmentRef, but Asha (Engineering) is the only one seated there; Kavya (HR) at the reception
+    // makes nothing HR (a shared space)
     expect(tour.stops.map((s) => `${s.kind}:${s.name}`)).toEqual([
-      'entrance:Main entrance', 'reception:Reception', 'facility:Meeting room', 'return:Reception',
+      'entrance:Main entrance', 'reception:Reception', 'department:Engineering', 'facility:Meeting room', 'return:Reception',
     ]);
     expect(tour.skipped).toEqual([]);
     expect(tour.floors).toEqual([0, 1]);
-    expect(tour.stops[2].leg.directions).toMatch(/^The stairs on your (left|right), up to Floor 1, into Meeting room\.$/);
+    expect(tour.stops[3].leg.directions).toBe('Out of Engineering, outside, through Reception, the stairs ahead, up to Floor 1, into Meeting room.');
     expect(tour.stops[1].lines).toEqual(['Reception', 'Reception · Ground Floor', '1 person works here', 'Kavya Iyer (HR)']);
     expectWalkable(SAMPLE_LAYOUT, tour, maps);
   });
@@ -289,7 +291,7 @@ describe("the tour of the viewer's sample company", () => {
       roomId: 'room_closed', name: 'Locked WC', problem: 'NO_DOOR', message: 'No walking route to Locked WC: it has no door',
     })]);
     expect(tour.stops.some((s) => s.roomId === 'room_closed')).toBe(false);
-    expect(tour.stops.map((s) => s.kind)).toEqual(['entrance', 'reception', 'facility', 'return']);
+    expect(tour.stops.map((s) => s.kind)).toEqual(['entrance', 'reception', 'department', 'facility', 'return']);
   });
 
   it('a floor no stairs lead to: its rooms skipped (no stairs), the ground floor toured', () => {
@@ -297,7 +299,7 @@ describe("the tour of the viewer's sample company", () => {
     const tour = plan(layout, SAMPLE_PEOPLE, [], { maps: createWalkMapCache({ catalog: ASSET_TYPES }) });
     expect(tour.floors).toEqual([0]);
     expect(tour.skipped).toEqual([expect.objectContaining({ roomId: 'room_meeting', problem: 'NO_STAIRS' })]);
-    expect(tour.stops.map((s) => s.kind)).toEqual(['entrance', 'reception']); // nothing more to see: no way back needed
+    expect(tour.stops.map((s) => s.kind)).toEqual(['entrance', 'reception', 'department', 'return']);
   });
 
   it('an empty layout: just the start', () => {

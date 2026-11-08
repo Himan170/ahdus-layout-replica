@@ -247,7 +247,8 @@ const browse = await p.evaluate(() => ({
 }));
 log('an empty box is a browse menu: the company tour first (v0.14.4), departments (from the seats), places by kind, by floor; nothing this layout lacks',
   browse.view === 'home' && browse.groups.join() === 'tour,quick,departments,kinds,floors' && browse.open.join() === [
-    'department:engineering=Engineering · Ground Floor · 1 person', 'department:hr=HR · Ground Floor · 1 person',
+    // v0.14.9: Asha is the only one seated in the Engineering room, so it is the department's room
+    'department:engineering=Engineering · 1 room · Ground Floor · 1 person', 'department:hr=HR · Ground Floor · 1 person',
     'kind:OFFICE=Offices · Ground Floor', 'kind:MEETING=Meeting rooms · Floor 1', 'kind:RECEPTION=Reception · Ground Floor',
     'kind:STAIRCASE=Stairs · Ground Floor', 'floor:0=Ground Floor · 2 rooms', 'floor:1=Floor 1 · 1 room'].join(), JSON.stringify(browse));
 for (let i = 0; i < 4; i++) await p.keyboard.press('ArrowDown'); // past the tour and the 3 chips: Engineering
@@ -265,9 +266,9 @@ const back = await p.evaluate(() => {
   const input = document.querySelector('[data-place-search] input');
   return { view: document.querySelector('[data-browse]')?.dataset.browse, active: document.getElementById(input.getAttribute('aria-activedescendant'))?.dataset.browseOpen };
 });
-log('↓ Enter opens Engineering (its people, Asha chosen; the status says what it is); Esc goes back to it, the box stays open',
-  dept.view === 'department' && dept.head === 'Engineering | Ground Floor · 1 person' && dept.active === 'person:p_asha' &&
-  dept.status === 'Engineering: Ground Floor · 1 person' && back.view === 'home' && back.active === 'department:engineering',
+log('↓ Enter opens Engineering (its room first, v0.14.9: from Asha\'s seat; the status says what it is); Esc goes back to it, the box stays open',
+  dept.view === 'department' && dept.head === 'Engineering | 1 room · Ground Floor · 1 person' && dept.active === 'room:room_engineering' &&
+  dept.status === 'Engineering: 1 room · Ground Floor · 1 person' && back.view === 'home' && back.active === 'department:engineering',
   JSON.stringify({ dept, back }));
 await p.keyboard.type('kav');
 const kav = await p.evaluate(() => {
