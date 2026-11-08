@@ -338,7 +338,9 @@ With `startMode: 'walkthrough'` (what AHDUS's 3D Company page sets), everyone wa
   the main entrance. How would you like to start?" and three buttons: **Start the tour** (with its size, "20 stops ·
   about 8 min"; the company tour, section 4f), **Explore** (walk around yourself) and **Find someone** (opens Find). The
   keys work at once: a movement key, Esc or a press on the view closes the card (= Explore) and walks. On a phone it
-  sits at the bottom, above the joystick. The one-time walking hint waits until it closes.
+  sits at the bottom, above the joystick. The one-time walking hint waits until it closes. **v0.14.7:** in a box under
+  600 px high (the box's own height: the 3D Company page gives a phone about 490 px) the card is compact (a smaller
+  title, one short line, the three buttons in one row), so the toolbar and the Overview button stay clear.
 - **Overview / Walk** (the button at the top right): **Overview** shows the floor you are on from above, looking at where
   you stood, and keeps your place; **Walk** takes you back there, facing the same way (no place kept: the entrance).
 - **Three guards:** (1) the person's **last choice** (Overview or Walk, per browser) wins next time: someone who mostly
