@@ -198,6 +198,8 @@ engine.navigation.stop();            // end it (false: nothing to stop)
 engine.on('navigation', (e) => { ... }); // { state: started | progress | arrived | stopped | failed, walk, place,
                                      //   remaining, length?, seconds?, floor?, paused?, rerouted?, problem?, message? }
 await engine.whenNavigationReady();  // the walk maps, built in idle time after loadLayout (the first route is quick)
+engine.arrivedPerson();              // v0.14.7: { personId, name } of the person the last walk arrived at, while you are
+                                     //   within 3 m of where it arrived (else null): E means them meanwhile
 
 // --- Querying ---
 engine.getAnchors(): Anchor[];                    // Get all anchors in the layout
@@ -216,6 +218,8 @@ engine.on('walkClick', (e) => { ... });   // walkthrough (v0.14.0), a plain clic
                                           // person = their card; interact = a machine in reach with a handled action
                                           // (as E); walk = a route there, walk 'auto', source 'click'
 engine.on('mode', ({ mode }) => { ... });           // the mode changed (setMode, or a route started from above)
+engine.on('personDetails', ({ person }) => { ... }); // v0.14.7: E after a walk arrived at a person (not the window by
+                                                     //   their desk); <LayoutViewer> pins their card
 // Touch (v0.14.1, <LayoutViewer> draws the joystick on touch screens): engine.walkthrough.setStick(x, y) walks
 // (x right, y forward, −1…1, the length = how fast; 0, 0 = stop), setTouch(true) = the HUD line in touch words.
 // A finger on the canvas drags to look; a tap (≤ 10 px, ≤ 500 ms) is a click (walkClick), never a double-click.

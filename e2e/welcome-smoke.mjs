@@ -5,11 +5,14 @@
 // Walk takes you back there. The last choice is remembered (per browser). A weak device (&weak=1, and SwiftShader
 // itself when not told) starts in Overview with a Walk button. A page opened at a person (&at=) shows no card.
 // Without ?start the viewer is as before (no card, no button). Phone (390 × 844): the card at the bottom, on screen.
+// v0.14.7: a short view box (390 × 490, as AHDUS's 3D Company page gives a phone; and 1000 × 400) gets the compact
+// card: the toolbar row and Overview stay visible and clickable, all three actions show with no scrolling, the
+// joystick and the HUD line stay clear.
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run dev              (in one terminal)
 //                   npm run e2e:welcome      (in another)
-// SHOTS=<dir>: screenshots (desktop 1440 × 900, phone 390 × 844) into <dir>.
+// SHOTS=<dir>: screenshots (desktop 1440 × 900, phone 390 × 844, short boxes 390 × 490 / 1000 × 400) into <dir>.
 // Exits with code 1 if any check fails.
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
@@ -58,7 +61,7 @@ const card = () => p.locator('[data-welcome]').count();
 const shot = (name) => p.screenshot({ path: join(shotDir, name) });
 
 /** Open viewer.html with these params; waits for the engine and the start floor. */
-async function open(query, { clear = false } = {}) {
+async function open(query, { clear = false, box = null } = {}) {
   if (!p) {
     p = await ctx.newPage();
     p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
@@ -70,6 +73,10 @@ async function open(query, { clear = false } = {}) {
     await p.reload();
   }
   await hideAside();
+  // a short box (v0.14.7): the viewer this size, whatever the window's
+  if (box) {
+    await p.addStyleTag({ content: `[data-layout-viewer] { flex: none !important; width: ${box.width}px !important; height: ${box.height}px !important; align-self: flex-start; }` });
+  }
   await p.waitForFunction(() => window.__ahdusViewer && window.__ahdusScene, null, { timeout: 120000 });
   await p.evaluate(() => window.__ahdusViewer.whenBuilt());
   await p.waitForFunction(() => !document.querySelector('[data-build-progress="start"]'), null, { timeout: 120000 });
@@ -234,6 +241,7 @@ try {
       modeOnScreen: !!m && m.right <= box.right && m.left >= box.left,
       toolsClear: tools.every((t) => !overlap(t, m)),
       words: document.querySelector('[data-welcome-action="explore"]')?.textContent,
+      compact: document.querySelector('[data-welcome]')?.hasAttribute('data-welcome-compact'),
     };
   });
   log('phone: the card full width at the bottom, on screen, above the joystick; Overview clear of the toolbar; touch words',
@@ -243,6 +251,58 @@ try {
   await p.tap('[data-welcome-action="explore"]');
   await frames(2);
   log('phone: Explore closes it', await card() === 0);
+  log('full-height phone: the full card, not the compact one', phone.compact === false, `compact: ${phone.compact}`);
+
+  // ── 10. a short box (v0.14.7): AHDUS's 3D Company page gives a phone's view ~490 px ──
+  await open('start=walk&weak=0&people=1', { clear: true, box: { width: 390, height: 490 } });
+  await p.waitForSelector('[data-welcome]', { timeout: 30000 }).catch(() => {});
+  await p.waitForFunction(() => /stops/.test(document.querySelector('[data-welcome-action="tour"]')?.textContent ?? ''), null, { timeout: 60000 }).catch(() => {});
+  const fits = () => p.evaluate(() => {
+    const rect = (el) => el?.getBoundingClientRect();
+    const box = rect(document.querySelector('[data-layout-viewer]'));
+    const el = document.querySelector('[data-welcome]');
+    const c = rect(el);
+    const inside = (a, b) => a && b && a.left >= b.left - 0.5 && a.right <= b.right + 0.5 && a.top >= b.top - 0.5 && a.bottom <= b.bottom + 0.5;
+    const overlap = (a, b) => !!(a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom);
+    const tools = [...document.querySelectorAll('[data-viewer-toolbar] button'), document.querySelector('[data-mode-button]')].filter(Boolean);
+    const names = tools.map((t) => t.getAttribute('aria-label') || t.textContent.trim());
+    // visible and clickable: on screen, nothing over its middle (elementFromPoint finds the button itself)
+    const clickable = tools.map((t) => { const r = rect(t); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return inside(r, box) && !!hit && t.contains(hit); });
+    const actions = [...document.querySelectorAll('[data-welcome-action]')];
+    const stick = rect(document.querySelector('[data-touch-joystick]'));
+    const hud = rect(document.querySelector('[data-hud-line]'));
+    return {
+      box: [Math.round(box.width), Math.round(box.height)], compact: el?.hasAttribute('data-welcome-compact'), names,
+      clickable, toolsClear: tools.every((t) => !overlap(rect(t), c)),
+      actions: actions.map((a) => a.dataset.welcomeAction).join(),
+      actionsShown: actions.length === 3 && actions.every((a) => inside(rect(a), c) && inside(rect(a), box)),
+      noScroll: !!el && el.scrollHeight <= el.clientHeight + 1,
+      stickClear: !stick || !overlap(stick, c), hudClear: !hud || !overlap(hud, c),
+      tourRead: document.querySelector('[data-welcome-action="tour"]')?.textContent,
+    };
+  });
+  const s1 = await fits();
+  log('short box 390 × 490: the compact card, all three actions on screen with no scrolling, clear of the joystick and the HUD line',
+    s1.box.join() === '390,490' && s1.compact && s1.actions === 'tour,explore,find' && s1.actionsShown && s1.noScroll && s1.stickClear && s1.hudClear,
+    JSON.stringify(s1));
+  log('short box: Back to entrance, ?, Find, Tour and Overview visible and clickable (the card covers none of them)',
+    s1.names.length >= 5 && ['Back to entrance', 'Find a person, room or place', 'Company tour', 'Overview'].every((n) => s1.names.includes(n))
+    && s1.clickable.every(Boolean) && s1.toolsClear, JSON.stringify({ names: s1.names, clickable: s1.clickable }));
+  log('short box: the detail of each action is still read out (Start the tour, 4 stops · about 1 min)', /Start the tour, \d+ stops · about \d+ min/.test(s1.tourRead ?? ''), s1.tourRead);
+  if (SHOTS) await shot('welcome-phone-short.png');
+  await p.tap('[data-welcome-action="find"]');
+  await p.waitForSelector('[data-place-search]', { timeout: 10000 }).catch(() => {});
+  log('short box: Find someone opens Find', await card() === 0 && await p.evaluate(() => document.activeElement?.tagName === 'INPUT'));
+  await p.close();
+  p = null;
+  await ctx.close();
+  ctx = await b.newContext({ viewport: { width: 1280, height: 720 } });
+  await open('start=walk&weak=0&people=1', { clear: true, box: { width: 1000, height: 400 } });
+  await p.waitForSelector('[data-welcome]', { timeout: 30000 }).catch(() => {});
+  const s2 = await fits();
+  log('short wide box 1000 × 400: compact, in the middle, toolbar and Overview clickable, all actions with no scrolling',
+    s2.compact && s2.actionsShown && s2.noScroll && s2.clickable.every(Boolean) && s2.toolsClear && s2.hudClear, JSON.stringify(s2));
+  if (SHOTS) await shot('welcome-wide-short.png');
 } catch (e) {
   log('script', false, e.message);
 } finally {

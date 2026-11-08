@@ -241,6 +241,13 @@ const card = await p.evaluate(() => ({
 log('…and shows their card ("You have arrived" + the person card)', card.strip === 'arrived' && /You have arrived/.test(card.text)
   && /Kavya Iyer/.test(card.person), `${card.text} | ${card.person}`);
 if (SHOTS) await shot('arrived-desktop');
+// v0.14.7: there, E means her (seen at a corner desk by a window: the hint said "E Details: Window")
+await p.waitForFunction(() => /Kavya Iyer/.test(document.querySelector('[data-hud="prompt"]')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
+const ePrompt = await p.evaluate(() => document.querySelector('[data-hud="prompt"]')?.textContent ?? '');
+await p.keyboard.press('e');
+const pinned = await p.waitForSelector('[data-person-card][data-pinned]', { timeout: 10000 }).then((el) => el.textContent(), () => '');
+log('…E there means her: the hint "E Details: Kavya Iyer", and E keeps her card', /^E\s*Details: Kavya Iyer$/.test(ePrompt.trim())
+  && /Kavya Iyer/.test(pinned ?? ''), `hint "${ePrompt.trim()}" | card ${pinned}`);
 
 // ── 2. From above, a person on Floor 1 by the stairs: Take me there starts at the entrance ──
 const upstairs = await p.evaluate((people) => {

@@ -1,7 +1,7 @@
 {
   "name": "company-digital-twin",
   "private": true,
-  "version": "0.14.6",
+  "version": "0.14.7",
   "type": "module",
   "engines": {
     "node": ">=20.19"

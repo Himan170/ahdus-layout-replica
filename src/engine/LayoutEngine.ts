@@ -163,6 +163,8 @@ type EventMap = {
   mode: { mode: EngineMode };
   /** A plain click on the walking view (v0.14.0): what it did. */
   walkClick: WalkClickEvent;
+  /** (v0.14.7) E near the person a walk arrived at: show their details (the viewer pins their card). */
+  personDetails: PersonDetailsEvent;
   /** The company tour (v0.14.4): started, walking, arrived, paused, resumed, follow, mention, progress, done, ended, problem. */
   tour: TourEvent;
 };
@@ -181,6 +183,11 @@ export interface WalkClickEvent {
   to?: { x: number; z: number; floor: number };
   problem?: string;
   message?: string;
+}
+
+/** E after a walk arrived at a person (v0.14.7): their details. Placed (with where they sit) when drawn. */
+export interface PersonDetailsEvent {
+  person: PlacedPerson | Person;
 }
 
 export type { NavigationEvent, TourEvent };
@@ -207,6 +214,11 @@ export const READ_ONLY = 'This layout is view-only here';
 /** Editor calls that change nothing, so they work in every mode. */
 const ALWAYS_ALLOWED = new Set(['clear', 'endBurst']);
 /** Overview (v0.14.6): at least this far (m) around where you stood, looking down at least this steeply. */
+/**
+ * (v0.14.7) After a walk arrives at a person, E means them (their details, as a click on them) until you walk this far
+ * (m) from where it arrived: the viewer keeps their card that long too (ARRIVED_CARD_M).
+ */
+export const ARRIVED_NEAR_M = 3;
 const OVERVIEW_AROUND = 6;
 const OVERVIEW_BETA = 0.75;
 
@@ -275,6 +287,10 @@ export class LayoutEngine {
   // Walkthrough mode (made the first time it is needed: it needs the canvas)
   private _walkthrough: WalkthroughSystem | null = null;
   private _player: Player | null = null;
+  /** setPeople's list (E's person details, also with quality 'low'). */
+  private _people: Person[] = [];
+  /** (v0.14.7) The person the last walk arrived at, and where it arrived: E means them while you stay near. */
+  private _arrived: { personId: string; name: string; x: number; z: number; floor: number } | null = null;
   /** What the walkthrough's character was made from ('' = the simple figure). */
   private _playerKey = '';
   private _playerToken = 0;
@@ -369,6 +385,7 @@ export class LayoutEngine {
       routeLine: () => (this._routeLine ??= new RouteLineSystem(this.scene)),
       getMe: () => (this._player?.personId != null ? String(this._player.personId) : null),
       emit: (event) => {
+        this._noteArrival(event);
         this.tour.onNavigation(event); // the tour's own walks, or another one taking over
         this.emit('navigation', event);
       },
@@ -452,6 +469,7 @@ export class LayoutEngine {
     const v2 = parseLayout(data);
     const v1 = toV1(v2);
     const store = this._store.getState();
+    this._arrived = null;
     this._loading = true;
     try {
       store.loadWorkspace(v1);
@@ -607,6 +625,7 @@ export class LayoutEngine {
    * Nothing is drawn with quality 'low'. Not part of the layout (never saved).
    */
   setPeople(people: Person[]): void {
+    this._people = [...people];
     this.characters?.setPeople(people);
     this.navigation.setPeople(people); // searched by name and department (also with quality 'low')
   }
@@ -653,6 +672,40 @@ export class LayoutEngine {
     const at = walk.getPosition();
     const p = this.characters.getPlaced().find((q) => q.personId === personId);
     return p && p.floor === walk.getLevel() && Math.hypot(p.x - at.x, p.z - at.z) <= radius ? p : null;
+  }
+
+  /**
+   * (v0.14.7) Walking through: the person the last walk (Take me there, Show route) arrived at, while you are within
+   * ARRIVED_NEAR_M of where it arrived, on that floor; else null (and forgotten). E means them meanwhile.
+   */
+  arrivedPerson(): { personId: string; name: string } | null {
+    const a = this._arrived;
+    const walk = this._walkthrough;
+    if (!a || !walk?.isActive() || this._mode !== 'walkthrough') return null;
+    const at = walk.getPosition();
+    if (walk.getLevel() !== a.floor || Math.hypot(at.x - a.x, at.z - a.z) > ARRIVED_NEAR_M) {
+      this._arrived = null; // walked away
+      return null;
+    }
+    return { personId: a.personId, name: a.name };
+  }
+
+  /** A walk arrived at a person: remember them (and where); a new walk forgets them. */
+  private _noteArrival(event: NavigationEvent): void {
+    if (event.state === 'started') this._arrived = null;
+    if (event.state !== 'arrived') return;
+    const place = event.place as { personId?: string | number; name?: string } | undefined;
+    const walk = this._walkthrough;
+    if (place?.personId == null || !walk?.isActive()) { this._arrived = null; return; }
+    const at = walk.getPosition();
+    this._arrived = { personId: String(place.personId), name: place.name ?? '', x: at.x, z: at.z, floor: walk.getLevel() };
+  }
+
+  /** E near the person a walk arrived at: their details (the viewer pins their card). */
+  private _personDetails(personId: string): void {
+    const placed = this.characters?.getPlaced().find((p) => p.personId === personId) ?? null;
+    const person = placed ?? this._people.find((p) => String(p.personId) === personId) ?? null;
+    if (person) this.emit('personDetails', { person });
   }
 
   // ── Querying ───────────────────────────────────────────────────────────
@@ -941,11 +994,24 @@ export class LayoutEngine {
             });
           }
         },
-        onInteract: (target) => this.emit('interact', this._interactEvent(target)),
+        onInteract: (target) => {
+          if (target.personId) this._personDetails(target.personId);
+          else this.emit('interact', this._interactEvent(target));
+        },
         onLevelChange: (floorId) => state().selectFloor(floorId),
         onViewChange: ({ inside, level }) => this.floors.setView({ mode: inside ? 'inside' : 'outside', level }),
         onHud: (info) => this.emit('hud', info),
-        describeInteraction: (target) => this.describeInteraction?.(target) ?? null,
+        describeInteraction: (target) => (target.personId
+          ? { label: 'Details', name: this.arrivedPerson()?.name || 'This person', handled: false }
+          : this.describeInteraction?.(target) ?? null),
+        // after a walk arrived at a person, E means them (not the window behind their desk), v0.14.7
+        nearTarget: () => {
+          const who = this.arrivedPerson();
+          const walk = this._walkthrough;
+          if (!who || !walk) return null;
+          const p = walk.getPosition();
+          return { personId: who.personId, point: { x: p.x, y: p.y, z: p.z }, distance: 0 };
+        },
         onPointClick: (click) => this._walkClick(click),
         // the double-click's first click started a walk there: mouse-look mode is what was meant
         onDoubleClick: () => { if (this.navigation.walking?.source === 'click') this.navigation.stop(); },

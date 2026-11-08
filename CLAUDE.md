@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1137, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1140, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -80,7 +80,7 @@ npm run e2e:embed    # 38 checks   e2e/embed-smoke.mjs     (NO dev server needed
                      #                                       setDepartments' description in the Find menu,
                      #                                       v0.14.6: startMode (the card, Overview, onEvent 'mode'),
                      #                                       quality low = from above, startMode 'edit' refused)
-npm run e2e:welcome  # 24 checks   e2e/welcome-smoke.mjs   (viewer.html?start=walk, v0.14.6: walking at the entrance with
+npm run e2e:welcome  # 30 checks   e2e/welcome-smoke.mjs   (viewer.html?start=walk, v0.14.6: walking at the entrance with
                      #                                       the welcome card, W walks at once and closes it, the hint
                      #                                       waits, Explore / Esc, Find someone, Start the tour, Overview
                      #                                       keeps your place + Walk back, the last choice remembered,
@@ -95,11 +95,12 @@ npm run e2e:characters # 36     e2e/characters-smoke.mjs (NO dev server: builds 
                      #                                       walking as yourself (Mixamo + UE rigs, walk / stand,
                      #                                       eye height, V, your desk figure hidden, fallbacks),
                      #                                       quality low; SHOTS=<dir>: 1440×900 + 390×844 screenshots)
-npm run e2e:navigation # 19 checks e2e/navigation-smoke.mjs (viewer.html, the Meridian-shaped layout; MERIDIAN=<layout.json>
+npm run e2e:navigation # 20 checks e2e/navigation-smoke.mjs (viewer.html, the Meridian-shaped layout; MERIDIAN=<layout.json>
                      #                                       MERIDIAN_PEOPLE=<people.json> = the real one: the card's Show route /
                      #                                       Take me there, from above = from the entrance, the line (≤ 2
                      #                                       meshes), re-route 3 m off, Kavya at reception (in front of the counter, facing her), Floor 1 by the
                      #                                       stairs, nearest washroom, every frame clear of walls / furniture,
+                     #                                       E there = "E Details: Kavya Iyer" + her card (v0.14.7),
                      #                                       W pauses + G, the time, Esc / Stop, free walking, phone; run it
                      #                                       ALONE; SHOTS=<dir>: screenshots + a .webm recording)
 npm run e2e:seats    # 24 checks   e2e/seats-smoke.mjs     (NO dev server: starts its own in AHDUS mode on port 3100,
@@ -664,6 +665,12 @@ Preview has no search box).
   person card shows by itself there (within 1.8 m; after a walk arrives at a person, their card stays while you are
   within 3 m: across a reception counter too, `personNearWalker(radius, personId)`). `<LayoutViewer onModeChange onNavigation>`; viewer.html keeps
   `window.__viewerNav` (dev).
+- **E at a person (v0.14.7):** after a walk ('arrived' with `place.personId`) the engine keeps `arrivedPerson()` until you
+  are `ARRIVED_NEAR_M` 3 m from where it arrived, on another floor, a new walk starts, walking ends or a layout loads.
+  Meanwhile the walkthrough's `nearTarget` (a playController option, `eTarget`) makes E and its hint mean them ("E Details:
+  Asha Patel", not the window behind a corner desk), unless the crosshair is on an item a module has an action for; E =
+  the `personDetails` event ({ person }), and LayoutViewer pins their card. Tests: LayoutEngine.test.ts,
+  WalkthroughSystem.test.ts (the real controller, a window aimed at), e2e:navigation (Kavya).
 - **Embed:** `workplace.goTo(target, { walk })` (a name = the first search result), `stopRoute()`, the 'navigation'
   event; the handle's `mode` follows the engine's 'mode' event.
 
@@ -859,6 +866,11 @@ without `startMode` are unchanged (no card, no button; `mode` as before).
   tour starting closes it. Explore = focus the view; Find someone = `PlaceSearch` `openRequest` (the box focused); Start
   the tour = the Tour button's start. Shown only once the start floor is built; the one-time walk hint waits for it.
   Desktop: centred, 520 px; under 640 px: full width at the bottom, above the joystick / HUD (the tour panel's spot).
+  **Compact (v0.14.7):** a box under `SHORT_PX` 600 px high (its own height, never the window's: AHDUS's 3D Company page
+  gives a phone ~490 px) gets `compact` (`data-welcome-compact`): a 15 px title, one short line, the three actions in one
+  row with no detail lines (read out, and in `title`), so the toolbar row and Overview stay clear and clickable and
+  nothing scrolls; a narrow card also keeps `WELCOME_TOOLBAR_ROOM` 96 px of the top clear (`maxHeight`). e2e:welcome
+  checks 390 × 490 and 1000 × 400 boxes.
 - **Overview / Walk** (`data-mode-button` = overview | walk, aria-label `Overview` / `Walk`, top right, 12 px):
   `engine.overview()` = the walker's pose kept (`walkPlace`: x, z, yaw, pitch, floor), 'view', `setFloor(that floor)`,
   the camera on that spot (`OVERVIEW_AROUND` 6 m, beta ≤ 0.75); `engine.resumeWalk()` = 'walkthrough' + `setPose(walkPlace)`
@@ -1213,6 +1225,8 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
   placeholder figures only, not yet with AJ / ch12 / Victoria (AHDUS step after the tag).
 - Walk map: a door passage is one cell wide where the door is under ~0.9 m (routes allow it). A desk whose chair
   stands against a wall can't be reached by the body: a route ends at the nearest reachable spot (within 1.5 m). Studio doesn't warn yet about a layout with no door outside or a spawn point inside furniture.
+- E at a person (v0.14.7): only the person a walk arrived at; walking up to someone yourself, E still means what the
+  crosshair is on. On touch the HUD line reads "Tap it: Details: …" there, but a tap on the window walks: tap the person.
 - Take me there: no lifts, no running; the line is drawn on the floor you are on only (the stairs marker shows where
   to go up); a route through a door narrower than ~0.9 m keeps the body on its centre line (slow there). Studio's
   Preview has no search box, so no Show route there.
@@ -1299,6 +1313,14 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: a short phone view + E at a person (v0.14.7, 8 Nov 2026, branch `fix/welcome-card-short-view`)
+
+Found in AHDUS: on the 3D Company page a phone's view is ~490 px high and the welcome card covered the toolbar and
+Overview (Find someone needed scrolling): a box under 600 px gets the compact card (see "Start mode"; e2e:welcome 30
+checks). And after Take me there arrived at a person by a window the hint said "E Details: Window": E now means the
+person (see "E at a person" in "Going there"). Screenshots (390 × 490 before / after, 390 × 400, 1000 × 400):
+private-docs/screenshots/v0.14.7/ (not in git).
 
 ## DONE: stairs that lead nowhere, the corner desk's L + walk by default (v0.14.6, 8 Nov 2026, branch `fix/stairs-corner-desk-start-mode`)
 

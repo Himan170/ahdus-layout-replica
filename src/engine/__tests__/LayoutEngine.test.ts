@@ -646,6 +646,45 @@ describe('navigation: going there (v0.13.4)', () => {
     expect(engine.navigation.walking).toBeNull();
   });
 
+  it('arrived at a person: E means them (their details, not the window by their desk) until you walk away (v0.14.7)', () => {
+    const { engine, controller } = walking({ mode: 'walkthrough' });
+    const details: any[] = [];
+    const interacts: any[] = [];
+    engine.on('personDetails', (e) => details.push(e));
+    engine.on('interact', (e) => interacts.push(e));
+    engine.describeInteraction = () => ({ label: 'Details', name: 'Window', handled: false }); // the bridge: a window
+    const c = controller();
+    expect(c.options.nearTarget()).toBeNull(); // no walk yet
+    engine.navigation.routeTo('person:p1', { walk: 'auto' });
+    follow(c);
+    expect(engine.arrivedPerson()).toEqual({ personId: 'p1', name: 'Asha Patel' });
+    const near = c.options.nearTarget();
+    expect(near).toMatchObject({ personId: 'p1' });
+    expect(c.options.describeInteraction(near)).toEqual({ label: 'Details', name: 'Asha Patel', handled: false });
+    c.options.onInteract(near);
+    expect(details).toEqual([{ person: expect.objectContaining({ personId: 'p1', name: 'Asha Patel', department: 'Engineering' }) }]);
+    expect(interacts).toEqual([]); // not the window's E
+    // a step or two is still near; 3 m away is walking away
+    c.pos.x += 1;
+    expect(c.options.nearTarget()).toMatchObject({ personId: 'p1' });
+    c.pos.x += 3;
+    expect(c.options.nearTarget()).toBeNull();
+    c.pos.x -= 4;
+    expect(engine.arrivedPerson()).toBeNull(); // forgotten, even back there
+    // a new walk forgets them too; leaving walkthrough as well
+    engine.navigation.routeTo('person:p1', { walk: 'auto' });
+    follow(c);
+    expect(engine.arrivedPerson()).not.toBeNull();
+    engine.navigation.routeTo('room:room_a', { walk: 'auto' });
+    expect(engine.arrivedPerson()).toBeNull();
+    follow(c);
+    expect(engine.arrivedPerson()).toBeNull(); // a room is not a person
+    engine.navigation.routeTo('person:p1', { walk: 'auto' });
+    follow(c);
+    engine.setMode('view');
+    expect(engine.arrivedPerson()).toBeNull();
+  });
+
   it('a movement key pauses it (Press G to continue), G goes on, Esc ends it', () => {
     const { engine, events, controller } = walking({ mode: 'walkthrough' });
     engine.navigation.routeTo('room:room_a', { walk: 'auto' });
