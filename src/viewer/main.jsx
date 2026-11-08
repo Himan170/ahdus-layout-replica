@@ -36,6 +36,10 @@ const TOUR_DEBUG = params.get('debug') === 'tour';
 const START = { walk: 'walkthrough', view: 'view' }[params.get('start')] ?? undefined;
 const WEAK = params.has('weak') ? params.get('weak') === '1' : undefined;
 const OPEN_AT = params.get('at') || undefined;
+// &quality=low (v0.14.8): the simple look (a weak device's other note)
+const QUALITY = params.get('quality') === 'low' ? 'low' : undefined;
+// how it started and why (v0.14.8, onStart): tests
+const onStart = (start) => { window.__viewerStart = start; };
 
 if (params.has('demoModules')) {
   import('../integration/demoModules').then((m) => m.installDemoModules(layoutBridge));
@@ -117,7 +121,7 @@ function ViewerPage() {
       <main style={styles.main} ref={mainRef}>
         <LayoutViewer
           layout={layout} companyId={companyId} layoutId={layoutId} mode={mode} people={people}
-          startMode={START} weakDevice={WEAK} openAt={OPEN_AT}
+          startMode={START} weakDevice={WEAK} openAt={OPEN_AT} quality={QUALITY} onStart={onStart}
           search={params.get('search') !== '0'}
           onModeChange={setMode} onNavigation={onNavigation}
           onReady={onReady} onCard={onCard} style={{ flex: 1, minWidth: 0 }}

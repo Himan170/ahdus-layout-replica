@@ -506,24 +506,32 @@ log('quality: \'low\' shows the simple models and materials and downloads no ass
   JSON.stringify({ ...lowLook, files: lowFiles.length }));
 await removeExtra();
 // startMode (v0.14.6): the viewer decides the start; onEvent('mode') and handle.mode follow it
+await p.evaluate(() => { try { localStorage.removeItem('ahdus.viewMode'); } catch { /* blocked */ } });
 const startWalk = await mountExtra({ layout: v2, startMode: 'walkthrough', weakDevice: false });
 await p.waitForSelector('#extra [data-welcome]', { timeout: 60000 }).catch(() => {});
 const walkStart = await p.evaluate(() => ({
   mode: window.extra?.mode, card: !!document.querySelector('#extra [data-welcome]'),
-  button: document.querySelector('#extra [data-mode-button]')?.dataset.modeButton,
+  button: document.querySelector('#extra [data-mode-button]')?.dataset.modeButton, start: window.extra?.start,
 }));
-log('option startMode "walkthrough": walking, the welcome card, the Overview button; onEvent("mode"), handle.mode',
-  !startWalk.error && startWalk.seen.includes('mode') && walkStart.mode === 'walkthrough' && walkStart.card && walkStart.button === 'overview',
+log('option startMode "walkthrough": walking, the welcome card, the Overview button; onEvent("start") (v0.14.8: reason start) then onEvent("mode"), handle.mode',
+  !startWalk.error && startWalk.seen.includes('mode') && walkStart.mode === 'walkthrough' && walkStart.card && walkStart.button === 'overview'
+  && startWalk.seen.indexOf('start') >= 0 && startWalk.seen.indexOf('start') < startWalk.seen.indexOf('mode')
+  && JSON.stringify(walkStart.start) === JSON.stringify({ mode: 'walkthrough', reason: 'start', weak: null }),
   JSON.stringify({ ...walkStart, seen: startWalk.seen }));
 await removeExtra();
 await p.evaluate(() => { try { localStorage.removeItem('ahdus.viewMode'); } catch { /* blocked */ } });
 const startWeak = await mountExtra({ layout: v2, startMode: 'walkthrough', quality: 'low' });
+await p.waitForSelector('#extra [data-weak-note]', { timeout: 30000 }).catch(() => {});
 const weakStart = await p.evaluate(() => ({
   mode: window.extra?.mode, card: !!document.querySelector('#extra [data-welcome]'),
-  button: document.querySelector('#extra [data-mode-button]')?.dataset.modeButton,
+  button: document.querySelector('#extra [data-mode-button]')?.dataset.modeButton, start: window.extra?.start,
+  note: document.querySelector('#extra [data-weak-note]')?.dataset.weakNote,
+  text: document.querySelector('#extra [data-weak-note-text]')?.textContent,
 }));
-log('startMode with quality "low" (a weak device): from above, no card, a Walk button',
-  !startWeak.error && weakStart.mode === 'view' && !weakStart.card && weakStart.button === 'walk', JSON.stringify(weakStart));
+log('startMode with quality "low" (a weak device): from above, no card, a Walk button; v0.14.8: the note "to keep things fast", onEvent("start") reason weak, weak low',
+  !startWeak.error && weakStart.mode === 'view' && !weakStart.card && weakStart.button === 'walk' && weakStart.note === 'low'
+  && weakStart.text === 'Started from above to keep things fast on this device.' && startWeak.seen.includes('start')
+  && JSON.stringify(weakStart.start) === JSON.stringify({ mode: 'view', reason: 'weak', weak: 'low' }), JSON.stringify(weakStart));
 await removeExtra();
 const startEdit = await mountExtra({ layout: v2, startMode: 'edit' });
 log('startMode "edit" is refused: onError, the element is empty', /edit/i.test(startEdit.error ?? '') && startEdit.children === 0,

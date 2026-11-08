@@ -12,7 +12,8 @@
 import { useId } from 'react';
 import type { CSSProperties } from 'react';
 
-import { welcomeTitle, welcomeActions } from '../startMode';
+import { welcomeTitle, welcomeActions, weakNote } from '../startMode';
+import type { WeakKind } from '../startMode';
 
 export type WelcomeAction = 'tour' | 'explore' | 'find';
 
@@ -94,6 +95,50 @@ export function WelcomeCard({
   );
 }
 
+export interface WeakDeviceNoteProps {
+  /** Why it started from above: WebGL drawn by software, or quality 'low'. */
+  kind: WeakKind;
+  /** As the welcome card's. */
+  narrow?: boolean;
+  bottom?: number;
+  compact?: boolean;
+  /** "Walk anyway" (walk from the entrance, then the welcome card) / "Stay above" (close the note). */
+  onWalk: () => void;
+  onStay: () => void;
+}
+
+/**
+ * The note a weak device's start shows (v0.14.8, private-docs/EXPERIENCE_PLAN.md 3.1 guard 2): why it started from
+ * above, in the welcome card's look. A status, not a dialog: the view stays usable; Esc or a press on the view closes it
+ * (LayoutViewer). Text only.
+ */
+export function WeakDeviceNote({ kind, narrow = false, bottom = 12, compact = false, onWalk, onStay }: WeakDeviceNoteProps) {
+  const place: CSSProperties = narrow
+    ? { ...styles.narrow, bottom, maxHeight: `calc(100% - ${bottom + WELCOME_TOOLBAR_ROOM}px)` }
+    : { ...styles.wide, width: 460 };
+  const button = compact ? styles.optionCompact : styles.noteButton;
+  return (
+    <div
+      data-weak-note={kind}
+      data-weak-note-place={narrow ? 'narrow' : 'wide'}
+      data-weak-note-compact={compact ? '' : undefined}
+      role="status"
+      style={{ ...styles.card, ...place, ...(compact ? styles.cardCompact : null) }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <p data-weak-note-text style={compact ? styles.noteTextCompact : styles.noteText}>{weakNote(kind)}</p>
+      <div style={styles.list}>
+        <button type="button" data-weak-note-action="walk" style={{ ...styles.primary, ...button }} onClick={onWalk}>
+          <strong style={compact ? styles.labelCompact : styles.label}>Walk anyway</strong>
+        </button>
+        <button type="button" data-weak-note-action="stay" style={{ ...styles.option, ...button }} onClick={onStay}>
+          <strong style={compact ? styles.labelCompact : styles.label}>Stay above</strong>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // The AHDUS look (as PlaceSearch's)
 const C = {
   panel: '#ffffff', text: '#25382f', muted: '#55625a', border: '#e3e8e0', hover: '#f0f3ed',
@@ -140,6 +185,10 @@ const styles: Record<string, CSSProperties> = {
     gap: 0, borderRadius: 10,
   },
   labelCompact: { font: `700 13px/1.25 ${C.font}`, overflowWrap: 'anywhere' },
+  // the weak device's note (v0.14.8)
+  noteText: { margin: 0, fontSize: 14, lineHeight: 1.45, color: C.text, overflowWrap: 'anywhere' },
+  noteTextCompact: { margin: 0, fontSize: 13, lineHeight: 1.4, color: C.text, overflowWrap: 'anywhere' },
+  noteButton: { alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: 44 },
   srOnly: {
     position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)',
     whiteSpace: 'nowrap', border: 0,
