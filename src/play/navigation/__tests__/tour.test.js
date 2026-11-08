@@ -165,11 +165,34 @@ describe('the tour of the Meridian-shaped layout', () => {
       const room = layout.rooms.find((r) => r.id === s.roomId);
       expect(Math.abs(s.spot.x - room.x)).toBeLessThan(room.width / 2);
       expect(Math.abs(s.spot.z - room.z)).toBeLessThan(room.depth / 2);
-      expect(Math.cos(s.yaw - Math.atan2(room.x - s.spot.x, room.z - s.spot.z))).toBeGreaterThan(0.99); // facing its middle
+      // facing into the room: its middle is ahead (or you stand on it)
+      const mid = { x: room.x - s.spot.x, z: room.z - s.spot.z };
+      const ahead = Math.sin(s.yaw) * mid.x + Math.cos(s.yaw) * mid.z;
+      expect(ahead > 0 || Math.hypot(mid.x, mid.z) < 1, s.name).toBe(true);
     }
     const r = tour.stops[1];
     expect(r.spot.z).toBeLessThan(-7.65); // the counter's visitor side (−Z)
     expect(Math.cos(r.yaw)).toBeGreaterThan(0.99); // facing +Z: the counter
+  });
+
+  it('a room stop stands about 2 m inside the room (v0.14.4): free, in sight of the door, never in the doorway', () => {
+    const rooms = tour.stops.filter((x) => x.kind === 'department' || x.kind === 'facility');
+    const depths = [];
+    for (const s of rooms) {
+      const room = layout.rooms.find((r) => r.id === s.roomId);
+      const map = maps.get(layout, s.spot.floor);
+      expect(map.isClear(s.spot.x, s.spot.z), s.name).toBe(true);
+      // how far from the nearest wall that has a door (its inner face)
+      const T = room.wallThickness ?? 0.15;
+      const walls = { north: room.z + room.depth / 2 - s.spot.z, south: s.spot.z - (room.z - room.depth / 2),
+        east: room.x + room.width / 2 - s.spot.x, west: s.spot.x - (room.x - room.width / 2) };
+      const doorWalls = [...new Set((room.doors ?? []).map((d) => d.wall))];
+      const depth = Math.min(...doorWalls.map((w) => walls[w])) - T / 2;
+      depths.push(depth);
+      expect(depth, `${s.name} stands ${depth.toFixed(2)} m in`).toBeGreaterThan(1);
+    }
+    // most stand the full 2 m in (some rooms are small or full of desks there)
+    expect(depths.filter((d) => d > 1.9).length).toBeGreaterThanOrEqual(Math.ceil(rooms.length * 0.6));
   });
 
   it('text directions for each leg', () => {

@@ -39,7 +39,7 @@ import { entranceSpawn, nearestFree, facingYaw } from './entrance';
 import {
   pathLength, floorLinks, findRoute, cellsClear, areaOf, WALK_SPEED, SNAP_DISTANCE,
 } from './route';
-import { buildPlaces, roomDoorSpots, words, ROOM_TYPE_LABEL, FACILITIES } from './places';
+import { buildPlaces, roomDoorSpots, roomDoorFrames, words, ROOM_TYPE_LABEL, FACILITIES, INSIDE_DOOR } from './places';
 
 /** A pause at each department's stop and the reception (s): the estimated time, and how long "Walk me" stays. */
 export const STOP_PAUSE = 20;
@@ -51,6 +51,16 @@ export const FACILITY_PAUSE = 8;
  */
 const NEAR_FACTOR = 1.5;
 const NEAR_EXTRA = 4;
+/**
+ * A room's stop stands this far inside the wall's inner face (m, v0.14.4), on a free spot of the walk map in
+ * sight of the door, so the room's desks and people are in view; nearer (STOP_DEPTHS) or a little to the side
+ * (STOP_SIDES) where furniture is in the way; just inside the door when nothing fits.
+ */
+export const STOP_INSIDE = 2;
+const STOP_DEPTHS = [STOP_INSIDE, 1.7, 1.4, 1.1];
+const STOP_SIDES = [0, 0.4, -0.4, 0.8, -0.8];
+/** Keep this far from the room's far wall (m: the body and a little). */
+const FAR_WALL = 0.5;
 /** A room whose door the route passes this close (m), in sight, gets a passing mention. */
 export const MENTION_DISTANCE = 4;
 /** At most this many names on a stop. */
@@ -206,15 +216,45 @@ export function planTour(layout, people = [], departments = [], options = {}) {
       const s = nearestFree(map, p.x, p.z, { maxDistance: SNAP_DISTANCE, accept: (x, z) => reached({ x, z }) });
       return s && { x: s.x, z: s.z, floor };
     };
-    /** The nearest reachable spot just inside one of a room's doors (null: none). */
+    /**
+     * Where to stand in a room (v0.14.4): about STOP_INSIDE m in from one of its doors (the one nearest the
+     * floor's arrival), free, reachable, in sight of the door and inside the room; else just inside that door.
+     * faceOf: which way to look from it (into the room, towards its middle when that is ahead). null: none.
+     */
+    const faceOf = new WeakMap(); // a room spot → the point to face
     const roomSpot = (room) => {
       let best = null;
-      for (const s of roomDoorSpots(room)) {
+      const T = wallThicknessOf(room);
+      const inRoom = (p) => Math.abs(p.x - room.x) < room.width / 2 - T / 2 && Math.abs(p.z - room.z) < room.depth / 2 - T / 2;
+      for (const f of roomDoorFrames(room)) {
+        const door = { x: f.x + f.inX * (T / 2 + INSIDE_DOOR), z: f.z + f.inZ * (T / 2 + INSIDE_DOOR) };
+        let p = null;
+        const most = f.depth - T / 2 - FAR_WALL;
+        for (const depth of STOP_DEPTHS) {
+          const d = Math.min(T / 2 + depth, most);
+          if (d <= T / 2 + INSIDE_DOOR) break;
+          for (const side of STOP_SIDES) {
+            const q = { x: f.x + f.inX * d + f.alongX * side, z: f.z + f.inZ * d + f.alongZ * side };
+            if (inRoom(q) && map.isClear(q.x, q.z) && reached(q) && cellsClear(map, door.x, door.z, q.x, q.z)) { p = { ...q, floor }; break; }
+          }
+          if (p) break;
+        }
+        p = p ?? place(door);
+        if (!p) continue;
+        // into the room; halfway towards its middle when that is ahead (not behind or beside you)
+        const ahead = { x: p.x + f.inX * 4, z: p.z + f.inZ * 4 };
+        const toMid = (room.x - p.x) * f.inX + (room.z - p.z) * f.inZ;
+        faceOf.set(p, toMid > 0.5 ? { x: (ahead.x + room.x) / 2, z: (ahead.z + room.z) / 2 } : ahead);
+        if (!best || coarseCost(startField, p) < coarseCost(startField, best)) best = p;
+      }
+      if (!best) for (const s of roomDoorSpots(room)) { // a room with no door: its middle, if anywhere
         const p = place(s);
         if (p && (!best || coarseCost(startField, p) < coarseCost(startField, best))) best = p;
       }
       return best;
     };
+    /** A stop's way to face: from roomSpot, else towards the room's middle. */
+    const faceYawOf = (spot, room) => facingYaw(spot, faceOf.get(spot) ?? room);
     for (const r of floorRooms) if (!roomSpot(r)) skip(r, 'room', whyNot(r));
 
     const here = []; // this floor's stops, before ordering
@@ -248,7 +288,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
         roomId: main.id, rooms: reachable.map((r) => ({ id: r.id, name: roomName(r) })), department: d.name,
         description: descriptions.get(d.key) ?? textOf(main.description),
         elsewhere: d.rooms.filter((r) => floorOf(r) !== floor).map((r) => ({ id: r.id, name: roomName(r), floor: floorOf(r) })),
-        spot, yaw: facingYaw(spot, main), look: { x: main.x, z: main.z },
+        spot, yaw: faceYawOf(spot, main), look: { x: main.x, z: main.z },
         people: 0, names: [], lines: [], text: '', leg: null,
       });
     }
@@ -264,7 +304,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
         candidates.push({
           id: `room:${r.id}`, kind: 'facility', facility: type, name: roomName(r), floor, floorName: floorName(floor),
           roomId: r.id, rooms: [{ id: r.id, name: roomName(r) }], department: r.departmentRef?.trim() || null,
-          description: textOf(r.description), spot, yaw: facingYaw(spot, r), look: { x: r.x, z: r.z },
+          description: textOf(r.description), spot, yaw: faceYawOf(spot, r), look: { x: r.x, z: r.z },
           people: 0, names: [], lines: [], text: '', leg: null,
         });
       }

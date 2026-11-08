@@ -372,6 +372,11 @@ export class WalkthroughSystem {
   }
 
   /** The company tour's keys (v0.14.4: P, Esc): handler(code) sees each key first; true = taken. null = none. */
+  /** The company tour's stop view: the camera eases higher and further back (instant: at once). */
+  setStopView(on: boolean, instant = false): void {
+    this.controller.setStopView?.(on, { instant });
+  }
+
   setKeyHandler(handler: ((code: string) => boolean) | null): void {
     this.controller.setKeyHandler(handler);
   }

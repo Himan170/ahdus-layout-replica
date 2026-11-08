@@ -351,6 +351,30 @@ describe('touch (v0.14.1)', () => {
   });
 });
 
+describe('the tour’s stop view (v0.14.4)', () => {
+  it('the camera eases higher and further back, looking a little more down; off: back to the usual camera', () => {
+    const w = walk();
+    w.setPose({ x: 0, z: -20, yaw: 0, pitch: -0.12 });
+    scene.render();
+    const cam = () => scene.activeCamera!.position.clone();
+    const usual = cam();
+    w.setStopView(true);
+    scene.render();
+    const easing = cam();
+    for (let i = 0; i < 40; i++) scene.render();
+    const stop = cam();
+    expect(easing.y).toBeGreaterThan(usual.y); // on its way, not there at once
+    expect(easing.y).toBeLessThan(stop.y);
+    expect(stop.y - usual.y).toBeGreaterThan(0.8); // higher
+    expect(usual.z - stop.z).toBeGreaterThan(1); // further back (facing +Z: behind is −Z)
+    const t = (scene.activeCamera as any).getTarget();
+    expect(t.y - stop.y).toBeLessThan(Math.sin(-0.12) - 0.1); // looking further down than the walker
+    w.setStopView(false, true); // reduced motion: at once
+    scene.render();
+    expect(cam().subtract(usual).length()).toBeLessThan(0.01);
+  });
+});
+
 describe("Studio's Preview keeps pointer lock (look 'lock')", () => {
   it('a press asks for the mouse; dragging without it doesn\'t turn the view; no clicks reported', () => {
     const onPointClick = vi.fn();

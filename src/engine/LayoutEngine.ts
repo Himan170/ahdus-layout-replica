@@ -387,6 +387,7 @@ export class LayoutEngine {
       highlight: (ids) => this.highlight(ids, TOUR_HIGHLIGHT),
       clearHighlights: () => this.clearHighlights(),
       setKeys: (handler) => this._walkthrough?.setKeyHandler(handler),
+      stopView: (on, instant) => this._walkthrough?.setStopView(on, instant),
       emit: (event) => this.emit('tour', event),
       // the ticks of one layout: its name (and the building's): layouts carry no id of their own
       layoutKey: () => [this._store.getState().layoutName, this._loaded?.building?.name].filter(Boolean).join(' · ') || 'layout',

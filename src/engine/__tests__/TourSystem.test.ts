@@ -68,6 +68,7 @@ function setup({ walking = false, plan = makePlan(), storage = memoryStorage() a
     emit: (e: TourEvent) => events.push(e),
     layoutKey: () => 'Head office',
     storage,
+    stopView: vi.fn(),
   } satisfies TourHooks;
   const tour = new TourSystem(hooks);
   const navEvent = (state: NavigationEvent['state'], more: Partial<NavigationEvent> = {}) => {
@@ -110,6 +111,29 @@ describe('the company tour (TourSystem)', () => {
     navEvent('arrived');
     expect(tour.status).toMatchObject({ state: 'stop', index: 1, dwell: 20, visited: ['entrance', 'room:Reception'] });
     expect(hooks.highlight).toHaveBeenLastCalledWith(['r_Reception']);
+  });
+
+  it('at a stop the camera eases higher and further back (the stop view); walking on, pausing by walking away or ending: back', () => {
+    const { tour, hooks, me } = setup();
+    tour.start();
+    expect(hooks.stopView).toHaveBeenLastCalledWith(true, false);
+    tour.next();
+    expect(hooks.stopView).toHaveBeenLastCalledWith(false, false);
+    tour.goTo(2);
+    return Promise.resolve().then(() => {
+      expect(hooks.stopView).toHaveBeenLastCalledWith(true, false);
+      me.x += MOVED_AWAY + 0.5;
+      tour.tick(0.1);
+      expect(hooks.stopView).toHaveBeenLastCalledWith(false, false);
+      tour.setReducedMotion(true);
+      tour.resume();
+      tour.goTo(1);
+      return Promise.resolve();
+    }).then(() => {
+      expect(hooks.stopView).toHaveBeenLastCalledWith(true, true); // reduced motion: at once
+      tour.stop();
+      expect(hooks.stopView).toHaveBeenLastCalledWith(false, true);
+    });
   });
 
   it('a pauseScale shortens every pause (tests, demos)', () => {

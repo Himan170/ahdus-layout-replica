@@ -232,6 +232,8 @@ export type RouteSource = 'click' | 'tour';
 
 /** routeTo's `face`: on arrival, turn to this yaw (and pitch); turn: false = at once (prefers-reduced-motion). */
 export interface FaceOnArrival { yaw: number; pitch?: number; turn?: boolean }
+/** The tour's walks arrive this close to their spot (m), not within the usual 1 m: a stop stands well inside its room. */
+export const TOUR_ARRIVE_WITHIN = 0.35;
 
 /** A walker's controller (playController via WalkthroughSystem): what navigation drives. */
 export interface PilotHost {
@@ -653,7 +655,7 @@ export class NavigationSystem {
     }
     place = this.chosen(place, route);
     const w: Walk = {
-      place, walk: mode, host, route, follower: this.follower(route), paused: false, stuck: 0, stuckAtS: 0,
+      place, walk: mode, host, route, follower: this.follower(route, source), paused: false, stuck: 0, stuckAtS: 0,
       sinceReroute: 0, drawnS: -Infinity, drawnFloor: -1, emittedRemaining: route.length, sinceEmit: 0, faceYaw: null, elapsed: 0,
       ...from, ...(face && Number.isFinite(face.yaw) ? { face } : {}),
     };
@@ -723,7 +725,7 @@ export class NavigationSystem {
     return true;
   }
 
-  private follower(route: Route) {
+  private follower(route: Route, source?: RouteSource) {
     const layout = this.hooks.getLayout();
     // arrived = within 1 m AND in the room the route ends in (a room's goal is just inside its door)
     const legs = (route as { legs: { floor: number; points: { x: number; z: number }[] }[] }).legs;
@@ -731,7 +733,10 @@ export class NavigationSystem {
     const endAt = last?.points[last.points.length - 1];
     const goalRoom = endAt ? roomAt(layout, last.floor, endAt.x, endAt.z) : null;
     const inGoalRoom = (me: { x: number; z: number; floor: number }) => !goalRoom || roomAt(layout, me.floor, me.x, me.z)?.id === goalRoom.id;
-    return createFollower(route as never, { mapFor: (f: number) => this.walkMaps.get(this.hooks.getLayout(), f), inGoalRoom });
+    return createFollower(route as never, {
+      mapFor: (f: number) => this.walkMaps.get(this.hooks.getLayout(), f), inGoalRoom,
+      ...(source === 'tour' ? { arriveWithin: TOUR_ARRIVE_WITHIN } : {}),
+    });
   }
 
   /** A new route from where you are to the same place; false: none (the walk failed). */
@@ -745,7 +750,7 @@ export class NavigationSystem {
       return false;
     }
     w.route = route;
-    w.follower = this.follower(route);
+    w.follower = this.follower(route, w.source);
     w.drawnS = -Infinity;
     this.draw(w, me.floor, true);
     this.emitProgress(w, me.floor, { force: true, rerouted: true });

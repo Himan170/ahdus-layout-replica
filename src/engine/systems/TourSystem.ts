@@ -100,6 +100,8 @@ export interface TourHooks {
   layoutKey: () => string;
   /** prefers-reduced-motion. */
   reducedMotion?: () => boolean;
+  /** At a stop: the camera higher and further back, so the room shows (instant: with reduced motion). */
+  stopView?: (on: boolean, instant: boolean) => void;
   /** Where the ticks are kept (default window.localStorage). */
   storage?: StorageLike | null;
 }
@@ -226,8 +228,14 @@ export class TourSystem {
     return true;
   }
 
+  /** The camera's stop view on / off (eased; at once with reduced motion). */
+  private view(on: boolean): void {
+    this.hooks.stopView?.(on, this.reduced);
+  }
+
   private end({ silent = false } = {}): void {
     this.token++;
+    this.view(false);
     if (this.hooks.navigation.walking?.source === 'tour') this.navStop();
     this.hooks.clearHighlights();
     this.hooks.setKeys(null);
@@ -360,6 +368,7 @@ export class TourSystem {
     this.message = null;
     this.remaining = stop.leg?.length ?? null;
     this.hooks.clearHighlights();
+    this.view(false);
     const r = this.hooks.routeTo(
       { x: stop.spot.x, z: stop.spot.z, floor: stop.spot.floor, name: stop.name },
       { walk: this.follow === 'auto' ? 'auto' : 'guide', face: this.reduced ? undefined : { yaw: stop.yaw, pitch: STOP_PITCH } },
@@ -415,6 +424,7 @@ export class TourSystem {
     this.hooks.clearHighlights();
     const ids = stop.rooms.map((r) => r.id);
     if (ids.length) this.hooks.highlight(ids);
+    this.view(true);
     this.emit('arrived');
     if (this.state === 'done') this.emit('done');
   }
@@ -428,6 +438,7 @@ export class TourSystem {
       const moved = me && from && (me.floor !== from.floor || Math.hypot(me.x - from.x, me.z - from.z) > MOVED_AWAY);
       if (moved && this.hooks.navigation.walking?.source !== 'click') {
         // "I'll walk": you go on (the line to the next stop); "Walk me": a pause (Resume walks on from here)
+        this.view(false);
         if (this.follow === 'self') this.next();
         else this.pause();
         return;
