@@ -18,7 +18,7 @@ import { setCameraView, flyTo as flyCamera } from '../engine/systems/CameraSyste
 // Phase 2 utilities
 import {
   elevationOf, floorBelow,
-  stairNeedsRoomAbove, floorPosition, steepStairsText, floorHeight,
+  stairProblems, floorPosition, steepStairsText, floorHeight,
 } from '../play/building';
 
 // Phase 3 utilities
@@ -292,10 +292,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
       floor: store.currentFloor,
       roomId,
     });
-    if (result.assetType === 'STAIRCASE' && stairNeedsRoomAbove(
+    // stairs that lead nowhere or don't fit their room: say so at once (the Inspector says it too)
+    const stairProblem = result.assetType === 'STAIRCASE' && stairProblems(
       { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor },
-      store.floors, Object.values(useWorkspaceStore.getState().rooms))) {
-      showStudioMessage('Build a room above to use these stairs');
+      store.floors, Object.values(useWorkspaceStore.getState().rooms))[0];
+    if (stairProblem) {
+      showStudioMessage(stairProblem.text);
     } else if (result.assetType === 'STAIRCASE' && steepStairsText(floorHeight(store.floors, store.currentFloor))) {
       showStudioMessage(steepStairsText(floorHeight(store.floors, store.currentFloor)));
     }
@@ -898,6 +900,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
   // ─── What the Studio shows ───
   const selectedObject = selectedObjectId ? objectsMap[selectedObjectId] ?? null : null;
   const selectedRoom = !selectedObject && selectedRoomId ? roomsMap[selectedRoomId] ?? null : null;
+  // a selected staircase: why it can't be used as it stands (leads nowhere, doesn't fit its room)
+  const stairWarnings = useMemo(
+    () => (selectedObject?.assetType === 'STAIRCASE'
+      ? stairProblems(selectedObject, floorsMap, Object.values(roomsMap)).map((p) => p.text) : []),
+    [selectedObject, floorsMap, roomsMap],
+  );
 
   // Accessibility (Task S3): Announce selection changes to screen readers
   useEffect(() => {
@@ -1371,6 +1379,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
         <Inspector
           mode={inspectorMode}
           object={selectedObject}
+          stairWarnings={stairWarnings}
           room={selectedRoom}
           opening={selectedOpening}
           onResizeOpening={handleResizeOpening}

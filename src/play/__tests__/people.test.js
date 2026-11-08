@@ -3,6 +3,7 @@ import {
   DESK_SIZES, SEAT_REACH, deskSeat, deskSeats, seatPose, personNear, chooseFullCharacters, MAX_FULL_CHARACTERS,
   normaliseBoneName, canonicalBoneName, BONE_TABLE, SEATED_POSE, STANDING_POSE, breathing, phaseOf,
   playerEyeHeight, walkRatio, clipSpeed, MIN_WALK_RATIO, MAX_WALK_RATIO, visitorSpot, COUNTER_GAP, figureWalkCycle, FIGURE_LEG,
+  visitorSpots, CORNER_DESK_ARM, OPEN_SIDE_GAP,
 } from '../people';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 
@@ -122,6 +123,37 @@ describe('visitorSpot', () => {
     expect(visitorSpot({ assetType: 'RECEPTION_DESK', x: 0, z: 0, scaleZ: 2 }).z).toBeCloseTo(2 * half + COUNTER_GAP);
     expect(visitorSpot({ assetType: 'DESK_STANDARD', x: 0, z: 0 })).toBeNull();
     expect(visitorSpot(null)).toBeNull();
+  });
+});
+
+describe('visitorSpots (v0.14.6)', () => {
+  const corner = (more = {}) => ({ id: 'c', assetType: 'DESK_CORNER', floor: 0, x: 2, z: 3, rotationY: 0, ...more });
+  it('a corner desk: at each open side of its L, level with its person; the side they are nearer first', () => {
+    // the chair in the L, nearer its +Z side (0.8 m) than its +X side (1.1 m)
+    const pose = { x: 2.1, z: 3.4 };
+    const [first, second] = visitorSpots(corner(), pose);
+    expect(first.side).toBe('+z');
+    expect(first.x).toBeCloseTo(2.1);
+    expect(first.z).toBeCloseTo(3 + 1.2 + OPEN_SIDE_GAP);
+    expect(second.side).toBe('+x');
+    expect(second.x).toBeCloseTo(2 + 1.2 + OPEN_SIDE_GAP);
+    expect(second.z).toBeCloseTo(3.4);
+  });
+  it('turned and mirrored with the desk; never level with an arm (clamped to the open square)', () => {
+    // turned 90 degrees: local +X is world -Z, local +Z is world +X
+    const spots = visitorSpots(corner({ x: 0, z: 0, rotationY: Math.PI / 2 }), null);
+    expect(spots.find((p) => p.side === '+x').z).toBeCloseTo(-(1.2 + OPEN_SIDE_GAP));
+    expect(spots.find((p) => p.side === '+z').x).toBeCloseTo(1.2 + OPEN_SIDE_GAP);
+    // a negative scaleX mirrors it: its open side is at -X
+    const m = visitorSpots(corner({ x: 0, z: 0, scaleX: -1 }), { x: -0.5, z: 0.5 }).find((p) => p.side === '+x');
+    expect(m.x).toBeCloseTo(-(1.2 + OPEN_SIDE_GAP));
+    // a person level with the -Z arm: the visitor stands where the open square begins
+    const low = visitorSpots(corner({ x: 0, z: 0 }), { x: 0.5, z: -1 }).find((p) => p.side === '+x');
+    expect(low.z).toBeCloseTo(-1.2 + 2.4 * CORNER_DESK_ARM);
+  });
+  it('a reception desk: its counter front; other desks: none', () => {
+    expect(visitorSpots({ assetType: 'RECEPTION_DESK', x: 2, z: 3, rotationY: 0 })).toHaveLength(1);
+    expect(visitorSpots({ assetType: 'DESK_STANDARD', x: 0, z: 0 })).toEqual([]);
   });
 });
 

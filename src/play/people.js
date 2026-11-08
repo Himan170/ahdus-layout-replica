@@ -39,6 +39,16 @@ export const DESK_WORK_SIDE = { DESK_STANDARD: 1, DESK_CORNER: 1, RECEPTION_DESK
 /** A visitor at a reception desk stands this far in front of its counter (m): the body clear of it. */
 export const COUNTER_GAP = 0.45;
 
+/**
+ * The L-shaped corner desk (DESK_CORNER), as drawn: an arm along its local −Z side and one along its −X
+ * side, each this fraction of its size deep (0.96 m of 2.4 m: its real model, and its primitive model
+ * made the same); its +X, +Z corner is open: the chair goes in the L. The walk map blocks the two arms
+ * (walkMap.ITEM_PARTS); a visitor stands at an open side (visitorSpots).
+ */
+export const CORNER_DESK_ARM = 0.4;
+/** A visitor at a corner desk stands this far out from its open side (m). */
+export const OPEN_SIDE_GAP = 0.3;
+
 export const isDesk = (type) => Object.hasOwn(DESK_SIZES, type ?? '');
 export const isChair = (type) => typeof type === 'string' && type.startsWith('CHAIR');
 
@@ -167,6 +177,36 @@ export function visitorSpot(desk) {
   if (desk?.assetType !== 'RECEPTION_DESK') return null;
   const { d } = halfSize(desk);
   return toWorld(desk, 0, -DESK_WORK_SIDE[desk.assetType] * (d + COUNTER_GAP));
+}
+
+/**
+ * Where a visitor may stand at a desk, best first ([] = no such spot: behind the person's chair, as for
+ * any desk). A reception desk: visitorSpot. A corner desk: at each open side of its L (local +X and +Z,
+ * OPEN_SIDE_GAP out), level with its person (`pose`: seatPose), so they face each other across the
+ * open corner; the side the person is nearer to first. Each spot is { x, z, side: '+x' | '+z' }.
+ * Which ones are inside the room (not in a wall) is for the caller to check.
+ * @param {object} desk
+ * @param {{ x: number, z: number } | null} [pose]
+ */
+export function visitorSpots(desk, pose = null) {
+  const front = visitorSpot(desk);
+  if (front) return [front];
+  if (desk?.assetType !== 'DESK_CORNER') return [];
+  const { w, d } = halfSize(desk);
+  // a negative scale mirrors the desk, and its open corner with it
+  const sx = Math.sign(desk.scaleX ?? 1) || 1;
+  const sz = Math.sign(desk.scaleZ ?? 1) || 1;
+  const p = pose ? toLocal(desk, pose.x, pose.z) : { x: sx * w * (1 - CORNER_DESK_ARM), z: sz * d * (1 - CORNER_DESK_ARM) };
+  // the open square: from the inner edges of the arms to the desk's +X / +Z edges
+  const ox = (w * 2 * CORNER_DESK_ARM - w); // the −X arm's inner edge (local, unmirrored)
+  const oz = (d * 2 * CORNER_DESK_ARM - d);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const along = { x: clamp(p.x * sx, ox, w), z: clamp(p.z * sz, oz, d) };
+  const spots = [
+    { side: '+x', lx: sx * (w + OPEN_SIDE_GAP), lz: sz * along.z, gap: w - along.x },
+    { side: '+z', lx: sx * along.x, lz: sz * (d + OPEN_SIDE_GAP), gap: d - along.z },
+  ].sort((a, b) => a.gap - b.gap);
+  return spots.map((s) => ({ ...toWorld(desk, s.lx, s.lz), side: s.side }));
 }
 
 /**

@@ -6,7 +6,7 @@ import { Scene } from '@babylonjs/core/scene';
 
 vi.mock('../../../utils/materialLibrary', () => ({ getAssetMaterial: () => null }));
 const { ASSET_TYPES, OBJECT_CATEGORIES, buildAssetMesh } = await import('../../../utils/assetCatalog');
-const { itemFootprint, ITEM_CLEARANCE, BODY_RADIUS } = await import('../walkMap');
+const { itemFootprint, itemFootprints, ITEM_PARTS, ITEM_CLEARANCE, BODY_RADIUS } = await import('../walkMap');
 
 describe('catalogue footprints', () => {
   it('every solid catalogue item\'s footprint covers its primitive model (the realistic models are fitted into it)', () => {
@@ -32,5 +32,24 @@ describe('catalogue footprints', () => {
     }
     engine.dispose();
     expect(tooBig).toEqual([]);
+  });
+  it('an item drawn in parts (the L-shaped corner desk): every piece of its primitive model lies in one of its parts', () => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const outside = [];
+    for (const type of Object.keys(ITEM_PARTS)) {
+      const root = buildAssetMesh(type, scene, `t_${type}`);
+      root.computeWorldMatrix(true);
+      const parts = itemFootprints({ assetType: type, x: 0, z: 0 }, ASSET_TYPES);
+      for (const mesh of root.getChildMeshes(false)) {
+        mesh.computeWorldMatrix(true);
+        const b = mesh.getBoundingInfo().boundingBox;
+        const fits = parts.some((p) => b.minimumWorld.x >= p.x - p.hw - 0.02 && b.maximumWorld.x <= p.x + p.hw + 0.02
+          && b.minimumWorld.z >= p.z - p.hd - 0.02 && b.maximumWorld.z <= p.z + p.hd + 0.02);
+        if (!fits) outside.push(`${type} ${mesh.name}`);
+      }
+    }
+    engine.dispose();
+    expect(outside).toEqual([]);
   });
 });

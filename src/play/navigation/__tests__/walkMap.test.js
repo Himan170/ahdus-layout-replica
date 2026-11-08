@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildWalkMap, createWalkMapCache, wallObstacles, isSolidItem, itemFootprint, distanceToRect, groundFloorId,
+  buildWalkMap, createWalkMapCache, wallObstacles, isSolidItem, itemFootprint, itemFootprints, distanceToRect, groundFloorId,
   BLOCKED, FREE, STAIRS, VOID, CLEARANCE, ITEM_CLEARANCE, CELL, SKIRTING_OUT,
 } from '../walkMap';
 import { ASSET_TYPES } from '../../../utils/assetCatalog';
@@ -193,6 +193,34 @@ describe('items', () => {
       expect(m.isClear(0, z)).toBe(m.isFree(0, z) && !near);
     }
     expect(freeButTooClose).toBeGreaterThan(0); // the case isClear is for
+  });
+});
+
+describe('the L-shaped corner desk (v0.14.6)', () => {
+  // a 2.4 m desk at the origin: arms along -Z (z -1.2 to -0.24) and -X (x -1.2 to -0.24); open at +X, +Z
+  const big = room('big', 0, 0, 12, 12);
+  it('blocks its two arms, not its open corner', () => {
+    const m = map([big], [item('c', 'DESK_CORNER', 0, 0)]);
+    expect(m.at(0, -0.8)).toBe(BLOCKED); // on the -Z arm
+    expect(m.at(-0.8, 0.8)).toBe(BLOCKED); // on the -X arm
+    expect(m.at(0.7, 0.7)).toBe(FREE); // in the L, where its chair goes
+    expect(m.isClear(0.7, 0.7)).toBe(true);
+    expect(reaches(m, { x: 0.7, z: 0.7 }, { x: 4, z: 4 })).toBe(true);
+  });
+  it('two rectangles, turned and mirrored with it; the footprint stays the whole square', () => {
+    const parts = itemFootprints(item('c', 'DESK_CORNER', 2, 3, { rotationY: Math.PI / 2 }), ASSET_TYPES);
+    expect(parts).toHaveLength(2);
+    // turned 90 degrees: local -Z is world -X
+    expect(parts[0].x).toBeCloseTo(2 - 0.72);
+    expect(parts[0].z).toBeCloseTo(3);
+    const turned = map([room('big', 2, 3, 12, 12)], [item('c', 'DESK_CORNER', 2, 3, { rotationY: Math.PI / 2 })]);
+    expect(turned.at(2 + 0.7, 3 - 0.7)).toBe(FREE);
+    expect(turned.at(2 - 0.8, 3)).toBe(BLOCKED);
+    const mirrored = map([big], [item('c', 'DESK_CORNER', 0, 0, { scaleX: -1 })]);
+    expect(mirrored.at(-0.7, 0.7)).toBe(FREE);
+    expect(mirrored.at(0.8, 0.8)).toBe(BLOCKED);
+    expect(itemFootprint(item('c', 'DESK_CORNER', 0, 0), ASSET_TYPES)).toMatchObject({ hw: 1.2, hd: 1.2 });
+    expect(itemFootprints(item('d', 'DESK_STANDARD', 0, 0), ASSET_TYPES)).toHaveLength(1);
   });
 });
 

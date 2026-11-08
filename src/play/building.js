@@ -444,8 +444,10 @@ export function stairTop(stair, dims = stairSize(stair)) {
  * out of the part you can't step onto: the way out (world dx, dz) if the body at (x, z), feet at `y`,
  * reaches into a part of a flight that is more than STEP_UP above the feet; else null.
  * Near the bottom of the flight, on the steps, above them and on the floor below it, nothing stops you.
+ * Stairs that lead nowhere (`stairNeedsRoomAbove`, given `rooms`) are a block all round, the bottom
+ * step too: `nowhere: true` in the answer (the walker says why: STAIRS_LEAD_NOWHERE).
  */
-export function stairPushOut({ x, z, y, floors, stairs = [], radius = 0.32, bodyHeight = 1.8 }) {
+export function stairPushOut({ x, z, y, floors, rooms = null, stairs = [], radius = 0.32, bodyHeight = 1.8 }) {
   for (const s of stairs) {
     const base = elevationOf(floors, s.floor ?? 0);
     if (y + bodyHeight <= base) continue; // underneath it, on the floor below
@@ -457,15 +459,23 @@ export function stairPushOut({ x, z, y, floors, stairs = [], radius = 0.32, body
     const nz = Math.max(-hl, Math.min(hl, lz));
     const away = Math.hypot(lx - nx, lz - nz);
     if (away >= radius) continue;
+    const nowhere = !!rooms && stairNeedsRoomAbove(s, floors, rooms);
     const v = (nz + hl) / dims.length;
     const surface = base + Math.min(dims.rise, ((v * dims.steps + 0.5) / dims.steps) * dims.rise);
-    if (surface <= y + STEP_UP) continue; // you can step onto it (or you are on it)
+    if (!nowhere && surface <= y + STEP_UP) continue; // you can step onto it (or you are on it)
     let ox;
     let oz;
     if (away > 1e-9) {
       const by = (radius - away) / away;
       ox = (lx - nx) * by;
       oz = (lz - nz) * by;
+    } else if (nowhere) {
+      // inside a flight that leads nowhere: out by the nearest side or end, the bottom too
+      const out = [
+        [hw - lx, 1, 0], [hw + lx, -1, 0], [hl - lz, 0, 1], [hl + lz, 0, -1],
+      ].sort((a, b) => a[0] - b[0])[0];
+      ox = out[1] * (out[0] + radius);
+      oz = out[2] * (out[0] + radius);
     } else {
       // inside the block (put there, or fallen in): out by the nearest side or end, never up the steps
       const toSide = hw - Math.abs(lx);
@@ -474,10 +484,13 @@ export function stairPushOut({ x, z, y, floors, stairs = [], radius = 0.32, body
       else { ox = 0; oz = toTop + radius; }
     }
     const r = s.rotationY ?? 0;
-    return { dx: ox * Math.cos(r) + oz * Math.sin(r), dz: oz * Math.cos(r) - ox * Math.sin(r) };
+    return { dx: ox * Math.cos(r) + oz * Math.sin(r), dz: oz * Math.cos(r) - ox * Math.sin(r), nowhere };
   }
   return null;
 }
+
+/** What the walker says at a flight it can't climb (stairPushOut's `nowhere`). */
+export const STAIRS_LEAD_NOWHERE = 'These stairs lead nowhere';
 
 /**
  * True if a staircase leads nowhere: no floor above it, or no room on that
@@ -488,6 +501,83 @@ export function stairNeedsRoomAbove(stair, floors, rooms) {
   if (!above) return true;
   const top = stairTop(stair);
   return !rooms.some((r) => r.floor === above.id && rectContains(roomRect(r), top.x, top.z));
+}
+
+/** Room you need in front of a flight's bottom step to step onto it (m). */
+export const STAIR_STEP_ON = 0.8;
+/** Room kept clear in front of a door, inside its room (m). */
+export const DOOR_CLEAR = 0.8;
+
+/** The axis-aligned box (world) of a rectangle in a staircase's own frame: lx across, lz along the climb. */
+function stairLocalBox(stair, lx0, lx1, lz0, lz1) {
+  const c = Math.cos(stair.rotationY ?? 0);
+  const s = Math.sin(stair.rotationY ?? 0);
+  const xs = [];
+  const zs = [];
+  for (const lx of [lx0, lx1]) {
+    for (const lz of [lz0, lz1]) {
+      // the inverse of toStairLocal
+      xs.push(stair.x + lx * c + lz * s);
+      zs.push(stair.z - lx * s + lz * c);
+    }
+  }
+  return { x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs) };
+}
+
+const overlapsBy = (a, b, tol) => a.x0 < b.x1 - tol && a.x1 > b.x0 + tol && a.z0 < b.z1 - tol && a.z1 > b.z0 + tol;
+const insideBy = (a, b, tol) => a.x0 >= b.x0 - tol && a.x1 <= b.x1 + tol && a.z0 >= b.z0 - tol && a.z1 <= b.z1 + tol;
+
+/**
+ * Why a staircase can't be used as placed, for Studio (the Inspector, placing one): a list of
+ * { code, text }, empty when it is fine.
+ *   NOWHERE    no floor above, or no room there where it arrives (it can't be climbed: stairPushOut)
+ *   STICKS_OUT the flight is not inside the room it stands in
+ *   NO_STEP_ON no room in front of its bottom step (STAIR_STEP_ON, inside that room)
+ *   BLOCKS_DOOR the flight stands in front of a door of that room (DOOR_CLEAR)
+ * The room = the innermost room of its floor holding its middle; outside every room only NOWHERE counts.
+ */
+export function stairProblems(stair, floors, rooms) {
+  const out = [];
+  const floor = stair.floor ?? 0;
+  const above = floorAbove(floors, floor);
+  if (stairNeedsRoomAbove(stair, floors, rooms)) {
+    out.push({
+      code: 'NOWHERE',
+      text: above
+        ? `${STAIRS_LEAD_NOWHERE}: build a room on ${above.name || 'the floor above'} where they arrive`
+        : `${STAIRS_LEAD_NOWHERE}: there is no floor above. Add one, with a room where they arrive`,
+    });
+  }
+  const room = rooms
+    .filter((r) => (r.floor ?? 0) === floor && rectContains(roomRect(r), stair.x, stair.z))
+    .sort((a, b) => a.width * a.depth - b.width * b.depth)[0];
+  if (!room) return out;
+  const name = room.name?.trim() || 'their room';
+  const T = wallThicknessOf(room) / 2;
+  const r = roomRect(room);
+  const inner = { x0: r.x0 + T, x1: r.x1 - T, z0: r.z0 + T, z1: r.z1 - T };
+  const { width, length } = stairSize(stair);
+  const flight = stairLocalBox(stair, -width / 2, width / 2, -length / 2, length / 2);
+  const stepOn = stairLocalBox(stair, -width / 2, width / 2, -length / 2 - STAIR_STEP_ON, -length / 2);
+  const tol = 0.02;
+  if (!insideBy(flight, inner, tol)) {
+    out.push({ code: 'STICKS_OUT', text: `These stairs don't fit ${name}: they stick out of it` });
+  } else if (!insideBy(stepOn, inner, tol)) {
+    out.push({ code: 'NO_STEP_ON', text: `These stairs don't fit ${name}: there's no room in front of the bottom step` });
+  }
+  const doorBlocked = roomOpenings(room).some((o) => {
+    if (o.kind !== 'door') return false;
+    const half = o.width / 2;
+    const zone = {
+      north: { x0: room.x + o.offset - half, x1: room.x + o.offset + half, z0: inner.z1 - DOOR_CLEAR, z1: inner.z1 },
+      south: { x0: room.x + o.offset - half, x1: room.x + o.offset + half, z0: inner.z0, z1: inner.z0 + DOOR_CLEAR },
+      east: { x0: inner.x1 - DOOR_CLEAR, x1: inner.x1, z0: room.z + o.offset - half, z1: room.z + o.offset + half },
+      west: { x0: inner.x0, x1: inner.x0 + DOOR_CLEAR, z0: room.z + o.offset - half, z1: room.z + o.offset + half },
+    }[o.wall];
+    return zone && overlapsBy(flight, zone, tol);
+  });
+  if (doorBlocked) out.push({ code: 'BLOCKS_DOOR', text: `These stairs don't fit ${name}: they block a door` });
+  return out;
 }
 
 // ── Standing ──────────────────────────────────────────────────────────────
@@ -522,7 +612,8 @@ export function supportHeight({ x, z, y, floors, rooms, stairs = [] }) {
   }
   for (const s of stairs) {
     const h = stairHeightAt(s, x, z, stairDimsFor(floors, s));
-    if (h !== null) surfaces.push(elevationOf(floors, s.floor ?? 0) + h);
+    // stairs that lead nowhere are not climbed (stairPushOut keeps the body off them)
+    if (h !== null && !stairNeedsRoomAbove(s, floors, rooms)) surfaces.push(elevationOf(floors, s.floor ?? 0) + h);
   }
   let best = -Infinity;
   for (const h of surfaces) {

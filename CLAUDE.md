@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1104, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1124, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -39,10 +39,10 @@ npm run e2e:planner  # 44 checks   e2e/editor-smoke.mjs    (Workplace Studio + i
                      #                                       Ctrl+Z, a phone's hint at 390 px)
 npm run e2e:play     # 19 checks   e2e/play-smoke.mjs
 npm run e2e:modules  # 17 checks   e2e/modules-smoke.mjs   (uses ?demoModules=1)
-npm run e2e:stairs   # 23 checks   e2e/stairs-smoke.mjs    (viewer.html: W climbs flights turned 0 / 90 / 180 / 270°, with an old y,
+npm run e2e:stairs   # 24 checks   e2e/stairs-smoke.mjs    (viewer.html: W climbs flights turned 0 / 90 / 180 / 270°, with an old y,
                      #                                       an old scale, on Floor 1: every frame on the tread DRAWN there (a ray), and
                      #                                       back down; first person; from the side it stops you; Take me there; Studio:
-                     #                                       no Height / size for stairs, R says why; SHOTS=<dir>: screenshots)
+                     #                                       no Height / size for stairs, R says why, "lead nowhere"; SHOTS=<dir>: shots)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
 npm run e2e:tools    # 45 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
                      #                                       room's floor + Preview's Edit item)
@@ -396,7 +396,14 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
   no scale, the R key says why. A flight has no collision mesh, so its **sides** are `building.stairPushOut` (playController
   `stepUp`, not when flying): where its surface is more than `STEP_UP` over your feet it pushes you out, sideways or
   out of the block; under a flight of the floor above nothing happens. Placing one with no room where it arrives warns
-  "Build a room above to use these stairs" (`stairNeedsRoomAbove`). Walking uses `supportHeight` (STEP_UP 0.45),
+  "Build a room above to use these stairs" (`stairNeedsRoomAbove`). **Stairs that lead nowhere (v0.14.6)** (no floor
+  above, or no room where they arrive) can't be climbed: `supportHeight` ignores their steps, `stairPushOut` (given
+  `rooms`) blocks them all round, the bottom step too (`nowhere: true`: the walker says "These stairs lead nowhere",
+  `STAIRS_LEAD_NOWHERE`), and the walk map blocks the whole flight. **Studio** (`building.stairProblems`, shown in the
+  Inspector of a selected staircase, `data-stairs-problems`, and as the message after placing one): NOWHERE ("These
+  stairs lead nowhere: …"), and, in the innermost room holding its middle: STICKS_OUT, NO_STEP_ON (no
+  `STAIR_STEP_ON` 0.8 m in front of the bottom step inside the room), BLOCKS_DOOR (the flight in a door's `DOOR_CLEAR`
+  0.8 m). Walking uses `supportHeight` (STEP_UP 0.45),
   checked after every 0.1 m substep so it works at low fps. A room's floor reaches under its own walls there too
   (v0.13.4): the doorway between two rooms back to back upstairs is not a gap to fall into. `levelForY` decides which floor you're on (1 m lead).
 - **Rooms line up between floors:** on an upper floor both modes draw a faint outline of the floor below
@@ -473,7 +480,11 @@ Step v0.13.0 of `private-docs/NAVIGATION_PLAN.md` (4.1, 4.2, 4.6). Pure maths in
   `play/__tests__/doorsWalk.test.js`: 0.6 m passes, sliding to the middle; 0.4 m does not): the cells a door's centre line
   crosses are tested ON that line (step 5, door passages, kept in `map.passages`: cell → its point on the line; a jamb
   counts only up to the door's half width, walls and items still exact). A flight is an obstacle too (`kind: 'stairs'`,
-  v0.14.5): the cells beside it are BLOCKED, those on it stay `STAIRS`. `map.isClear(x, z)`: FREE and the exact point clear (a cell's centre can be 7 cm further from a desk;
+  v0.14.5): the cells beside it are BLOCKED, those on it stay `STAIRS` (a flight that leads nowhere: all BLOCKED, v0.14.6).
+  **The L-shaped corner desk (v0.14.6)** blocks its two arms, not its square (`ITEM_PARTS`, `itemFootprints`; turned
+  and mirrored with it): an arm along its local −Z side and one along −X, `people.CORNER_DESK_ARM` (0.4) of its size
+  deep, as its real model draws it (the primitive model was made the same L; `footprints.test.js` checks it); the
+  +X, +Z corner is open, where its chair goes. `map.isClear(x, z)`: FREE and the exact point clear (a cell's centre can be 7 cm further from a desk;
   the spawn and `freeSpot` use it). Meridian: ~15 ms per floor. `createWalkMapCache` rebuilds only when the store's
   room / item records or floors change.
 - **Spawn** (`entrance.js` `entranceSpawn`): always the ground floor: its `SPAWN_POINT` (if blocked: the nearest free
@@ -542,8 +553,10 @@ Step v0.13.3 of `private-docs/NAVIGATION_PLAN.md` (4.4, and the "not walking" pa
   RECEPTION, STAIRS: rooms of those types, and RECEPTION_DESK / STAIRCASE items not in a room of their kind). Each
   place: `detail` ("HR · Ground Floor, Lobby & Reception"), `entityId` (focusOn), `highlight` ids (a person: desk +
   chair), `goals` (where a walk ends: just inside each door, 0.7 m behind a chair (a
-  reception desk: in front of its counter, `people.visitorSpot`: its visitor side, `COUNTER_GAP` 0.45 m out), in front of a
-  stair's bottom step).
+  reception desk: in front of its counter, `people.visitorSpot`: its visitor side, `COUNTER_GAP` 0.45 m out; a corner
+  desk (v0.14.6): at an open side of its L, `OPEN_SIDE_GAP` 0.3 m out, level with its person, only the sides at least
+  `VISITOR_WALL_GAP` 0.4 m inside the room, `people.visitorSpots` + `places.deskGoals`; none: behind the chair), in
+  front of a stair's bottom step (in the flight's own room when that spot is through its wall, v0.14.6)).
 - **Search** (`searchPlaces`): every query word must start a word of the place (name words first; 3+ letters also
   inside a name word); whole names first; then the floor shown / where you stand. A query naming a facility
   ("wash") lists all of them; walking (`from` with x, z) a "Nearest washroom" entry comes first. Groups People /
@@ -1150,7 +1163,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Skirting isn't pickable on its own (a click goes to the wall behind it).
 - People: the pose is procedural (no sit / type animation); twist of bones is not set (hands may turn oddly on real
   characters); hands don't follow the keyboard. A desk with no chair has its person on its local +Z side (a
-  reception desk: −Z), turned with the desk; a corner desk's person stands outside its long side, not in the L. No
+  reception desk: −Z), turned with the desk; a corner desk with no chair has its person outside its +Z side (its open side), not in the L. No
   "Choose your character" hint yet. Full characters' skeletons are not frozen (≤ 12, cheap).
 - Walking as yourself: walk ↔ stand switches at once (no blend); no turn-on-the-spot, running or flying clip (Shift
   plays the walk faster, flying stands); Studio's Preview still walks as the simple figure. Checked with our

@@ -241,6 +241,9 @@ const inspector = await st.evaluate(() => ({
 log('Studio, stairs selected: no Height and no size fields, and it says why',
   /keep their size/.test(inspector.note) && !inspector.fields.some((f) => /^(Height|Width|Depth|Scale)/i.test(f)),
   JSON.stringify(inspector));
+// v0.14.6: one floor, so these stairs lead nowhere: the Inspector says so
+const problems = await st.evaluate(() => document.querySelector('[data-stairs-problems]')?.textContent ?? '');
+log('Studio, stairs on the only floor: "These stairs lead nowhere" in the Inspector', /These stairs lead nowhere/.test(problems), problems);
 const before = await st.evaluate((id) => window.__ahdusStore.getState().objects[id], stairsId);
 await st.locator('canvas').first().hover();
 await st.keyboard.press('r');

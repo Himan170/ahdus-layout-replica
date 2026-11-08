@@ -122,11 +122,22 @@ describe('buildPlaces on the Meridian-shaped layout', () => {
 
   it('a staircase not in a stair room is a facility, its goal in front of the bottom step', () => {
     const l = meridianLike();
-    l.rooms = l.rooms.filter((r) => r.type !== 'STAIRCASE');
-    const stairs = buildPlaces(l).places.filter((p) => p.facility === 'STAIRS');
+    l.rooms = l.rooms.filter((r) => !(r.type === 'STAIRCASE' && r.floor === 0)); // upstairs it arrives in a room
+    const stairs = buildPlaces(l).places.filter((p) => p.facility === 'STAIRS' && p.kind === 'facility' && p.id.startsWith('item:'));
     expect(stairs).toHaveLength(1);
     expect(stairs[0]).toMatchObject({ id: 'item:obj_f0_stairs', name: 'Staircase', detail: 'Stairs · Ground Floor to Floor 1' });
     expect(stairs[0].goals[0].z).toBeLessThan(5.15 - 2); // the flight is 4 m, climbing +Z
+  });
+
+  it("a flight whose bottom step faces a wall: the walk ends in the flight's own room, not behind the wall (v0.14.6)", () => {
+    const office = (id, z) => ({ id, type: 'OFFICE', name: id, floor: 0, x: 0, z, width: 6, depth: 6, wallHeight: 3.2,
+      wallThickness: 0.15, doors: [{ wall: 'west', offset: 0, width: 1, height: 2.1 }], windows: [] });
+    // turned 180°: it climbs towards −Z, so its bottom step is at +Z, against the wall shared with "behind"
+    const l = { rooms: [office('front', 0), office('behind', 6)], floors: { 0: { id: 0, name: 'Ground Floor', height: 3.5 } },
+      objects: [{ id: 'st', assetType: 'STAIRCASE', floor: 0, x: 0, y: 0, z: 0.8, rotationY: Math.PI }] };
+    const [goal] = buildPlaces(l).byId.get('item:st').goals;
+    expect(goal.z).toBeGreaterThan(3); // in front of the bottom step is behind the wall…
+    expect(goal.roomId).toBe('front'); // …so the walk stays in the flight's room
   });
 
   it('every goal can be walked to from the entrance (rooms, departments, facilities, every 10th person)', () => {
