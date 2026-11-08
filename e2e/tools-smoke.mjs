@@ -251,6 +251,22 @@ log('room selected: dragging its floor moves it (same size)', near(r1m.x, r0.x +
   `(${r0.x}, ${r0.z}) → (${r1m.x}, ${r1m.z})`);
 await key('Control+z');
 log('Ctrl+Z moves it back', near((await roomNow()).x, r0.x));
+// v0.14.9: the room's Department (no departments given here: free text), saved as departmentRef, undoable
+await selectRoom(); await frames(2);
+const deptField = p.locator('aside[aria-label="Inspector"] [aria-label="Room department"]');
+const deptKind = await deptField.getAttribute('data-room-department', { timeout: 10000 }).catch(() => null);
+await deptField.fill('Customer  Success ').catch(() => {});
+await frames(1);
+const deptTyped = (await roomNow()).departmentRef;
+await p.evaluate(() => document.activeElement?.blur());
+await p.click('[aria-label="Undo"]'); await frames(1);
+const deptUndone = (await roomNow()).departmentRef ?? null;
+await p.click('[aria-label="Redo"]'); await frames(1);
+const deptRedone = (await roomNow()).departmentRef;
+const furnitureDept = await p.locator('aside[aria-label="Inspector"] [aria-label="Department"]').count();
+log('v0.14.9 a room\'s Department (no list given: free text): typing saves departmentRef "Customer Success"; Undo, Redo; the furniture field is not there',
+  deptKind === 'text' && deptTyped === 'Customer Success' && deptUndone === null && deptRedone === 'Customer Success' && furnitureDept === 0,
+  JSON.stringify({ deptKind, deptTyped, deptUndone, deptRedone, furnitureDept }));
 await key('Escape');
 
 // ── Upper floor: the tools draw on the floor being edited ──

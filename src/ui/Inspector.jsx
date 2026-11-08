@@ -7,7 +7,7 @@
  *
  *   item:   name, Position, Rotation, Size, Details (department, hook points,
  *           linked position); Duplicate / Lock / Delete
- *   room:   name, room type, Width / Length / Ceiling, floor swatches, wall thickness,
+ *   room:   name, room type, department (v0.14.9), Width / Length / Ceiling, floor swatches, wall thickness,
  *           the doors and windows (a click selects one) + "Add a door or window"; Duplicate, Delete room
  *   layers: outline of rooms and items on this floor
  */
@@ -27,6 +27,7 @@ import { FLOOR_FINISHES, floorKindOf } from '../utils/materialLibrary';
 import { MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, STAIRS_KEEP_SIZE } from '../play/building';
 import { describeRoom, describeObject, describeAccessibilityRoutes } from '../utils/accessibleSummary';
 import SeatSection from './SeatSection';
+import { departmentOptions, departmentPatch, MAX_DEPARTMENT_NAME } from './roomDepartment';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 
@@ -266,7 +267,37 @@ const FLOOR_SWATCH = {
 };
 const SIDE = { north: 'North wall', south: 'South wall', east: 'East wall', west: 'West wall' };
 
-function RoomBody({ room, onUpdate, onSetFloor, onSelectOpening, onAddOpening }) {
+/**
+ * The room's department (v0.14.9, room.departmentRef: Find and the company tour use it): the page's departments + None,
+ * or free text when the page gives none. A pick is one undo step; typing is one step per burst.
+ */
+function RoomDepartmentField({ room, choices, onUpdate }) {
+  const [draft, setDraft] = useState(null);
+  const hint = 'Find and the company tour use it. None: the department of most people seated here';
+  if (choices) {
+    const { value, options } = departmentOptions(choices, room.departmentRef);
+    return (
+      <label className="insp-field insp-field--wide" title={hint}>
+        <span className="insp-field__label">Department</span>
+        <select className="ui-select" aria-label="Room department" data-room-department="list" value={value}
+          onChange={(e) => onUpdate(room.id, departmentPatch(e.target.value))}>
+          {options.map((o) => <option key={o.value || 'none'} value={o.value}>{o.label}</option>)}
+        </select>
+      </label>
+    );
+  }
+  return (
+    <label className="insp-field insp-field--wide" title={hint}>
+      <span className="insp-field__label">Department</span>
+      <input type="text" className="ui-input" aria-label="Room department" data-room-department="text" placeholder="None"
+        maxLength={MAX_DEPARTMENT_NAME} value={draft ?? room.departmentRef ?? ''}
+        onChange={(e) => { setDraft(e.target.value); onUpdate(room.id, departmentPatch(e.target.value), { typing: true }); }}
+        onBlur={() => setDraft(null)} />
+    </label>
+  );
+}
+
+function RoomBody({ room, departmentChoices: choices, onUpdate, onSetFloor, onSelectOpening, onAddOpening }) {
   const area = room.width * room.depth;
   const floor = floorKindOf(room);
   const openings = roomOpenings(room);
@@ -286,6 +317,8 @@ function RoomBody({ room, onUpdate, onSetFloor, onSelectOpening, onAddOpening })
           {Object.entries(ROOM_TYPES).map(([key, def]) => <option key={key} value={key}>{def.label}</option>)}
         </select>
       </label>
+
+      <RoomDepartmentField key={room.id} room={room} choices={choices} onUpdate={onUpdate} />
 
       <div className="insp-room__group">
         <h3 className="insp-room__title">Size</h3>
@@ -461,6 +494,7 @@ export default function Inspector({
   onAddOpening,         // () => void: the Doors & windows tool
   onDuplicateRoom,      // (roomId) => void
   seatPanel = null,     // a desk inside AHDUS: SeatSection's props ("Who sits here"), else null
+  departmentChoices = null, // a room's Department field (v0.14.9): the page's names (roomDepartment.departmentChoices); null: free text
 }) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -584,7 +618,7 @@ export default function Inspector({
             hookPoints={hookPoints} positions={positions} onSetPositionRef={onSetPositionRef} />
         )}
         {mode === 'room' && (
-          <RoomBody room={room} onUpdate={onUpdateRoom} onSetFloor={onSetFloorFinish}
+          <RoomBody room={room} departmentChoices={departmentChoices} onUpdate={onUpdateRoom} onSetFloor={onSetFloorFinish}
             onSelectOpening={onSelectOpening} onAddOpening={onAddOpening} />
         )}
         {mode === 'opening' && <OpeningBody opening={opening} floorName={floorName} onResize={onResizeOpening} />}

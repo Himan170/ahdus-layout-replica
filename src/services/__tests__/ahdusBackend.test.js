@@ -19,7 +19,7 @@ import {
 } from '../apiService';
 import {
   AHDUS_COMPANY, AHDUS_CHANGED, AHDUS_NOT_ALLOWED, AHDUS_LOGIN_EXPIRED, MAX_SITE_NAME, siteFromUrl,
-  hasLoginToken, loginUrl, goToLogin, renameSite, getSite,
+  hasLoginToken, loginUrl, goToLogin, renameSite, getSite, listDepartments,
 } from '../ahdusBackend';
 import { publishState } from '../../ui/publishFlow';
 import { useWorkspaceStore } from '../../store/workspaceStore';
@@ -451,5 +451,24 @@ describe('publishLayout without VITE_LAYOUT_BACKEND=ahdus', () => {
     expect((await publishLayout()).ok).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('listDepartments (v0.14.9: the room Inspector\'s Department choices)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('GET /api/teams/departments with the token: only the names, in AHDUS\'s order', async () => {
+    const fetchSpy = vi.fn(async () => ({
+      ok: true, status: 200,
+      json: async () => [{ id: 1, name: 'HR', description: 'People', teams: [] }, { id: 2, name: ' Finance ' }, { id: 3, name: '' }, null],
+    }));
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.stubGlobal('localStorage', { getItem: () => 'tok' });
+    expect(await listDepartments()).toEqual({ ok: true, names: ['HR', 'Finance'] });
+    expect(fetchSpy.mock.calls[0][0]).toBe('/api/teams/departments');
+    expect(fetchSpy.mock.calls[0][1]).toMatchObject({ method: 'GET', headers: { Authorization: 'Bearer tok' } });
+  });
+  it('a failure says why (no names: the field is free text)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    expect(await listDepartments()).toMatchObject({ ok: false, error: 'AHDUS could not be reached' });
   });
 });

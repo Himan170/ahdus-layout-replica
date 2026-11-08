@@ -11,10 +11,10 @@ import WorkplaceEditor from '../../components/WorkplaceEditor';
 import EditorErrorBoundary from '../../ui/EditorErrorBoundary';
 import '../../ui/theme.css';
 
-export default function StudioPanel({ onExit, people }) {
+export default function StudioPanel({ onExit, people, departments }) {
   return (
     <EditorErrorBoundary onBack={onExit}>
-      <WorkplaceEditor onExit={onExit} people={people} />
+      <WorkplaceEditor onExit={onExit} people={people} departments={departments} />
     </EditorErrorBoundary>
   );
 }

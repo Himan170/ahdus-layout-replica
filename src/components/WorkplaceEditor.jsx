@@ -30,7 +30,8 @@ import {
 } from '../store/workspaceStore';
 import { createEditorHistory } from '../store/editorHistory';
 import { startAutoSave, stopAutoSave, saveNow, renameLayout, listVersions } from '../services/apiService';
-import { AHDUS_COMPANY } from '../services/ahdusBackend';
+import { AHDUS_COMPANY, listDepartments } from '../services/ahdusBackend';
+import { departmentChoices } from '../ui/roomDepartment';
 
 // The scene lifecycle (scene, systems, builder, play controller, tools, pointer handlers)
 import { useStudioScene } from '../hooks/useStudioScene';
@@ -105,7 +106,7 @@ const shallow = (a, b) => {
   return true;
 };
 
-export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
+export default function WorkplaceEditor({ onExit, onFirstFrame, people, departments }) {
   // Development only: lets the e2e test check the "could not be opened" card (e2e/save-smoke.mjs)
   if (import.meta.env.DEV && typeof window !== 'undefined' && window.__ahdusCrashOnOpen) {
     throw new Error('Test crash (window.__ahdusCrashOnOpen is set)');
@@ -597,7 +598,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
     editor.deleteRoom(id);
   }, [editor]);
 
-  const handleUpdateRoom = useCallback((id, patch) => {
+  const handleUpdateRoom = useCallback((id, patch, { typing = false } = {}) => {
+    if ('departmentRef' in patch) {
+      // the room's department (v0.14.9): a pick is one undo step, typing one step per burst
+      editor.updateRoom(id, { departmentRef: patch.departmentRef }, { mergeKey: typing ? 'room-department' : undefined, label: 'Change department' });
+      return;
+    }
     // Typing a name / size merges into one undo step; changing the type is its own step
     const mergeKey = 'type' in patch ? undefined : 'room-fields';
     if ('wallHeight' in patch) {
@@ -937,6 +943,17 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
     enabled: inAhdus && hasBackend, objects: allObjects, phone,
     toast: (tone, text) => toastRef.current?.(tone, text),
   });
+  // A room's Department choices (v0.14.9): inside AHDUS the company's (GET /api/teams/departments), else the ones
+  // LayoutEditor's `departments` gives; none (or AHDUS can't be reached): the field is free text
+  const [ahdusDepartments, setAhdusDepartments] = useState(null);
+  useEffect(() => {
+    if (!inAhdus || !hasBackend) return undefined;
+    let live = true;
+    listDepartments().then((r) => { if (live && r.ok) setAhdusDepartments(r.names); });
+    return () => { live = false; };
+  }, [inAhdus, hasBackend]);
+  const departmentNames = useMemo(() => departmentChoices(inAhdus ? ahdusDepartments : departments),
+    [inAhdus, ahdusDepartments, departments]);
   // People at their desks: inside AHDUS its seats, else only when some are passed in (LayoutEditor's `people`)
   const studioPeople = inAhdus ? seats.people : people;
   useEffect(() => {
@@ -1409,6 +1426,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people }) {
           onAddOpening={() => { setOpenTray('doors'); handlePickOption({ tool: { kind: 'door' } }); }}
           onDuplicateRoom={handleDuplicateRoom}
           seatPanel={seatPanel}
+          departmentChoices={departmentNames}
         />
       )}
     />
