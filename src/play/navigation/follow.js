@@ -21,9 +21,10 @@
 
 import { segmentToRect, cellsClear } from './route';
 import { distanceToRect, FREE, STAIRS, BLOCKED } from './walkMap';
+import { WALK_SPEED } from '../speeds';
 
-/** Walking speed (m/s): Preview's walk (playController WALK, route.WALK_SPEED). */
-export const AUTO_SPEED = 4.2;
+/** Take me there walks at the character's walking speed (play/speeds.js, the one constant). */
+export const AUTO_SPEED = WALK_SPEED;
 /** Turning (rad/s): 270°/s. */
 export const TURN_RATE = (3 * Math.PI) / 2;
 /** Arrived: this close to the end of the route (m), on its floor. */
@@ -50,7 +51,7 @@ const TIGHT_LOOK = 0.2;
  * Walking speed in a tight spot (m/s), and at most TIGHT_STEP per frame (a slow frame of 0.25 s: 0.8 m/s):
  * one frame is one straight step, and a longer one cuts the corner before a door into its frame.
  */
-export const TIGHT_SPEED = 2.8;
+export const TIGHT_SPEED = 0.9 * AUTO_SPEED;
 const TIGHT_STEP = 0.2;
 /** A step never ends closer than this to a wall or an item (m: the body + 4 cm); else it is halved, down to SAFE_STEP_MIN. */
 const SAFE_CLEARANCE = 0.36;

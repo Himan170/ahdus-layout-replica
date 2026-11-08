@@ -47,11 +47,12 @@ import {
   floorsInOrder, floorAbove, stairDimsFor, stairTop, stairNeedsRoomAbove, rectContains, roomRect,
 } from '../building';
 import { wallThicknessOf } from '../geometry';
-import { createWalkMapCache, doorGaps, FREE, BODY_RADIUS } from './walkMap';
+import { WALK_SPEED } from '../speeds';
+import { createWalkMapCache, distanceToRect, doorGaps, FREE, BODY_RADIUS } from './walkMap';
 import { nearestFree } from './entrance';
 
-/** Preview's walking speed (m/s, playController WALK): a route's `seconds`. */
-export const WALK_SPEED = 4.2;
+/** A route's `seconds`: the character's walking speed (play/speeds.js, the one constant). */
+export { WALK_SPEED };
 /** Extra cost of a step right beside a wall (× 2), fading to none NEAR_WALL_CELLS cells away. */
 export const NEAR_WALL_COST = 1;
 export const NEAR_WALL_CELLS = 4;

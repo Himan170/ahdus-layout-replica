@@ -10,6 +10,7 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
+import { figureWalkCycle } from './people';
 
 function material(scene, name, hex, specular = 0.05) {
   const m = new StandardMaterial(name, scene);
@@ -98,8 +99,8 @@ export function createCharacter(scene, options = {}) {
       armL.rotation.z = armL.rotation.z * 0.8 + 0.06 * 0.2;
       armR.rotation.z = armR.rotation.z * 0.8 - 0.06 * 0.2;
       if (speed > 0.1) {
-        phase += dt * (4 + speed * 1.2);
-        const swing = Math.min(0.75, 0.25 + speed * 0.08);
+        const { rate, swing } = figureWalkCycle(speed); // as fast as the feet carry you: they don't slide
+        phase += dt * rate;
         legL.rotation.x = Math.sin(phase) * swing;
         legR.rotation.x = -Math.sin(phase) * swing;
         armL.rotation.x = -Math.sin(phase) * swing * 0.8;

@@ -77,11 +77,9 @@ import {
   floorHeight, floorPosition, stairDimsFor, stairNeedsRoomAbove, arrivalOnFloor, planWallHeight,
   HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, wallHeightText,
 } from './building';
+import { WALK_SPEED as WALK, RUN_SPEED as RUN, FLY_SPEED as FLY } from './speeds';
 
 // ── Feel ──
-const WALK = 4.2;
-const RUN = 7.5;
-const FLY = 9;
 const JUMP_SPEED = 5.2;
 const GRAVITY = -18;
 const MOUSE_SENS = 0.0022;

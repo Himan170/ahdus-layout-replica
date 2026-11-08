@@ -46,7 +46,7 @@ const slot = async (n) => { await p.keyboard.press(`Digit${n}`); await frames(3)
 const walk = async (key, ms) => { await p.keyboard.down(key); await wait(ms); await p.keyboard.up(key); await frames(2); };
 // Walk until `done(position)` is true (or maxMs passes). Frame-rate independent:
 // on a slow machine without a GPU a fixed 2.5 s walk may only cover 2 m.
-const walkUntil = async (key, done, maxMs = 20000) => {
+const walkUntil = async (key, done, maxMs = 40000) => {
   const start = Date.now();
   await p.keyboard.down(key);
   while (Date.now() - start < maxMs && !done(await pos())) await wait(250);
@@ -113,7 +113,7 @@ log('door goes into the wall you aim at', !!door && door.wall === 'south' && Mat
 
 // ── 3. Walls block you, the door lets you in
 await pose(office.x + 2, southZ - 2, 0, 0);            // in front of solid wall
-await walkUntil('KeyW', (q) => q.z > southZ, 8000);    // keep pushing into the wall
+await walkUntil('KeyW', (q) => q.z > southZ, 15000);   // keep pushing into the wall
 let pz = (await pos()).z;
 log('a solid wall stops you', pz < southZ, `stopped at z=${pz.toFixed(2)} (wall at ${southZ})`);
 await pose(office.x + door.offset, southZ - 2, 0, 0); // in front of the door
