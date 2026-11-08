@@ -226,6 +226,8 @@ const HELP_TITLE_TOUCH = 'Touch controls';
 const FADE_MS = 250;
 /** Narrower than this (px), the tour's panel is full width at the bottom (a phone). */
 const NARROW_PX = 640;
+/** Lower than this (px), the welcome card is compact (v0.14.7: AHDUS's 3D Company page gives a phone ~490 px). */
+const SHORT_PX = 600;
 /** With startMode: the Overview / Walk button sits at the top right; what was there moves this far down (px). */
 const UNDER_MODE_BUTTON = 56;
 /** …and the toolbar's row keeps this much of the right clear (px). */
@@ -299,6 +301,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [tourList, setTourList] = useState(false);
   const [fade, setFade] = useState(0);
   const [narrow, setNarrow] = useState(false);
+  const [short, setShort] = useState(false);
   // the start (v0.14.6): how it started, the welcome card, the layout's name, the tour's size, Find opened from it
   const [start, setStart] = useState<StartChoice | null>(null);
   const [welcome, setWelcome] = useState(false);
@@ -308,7 +311,11 @@ export function LayoutViewer(props: LayoutViewerProps) {
   useEffect(() => {
     const box = boxRef.current;
     if (!box) return undefined;
-    const measure = () => setNarrow(box.clientWidth > 0 && box.clientWidth < NARROW_PX);
+    // by the box's own size, never the window's (an embed can be any size)
+    const measure = () => {
+      setNarrow(box.clientWidth > 0 && box.clientWidth < NARROW_PX);
+      setShort(box.clientHeight > 0 && box.clientHeight < SHORT_PX);
+    };
     measure();
     if (typeof ResizeObserver === 'undefined') return undefined;
     const ro = new ResizeObserver(measure);
@@ -898,7 +905,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
       {modeButton}
       {welcome && walking && floorReady && !error && (
         <WelcomeCard name={welcomeName} tour={tour} search={search} tourDetail={welcomeTour} touch={touchUI}
-          narrow={narrow} bottom={tourBottom} onAction={onWelcome} />
+          narrow={narrow} bottom={tourBottom} compact={short} onAction={onWelcome} />
       )}
       {walking && !error && hud && (
         <>

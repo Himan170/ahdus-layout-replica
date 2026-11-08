@@ -80,7 +80,7 @@ npm run e2e:embed    # 38 checks   e2e/embed-smoke.mjs     (NO dev server needed
                      #                                       setDepartments' description in the Find menu,
                      #                                       v0.14.6: startMode (the card, Overview, onEvent 'mode'),
                      #                                       quality low = from above, startMode 'edit' refused)
-npm run e2e:welcome  # 24 checks   e2e/welcome-smoke.mjs   (viewer.html?start=walk, v0.14.6: walking at the entrance with
+npm run e2e:welcome  # 30 checks   e2e/welcome-smoke.mjs   (viewer.html?start=walk, v0.14.6: walking at the entrance with
                      #                                       the welcome card, W walks at once and closes it, the hint
                      #                                       waits, Explore / Esc, Find someone, Start the tour, Overview
                      #                                       keeps your place + Walk back, the last choice remembered,
@@ -859,6 +859,11 @@ without `startMode` are unchanged (no card, no button; `mode` as before).
   tour starting closes it. Explore = focus the view; Find someone = `PlaceSearch` `openRequest` (the box focused); Start
   the tour = the Tour button's start. Shown only once the start floor is built; the one-time walk hint waits for it.
   Desktop: centred, 520 px; under 640 px: full width at the bottom, above the joystick / HUD (the tour panel's spot).
+  **Compact (v0.14.7):** a box under `SHORT_PX` 600 px high (its own height, never the window's: AHDUS's 3D Company page
+  gives a phone ~490 px) gets `compact` (`data-welcome-compact`): a 15 px title, one short line, the three actions in one
+  row with no detail lines (read out, and in `title`), so the toolbar row and Overview stay clear and clickable and
+  nothing scrolls; a narrow card also keeps `WELCOME_TOOLBAR_ROOM` 96 px of the top clear (`maxHeight`). e2e:welcome
+  checks 390 × 490 and 1000 × 400 boxes.
 - **Overview / Walk** (`data-mode-button` = overview | walk, aria-label `Overview` / `Walk`, top right, 12 px):
   `engine.overview()` = the walker's pose kept (`walkPlace`: x, z, yaw, pitch, floor), 'view', `setFloor(that floor)`,
   the camera on that spot (`OVERVIEW_AROUND` 6 m, beta ≤ 0.75); `engine.resumeWalk()` = 'walkthrough' + `setPose(walkPlace)`
