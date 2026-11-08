@@ -64,7 +64,7 @@ export function useStoreMeshSync({
       const objData = objects.find((o) => o.id === selectedObjectId);
 
       if (mesh && objData && !objData.isLocked) {
-        gizmoCtrl.attachToMesh(mesh, selectedObjectId);
+        gizmoCtrl.attachToMesh(mesh, selectedObjectId, { fixedShape: objData.assetType === 'STAIRCASE' });
       } else {
         gizmoCtrl.detach();
       }

@@ -341,10 +341,56 @@ export function overhangs(rect, belowRooms) {
 
 // ── Staircases ────────────────────────────────────────────────────────────
 
-/** Size of a placed staircase: it climbs exactly the height of the floor it starts on. */
-export function stairDimsFor(floors, stair) {
-  return stairDims(floorHeight(floors, stair.floor ?? 0));
+/** A saved scale of a staircase as drawn and walked: its size (a negative one is not mirrored), 0.1 to 5, else 1. */
+const stairScale = (v) => {
+  const a = Math.abs(Number(v));
+  return Number.isFinite(a) && a >= 0.1 ? Math.min(a, 5) : 1;
+};
+
+/**
+ * Width and length of a placed staircase. New stairs can't be resized (`stairPatch`), but a save can
+ * hold a scale from before v0.14.5: scaleX and scaleZ are its size, drawn and walked alike.
+ */
+export function stairSize(stair) {
+  return { width: STAIR.width * stairScale(stair?.scaleX), length: STAIR.length * stairScale(stair?.scaleZ) };
 }
+
+/**
+ * Size of a placed staircase: as stairSize, and it climbs exactly the height of the floor it starts
+ * on. The ONE description of a flight: its mesh (`stairDrawn`), the surface you walk on, the opening
+ * above it, its ends and the walk map all read this.
+ */
+export function stairDimsFor(floors, stair) {
+  return { ...stairDims(floorHeight(floors, stair.floor ?? 0)), ...stairSize(stair) };
+}
+
+/**
+ * How a staircase is drawn (ObjectSystem), so what you see is what you walk on: standing on its floor
+ * whatever `y` a save holds (a flight in the air could not be climbed nor reach the floor above),
+ * never tilted, as high as its floor (scaleY of an old save is not used), as wide and long as stairSize.
+ */
+export function stairDrawn(floors, stair) {
+  const floor = stair.floor ?? 0;
+  return {
+    y: elevationOf(floors, floor), rotationX: 0, rotationZ: 0,
+    scaleX: stairScale(stair.scaleX), scaleY: 1, scaleZ: stairScale(stair.scaleZ),
+    rise: floorHeight(floors, floor),
+  };
+}
+
+/**
+ * What of a change to a staircase may happen (editorHistory: the one place layouts change): it keeps
+ * its size, stands on its floor and stays level, so "Normal size" is the only change of scale.
+ */
+export function stairPatch(patch) {
+  const { y: _y, rotationX: _rx, rotationZ: _rz, scaleX, scaleY, scaleZ, ...rest } = patch;
+  const scales = [scaleX, scaleY, scaleZ].filter((v) => v !== undefined);
+  const normal = scales.length === 3 && scales.every((v) => v === 1);
+  return normal ? { ...rest, scaleX: 1, scaleY: 1, scaleZ: 1 } : rest;
+}
+
+/** Why a staircase can't be resized (Studio's Inspector and R key, Preview's Edit item). */
+export const STAIRS_KEEP_SIZE = 'Stairs always climb exactly one floor, so they keep their size';
 
 /** World point → the staircase's own coordinates (lx across, lz along the climb). */
 function toStairLocal(stair, x, z) {
@@ -361,18 +407,23 @@ function toStairLocal(stair, x, z) {
  * stair's local -Z end and the top lands at +Z, `dims.rise` up.
  * The surface follows the middle of each step, so feet rest on the treads.
  */
-export function stairHeightAt(stair, x, z, dims = STAIR) {
+export function stairHeightAt(stair, x, z, dims = { ...STAIR, ...stairSize(stair) }) {
   const { lx, lz } = toStairLocal(stair, x, z);
-  // The top continues a little past the last step (a landing lip), so there is
-  // no gap between the stairs and the edge of the opening in the floor above.
-  const LIP = 0.15;
+  // The top continues a little past the last step (a landing lip), so there is no gap between the
+  // stairs and the edge of the opening in the floor above. A flight turned 45° has a square opening,
+  // further away: the lip reaches its edge there.
+  const c = Math.abs(Math.cos(stair.rotationY ?? 0));
+  const s = Math.abs(Math.sin(stair.rotationY ?? 0));
+  const hole = stairOpening(stair, dims);
+  const toEdge = Math.min(s > 1e-6 ? (hole.x1 - stair.x) / s : Infinity, c > 1e-6 ? (hole.z1 - stair.z) / c : Infinity);
+  const LIP = Math.max(0.15, toEdge - dims.length / 2);
   if (Math.abs(lx) > dims.width / 2 || lz < -dims.length / 2 || lz > dims.length / 2 + LIP) return null;
   const v = (lz + dims.length / 2) / dims.length; // 0 at the bottom, 1 at the top
   return Math.min(dims.rise, ((v * dims.steps + 0.5) / dims.steps) * dims.rise);
 }
 
 /** Axis-aligned box around a staircase (with a margin): the opening it needs in floors, ceilings and roofs. */
-export function stairOpening(stair, dims = STAIR, margin = 0.05) {
+export function stairOpening(stair, dims = stairSize(stair), margin = 0.05) {
   const c = Math.abs(Math.cos(stair.rotationY ?? 0));
   const s = Math.abs(Math.sin(stair.rotationY ?? 0));
   const hx = (dims.width / 2) * c + (dims.length / 2) * s + margin;
@@ -381,10 +432,51 @@ export function stairOpening(stair, dims = STAIR, margin = 0.05) {
 }
 
 /** Where the top of a staircase lands (world x, z), e.g. to put the character there. */
-export function stairTop(stair, dims = STAIR) {
+export function stairTop(stair, dims = stairSize(stair)) {
   const r = stair.rotationY ?? 0;
   const d = dims.length / 2 + 0.6;
   return { x: stair.x + Math.sin(r) * d, z: stair.z + Math.cos(r) * d };
+}
+
+/**
+ * A flight is a solid block up to its steps, drawn so; it used to collide with nothing, so you walked
+ * into it from the side or from behind and the steps passed through the camera. This keeps the body
+ * out of the part you can't step onto: the way out (world dx, dz) if the body at (x, z), feet at `y`,
+ * reaches into a part of a flight that is more than STEP_UP above the feet; else null.
+ * Near the bottom of the flight, on the steps, above them and on the floor below it, nothing stops you.
+ */
+export function stairPushOut({ x, z, y, floors, stairs = [], radius = 0.32, bodyHeight = 1.8 }) {
+  for (const s of stairs) {
+    const base = elevationOf(floors, s.floor ?? 0);
+    if (y + bodyHeight <= base) continue; // underneath it, on the floor below
+    const dims = stairDimsFor(floors, s);
+    const hw = dims.width / 2;
+    const hl = dims.length / 2;
+    const { lx, lz } = toStairLocal(s, x, z);
+    const nx = Math.max(-hw, Math.min(hw, lx));
+    const nz = Math.max(-hl, Math.min(hl, lz));
+    const away = Math.hypot(lx - nx, lz - nz);
+    if (away >= radius) continue;
+    const v = (nz + hl) / dims.length;
+    const surface = base + Math.min(dims.rise, ((v * dims.steps + 0.5) / dims.steps) * dims.rise);
+    if (surface <= y + STEP_UP) continue; // you can step onto it (or you are on it)
+    let ox;
+    let oz;
+    if (away > 1e-9) {
+      const by = (radius - away) / away;
+      ox = (lx - nx) * by;
+      oz = (lz - nz) * by;
+    } else {
+      // inside the block (put there, or fallen in): out by the nearest side or end, never up the steps
+      const toSide = hw - Math.abs(lx);
+      const toTop = hl - lz;
+      if (toSide <= toTop) { ox = Math.sign(lx || 1) * (toSide + radius); oz = 0; }
+      else { ox = 0; oz = toTop + radius; }
+    }
+    const r = s.rotationY ?? 0;
+    return { dx: ox * Math.cos(r) + oz * Math.sin(r), dz: oz * Math.cos(r) - ox * Math.sin(r) };
+  }
+  return null;
 }
 
 /**
@@ -425,12 +517,12 @@ export function supportHeight({ x, z, y, floors, rooms, stairs = [] }) {
     const elev = elevationOf(floors, room.floor);
     // An opening for stairs coming up from the floor below?
     const below = floorBelow(floors, room.floor);
-    const inOpening = below && stairs.some((s) => s.floor === below.id && rectContains(stairOpening(s), x, z));
+    const inOpening = below && stairs.some((s) => (s.floor ?? 0) === below.id && rectContains(stairOpening(s), x, z));
     if (!inOpening) surfaces.push(elev + ROOM_FLOOR_OFFSET);
   }
   for (const s of stairs) {
     const h = stairHeightAt(s, x, z, stairDimsFor(floors, s));
-    if (h !== null) surfaces.push(elevationOf(floors, s.floor) + h);
+    if (h !== null) surfaces.push(elevationOf(floors, s.floor ?? 0) + h);
   }
   let best = -Infinity;
   for (const h of surfaces) {
@@ -450,7 +542,7 @@ export function arrivalOnFloor({ x, z, floorId, floors, rooms, stairs = [] }) {
   const below = floorBelow(floors, floorId);
   if (!below) return { y: supportHeight({ x, z, y: elev + 0.1, floors, rooms, stairs }), fly: false };
   const onRoom = rooms.some((r) => r.floor === floorId && rectContains(roomRect(r), x, z));
-  const inOpening = stairs.some((s) => s.floor === below.id && rectContains(stairOpening(s), x, z));
+  const inOpening = stairs.some((s) => (s.floor ?? 0) === below.id && rectContains(stairOpening(s), x, z));
   return { y: elev + ROOM_FLOOR_OFFSET, fly: !onRoom || inOpening };
 }
 

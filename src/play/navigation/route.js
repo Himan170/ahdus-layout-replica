@@ -44,7 +44,7 @@
  */
 
 import {
-  floorsInOrder, floorAbove, stairDimsFor, stairTop, stairNeedsRoomAbove, rectContains, roomRect,
+  floorsInOrder, floorAbove, stairDimsFor, stairSize, stairTop, stairNeedsRoomAbove, rectContains, roomRect,
 } from '../building';
 import { wallThicknessOf } from '../geometry';
 import { WALK_SPEED } from '../speeds';
@@ -82,10 +82,24 @@ const octile = (ax, az, bx, bz) => {
 };
 
 /** Where you step onto a staircase at the bottom (world x, z): in front of its bottom step. */
-export function stairBottom(stair, dims) {
+export function stairBottom(stair, dims = stairSize(stair)) {
   const r = stair.rotationY ?? 0;
   const d = dims.length / 2 + STAIR_LANDING;
   return { x: stair.x - Math.sin(r) * d, z: stair.z - Math.cos(r) * d };
+}
+
+/**
+ * The flight's own line (world x, z): from its bottom step to its top, in the middle. A walk on the
+ * stairs goes along it, whatever spot in front of the flight the landing had to move to: its sides
+ * are a solid block (building.stairPushOut).
+ */
+function stairAxis(stair, dims) {
+  const r = stair.rotationY ?? 0;
+  const d = dims.length / 2;
+  return [
+    { x: stair.x - Math.sin(r) * d, z: stair.z - Math.cos(r) * d },
+    { x: stair.x + Math.sin(r) * d, z: stair.z + Math.cos(r) * d },
+  ];
 }
 
 /**
@@ -111,8 +125,10 @@ export function floorLinks(layout, options = {}) {
     const low = landing(maps.get(layout, floor), stairBottom(s, dims));
     const high = landing(maps.get(layout, above.id), stairTop(s, dims));
     if (!low || !high) continue;
-    const cost = Math.hypot(Math.hypot(high.x - low.x, high.z - low.z), dims.rise);
-    links.push({ kind: 'stairs', objectId: s.id, from: { floor, x: low.x, z: low.z }, to: { floor: above.id, x: high.x, z: high.z }, cost });
+    const via = stairAxis(s, dims);
+    const flat = pathLength([low, ...via, high]);
+    const cost = Math.hypot(flat, dims.rise);
+    links.push({ kind: 'stairs', objectId: s.id, from: { floor, x: low.x, z: low.z }, to: { floor: above.id, x: high.x, z: high.z }, cost, via });
   }
   return links;
 }
@@ -635,6 +651,7 @@ export function findRoute(layout, from, to, options = {}) {
         leg.stairsAtEnd = {
           kind: e.link.kind, objectId: e.link.objectId, direction: e.direction,
           toFloor: order[f], length: e.cost,
+          ...(e.link.via ? { via: e.direction === 'up' ? e.link.via : [...e.link.via].reverse() } : {}),
         };
         length += e.cost;
       }
@@ -766,7 +783,8 @@ export function findNearestRoute(layout, from, goals, options = {}) {
 /**
  * @typedef {object} Route
  * @property {{ floor: number, points: {x:number, z:number}[], stairsAtEnd?: { kind: string, objectId: string,
- *   direction: 'up' | 'down', toFloor: number, length: number } }[]} legs  one per floor walked on, in order
+ *   direction: 'up' | 'down', toFloor: number, length: number, via?: {x:number, z:number}[] } }[]} legs
+ *   one per floor walked on, in order; via: the flight's own line, in walking order
  * @property {number} length   metres, stairs included
  * @property {number} seconds  at Preview's walking speed
  * @property {{ x, z, floor }} from  where it really starts (moved off a wall or a desk if needed)

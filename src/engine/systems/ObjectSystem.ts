@@ -14,7 +14,7 @@ import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { ASSET_TYPES, OBJECT_CATEGORIES } from '../../utils/assetCatalog';
 import { createItemMesh, disposeItemMesh } from '../../utils/assetInstances';
 import { applyLockVisual, removeLockVisual } from '../../utils/lockIndicator';
-import { elevationOf, floorHeight } from '../../play/building';
+import { elevationOf, floorHeight, stairDrawn } from '../../play/building';
 import type { LayoutRecords, SyncOptions } from './RoomSystem';
 
 export interface ObjectSystemOptions {
@@ -89,16 +89,23 @@ export class ObjectSystem {
         this.meshes.set(obj.id, mesh);
       }
 
-      // Transform (the store's height is above the item's own floor)
+      // Transform (the store's height is above the item's own floor). Stairs are drawn exactly as
+      // they are walked on (building.stairDrawn): on their floor, level, as high as the floor.
+      const drawn = obj.assetType === 'STAIRCASE'
+        ? stairDrawn(floors, obj)
+        : {
+          y: elevationOf(floors, obj.floor ?? 0) + (obj.y ?? 0), rotationX: obj.rotationX, rotationZ: obj.rotationZ,
+          scaleX: obj.scaleX, scaleY: obj.scaleY, scaleZ: obj.scaleZ,
+        };
       mesh.position.x = obj.x;
-      mesh.position.y = elevationOf(floors, obj.floor ?? 0) + (obj.y ?? 0);
+      mesh.position.y = drawn.y;
       mesh.position.z = obj.z;
-      mesh.rotation.x = obj.rotationX;
+      mesh.rotation.x = drawn.rotationX;
       mesh.rotation.y = obj.rotationY;
-      mesh.rotation.z = obj.rotationZ;
-      mesh.scaling.x = obj.scaleX;
-      mesh.scaling.y = obj.scaleY;
-      mesh.scaling.z = obj.scaleZ;
+      mesh.rotation.z = drawn.rotationZ;
+      mesh.scaling.x = drawn.scaleX;
+      mesh.scaling.y = drawn.scaleY;
+      mesh.scaling.z = drawn.scaleZ;
 
       if (obj.isLocked) applyLockVisual(mesh);
       else removeLockVisual(mesh);

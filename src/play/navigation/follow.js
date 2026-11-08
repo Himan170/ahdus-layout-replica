@@ -39,6 +39,8 @@ export const FURNITURE_CLEARANCE = 0.44;
 /** How far ahead on the route it aims (m), at most. */
 export const LOOK_AHEAD = 1.8;
 const LOOK_STEPS = [1.8, 1.3, 0.9, 0.6];
+/** On a staircase it aims this far ahead (m): onto the flight's own line, not across its solid side. */
+const STAIR_LOOK = 0.8;
 /** Aim this far beside the route (m) when it grazes furniture and there is room. */
 const SIDE_STEPS = [0, 0.1, -0.1, 0.2, -0.2];
 const MIN_LOOK = 0.45;
@@ -84,16 +86,29 @@ export function routePath(route) {
   route.legs.forEach((leg, i) => {
     leg.points.forEach((p, k) => {
       const last = k === leg.points.length - 1;
-      points.push({ x: p.x, z: p.z, floor: leg.floor, stairs: last && i < route.legs.length - 1, stairLength: last ? leg.stairsAtEnd?.length : undefined });
+      const stairs = last && i < route.legs.length - 1;
+      const toFloor = stairs ? leg.stairsAtEnd?.toFloor : undefined;
+      points.push({ x: p.x, z: p.z, floor: leg.floor, stairs, toFloor, stairLength: last ? leg.stairsAtEnd?.length : undefined });
+      // along the flight's own line: its sides are solid, the landing may be off to one side
+      if (stairs) for (const v of leg.stairsAtEnd?.via ?? []) points.push({ x: v.x, z: v.z, floor: leg.floor, stairs: true, toFloor, inFlight: true });
     });
   });
   let s = 0;
+  // a staircase's segments together are as long as the route says (its slope is longer than its plan)
+  let stretch = 1;
   points.forEach((p, k) => {
     p.s = s;
     const q = points[k + 1];
     if (!q) return;
     const flat = Math.hypot(q.x - p.x, q.z - p.z);
-    p.len = p.stairs ? Math.max(flat, p.stairLength ?? flat) : flat;
+    if (p.stairLength !== undefined && p.stairs) {
+      let plan = flat;
+      for (let n = k + 1; points[n]?.inFlight && points[n + 1]; n++) plan += Math.hypot(points[n + 1].x - points[n].x, points[n + 1].z - points[n].z);
+      stretch = plan > 1e-6 ? Math.max(1, p.stairLength / plan) : 1;
+      p.len = plan > 1e-6 ? flat * stretch : Math.max(flat, p.stairLength);
+    } else {
+      p.len = p.inFlight ? flat * stretch : flat;
+    }
     s += p.len;
   });
   const last = points[points.length - 1];
@@ -105,7 +120,7 @@ export function routePath(route) {
 function segmentOn(points, k, floor) {
   const a = points[k];
   const b = points[k + 1];
-  return a.floor === floor || (a.stairs && b.floor === floor);
+  return a.floor === floor || (a.stairs && (b.floor === floor || a.toFloor === floor));
 }
 
 /** The nearest point of the path to (x, z) on segments [from, to] usable on `floor`: { k, t, s, dist }. */
@@ -221,6 +236,7 @@ export function itemDistance(map, x, z) {
 export function obstacleDistance(map, x, z) {
   let d = Infinity;
   for (const o of map?.obstacles ?? []) {
+    if (o.kind === 'stairs') continue; // you walk ONTO it from its landing; the cells around it keep the body off its sides
     if (Math.abs(o.x - x) > o.hw + o.hd + 1.5 || Math.abs(o.z - z) > o.hw + o.hd + 1.5) continue;
     d = Math.min(d, distanceToRect(o, x, z));
   }
@@ -312,7 +328,7 @@ export function createFollower(route, options = {}) {
           if (onStairs || clearPath(map, here, q, keep)) { target = q; break search; }
         }
       }
-      if (!target && onStairs) target = pointAt(path, Math.min(s + LOOK_STEPS[0], path.length));
+      if (!target && onStairs) target = pointAt(path, Math.min(s + STAIR_LOOK, path.length));
       if (!target) target = pointAt(path, Math.min(s + MIN_LOOK, cap, path.length)); // the route itself
       let dx = target.x - me.x;
       let dz = target.z - me.z;

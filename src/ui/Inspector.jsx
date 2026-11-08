@@ -24,7 +24,7 @@ import {
   wallThicknessOf, MIN_WALL_THICKNESS, MAX_WALL_THICKNESS, WALL_THICKNESS_STEP, roomOpenings,
 } from '../play/geometry';
 import { FLOOR_FINISHES, floorKindOf } from '../utils/materialLibrary';
-import { MIN_WALL_HEIGHT, MAX_WALL_HEIGHT } from '../play/building';
+import { MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, STAIRS_KEEP_SIZE } from '../play/building';
 import { describeRoom, describeObject, describeAccessibilityRoutes } from '../utils/accessibleSummary';
 import SeatSection from './SeatSection';
 
@@ -108,6 +108,7 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
   const [keepProportions, setKeepProportions] = useState(true);
   const commit = (patch) => onUpdate(object.id, patch);
   const deg = toDeg(object.rotationY ?? 0);
+  const isStairs = object.assetType === 'STAIRCASE'; // on its floor, one size: what you walk on is what you see
 
   const setScale = (axis, v) => {
     const old = object[axis] || 1;
@@ -131,7 +132,9 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
         <div className="insp-grid">
           <NumberField label="X" value={object.x} suffix="m" onCommit={(v) => commit({ x: v })} />
           <NumberField label="Z" value={object.z} suffix="m" onCommit={(v) => commit({ z: v })} />
-          <NumberField label="Height" value={object.y} step={0.05} min={0} max={10} suffix="m" onCommit={(v) => commit({ y: v })} />
+          {!isStairs && (
+            <NumberField label="Height" value={object.y} step={0.05} min={0} max={10} suffix="m" onCommit={(v) => commit({ y: v })} />
+          )}
           <div className="insp-field">
             <span className="insp-field__label">Floor</span>
             <span className="insp-field__static">{floorName}</span>
@@ -159,27 +162,41 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
         </div>
       </Section>
 
-      <Section title="Size">
-        <div className="insp-grid insp-grid--3">
-          <NumberField label="Width" value={object.scaleX ?? 1} step={0.05} min={0.1} max={5} suffix="×" onCommit={(v) => setScale('scaleX', v)} />
-          <NumberField label="Height" value={object.scaleY ?? 1} step={0.05} min={0.1} max={5} suffix="×" onCommit={(v) => setScale('scaleY', v)} />
-          <NumberField label="Depth" value={object.scaleZ ?? 1} step={0.05} min={0.1} max={5} suffix="×" onCommit={(v) => setScale('scaleZ', v)} />
-        </div>
-        <div className="insp-row">
-          <button
-            className="ui-btn is-ghost insp-small"
-            aria-pressed={keepProportions}
-            title={keepProportions ? 'Sizes change together' : 'Each size changes on its own'}
-            onClick={() => setKeepProportions((v) => !v)}
-          >
-            {keepProportions ? <Link2 {...ICON} /> : <Unlink2 {...ICON} />}
-            Keep proportions
-          </button>
-          <button className="ui-btn is-ghost insp-small" onClick={() => commit({ scaleX: 1, scaleY: 1, scaleZ: 1 })}>
-            Normal size
-          </button>
-        </div>
-      </Section>
+      {isStairs ? (
+        <Section title="Size">
+          <p className="insp-note" data-stairs-size>{STAIRS_KEEP_SIZE}.</p>
+          {/* a save from before v0.14.5 can hold another size: it is drawn and walked so, until this */}
+          {((object.scaleX ?? 1) !== 1 || (object.scaleY ?? 1) !== 1 || (object.scaleZ ?? 1) !== 1) && (
+            <div className="insp-row">
+              <button className="ui-btn is-ghost insp-small" onClick={() => commit({ scaleX: 1, scaleY: 1, scaleZ: 1 })}>
+                Normal size
+              </button>
+            </div>
+          )}
+        </Section>
+      ) : (
+        <Section title="Size">
+          <div className="insp-grid insp-grid--3">
+            <NumberField label="Width" value={object.scaleX ?? 1} step={0.05} min={0.1} max={5} suffix="×" onCommit={(v) => setScale('scaleX', v)} />
+            <NumberField label="Height" value={object.scaleY ?? 1} step={0.05} min={0.1} max={5} suffix="×" onCommit={(v) => setScale('scaleY', v)} />
+            <NumberField label="Depth" value={object.scaleZ ?? 1} step={0.05} min={0.1} max={5} suffix="×" onCommit={(v) => setScale('scaleZ', v)} />
+          </div>
+          <div className="insp-row">
+            <button
+              className="ui-btn is-ghost insp-small"
+              aria-pressed={keepProportions}
+              title={keepProportions ? 'Sizes change together' : 'Each size changes on its own'}
+              onClick={() => setKeepProportions((v) => !v)}
+            >
+              {keepProportions ? <Link2 {...ICON} /> : <Unlink2 {...ICON} />}
+              Keep proportions
+            </button>
+            <button className="ui-btn is-ghost insp-small" onClick={() => commit({ scaleX: 1, scaleY: 1, scaleZ: 1 })}>
+              Normal size
+            </button>
+          </div>
+        </Section>
+      )}
 
       <Section title="Details">
         <label className="insp-field insp-field--wide">
