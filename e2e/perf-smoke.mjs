@@ -6,6 +6,9 @@
 //   (and how long that takes next to rebuilding two floors), and that single
 //   items can still be selected, locked and removed. 100 people sit at the
 //   desks (__ahdusCharacters.setPeople, the placeholder figure) the whole time.
+//   The company tour (v0.14.4): the same building in viewer.html (each ground
+//   floor room a department), the tour walking and at a stop, against the same
+//   limits (TOUR=off skips it).
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run dev          (in one terminal)
@@ -373,6 +376,83 @@ log('opening: inside room building, by function (reported)', true, Object.entrie
   .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([f, ms]) => `${f} ${Math.round(ms)} ms`).join('; '));
 log('opening: the rest ("other"), by function (reported)', true, Object.entries(others)
   .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([f, ms]) => `${f} ${Math.round(ms)} ms`).join('; '));
+
+// ── The company tour running (v0.14.4): the probe building in viewer.html, the tour walking and at a stop ──
+if (process.env.TOUR !== 'off') {
+  const layout = await p.evaluate(() => {
+    const st = window.__ahdusStore.getState();
+    const rooms = Object.values(st.rooms).map((r) => ({ ...r, departmentRef: r.floor === 0 ? `Team ${r.id.split('_')[2]}` : undefined }));
+    return { layoutName: 'Big Building (tour)', floors: st.floors, rooms, objects: Object.values(st.objects) };
+  });
+  const v = await b.newPage({ viewport: { width: 1280, height: 720 } });
+  if (!realistic) await v.addInitScript(() => localStorage.setItem('ahdus.realisticLook', 'off'));
+  v.on('pageerror', (e) => errs.push('viewer pageerror: ' + e.message));
+  v.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('BJS')) errs.push('viewer ' + m.text()); });
+  await v.goto(url + 'viewer.html?mode=view', { waitUntil: 'load' });
+  await v.waitForFunction(() => window.__ahdusViewer && window.__ahdusSetPeople, null, { timeout: 120000 });
+  const loaded = await v.evaluate(async (layout) => {
+    const e = window.__ahdusViewer;
+    await e.whenBuilt();
+    e.scene.getEngine().setHardwareScalingLevel(2);
+    const gl = e.scene.getEngine()._gl;
+    window.__drawCalls = 0;
+    for (const fn of ['drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']) {
+      const orig = gl[fn]?.bind(gl);
+      if (orig) gl[fn] = (...a) => { window.__drawCalls++; return orig(...a); };
+    }
+    e.loadLayout(layout);
+    const desks = layout.objects.filter((o) => o.assetType === 'DESK_STANDARD').slice(0, 100);
+    window.__ahdusSetPeople(desks.map((d, i) => ({ personId: `person_${i}`, deskId: d.id, name: `Person ${i}`, department: 'Engineering' })));
+    await e.whenBuilt();
+    const t0 = performance.now();
+    await e.whenNavigationReady();
+    const plan = e.navigation.tourPlanReady;
+    return { warm: Math.round(performance.now() - t0), stops: plan?.stops.length ?? 0, planMs: Math.round(plan?.ms ?? -1), minutes: plan?.minutes };
+  }, layout);
+  const vMeasure = () => v.evaluate(() => new Promise((res) => {
+    const sc = window.__ahdusViewer.scene;
+    let first = true;
+    let frameMs = 0;
+    let t = 0;
+    const o = sc.onBeforeRenderObservable.add(() => { if (first) { window.__drawCalls = 0; first = false; t = performance.now(); } });
+    sc.onAfterRenderObservable.addOnce(() => {
+      frameMs = performance.now() - t;
+      sc.onBeforeRenderObservable.remove(o);
+      res({ meshes: sc.meshes.length, active: sc.getActiveMeshes().length, drawCalls: window.__drawCalls, frameMs: Math.round(frameMs) });
+    });
+  }));
+  const vFrames = (n = 3) => v.evaluate((n) => new Promise((res) => {
+    const sc = window.__ahdusViewer.scene; let c = 0;
+    const o = sc.onAfterRenderObservable.add(() => { if (++c >= n) { sc.onAfterRenderObservable.remove(o); res(); } });
+  }), n);
+  // walking freely (no tour): the baseline
+  await v.evaluate(() => window.__ahdusViewer.setMode('walkthrough'));
+  await vFrames(4);
+  const free = await vMeasure();
+  // the tour: started (never waits for its plan), walking to stop 2, then at it (the stop view eased in)
+  const started = await v.evaluate(() => {
+    const e = window.__ahdusViewer;
+    const t0 = performance.now();
+    const r = e.tour.start({ follow: 'auto', pauseScale: 0.05 });
+    return { ms: Math.round((performance.now() - t0) * 10) / 10, count: r.count ?? 0, problem: r.problem ?? null };
+  });
+  await v.waitForFunction(() => window.__ahdusViewer.tour.status.state === 'walking', null, { timeout: 120000, polling: 250 });
+  await vFrames(4);
+  const walking = await vMeasure();
+  await v.waitForFunction(() => { const t = window.__ahdusViewer.tour.status; return t.state === 'stop' && t.index >= 1; }, null, { timeout: 300000, polling: 250 });
+  await v.evaluate(() => window.__ahdusViewer.tour.pause()); // stay at the stop while it is measured
+  await vFrames(12);
+  const atStop = await vMeasure();
+  await v.screenshot({ path: 'e2e/screens/perf-tour.png', timeout: 120000 });
+  log(`the tour: planned in idle time (${loaded.stops} stops, ${loaded.planMs} ms), start() never waits`, loaded.stops > 3 && started.count === loaded.stops
+    && started.ms < 50, `plan ${loaded.planMs} ms, walk maps + plan ready ${loaded.warm} ms after the build, start() ${started.ms} ms`);
+  log(`the tour walking: ≤ ${MAX_DRAW_CALLS} draw calls, ≤ ${MAX_MESHES} meshes; at most the route line's 2 more than walking freely`,
+    walking.drawCalls <= MAX_DRAW_CALLS && walking.meshes <= MAX_MESHES && walking.meshes - free.meshes <= 2,
+    `walking ${JSON.stringify(walking)} | free ${JSON.stringify(free)}`);
+  log(`the tour at a stop (camera higher and further back): ≤ ${MAX_DRAW_CALLS} draw calls, ≤ ${MAX_MESHES} meshes`,
+    atStop.drawCalls <= MAX_DRAW_CALLS && atStop.meshes <= MAX_MESHES, JSON.stringify(atStop));
+  await v.close();
+}
 
 log('no page errors', errs.length === 0, errs.slice(0, 3).join(' | '));
 await b.close();

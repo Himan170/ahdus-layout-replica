@@ -181,7 +181,23 @@ log('"Walk me" walks from the entrance to stop 3 by itself', s.index === 2 && ar
   `${title3}; arrived at ${arrived.join(', ')}`);
 log('at the stop: its room outlined, the card "Stop 3 of N · …"', s.roomIds.length > 0 && s.roomIds.every((id) => s.highlights.includes(id))
   && title3 === `Stop 3 of ${plan.count} · ${s.stop}`, `${s.highlights.length} outlined`);
+// standing inside the room (not in its doorway) with the camera higher and further back: the room in view
+const inside = await p.evaluate(async () => {
+  const { roomDoorFrames } = await import('/src/play/navigation/places.js');
+  const e = window.__ahdusViewer;
+  e.tour.pause(); // stay at the stop while it is measured and photographed (its pauses are short here)
+  const t = e.tour.status;
+  const room = Object.values(e.getStore().getState().rooms).find((r) => r.id === t.stop.roomId);
+  const pos = e.walkthrough.getPosition();
+  const fromDoor = Math.min(...roomDoorFrames(room).map((f) => Math.hypot(pos.x - f.x, pos.z - f.z)));
+  await new Promise((r) => setTimeout(r, 2500)); // the camera eases over about a second (game time)
+  const cam = e.scene.activeCamera.position;
+  return { fromDoor, camUp: cam.y - (pos.y + 1.62), camBack: Math.hypot(cam.x - pos.x, cam.z - pos.z) };
+});
+log('at the stop: standing about 2 m inside the room, the camera higher and further back', inside.fromDoor > 1.6
+  && inside.camUp > 0.6, `${inside.fromDoor.toFixed(2)} m from the door, camera ${inside.camUp.toFixed(2)} m over the eyes, ${inside.camBack.toFixed(2)} m back`);
 await shot('stop3-desktop');
+await p.evaluate(() => window.__ahdusViewer.tour.resume());
 
 // a movement key pauses "Walk me", P walks on
 await waitTour(() => window.__ahdusViewer.tour.status.state === 'walking', null, 60000);
@@ -292,9 +308,50 @@ const keysLine = await ph.$('[data-tour-panel] [data-tour-keys]');
 log('a phone: touch words ("Tap Resume to go on"), no keys line', touchPaused.includes('Tap Resume') && !keysLine
   && !(await panelText('[data-tour-panel]', ph)).includes('Esc ends'), `"${touchLine}" → "${touchPaused}"`);
 await ph.tap('[data-tour-pause]');
+// the longer walk (reception → stop 3), so it is still walking while it is measured
+await ph.evaluate(() => window.__ahdusViewer.tour.goTo(1));
+await ph.waitForFunction(() => { const t = window.__ahdusViewer.tour.status; return t.index === 1 && t.state === 'stop'; }, null, { timeout: 30000 });
+await ph.waitForTimeout(400);
 await ph.tap('[data-tour-next]');
-await ph.waitForTimeout(1500);
+await ph.waitForSelector('[data-tour-compact]', { timeout: 10000 }).catch(() => {});
+await ph.waitForTimeout(800);
 await shot('walking-phone', ph);
+const oneLine = await ph.evaluate(() => {
+  const el = document.querySelector('[data-tour-panel]');
+  const r = el.getBoundingClientRect();
+  const j = document.querySelector('[data-touch-joystick]').getBoundingClientRect();
+  return { compact: el.hasAttribute('data-tour-compact'), height: r.height, left: r.left, right: r.right, bottom: r.bottom, joyTop: j.top,
+    title: el.querySelector('[data-tour-title]')?.textContent, pause: !!el.querySelector('[data-tour-pause]'), more: !!el.querySelector('[data-tour-expand-icon]') };
+});
+log('a phone, walking between stops: the panel is one line ("Stop 3 of N · … · Pause · ⌃"), above the joystick', oneLine.compact
+  && oneLine.height <= 56 && oneLine.left >= 0 && oneLine.right <= 390 && oneLine.bottom <= oneLine.joyTop && oneLine.pause && oneLine.more
+  && /^Stop 3 of \d+ · /.test(oneLine.title ?? ''), `${Math.round(oneLine.height)} px high, bottom ${Math.round(oneLine.bottom)}, joystick ${Math.round(oneLine.joyTop)}: ${oneLine.title}`);
+// paused at once (the walk would arrive under the taps): still one line, with Resume
+await ph.evaluate(() => window.__ahdusViewer.tour.pause());
+const phonePaused = await ph.evaluate(() => { const el = document.querySelector('[data-tour-panel]'); return el.hasAttribute('data-tour-compact') && el.querySelector('[data-tour-pause]').textContent; });
+await ph.tap('[data-tour-expand-icon]');
+const opened = await ph.evaluate(() => {
+  const el = document.querySelector('[data-tour-panel]');
+  const j = document.querySelector('[data-touch-joystick]').getBoundingClientRect();
+  return { compact: el.hasAttribute('data-tour-compact'), bottom: el.getBoundingClientRect().bottom, joyTop: j.top, directions: !!el.querySelector('[data-tour-directions]') };
+});
+await shot('walking-open-phone', ph);
+await ph.tap('[data-tour-collapse]');
+const again = await ph.evaluate(() => document.querySelector('[data-tour-panel]').hasAttribute('data-tour-compact'));
+log('a phone: Pause keeps it one line (Resume); a tap opens the panel fully (still above the joystick), "Show less" makes it one line again',
+  phonePaused === 'Resume' && !opened.compact && opened.directions && opened.bottom <= opened.joyTop && again, `paused: ${phonePaused}; ${JSON.stringify(opened)}`);
+await ph.tap('[data-tour-expand]'); // the title opens it too
+await ph.tap('[data-tour-skip]');
+await ph.waitForFunction(() => window.__ahdusViewer.tour.status.state === 'stop', null, { timeout: 30000 });
+await ph.waitForTimeout(2500);
+const atStopFull = await ph.evaluate(() => {
+  const el = document.querySelector('[data-tour-panel]');
+  const j = document.querySelector('[data-touch-joystick]').getBoundingClientRect();
+  return { compact: el.hasAttribute('data-tour-compact'), text: !!el.querySelector('[data-tour-text]'), bottom: el.getBoundingClientRect().bottom, joyTop: j.top };
+});
+log('a phone: at a stop the panel opens fully by itself, above the joystick', !atStopFull.compact && atStopFull.text
+  && atStopFull.bottom <= atStopFull.joyTop, JSON.stringify(atStopFull));
+await shot('stop-phone', ph);
 await ph.tap('[data-tour-list-toggle]');
 await shot('list-phone', ph);
 await phoneCtx.close();

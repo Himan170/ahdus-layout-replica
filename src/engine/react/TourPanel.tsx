@@ -90,9 +90,12 @@ export function TourPanel({ engine, touch = false, narrow = false, bottom = 12, 
   const speakRef = useRef(speakOn);
   speakRef.current = speakOn;
   const [said, setSaid] = useState('');
+  // a phone, walking between stops: one line unless tapped open (v0.14.4); each new walk starts as one line
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => engine.on('tour', (e: TourEvent) => {
     setStatus(e);
+    if (e.type === 'walking') setExpanded(false);
     if (e.type === 'arrived') {
       setSaid(stopTitle(e));
       if (speakRef.current) speak(spokenText(e));
@@ -125,6 +128,43 @@ export function TourPanel({ engine, touch = false, narrow = false, bottom = 12, 
   const box: CSSProperties = narrow
     ? { ...styles.panel, left: 12, right: 12, bottom, maxHeight: '48%' }
     : { ...styles.panel, top: 12, right: 12, width: 360, maxHeight: 'calc(100% - 24px)' };
+  // walking between stops on a phone: one line ("Stop 2 of 20 · Lobby & Reception · Pause · ⌃"), so the view shows
+  const walkingOn = state === 'walking' || (state === 'paused' && status.pausedFrom === 'walking');
+  const compact = narrow && walkingOn && !expanded && !listOpen;
+  const pauseButton = (
+    <button type="button" data-tour-pause aria-label={state === 'paused' ? 'Resume the tour' : 'Pause the tour'}
+      title={touch ? undefined : state === 'paused' ? 'Resume (P)' : 'Pause (P)'} style={compact ? styles.compactPause : styles.primary}
+      onClick={act(() => (state === 'paused' ? engine.tour.resume() : engine.tour.pause()))}>
+      {state === 'paused' ? 'Resume' : 'Pause'}
+    </button>
+  );
+
+  if (compact) {
+    return (
+      <section
+        data-tour-panel={state}
+        data-tour-follow={follow}
+        data-tour-index={index}
+        data-tour-narrow=""
+        data-tour-compact=""
+        aria-label={TOUR_LABEL}
+        style={{ ...box, ...styles.compact }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <button type="button" data-tour-expand aria-expanded={false} aria-label={`${stopTitle(status)}. Show the tour`}
+          style={styles.compactTitle} onClick={() => setExpanded(true)}>
+          <span data-tour-title style={styles.compactText}>{stopTitle(status)}</span>
+          {state === 'paused' && <span style={styles.compactPaused}> · Paused</span>}
+        </button>
+        {pauseButton}
+        <button type="button" data-tour-expand-icon aria-label="Show the tour" title="Show the tour" style={styles.icon}
+          onClick={() => setExpanded(true)}>
+          <ChevronIcon up />
+        </button>
+        <div aria-live="polite" role="status" data-tour-said style={styles.srOnly}>{said}</div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -152,6 +192,12 @@ export function TourPanel({ engine, touch = false, narrow = false, bottom = 12, 
           })}>
           <SpeakerIcon on={speakOn} />
         </button>
+        {narrow && walkingOn && (
+          <button type="button" data-tour-collapse aria-label="Show less" title="Show less" style={styles.icon}
+            onClick={() => { setExpanded(false); onListOpenChange?.(false); }}>
+            <ChevronIcon />
+          </button>
+        )}
         <button type="button" data-tour-exit aria-label="Exit the tour" title={touch ? 'Exit the tour' : 'Exit the tour (Esc)'} style={styles.icon}
           onClick={act(() => engine.tour.stop())}>
           <CloseIcon />
@@ -191,11 +237,7 @@ export function TourPanel({ engine, touch = false, narrow = false, bottom = 12, 
           <button type="button" data-tour-restart style={styles.primary} onClick={act(() => engine.tour.restart())}>Restart</button>
         ) : (
           <>
-            <button type="button" data-tour-pause aria-label={state === 'paused' ? 'Resume the tour' : 'Pause the tour'}
-              title={touch ? undefined : state === 'paused' ? 'Resume (P)' : 'Pause (P)'} style={styles.primary}
-              onClick={act(() => (state === 'paused' ? engine.tour.resume() : engine.tour.pause()))}>
-              {state === 'paused' ? 'Resume' : 'Pause'}
-            </button>
+            {pauseButton}
             <button type="button" data-tour-previous style={sec(index <= 0)} disabled={index <= 0}
               onClick={act(() => engine.tour.previous())}>Previous</button>
             <button type="button" data-tour-next style={sec(index >= count - 1)} disabled={index >= count - 1}
@@ -241,6 +283,14 @@ export function TourPanel({ engine, touch = false, narrow = false, bottom = 12, 
 /** A secondary button, faded and not clickable-looking when disabled. */
 function sec(disabled: boolean): CSSProperties {
   return disabled ? { ...styles.secondary, opacity: 0.45, cursor: 'default' } : styles.secondary;
+}
+
+function ChevronIcon({ up = false }: { up?: boolean }) {
+  return (
+    <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+      <path d={up ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'} />
+    </svg>
+  );
 }
 
 function CloseIcon() {
@@ -315,6 +365,15 @@ const styles: Record<string, CSSProperties> = {
   itemName: { display: 'block', fontWeight: 600, overflowWrap: 'anywhere' },
   itemDetail: { display: 'block', fontSize: 12, color: C.muted, overflowWrap: 'anywhere' },
   keys: { fontSize: 12, color: C.muted },
+  // the phone's one line while walking
+  compact: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: '5px 6px 5px 10px', maxHeight: 'none', overflowY: 'hidden' },
+  compactTitle: {
+    flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', height: 36, padding: 0, border: 'none', background: 'transparent',
+    color: C.text, font: `700 14px/36px ${C.font}`, textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap',
+  },
+  compactText: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' },
+  compactPaused: { flex: 'none', color: C.danger, fontWeight: 600, fontSize: 13 },
+  compactPause: { ...button, flex: 'none', border: `1px solid ${C.accent}`, background: C.accent, color: '#fff' },
   srOnly: {
     position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)',
     whiteSpace: 'nowrap', border: 0,

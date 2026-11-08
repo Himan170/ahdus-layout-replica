@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (998, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1001, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -48,7 +48,8 @@ npm run e2e:measurements # 23   e2e/measurements-smoke.mjs (off at start, the Me
 npm run e2e:templates # 9 checks  e2e/templates-smoke.mjs (new layout from a template: small office, clinic, factory floor)
 npm run e2e:save     # 30 checks   e2e/save-smoke.mjs      (auto-save, reopen, version history, old saves, list, delete, export/import,
                      #                                       companies, two tabs on one layout)
-npm run e2e:perf     # 11 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown;
+npm run e2e:perf     # 20 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
+                     #                                       and in viewer.html with the company tour walking / at a stop (TOUR=off skips it);
                      #                                       one room change rebuilds only it + its neighbours; all items
                      #                                       real models; REALISTIC=off measures the simple look)
 npm run e2e:shared-walls  # 17     e2e/shared-walls-smoke.mjs (one wall + one doorway; picks with either owner;
@@ -109,14 +110,16 @@ npm run e2e:controls # 17 checks e2e/controls-smoke.mjs (viewer.html: keys with 
                      #                                       desk = the card, the CNC = its action, double-click / L / Esc,
                      #                                       the pill only in mouse look, no HUD line under the hint, the sky's 6 sides;
                      #                                       SHOTS=<dir>: 1440×900 + 390×844 screenshots)
-npm run e2e:tour     # 24 checks   e2e/tour-smoke.mjs      (viewer.html, the Meridian-shaped layout with its 13
+npm run e2e:tour     # 28 checks   e2e/tour-smoke.mjs      (viewer.html, the Meridian-shaped layout with its 13
                      #                                       departments (MERIDIAN=<layout.json> MERIDIAN_PEOPLE=<people.json>
                      #                                       = the real one): planned in idle time, Find's "Take the company
                      #                                       tour · N stops" (every count the same), from above = at the
                      #                                       entrance, the panel, narration off, Pause / P, Next, Previous
-                     #                                       (fade), Exit, Walk me to stop 3 (outlined), W pauses + P,
+                     #                                       (fade), Exit, Walk me to stop 3 (outlined; ~2 m inside, the
+                     #                                       camera higher + further back), W pauses + P,
                      #                                       I'll walk (the line; there = done), Skip the walk, ticks after
-                     #                                       a reload, Restart, Esc, phone (above the joystick, touch words);
+                     #                                       a reload, Restart, Esc, phone (above the joystick, touch words,
+                     #                                       one line while walking, a tap opens it, full at a stop);
                      #                                       run it ALONE; SHOTS=<dir>: screenshots + a .webm recording)
 npm run e2e          # all of them (Himan's laptop once hung on this: run the scripts ONE AT A TIME)
 node e2e/real-assets-shots.mjs before|after   # screenshots of one sample layout: e2e/screens/real-assets-<tag>-*.png
@@ -640,6 +643,10 @@ Section 3.5 of `private-docs/EXPERIENCE_PLAN.md` (decisions in its section 6). P
   cells, a cell free if any of its 9 is; `coarseField`, Float64: Float32 broke the heap), nearest neighbour, then 2-opt
   (`twoOpt`: an open path, ending at the stairs up when a floor above is visited; the best stairs chosen). Each leg is
   then a real `findRoute` between two stops' spots: never through a wall. Meridian: ~150 ms with warm walk maps.
+  **Where a room stop stands** (v0.14.4): about `STOP_INSIDE` 2 m in from one of its doors (`places.roomDoorFrames`),
+  on a free, reachable spot in sight of the door (nearer, or 0.4 / 0.8 m to the side, where furniture is in the way;
+  just inside the door when nothing fits), facing into the room (halfway towards its middle when that is ahead), so its
+  desks and people are in view. The reception stays in front of its counter.
   A facility (washroom, meeting room) never comes right after reception when a department is about as near
   (`notRightAfter`: within `NEAR_FACTOR` 1.5 × its distance + `NEAR_EXTRA` 4 m): it moves further along the way.
 - **Each stop:** `{ id ('entrance' | 'reception' | 'department:<key>' | 'room:<id>' | 'return'), n, kind, facility,
@@ -678,7 +685,8 @@ only (Studio's Preview has no tour). Free walking, Find and Take me there are un
   a jump there. `pauseScale` shortens every stop's pause (tests, demos).
 - **Walks** are `navigation.routeTo(spot, { walk, source: 'tour', face })`: no Find strip, no navigation outline,
   'auto' pauses on a movement key / the joystick like Take me there (the tour shows "Paused"), G or P walks on; on
-  arrival it turns to the stop's `yaw` (`face`, pitch −0.12) unless `turn: false`. "Walk me" = 'auto', "I'll walk" =
+  arrival it turns to the stop's `yaw` (`face`, pitch −0.12) unless `turn: false`; a tour walk arrives within
+  `TOUR_ARRIVE_WITHIN` 0.35 m of the spot (other routes: 1 m), so it ends well inside the room. "Walk me" = 'auto', "I'll walk" =
   'guide' (the line; arriving within 1 m completes the stop); `setFollow` switches the walk in progress
   (`navigation.setWalk`). Walking away from a stop (> 0.8 m): "I'll walk" goes on to the next, "Walk me" pauses.
   A click on the floor (source 'click') pauses the tour; resume = a new route. A failed walk (stuck, no route) = a fade
@@ -686,7 +694,11 @@ only (Studio's Preview has no tour). Free walking, Find and Take me there are un
 - **Jumps** (Skip the walk, Previous, a stop from the list) go through the viewer's fader (`tour.setFader`: 250 ms to
   dark, `setPose` at the stop facing it, back; `[data-tour-fade="on"]`). **prefers-reduced-motion:** no turning on
   arrival, a fade + `setPose` with the yaw instead.
-- **At a stop:** its rooms outlined (`TOUR_HIGHLIGHT` green), ticked, the panel shows it. Passing mentions ("On your
+- **At a stop:** its rooms outlined (`TOUR_HIGHLIGHT` green), ticked, the panel shows it, and the **stop view**: the
+  third-person camera eases (about a second) 1.6 m further back, 0.8 m higher and 0.24 rad further down
+  (`playController.STOP_VIEW`, `setStopView(on, { instant })`, WalkthroughSystem `setStopView`, the tour's
+  `stopView` hook); walls still pull it in, the ceiling caps it. Off when it walks on, walking away or the end; reduced
+  motion: at once. Passing mentions ("On your
   left: Store") within 2.5 m of their point of the route, once each (shown 6 s, `MENTION_MS`).
 - **Keys:** `playController.setKeyHandler` (WalkthroughSystem's `setKeyHandler`): the tour sees each key first while it
   runs (only when the view has the keys, never in a text field): P = pause / resume, Esc = end. Nothing else changes.
@@ -697,7 +709,10 @@ only (Studio's Preview has no tour). Free walking, Find and Take me there are un
   toolbar; Find's menu starts with **"Take the company tour · 20 stops · about 8 min [· 3 visited]"** (`data-tour-offer`,
   `tourDetail`, from `tourPlanReady`: never planned in the menu; hidden while a tour runs). **TourPanel**
   (`[data-tour-panel]` = state, `data-tour-follow`, `data-tour-index`): top right, 360 px; a view under 640 px
-  (`data-tour-narrow`): full width at the bottom, above the joystick (touch) or the HUD, max 48 % high. Title "Stop 4 of
+  (`data-tour-narrow`): full width at the bottom, above the joystick (touch) or the HUD, max 48 % high; **walking
+  between stops it is one line** (`data-tour-compact`: "Stop 2 of 20 · Lobby & Reception · Pause · ⌃", 48 px; the
+  title `data-tour-expand` or the chevron `data-tour-expand-icon` opens it fully, `data-tour-collapse` "Show less"
+  makes it one line again; each new walk starts as one line, a stop or the open stop list shows it fully). Title "Stop 4 of
   20 · Marketing" (`data-tour-title`), the state line (`data-tour-state`, touch words: "Tap Resume to go on"), the
   stop's text (`data-tour-text`), a mention (`data-tour-mention`), the next leg's directions (`data-tour-directions`),
   Walk me / I'll walk (`data-tour-mode` = auto | self), Pause / Resume (`data-tour-pause`), Previous, Next, Skip the

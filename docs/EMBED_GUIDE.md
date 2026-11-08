@@ -305,7 +305,7 @@ reception, each department once, a washroom and a meeting room on each floor, fl
 reception. The **Tour** button (next to Find) and **"Take the company tour · 20 stops · about 8 min"** at the top of
 Find's menu start it; so does `startTour()`. It is planned while the page is idle after loading, so it starts at once.
 
-- **The panel** (top right; on a phone at the bottom, above the joystick): "Stop 4 of 20 · Marketing", what the stop
+- **The panel** (top right; on a phone at the bottom, above the joystick, and one line while walking between stops: "Stop 2 of 20 · Lobby & Reception", Pause and ⌃ to open it): "Stop 4 of 20 · Marketing", what the stop
   is (its department's description, how many people work there, some names), the way to the next stop ("Out of
   Reception, turn right along the corridor. Sales is the second door on your right."), passing rooms ("On your left:
   Restrooms"). **Pause / Resume** (P), **Previous**, **Next**, **Skip the walk**, **Exit** (Esc), and **All stops**: the
@@ -313,7 +313,8 @@ Find's menu start it; so does `startTour()`. It is planned while the page is idl
 - **Walk me** (default): the character walks to each stop by itself, as Take me there; a movement key or the joystick
   pauses it, P or Resume walks on. **I'll walk**: the route line shows the way and getting there completes the stop.
   Switch between them at any time. **Skip the walk**: a short fade, and you are at the next stop.
-- **At a stop:** its room is outlined, the view turns to face it (with *reduced motion* set: a fade instead) and the
+- **At a stop:** the character stands about 2 m inside the room, its room is outlined, the view turns to face it and the
+  camera eases higher and further back so the desks and people show (with *reduced motion* set: a fade instead), and the
   panel shows it; after a short pause (about 20 s, washrooms and meeting rooms about 8 s) the tour walks on.
 - **Narration:** the browser reads each stop aloud after the speaker button in the panel is turned on (off by default).
 - Without a tour, walking, Find and Take me there are exactly as before.
