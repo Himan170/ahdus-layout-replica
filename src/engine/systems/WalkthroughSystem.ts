@@ -30,6 +30,8 @@ import type { Pilot } from './NavigationSystem';
 /** What E was pressed on: an item, or a door / window of a room (playController's target). */
 export interface WalkthroughTarget {
   objectId?: string;
+  /** (v0.14.7) a person: the one a walk arrived at (WalkthroughCallbacks.nearTarget), not something aimed at. */
+  personId?: string;
   roomId?: string;
   part?: string;
   point: { x: number; y: number; z: number };
@@ -48,6 +50,8 @@ export interface WalkthroughCallbacks {
   onHud?: (info: unknown) => void;
   /** What E would do on a target, for the prompt; null: no prompt label. */
   describeInteraction?: (target: WalkthroughTarget) => { label: string; name: string; handled: boolean } | null;
+  /** (v0.14.7) What E means with nothing to aim at: the person a walk arrived at (LayoutEngine), or null. */
+  nearTarget?: () => WalkthroughTarget | null;
   /** A plain click on the view (not a drag): what is under it (LayoutEngine decides: a person, E, or walk there). */
   onPointClick?: (click: WalkthroughClick) => void;
   /** A double-click on the view: the mouse is being captured (mouse-look mode). */
@@ -262,6 +266,7 @@ export class WalkthroughSystem {
       onLevelChange: callbacks.onLevelChange,
       onViewChange: callbacks.onViewChange,
       describeInteraction: callbacks.describeInteraction,
+      nearTarget: callbacks.nearTarget,
       // The keys are the page's until the view is engaged (Preview's are always its own)
       isEngaged: this.isEngaged,
       // Drag to look, the cursor always visible; a click = onPointClick (Preview keeps pointer lock)

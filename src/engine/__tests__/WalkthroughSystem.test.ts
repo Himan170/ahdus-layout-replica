@@ -410,3 +410,45 @@ describe("Studio's Preview keeps pointer lock (look 'lock')", () => {
     expect((canvas as any).requestPointerLock).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('E after a walk arrived at a person (v0.14.7)', () => {
+  // seen at a corner desk by a window: the hint said "E Details: Window"
+  function besideAWindow(near: { current: any }) {
+    const pane = MeshBuilder.CreateBox('window_pane', { width: 4, height: 4, depth: 0.2 }, scene);
+    pane.position.set(0, 1.5, -18.6);
+    pane.metadata = { roomId: 'room_a', part: 'window' };
+    const huds: any[] = [];
+    const onInteract = vi.fn();
+    const w = walk({
+      onHud: (info: any) => huds.push(info),
+      onInteract,
+      describeInteraction: (t: any) => (t.personId ? { label: 'Details', name: 'Asha Patel', handled: false }
+        : t.part === 'window' ? { label: 'Details', name: 'Window', handled: false } : null),
+      nearTarget: () => near.current,
+    });
+    w.setPose({ x: 0, z: -20, yaw: 0, pitch: 0 });
+    for (let i = 0; i < 3; i++) scene.render();
+    return { huds, onInteract, prompt: () => huds[huds.length - 1]?.prompt ?? null };
+  }
+
+  it('no walk arrived: E and its hint mean what is aimed at (the window)', () => {
+    const near = { current: null };
+    const { prompt, onInteract } = besideAWindow(near);
+    expect(prompt()).toMatchObject({ name: 'Window' });
+    key('KeyE');
+    expect(onInteract).toHaveBeenCalledWith(expect.objectContaining({ part: 'window' }));
+  });
+
+  it('arrived at a person: the hint is "Details: Asha Patel" and E means them, with the window under the crosshair', () => {
+    const near = { current: { personId: 'p1', point: { x: 0, y: 0, z: -20 }, distance: 0 } as any };
+    const { prompt, onInteract } = besideAWindow(near);
+    expect(prompt()).toMatchObject({ label: 'Details', name: 'Asha Patel' });
+    key('KeyE');
+    expect(onInteract).toHaveBeenCalledTimes(1);
+    expect(onInteract.mock.calls[0][0]).toMatchObject({ personId: 'p1' });
+    // walked away (the engine's nearTarget answers null): the window again
+    near.current = null;
+    scene.render();
+    expect(prompt()).toMatchObject({ name: 'Window' });
+  });
+});

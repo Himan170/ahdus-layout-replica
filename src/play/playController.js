@@ -139,6 +139,9 @@ export function createPlayController(scene, canvas, {
   onExit = () => {},     // () => void   (Tab → planner)
   onInteract = () => {}, // (target) => void  (E — hook for teammates' modules)
   describeInteraction = () => null, // (target) => { label, name } | null  (what E would do, for the prompt)
+  // (v0.14.7) () => target | null: what E means with nothing to aim at (LayoutEngine: the person a walk arrived at,
+  // while you stay near them). It beats a door, a window or an item no module has an action for under the crosshair.
+  nearTarget = () => null,
   onRoomChange = () => {}, // (fromRoom | null, toRoom | null) => void
   onLevelChange = () => {}, // (floorId) => void   the floor your character is on changed
   onViewChange = () => {},  // ({ inside, level }) => void   for showing/hiding storeys
@@ -959,6 +962,18 @@ export function createPlayController(scene, canvas, {
     return { roomId: m.metadata.roomId, part: m.metadata.part, point, distance };
   }
 
+  /**
+   * What E means right now: the near target (the person a walk arrived at) if there is one, unless the crosshair is
+   * on an item a module has an action for; else what is aimed at (interactTarget).
+   */
+  function eTarget() {
+    const aimed = interactTarget();
+    const near = nearTarget();
+    if (!near) return aimed;
+    if (aimed?.objectId && describeInteraction(aimed)?.handled) return aimed;
+    return near;
+  }
+
   /** Room the character stands in, staying in the current room a little past its edge. */
   function roomHere() {
     const rooms = floorRooms();
@@ -1102,7 +1117,7 @@ export function createPlayController(scene, canvas, {
         else lockPointer(canvas);
         break;
       case 'KeyE': {
-        const target = interactTarget();
+        const target = eTarget();
         if (target) onInteract(target);
         else say('Nothing to use here. Walk up to an object and look at it.', 2000);
         break;
@@ -1510,7 +1525,7 @@ export function createPlayController(scene, canvas, {
     }
 
     // ── What would E do? ──
-    promptTarget = live && !cornerA && !grab && !carry ? interactTarget() : null;
+    promptTarget = live && !cornerA && !grab && !carry ? eTarget() : null;
     const prompt = promptTarget ? describeInteraction(promptTarget) : null;
 
     // ── HUD ──

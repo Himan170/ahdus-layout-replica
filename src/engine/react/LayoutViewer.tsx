@@ -409,6 +409,12 @@ export function LayoutViewer(props: LayoutViewerProps) {
             setPerson((was) => (was?.pinned ? null : was));
           }
         }),
+        // E after a walk arrived at a person (v0.14.7): their card, kept as a click on them keeps it
+        e.on('personDetails', (ev) => {
+          const p = e.walkthrough?.getPosition();
+          pinnedFromRef.current = p ? { x: p.x, z: p.z } : null;
+          setPerson({ who: ev.person as PlacedPerson, at: null, pinned: true });
+        }),
         e.on('navigation', (ev) => {
           if (ev.state === 'arrived') arrivedRef.current = ev.place?.personId != null ? String(ev.place.personId) : null;
           else if (ev.state === 'started') arrivedRef.current = null;
