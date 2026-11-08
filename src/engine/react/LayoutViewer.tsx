@@ -52,6 +52,8 @@
  * last chose Overview (per browser), the device is weak (quality 'low' or WebGL drawn by software: Overview, with a
  * Walk button) or the page opens at a person or room (`openAt`: no card). Its own button at the top right switches:
  * Overview (from above, on the floor you are on, looking at where you were) and Walk (back where you were).
+ * A weak device's start (v0.14.8) says why in a note (WeakDeviceNote): "Walk anyway" walks from the entrance with the
+ * welcome card and is remembered (the next visit walks), "Stay above" / Esc / a press on the view close it.
  */
 
 import { useEffect, useId, useRef, useState } from 'react';
@@ -73,11 +75,11 @@ import { TourPanel, TOUR_LABEL } from './TourPanel';
 import { toolButtonStyles } from './PlaceSearch';
 import type { TourEvent } from '../systems/TourSystem';
 import type { RouteTarget } from '../systems/NavigationSystem';
-import { WelcomeCard } from './WelcomeCard';
+import { WelcomeCard, WeakDeviceNote } from './WelcomeCard';
 import type { WelcomeAction } from './WelcomeCard';
 import { tourDetail } from './PlaceSearch';
 import { chooseStart, readStartMode, rememberStartMode } from '../startMode';
-import type { StartMode, StartChoice } from '../startMode';
+import type { StartMode, StartChoice, StartReason, WeakKind } from '../startMode';
 
 export interface LayoutViewerProps {
   /** The layout: a save, an exported layout file or v2 JSON. */
@@ -141,6 +143,11 @@ export interface LayoutViewerProps {
    * ('walkthrough'). Keep your `mode` prop in step with it.
    */
   onModeChange?: (mode: Exclude<EngineMode, 'edit'>) => void;
+  /**
+   * With startMode (v0.14.8): how it started and why, once per layout: reason 'start' (startMode), 'remembered' (the
+   * person's last Overview / Walk choice), 'weak' (a weak device: from above, the note; `weak` = why) or 'link' (openAt).
+   */
+  onStart?: (start: { mode: StartMode; reason: StartReason; weak: WeakKind | null }) => void;
   /** Show route / Take me there: { state: 'started' | 'progress' | 'arrived' | 'stopped' | 'failed', place, … }. */
   onNavigation?: (event: NavigationEvent) => void;
   /** The company tour (v0.14.4): its Tour button, its entry in Find's menu and its panel. Default true. */
@@ -308,6 +315,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [welcomeName, setWelcomeName] = useState<string | null>(null);
   const [welcomeTour, setWelcomeTour] = useState<string | null>(null);
   const [findRequest, setFindRequest] = useState(0);
+  // a weak device's start (v0.14.8): the note saying why it is from above (null: none)
+  const [note, setNote] = useState<WeakKind | null>(null);
   useEffect(() => {
     const box = boxRef.current;
     if (!box) return undefined;
@@ -497,6 +506,11 @@ export function LayoutViewer(props: LayoutViewerProps) {
     setStart(choice);
     setWelcomeName(String(engine.getStore().getState().layoutName ?? '').trim() || null);
     setWelcome(choice.welcome);
+    // a weak device (v0.14.8): why, in a note. quality 'low' is the page's own choice; else the renderer (or the page's
+    // weakDevice answer) said so
+    const weak: WeakKind | null = choice.reason === 'weak' ? (quality === 'low' ? 'low' : 'software') : null;
+    setNote(weak);
+    propsRef.current.onStart?.({ mode: choice.mode, reason: choice.reason, weak });
     const was = engine.mode;
     engine.setMode(choice.mode);
     setShownMode(engine.mode);
@@ -683,6 +697,30 @@ export function LayoutViewer(props: LayoutViewerProps) {
       canvas?.removeEventListener('pointerdown', onDown);
     };
   }, [welcome, walking]);
+  // The weak device's note (v0.14.8) goes when walking starts, or on Esc or a press on the view
+  useEffect(() => {
+    if (walking) setNote(null);
+  }, [walking]);
+  const noteShown = note !== null && !walking;
+  useEffect(() => {
+    if (!noteShown) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setNote(null);
+    };
+    const canvas = canvasRef.current;
+    const onDown = () => setNote(null);
+    window.addEventListener('keydown', onKey, true);
+    canvas?.addEventListener('pointerdown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      canvas?.removeEventListener('pointerdown', onDown);
+    };
+  }, [noteShown]);
   // The tour's size on the card, once it is planned (in idle time)
   useEffect(() => {
     if (!welcome || !engine || !tour) return undefined;
@@ -751,6 +789,22 @@ export function LayoutViewer(props: LayoutViewerProps) {
     else if (action === 'find') setFindRequest((n) => n + 1);
     else focusView();
   };
+  // The weak device's note (v0.14.8): "Walk anyway" = walking from the entrance (remembered: the next visit walks),
+  // then the welcome card (a deep link: its route's line instead, as a walking start with openAt)
+  const walkAnyway = () => {
+    if (!engine) return;
+    setNote(null);
+    rememberStartMode('walkthrough');
+    engine.resumeWalk();
+    focusView();
+    if (openAt != null) {
+      engine.whenBuilt().then(() => {
+        if (engine.mode === 'walkthrough') engine.navigation.routeTo(openAt, { walk: 'guide' });
+      });
+    } else {
+      setWelcome(true);
+    }
+  };
   // Overview / Walk (v0.14.6, startMode): the person's choice, remembered in this browser
   const modeButton = owned && engine && !error ? (
     <button
@@ -762,6 +816,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
       style={{ ...toolButtonStyles.off, ...styles.modeButton }}
       onClick={() => {
         setWelcome(false);
+        setNote(null);
         if (walking) {
           rememberStartMode('view');
           engine.overview();
@@ -912,6 +967,9 @@ export function LayoutViewer(props: LayoutViewerProps) {
       {welcome && walking && floorReady && !error && (
         <WelcomeCard name={welcomeName} tour={tour} search={search} tourDetail={welcomeTour} touch={touchUI}
           narrow={narrow} bottom={tourBottom} compact={short} onAction={onWelcome} />
+      )}
+      {noteShown && note && floorReady && !error && (
+        <WeakDeviceNote kind={note} narrow={narrow} compact={short} onWalk={walkAnyway} onStay={() => setNote(null)} />
       )}
       {walking && !error && hud && (
         <>

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  chooseStart, softwareRenderer, welcomeTitle, welcomeActions, readStartMode, rememberStartMode, START_MODE_KEY,
+  chooseStart, weakNote, softwareRenderer, welcomeTitle, welcomeActions, readStartMode, rememberStartMode, START_MODE_KEY,
 } from '../startMode';
 
 describe('chooseStart (v0.14.6)', () => {
@@ -13,13 +13,35 @@ describe('chooseStart (v0.14.6)', () => {
     expect(chooseStart({ startMode: 'walkthrough', remembered: 'view' })).toEqual({ mode: 'view', welcome: false, reason: 'remembered' });
     expect(chooseStart({ startMode: 'view', remembered: 'walkthrough' })).toEqual({ mode: 'walkthrough', welcome: true, reason: 'remembered' });
   });
-  it('a weak device starts from above, whatever was chosen', () => {
-    expect(chooseStart({ startMode: 'walkthrough', remembered: 'walkthrough', weak: true })).toEqual({ mode: 'view', welcome: false, reason: 'weak' });
-    expect(chooseStart({ startMode: 'walkthrough', weak: true, openAt: true }).mode).toBe('view');
+  it('a weak device with no choice yet starts from above (reason weak: the note)', () => {
+    expect(chooseStart({ startMode: 'walkthrough', weak: true })).toEqual({ mode: 'view', welcome: false, reason: 'weak' });
+    expect(chooseStart({ startMode: 'walkthrough', weak: true, openAt: true })).toEqual({ mode: 'view', welcome: false, reason: 'weak' });
+  });
+  it('a weak device asked to start from above anyway: no note (reason start)', () => {
+    expect(chooseStart({ startMode: 'view', weak: true })).toEqual({ mode: 'view', welcome: false, reason: 'start' });
+    expect(chooseStart({ startMode: 'view', weak: true, openAt: true })).toEqual({ mode: 'view', welcome: false, reason: 'link' });
+  });
+  it('v0.14.8: a weak device whose person chose to walk walks, with the welcome card', () => {
+    expect(chooseStart({ startMode: 'walkthrough', remembered: 'walkthrough', weak: true })).toEqual({ mode: 'walkthrough', welcome: true, reason: 'remembered' });
+    expect(chooseStart({ startMode: 'view', remembered: 'walkthrough', weak: true })).toEqual({ mode: 'walkthrough', welcome: true, reason: 'remembered' });
+    expect(chooseStart({ startMode: 'walkthrough', remembered: 'walkthrough', weak: true, openAt: true })).toEqual({ mode: 'walkthrough', welcome: false, reason: 'link' });
+  });
+  it('v0.14.8: Overview chosen later still wins on a weak device (no note)', () => {
+    expect(chooseStart({ startMode: 'walkthrough', remembered: 'view', weak: true })).toEqual({ mode: 'view', welcome: false, reason: 'remembered' });
+    expect(chooseStart({ startMode: 'walkthrough', remembered: 'view', weak: true, openAt: true })).toEqual({ mode: 'view', welcome: false, reason: 'link' });
   });
   it('a deep link: no welcome card, the mode as it would be', () => {
     expect(chooseStart({ startMode: 'walkthrough', openAt: true })).toEqual({ mode: 'walkthrough', welcome: false, reason: 'link' });
     expect(chooseStart({ startMode: 'walkthrough', remembered: 'view', openAt: true })).toEqual({ mode: 'view', welcome: false, reason: 'link' });
+    expect(chooseStart({ startMode: 'view', openAt: true })).toEqual({ mode: 'view', welcome: false, reason: 'link' });
+  });
+});
+
+describe('weakNote (v0.14.8)', () => {
+  it('says why it started from above', () => {
+    expect(weakNote('software')).toBe('Started from above: your browser isn\'t using the graphics card, so walking could be slow. '
+      + 'Turn on graphics acceleration in your browser\'s settings for the smoothest view.');
+    expect(weakNote('low')).toBe('Started from above to keep things fast on this device.');
   });
 });
 

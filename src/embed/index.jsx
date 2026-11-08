@@ -107,7 +107,8 @@ function tourEvent(ev) {
  *   mode?: 'view' | 'walkthrough',    // default 'view'; 'edit' is refused
  *   startMode?: 'walkthrough' | 'view', // v0.14.6, instead of mode: the viewer decides the start (walking + the
  *                                     // welcome card; the person's last choice, a weak device = from above) and
- *                                     // shows its own Overview / Walk button; onEvent('mode', { mode }) follows it
+ *                                     // shows its own Overview / Walk button; onEvent('mode', { mode }) follows it;
+ *                                     // v0.14.8: onEvent('start', { mode, reason, weak }) says why it started so
  *   openAt?: { personId } | { roomId } | string, // v0.14.6, with startMode: open at a person or room (a deep
  *                                     // link): from above shown, walking Show route from the entrance; no card
  *   weakDevice?: boolean,             // v0.14.6: the weak-device test's answer, given (default: tested)
@@ -137,6 +138,7 @@ export function mount(element, options = {}) {
   const startMode = options.startMode ?? null;
   const openAt = cleanOpenAt(options.openAt);
   let mode = startMode ? null : options.mode ?? 'view';
+  let started = null; // how it started and why (v0.14.8: the 'start' event), startMode only
   let layout = null; // the validated v2 layout, once read
   let engine = null; // the LayoutEngine, once the layout is drawn
   let root = null;
@@ -236,6 +238,7 @@ export function mount(element, options = {}) {
       <LayoutViewer
         layout={layout} mode={mode ?? undefined} startMode={startMode ?? undefined} openAt={openAt}
         weakDevice={typeof options.weakDevice === 'boolean' ? options.weakDevice : undefined} onModeChange={onModeChange}
+        onStart={onStart}
         quality={quality} assetBaseUrl={assetBaseUrl} people={people}
         player={player} chooseCharacterUrl={options.characters?.chooseUrl} walkClipUrl={walkClipUrl ?? undefined}
         search={search} tour={tour} departments={departments} onReady={onReady} onError={fail} onProgress={onProgress}
@@ -251,6 +254,17 @@ export function mount(element, options = {}) {
     mode = next;
     render();
     emit('mode', { mode: next });
+  }
+
+  /**
+   * How it started and why (v0.14.8, startMode only; before the first 'mode' event): reason 'start' (startMode),
+   * 'remembered' (the person's last Overview / Walk), 'weak' (a weak device: from above; weak = 'software' | 'low')
+   * or 'link' (openAt).
+   */
+  function onStart(start) {
+    if (closed) return;
+    started = { mode: start.mode, reason: start.reason, weak: start.weak ?? null };
+    emit('start', { ...started });
   }
 
   /** Building the layout: the viewer shows its own "Building your workplace… 40 %" from now on. */
@@ -327,6 +341,11 @@ export function mount(element, options = {}) {
 
     get mode() {
       return mode ?? startMode;
+    },
+
+    /** How it started and why (v0.14.8): { mode, reason, weak }, or null (no startMode, or not started yet). */
+    get start() {
+      return started ? { ...started } : null;
     },
 
     /** 'view' or 'walkthrough' (false: refused, e.g. 'edit'). */

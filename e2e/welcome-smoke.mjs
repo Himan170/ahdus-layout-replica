@@ -8,6 +8,9 @@
 // v0.14.7: a short view box (390 × 490, as AHDUS's 3D Company page gives a phone; and 1000 × 400) gets the compact
 // card: the toolbar row and Overview stay visible and clickable, all three actions show with no scrolling, the
 // joystick and the HUD line stay clear.
+// v0.14.8: a weak device's note says why it started from above (software WebGL / quality low); "Stay above", Esc and a
+// click on the view close it (not remembered); "Walk anyway" walks from the entrance with the welcome card and is
+// remembered (the next visit walks); Overview chosen later wins again; the note compact in a 390 × 490 phone box.
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run dev              (in one terminal)
@@ -191,7 +194,75 @@ try {
   const weakTitle = await p.getAttribute('[data-mode-button]', 'title').catch(() => '');
   log('&weak=1: starts from above, no card, a Walk button ("it may be slow")', await viewerMode() === 'view' && await card() === 0
     && await modeButton() === 'walk' && /slow/.test(weakTitle ?? ''), weakTitle);
+  // v0.14.8: the note says why (WebGL drawn by software), and the page hears it (onStart)
+  await p.waitForSelector('[data-weak-note]', { timeout: 30000 }).catch(() => {});
+  const weakNote = await p.evaluate(() => {
+    const el = document.querySelector('[data-weak-note]');
+    return {
+      kind: el?.dataset.weakNote, role: el?.getAttribute('role'), place: el?.dataset.weakNotePlace,
+      text: el?.querySelector('[data-weak-note-text]')?.textContent,
+      buttons: [...(el?.querySelectorAll('[data-weak-note-action]') ?? [])].map((b) => b.textContent.trim()),
+      start: window.__viewerStart,
+    };
+  });
+  log('v0.14.8 &weak=1: the note (role=status) "Started from above: your browser isn\'t using the graphics card…", Walk anyway · Stay above; onStart reason weak',
+    weakNote.kind === 'software' && weakNote.role === 'status' && weakNote.place === 'wide'
+    && weakNote.text === 'Started from above: your browser isn\'t using the graphics card, so walking could be slow. Turn on graphics acceleration in your browser\'s settings for the smoothest view.'
+    && weakNote.buttons.join() === 'Walk anyway,Stay above'
+    && JSON.stringify(weakNote.start) === JSON.stringify({ mode: 'view', reason: 'weak', weak: 'software' }), JSON.stringify(weakNote));
   if (SHOTS) await shot('weak-device-overview.png');
+  const note = () => p.locator('[data-weak-note]').count();
+  const stored = () => p.evaluate(() => localStorage.getItem('ahdus.viewMode'));
+  await p.click('[data-weak-note-action="stay"]');
+  await frames(2);
+  log('Stay above: the note closes, still from above, nothing remembered', await note() === 0 && await viewerMode() === 'view'
+    && await stored() === null);
+  await open('start=walk&weak=1&people=1');
+  await p.waitForSelector('[data-weak-note]', { timeout: 30000 }).catch(() => {});
+  const noteAgain = await note();
+  await p.keyboard.press('Escape');
+  await frames(1);
+  const afterEsc = await note();
+  await open('start=walk&weak=1&people=1');
+  await p.waitForSelector('[data-weak-note]', { timeout: 30000 }).catch(() => {});
+  await p.mouse.click(desktop.width / 3, 150); // the view (the sky)
+  await frames(1);
+  log('…shown again next time (Stay above is not remembered); Esc closes it, so does a click on the view',
+    noteAgain === 1 && afterEsc === 0 && await note() === 0 && await viewerMode() === 'view', `again ${noteAgain}, after Esc ${afterEsc}`);
+  await open('start=walk&weak=1&people=1');
+  await p.waitForSelector('[data-weak-note]', { timeout: 30000 }).catch(() => {});
+  await p.click('[data-weak-note-action="walk"]');
+  await frames(4);
+  const anyway = await p.evaluate(() => {
+    const e = window.__ahdusViewer; const s = e.walkthrough?.spawnPoint?.() ?? null; const v = e.walkthrough?.getPosition();
+    return { at: v && { x: v.x, z: v.z }, s };
+  });
+  const anywayCard = await p.waitForSelector('[data-welcome]', { timeout: 30000 }).then(() => true, () => false);
+  log('Walk anyway: walking at the entrance, then the welcome card; remembered', await viewerMode() === 'walkthrough' && await note() === 0
+    && anywayCard && await stored() === 'walkthrough' && !!anyway.at && (!anyway.s || Math.hypot(anyway.at.x - anyway.s.x, anyway.at.z - anyway.s.z) < 0.5),
+    JSON.stringify(anyway));
+  if (SHOTS) await shot('weak-device-walk-anyway.png');
+  await open('start=walk&weak=1&people=1');
+  const rememberedWalk = await p.waitForSelector('[data-welcome]', { timeout: 30000 }).then(() => true, () => false);
+  log('opened again on the weak device after Walk anyway: walking with the welcome card, no note (reason remembered)',
+    await viewerMode() === 'walkthrough' && rememberedWalk && await note() === 0
+    && await p.evaluate(() => window.__viewerStart?.reason) === 'remembered');
+  await p.keyboard.press('Escape');
+  await p.click('[data-mode-button]'); // Overview: remembered 'view'
+  await frames(2);
+  await open('start=walk&weak=1&people=1');
+  await frames(2);
+  log('…Overview chosen later still wins: from above, no note, no card', await viewerMode() === 'view' && await note() === 0
+    && await card() === 0 && await p.evaluate(() => window.__viewerStart?.reason) === 'remembered');
+  await open('start=walk&quality=low&people=1', { clear: true });
+  await p.waitForSelector('[data-weak-note]', { timeout: 30000 }).catch(() => {});
+  const lowNote = await p.evaluate(() => ({
+    kind: document.querySelector('[data-weak-note]')?.dataset.weakNote,
+    text: document.querySelector('[data-weak-note-text]')?.textContent, start: window.__viewerStart,
+  }));
+  log('quality low: from above, the note "Started from above to keep things fast on this device." (weak low)',
+    await viewerMode() === 'view' && lowNote.kind === 'low' && lowNote.text === 'Started from above to keep things fast on this device.'
+    && lowNote.start?.weak === 'low', JSON.stringify(lowNote));
   await open('start=walk&people=1', { clear: true });
   const detected = await p.evaluate(() => ({ weak: window.__ahdusViewer.weakDevice, renderer: window.__ahdusViewer.babylonEngine.getGlInfo().renderer }));
   log('not told: SwiftShader (this test\'s WebGL) is found weak and starts from above', detected.weak && await viewerMode() === 'view', detected.renderer);
@@ -293,6 +364,33 @@ try {
   await p.tap('[data-welcome-action="find"]');
   await p.waitForSelector('[data-place-search]', { timeout: 10000 }).catch(() => {});
   log('short box: Find someone opens Find', await card() === 0 && await p.evaluate(() => document.activeElement?.tagName === 'INPUT'));
+  // v0.14.8: a weak phone in the short box: the note, compact at the bottom, the toolbar and Walk clickable
+  await open('start=walk&weak=1&people=1', { clear: true, box: { width: 390, height: 490 } });
+  await p.waitForSelector('[data-weak-note]', { timeout: 30000 }).catch(() => {});
+  const phoneNote = await p.evaluate(() => {
+    const rect = (el) => el?.getBoundingClientRect();
+    const box = rect(document.querySelector('[data-layout-viewer]'));
+    const el = document.querySelector('[data-weak-note]');
+    const c = rect(el);
+    const inside = (a, b) => a && b && a.left >= b.left - 0.5 && a.right <= b.right + 0.5 && a.top >= b.top - 0.5 && a.bottom <= b.bottom + 0.5;
+    const overlap = (a, b) => !!(a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom);
+    const tools = [...document.querySelectorAll('[data-viewer-toolbar] button'), document.querySelector('[data-mode-button]')].filter(Boolean);
+    const clickable = tools.map((t) => { const r = rect(t); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return inside(r, box) && !!hit && t.contains(hit); });
+    return {
+      place: el?.dataset.weakNotePlace, compact: el?.hasAttribute('data-weak-note-compact'), onScreen: inside(c, box),
+      buttons: [...(el?.querySelectorAll('[data-weak-note-action]') ?? [])].every((b) => inside(rect(b), c)),
+      noScroll: !!el && el.scrollHeight <= el.clientHeight + 1, clickable, toolsClear: tools.every((t) => !overlap(rect(t), c)),
+    };
+  });
+  log('v0.14.8 short phone box, weak: the note compact at the bottom, on screen with both buttons and no scrolling; toolbar and Walk clickable',
+    phoneNote.place === 'narrow' && phoneNote.compact && phoneNote.onScreen && phoneNote.buttons && phoneNote.noScroll
+    && phoneNote.clickable.length >= 2 && phoneNote.clickable.every(Boolean) && phoneNote.toolsClear, JSON.stringify(phoneNote));
+  if (SHOTS) await shot('weak-note-phone-short.png');
+  await p.tap('[data-weak-note-action="walk"]');
+  const phoneWalk = await p.waitForSelector('[data-welcome]', { timeout: 30000 }).then(() => true, () => false);
+  log('…Walk anyway by tap: walking, the compact welcome card', await viewerMode() === 'walkthrough' && phoneWalk
+    && await p.evaluate(() => document.querySelector('[data-welcome]')?.hasAttribute('data-welcome-compact')));
+  if (SHOTS) await shot('weak-note-phone-walk-anyway.png');
   await p.close();
   p = null;
   await ctx.close();

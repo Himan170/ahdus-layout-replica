@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1140, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1144, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -79,13 +79,17 @@ npm run e2e:embed    # 38 checks   e2e/embed-smoke.mjs     (NO dev server needed
                      #                                       navigation: { search: false }, goTo + stopRoute,
                      #                                       setDepartments' description in the Find menu,
                      #                                       v0.14.6: startMode (the card, Overview, onEvent 'mode'),
-                     #                                       quality low = from above, startMode 'edit' refused)
-npm run e2e:welcome  # 30 checks   e2e/welcome-smoke.mjs   (viewer.html?start=walk, v0.14.6: walking at the entrance with
+                     #                                       quality low = from above + its note, onEvent 'start'
+                     #                                       (v0.14.8), startMode 'edit' refused)
+npm run e2e:welcome  # 39 checks   e2e/welcome-smoke.mjs   (viewer.html?start=walk, v0.14.6: walking at the entrance with
                      #                                       the welcome card, W walks at once and closes it, the hint
                      #                                       waits, Explore / Esc, Find someone, Start the tour, Overview
                      #                                       keeps your place + Walk back, the last choice remembered,
                      #                                       &weak=1 and SwiftShader itself = from above, &at= (no card),
-                     #                                       no ?start = as before, phone; SHOTS=<dir>: screenshots)
+                     #                                       no ?start = as before, phone; v0.14.8: a weak device's note
+                     #                                       (software / &quality=low), Stay above / Esc / a click, Walk
+                     #                                       anyway walks + is remembered, Overview wins again, the note
+                     #                                       compact in a 390 × 490 box; SHOTS=<dir>: screenshots)
 npm run e2e:characters # 36     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
                      #                                       on 2 floors: the view from above (no roof: at the start,
                      #                                       after setFloor, after walking), simple figures, full characters near the
@@ -849,15 +853,24 @@ Section 3.1 of `private-docs/EXPERIENCE_PLAN.md` (decisions in its section 6). V
 without `startMode` are unchanged (no card, no button; `mode` as before).
 - **`startMode: 'walkthrough' | 'view'`** (`<LayoutViewer startMode>`, the embed's `startMode` option, AHDUS sets it):
   the viewer decides the start. The engine is made in 'view'; once its first layout is loaded, `startMode.chooseStart({
-  startMode, remembered, weak, openAt })` (PURE, tested) gives `{ mode, welcome, reason }`: a **weak device** = 'view'
-  (reason 'weak'); else the **last choice** (localStorage `ahdus.viewMode`, try / catch: set ONLY by the viewer's own
-  Overview / Walk button) or startMode; **`openAt`** = no card (reason 'link'); a walk otherwise shows the card. `mode` is
+  startMode, remembered, weak, openAt })` (PURE, tested) gives `{ mode, welcome, reason }`: the **last choice** first
+  (localStorage `ahdus.viewMode`, try / catch: set ONLY by the viewer's own Overview / Walk button and "Walk anyway";
+  v0.14.8: on a weak device too, reason 'remembered'); none: a **weak device** = 'view' (reason 'weak'; startMode 'view'
+  anyway: reason 'start'), else startMode; **`openAt`** = no card (reason 'link'); a walk otherwise shows the card. `mode` is
   then only for changing it later (its first value is ignored; a change applies). The embed's `mode` follows the
-  'mode' events (`onModeChange` → `onEvent('mode', { mode })`, `handle.mode`).
+  'mode' events (`onModeChange` → `onEvent('mode', { mode })`, `handle.mode`). **v0.14.8:** `onStart({ mode, reason, weak })`
+  (LayoutViewer prop, once, before the first 'mode') → the embed's `onEvent('start', …)` + `handle.start`; viewer.html
+  keeps it as `window.__viewerStart`.
 - **Weak device** (`engine.weakDevice`): quality 'low', or `getGlInfo().renderer` names a software renderer
   (`softwareRenderer`: SwiftShader, llvmpipe, softpipe, Microsoft Basic Render, …). Override: `weakDevice` prop /
   option (viewer.html `&weak=1 | 0`). **e2e runs on SwiftShader, so it counts as weak**: scripts that want the walk start
   pass `weak=0` (or `weakDevice: false`).
+- **The weak device's note** (v0.14.8, `WeakDeviceNote` in `react/WelcomeCard.tsx`, `[data-weak-note]` = software | low,
+  `data-weak-note-place` = wide | narrow, `data-weak-note-compact`, role=status): only when the start's reason is 'weak',
+  from above once the start floor is built; the words are `startMode.weakNote(kind)` (kind: quality 'low' = 'low', else
+  'software'; viewer.html `&quality=low`). Buttons (`data-weak-note-action`): **Walk anyway** (walk = `rememberStartMode
+  ('walkthrough')` + `resumeWalk()` (the entrance) + the welcome card; with `openAt` its route's line instead) and
+  **Stay above** (closes it, nothing remembered). Esc, a press on the canvas, the Walk button or walking close it too.
 - **The welcome card** (`react/WelcomeCard.tsx`, `[data-welcome]` = wide | narrow): "Welcome to <layoutName>"
   (`welcomeTitle`; none: "Welcome"), "You are at the main entrance. How would you like to start?", buttons
   (`data-welcome-action`, `welcomeActions`): tour (with the plan's size, `tourDetail`, once `whenNavigationReady`),
@@ -1313,6 +1326,14 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: a weak device's note (v0.14.8, 8 Nov 2026, branch `fix/weak-device-note`)
+
+private-docs/EXPERIENCE_PLAN.md 3.1, guard 2: a weak device used to start from above with only a Walk button and no
+reason. Now a note says why (software WebGL / quality 'low'), "Walk anyway" walks with the welcome card and is
+remembered (`chooseStart`: the last choice first, on a weak device too), and the embed says how it started
+(`onEvent('start', { mode, reason, weak })`, `handle.start`); see "Start mode". e2e:welcome 39 checks. Screenshots
+(desktop 1440 × 900, phone box 390 × 490): private-docs/screenshots/v0.14.8/ (not in git).
 
 ## DONE: a short phone view + E at a person (v0.14.7, 8 Nov 2026, branch `fix/welcome-card-short-view`)
 

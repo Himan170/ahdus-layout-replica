@@ -91,6 +91,7 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 |---|---|
 | `ready` | A promise. Resolves (with this object) when the layout is drawn, rejects if it can't be. |
 | `mode` | The current mode. |
+| `start` | v0.14.8, with `startMode`: `{ mode, reason, weak }`, how it started and why (null until then; section 4g). |
 | `setMode('view' \| 'walkthrough')` | Switches mode. Returns `false` for anything else (`'edit'` is refused). |
 | `setFloor(floorId)` | `view`: shows the building up to that floor, without its roof. `walkthrough`: takes the character there (as Page Up / Page Down). `false` if there's no such floor. |
 | `focusOn(id)` | `view` mode: the camera flies to a room, an item or a hook point (`room_…`, `obj_…` or a hook-point id). `false` in `walkthrough` mode or for an unknown id. |
@@ -345,10 +346,20 @@ With `startMode: 'walkthrough'` (what AHDUS's 3D Company page sets), everyone wa
   you stood, and keeps your place; **Walk** takes you back there, facing the same way (no place kept: the entrance).
 - **Three guards:** (1) the person's **last choice** (Overview or Walk, per browser) wins next time: someone who mostly
   looks from above starts from above, with no card; (2) a **weak device** (`quality: 'low'`, or WebGL drawn by the
-  processor) starts from above with a Walk button (its tooltip says walking may be slow); (3) **`openAt`** (a deep link)
+  processor) starts from above with a Walk button and, **v0.14.8**, a note saying why: WebGL drawn by the processor
+  "Started from above: your browser isn't using the graphics card, so walking could be slow. Turn on graphics
+  acceleration in your browser's settings for the smoothest view.", `quality: 'low'` "Started from above to keep things
+  fast on this device." Its buttons: **Walk anyway** (walking from the entrance, then the welcome card) and **Stay above**
+  (closes it; so do Esc and a press on the view). Walk anyway (or the Walk button) is remembered: next time that
+  device walks at once, with the welcome card, until the person chooses Overview again; (3) **`openAt`** (a deep link)
   shows no card: from above the person or room is shown, walking its route from the entrance is shown.
 - `onEvent('mode', { mode })` and `workplace.mode` follow every change (the start, Overview / Walk, Take me there
   from above). `setMode()` still works and is not remembered as the person's choice.
+- **v0.14.8: why it started so:** `onEvent('start', { mode, reason, weak })`, once, before the first `mode` event (also
+  `workplace.start`, null until then). `reason`: `'start'` (as `startMode` says), `'remembered'` (the person's last
+  Overview / Walk), `'weak'` (a weak device: from above, with the note) or `'link'` (`openAt`); `weak`: `'software'`
+  (WebGL drawn by the processor, or your `weakDevice: true`) or `'low'` (`quality: 'low'`) when `reason` is `'weak'`,
+  else `null`. A page could log it, e.g. to count how many people have graphics acceleration off.
 
 ```js
 const workplace = AHDUSWorkplace.mount(el, {
@@ -370,6 +381,7 @@ const workplace = AHDUSWorkplace.mount(el, {
 | `interact` | E was pressed on an item, door or window | the target (section 4) |
 | `floorChange` | The floor shown or walked on changed | `{ floorId, name }` |
 | `mode` | The mode changed (v0.14.6): the start with `startMode`, Overview / Walk, Take me there from above | `{ mode }` |
+| `start` | v0.14.8, with `startMode`: how it started and why, once (section 4g) | `{ mode, reason, weak }`; `reason`: `start`, `remembered`, `weak`, `link`; `weak`: `software`, `low` or `null` |
 | `card` | The viewer showed a card (E with no action for it) | `{ title, body }` |
 | `tour` | The company tour (section 4f) | `{ type, state, follow, index, count, visited, remaining, message, mention, stop }`; `type`: `started`, `walking`, `arrived`, `paused`, `resumed`, `follow`, `mention`, `progress`, `done`, `ended`, `problem`; `state`: `idle`, `walking`, `stop`, `paused`, `done`; `stop`: `{ id, n, kind, name, floor, floorName, text }` |
 | `navigation` | Show route / Take me there (section 4e) | `{ state, walk, place, remaining, length?, seconds?, floor?, paused?, rerouted?, problem?, message? }`; `state`: `started`, `progress` (about every metre or second; `paused: true` after a movement key), `arrived`, `stopped`, `failed` |
