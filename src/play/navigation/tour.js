@@ -41,8 +41,16 @@ import {
 } from './route';
 import { buildPlaces, roomDoorSpots, words, ROOM_TYPE_LABEL, FACILITIES } from './places';
 
-/** A pause at each stop (s): the estimated time. */
+/** A pause at each department's stop and the reception (s): the estimated time, and how long "Walk me" stays. */
 export const STOP_PAUSE = 20;
+/** A shorter pause at a washroom or a meeting room, and at the entrance (s, v0.14.4). */
+export const FACILITY_PAUSE = 8;
+/**
+ * A facility right after the reception moves further on when a department is about as near: at most
+ * this many times as far from the reception, plus NEAR_EXTRA m (v0.14.4: the tour first meets people).
+ */
+const NEAR_FACTOR = 1.5;
+const NEAR_EXTRA = 4;
 /** A room whose door the route passes this close (m), in sight, gets a passing mention. */
 export const MENTION_DISTANCE = 4;
 /** At most this many names on a stop. */
@@ -80,12 +88,13 @@ const sayList = (names) => (names.length < 2 ? names.join('') : `${names.slice(0
  * @param {{ personId, deskId, name?, department? }[]} [people]  the seats (setPeople's list)
  * @param {{ name: string, description?: string }[]} [departments]  the page's descriptions
  * @param {{ catalog?: object, maps?: { get(layout, floorId) }, speed?: number, pause?: number,
- *   backToReception?: boolean }} [options]
+ *   facilityPause?: number, backToReception?: boolean }} [options]  pause: at a department and the reception
+ *   (STOP_PAUSE), facilityPause: at a washroom, a meeting room and the entrance (FACILITY_PAUSE); none at the return
  * @returns {TourPlan}
  */
 export function planTour(layout, people = [], departments = [], options = {}) {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-  const { speed = WALK_SPEED, pause = STOP_PAUSE, backToReception = true } = options;
+  const { speed = WALK_SPEED, pause = STOP_PAUSE, facilityPause = FACILITY_PAUSE, backToReception = true } = options;
   const floors = layout.floors ?? {};
   const rooms = list(layout.rooms);
   const objects = list(layout.objects);
@@ -289,6 +298,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
       twoOpt(D, seq, !!end);
       for (const type of TOUR_FACILITIES) seq = insertBest(D, seq, candidates.filter((c) => c.facility === type), !!end);
       twoOpt(D, seq, !!end);
+      if (first) seq = notRightAfter(D, seq, !!end);
       const cost = D.path(seq);
       if (!best || cost < best.cost) best = { seq, cost, end };
     }
@@ -334,8 +344,10 @@ export function planTour(layout, people = [], departments = [], options = {}) {
   const doors = doorsByFloor(rooms);
   const mentioned = new Set();
   const walkedThrough = new Set();
+  const pauseOf = (s) => (s.kind === 'return' ? 0 : s.kind === 'facility' || s.kind === 'entrance' ? facilityPause : pause);
   stops.forEach((s, n) => {
     s.n = n + 1;
+    s.pause = pauseOf(s);
     const its = s.rooms.map((r) => roomsById.get(r.id)).filter(Boolean);
     const sitting = its.flatMap((r) => seated.get(r.id) ?? []);
     s.people = sitting.length;
@@ -349,10 +361,10 @@ export function planTour(layout, people = [], departments = [], options = {}) {
 
   const length = stops.reduce((sum, s) => sum + (s.leg?.length ?? 0), 0);
   const walkSeconds = length / speed;
-  const pauseSeconds = pause * stops.length;
+  const pauseSeconds = stops.reduce((sum, st) => sum + st.pause, 0);
   const seconds = walkSeconds + pauseSeconds;
   const minutes = Math.max(1, Math.round(seconds / 60));
-  entrance.lines = [...entrance.lines, `The tour: ${stops.length - 1} stop${stops.length === 2 ? '' : 's'}, about ${minutes} min`];
+  entrance.lines = [...entrance.lines, tourSummary(stops.length, minutes)];
   entrance.text = entrance.lines.join('\n');
 
   // rooms neither a stop, mentioned nor walked through
@@ -651,6 +663,37 @@ export function twoOpt(D, seq, fixedEnd) {
     if (!improved) break;
   }
   return seq;
+}
+
+/**
+ * "The tour: 20 stops, about 8 min": every count of the tour is the number of its stops (the entrance and the
+ * way back included), as "Stop 4 of 20" and the Find menu say.
+ */
+export function tourSummary(count, minutes) {
+  return `The tour: ${count} stop${count === 1 ? '' : 's'}, about ${minutes} min`;
+}
+
+/**
+ * A washroom or meeting room right after the reception (seq[1]) moves to where it adds the least walking further
+ * on, when a department is about as near the reception (NEAR_FACTOR, NEAR_EXTRA): the tour starts with people.
+ */
+export function notRightAfter(D, seq, fixedEnd) {
+  const f = seq[1];
+  if (!f || f.kind !== 'facility') return seq;
+  const near = D.d(seq[0], f) * NEAR_FACTOR + NEAR_EXTRA;
+  if (!seq.some((s) => s?.kind === 'department' && D.d(seq[0], s) <= near)) return seq;
+  const rest = [...seq.slice(0, 1), ...seq.slice(2)];
+  let best = null;
+  for (let i = 2; i <= rest.length; i++) {
+    if (fixedEnd && i === rest.length) continue; // never after the stairs
+    const a = rest[i - 1];
+    const b = rest[i];
+    const add = D.d(a, f) + (b !== undefined ? D.d(f, b) - D.d(a, b) : 0);
+    if (add < Infinity && (!best || add < best.add)) best = { i, add };
+  }
+  if (!best) return seq;
+  rest.splice(best.i, 0, f);
+  return rest;
 }
 
 /** The one candidate that adds the least walking, put where it adds the least (none: unchanged). */

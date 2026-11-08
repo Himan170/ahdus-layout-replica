@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
   planTour, nearestNeighbour, twoOpt, insertBest, sideOf, sampleLine, coarseOf, coarseField, coarseCost,
-  MENTION_DISTANCE, STOP_PAUSE, NAMES_MAX,
+  MENTION_DISTANCE, STOP_PAUSE, FACILITY_PAUSE, NAMES_MAX, tourSummary, notRightAfter,
 } from '../tour';
 import { findRoute } from '../route';
 import { createWalkMapCache, FREE } from '../walkMap';
@@ -65,6 +65,8 @@ describe('the tour of the Meridian-shaped layout', () => {
     expect(tour.stops[1]).toMatchObject({ n: 2, id: 'reception', kind: 'reception', name: 'Lobby & Reception', roomId: 'room_f0_02' });
     expect(tour.stops.at(-1)).toMatchObject({ kind: 'return', name: 'Lobby & Reception', floor: 0 });
     expect(tour.stops.map((s) => s.n)).toEqual(tour.stops.map((_, i) => i + 1));
+    // a department comes before any washroom or meeting room (one is about as near the reception)
+    expect(tour.stops[2].kind).toBe('department');
   });
 
   it('every department once, its rooms grouped (Engineering: 2 rooms on Floor 1)', () => {
@@ -151,7 +153,9 @@ describe('the tour of the Meridian-shaped layout', () => {
     const reception = tour.stops[1];
     expect(reception.lines).toEqual(['Lobby & Reception', 'Reception · Ground Floor', '1 person works here', 'Kavya Iyer (HR)']);
     expect(tour.stops.find((s) => s.facility === 'RESTROOM').lines[1]).toBe('Washroom · Ground Floor');
-    expect(tour.stops[0].lines.at(-1)).toBe(`The tour: ${tour.stops.length - 1} stops, about ${tour.minutes} min`);
+    // every count is the number of stops, the entrance and the way back included (v0.14.4: it said 19 of 20)
+    expect(tour.stops[0].lines.at(-1)).toBe(`The tour: ${tour.stops.length} stops, about ${tour.minutes} min`);
+    expect(tourSummary(1, 1)).toBe('The tour: 1 stop, about 1 min');
     // nothing from the people list but names and departments
     expect(JSON.stringify(tour)).not.toMatch(/@meridian\.example|u_kavya/);
   });
@@ -192,16 +196,22 @@ describe('the tour of the Meridian-shaped layout', () => {
     else expect(sales.leg.directions).toMatch(/Sales is the (first|second|third|fourth) door on your right/);
   });
 
-  it('the total length and the estimated time: walking + a pause at each stop', () => {
+  it('the total length and the estimated time: walking + a pause at each stop (shorter at facilities, none at the end)', () => {
     const sum = tour.stops.reduce((n, s) => n + (s.leg?.length ?? 0), 0);
     expect(tour.length).toBeCloseTo(sum, 6);
-    expect(tour.pauseSeconds).toBe(STOP_PAUSE * tour.stops.length);
+    for (const s of tour.stops) {
+      const want = s.kind === 'return' ? 0 : s.kind === 'facility' || s.kind === 'entrance' ? FACILITY_PAUSE : STOP_PAUSE;
+      expect(s.pause, s.name).toBe(want);
+    }
+    expect(FACILITY_PAUSE).toBeLessThan(STOP_PAUSE);
+    expect(tour.pauseSeconds).toBe(tour.stops.reduce((n, s) => n + s.pause, 0));
     expect(tour.seconds).toBeCloseTo(tour.walkSeconds + tour.pauseSeconds, 6);
     expect(tour.minutes).toBeGreaterThanOrEqual(5);
     expect(tour.minutes).toBeLessThanOrEqual(12);
     const slow = plan(layout, people, [], { maps, speed: 1.4, pause: 30, backToReception: false });
     expect(slow.stops.at(-1).kind).not.toBe('return');
-    expect(slow.seconds).toBeCloseTo(slow.length / 1.4 + 30 * slow.stops.length, 6);
+    const slowPauses = slow.stops.reduce((n, s) => n + (s.kind === 'facility' || s.kind === 'entrance' ? FACILITY_PAUSE : 30), 0);
+    expect(slow.seconds).toBeCloseTo(slow.length / 1.4 + slowPauses, 6);
   });
 
   it('plans Meridian in under 300 ms (walk maps ready, as after the engine warms them)', () => {
@@ -320,6 +330,23 @@ describe('ordering helpers', () => {
     expect(insertBest(D, [0, 4, 10], [20], true)).toEqual([0, 4, 20, 10]);
     expect(insertBest(D, [0, 4, 10], [20], false)).toEqual([0, 4, 10, 20]);
     expect(insertBest(D, [0, 4], [], false)).toEqual([0, 4]);
+  });
+
+  it('a facility right after the reception moves on when a department is about as near (v0.14.4)', () => {
+    const at = (x, kind) => ({ x, kind });
+    const Dx = { d: (a, b) => Math.abs(a.x - b.x) };
+    const rec = at(0, 'reception');
+    const wc = at(2, 'facility');
+    const sales = at(5, 'department');
+    const hr = at(9, 'department');
+    expect(notRightAfter(Dx, [rec, wc, sales, hr], false)).toEqual([rec, sales, wc, hr]);
+    // the department far further away: the washroom stays first
+    const far = at(40, 'department');
+    expect(notRightAfter(Dx, [rec, wc, far], false)).toEqual([rec, wc, far]);
+    // a department first already: nothing changes; never after the stairs
+    expect(notRightAfter(Dx, [rec, sales, wc], false)).toEqual([rec, sales, wc]);
+    const stairs = at(12, 'stairs');
+    expect(notRightAfter(Dx, [rec, wc, sales, stairs], true)).toEqual([rec, sales, wc, stairs]);
   });
 
   it('left and right: facing +Z, +X is on your right', () => {
