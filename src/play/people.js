@@ -341,6 +341,19 @@ export function walkRatio(speed, clipSpeed) {
   return Math.min(MAX_WALK_RATIO, Math.max(MIN_WALK_RATIO, speed / clipSpeed));
 }
 
+/** The built-in figure's legs (play/character.js: hip to sole, m). */
+export const FIGURE_LEG = 0.82;
+
+/**
+ * The built-in figure's walk at `speed` m/s: `swing` how far its legs swing (rad), `rate` how fast
+ * (rad/s of the sine that swings them). While a foot is on the ground it sweeps back by twice
+ * leg × sin(swing) in half a cycle: at this rate that is exactly the ground going by, so it doesn't slide.
+ */
+export function figureWalkCycle(speed) {
+  const swing = Math.min(0.75, 0.25 + speed * 0.16);
+  return { swing, rate: (speed * Math.PI) / (2 * FIGURE_LEG * Math.sin(swing)) };
+}
+
 /** A clip moving its hips at least this far forward over one cycle has root motion (m, the clip's size). */
 export const ROOT_MOTION_MIN = 0.2;
 

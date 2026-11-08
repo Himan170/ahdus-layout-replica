@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1001, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1104, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -39,6 +39,10 @@ npm run e2e:planner  # 44 checks   e2e/editor-smoke.mjs    (Workplace Studio + i
                      #                                       Ctrl+Z, a phone's hint at 390 px)
 npm run e2e:play     # 19 checks   e2e/play-smoke.mjs
 npm run e2e:modules  # 17 checks   e2e/modules-smoke.mjs   (uses ?demoModules=1)
+npm run e2e:stairs   # 23 checks   e2e/stairs-smoke.mjs    (viewer.html: W climbs flights turned 0 / 90 / 180 / 270°, with an old y,
+                     #                                       an old scale, on Floor 1: every frame on the tread DRAWN there (a ray), and
+                     #                                       back down; first person; from the side it stops you; Take me there; Studio:
+                     #                                       no Height / size for stairs, R says why; SHOTS=<dir>: screenshots)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
 npm run e2e:tools    # 45 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
                      #                                       room's floor + Preview's Edit item)
@@ -205,7 +209,7 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   Furniture stacks on table tops. Clicking the floor under a desk selects the desk.
   Code: `WorkplaceEditor.jsx` (wiring) + `src/ui/*`, `src/utils/gizmoController.js`, `src/utils/placementManager.js`.
 - **Preview**: Minecraft-style. Third-person character (over the shoulder; centred on a portrait phone: `shoulderOffset(aspect)`), hotbar 1–9, B = catalog, left-click builds, right-click
-  removes, R rotates, E interacts, N adds a floor above, F fly (Space up / C down), V first/third person, Tab or
+  removes, R rotates, E interacts, N adds a floor above, F fly (Space up / C down), V first/third person, Shift runs, Tab or
   "Back to Studio" returns. Code: `src/play/playController.js` + `src/components/PlayHUD.jsx` (+ `src/ui/preview.css`).
   Default hotbar (`src/play/hotbarItems.js`): Office room, Meeting room, Stretch, Door, Window, Desk, Chair, Staircase, Edit item.
   **Edit item** (slot 9) = Studio's gizmo actions on what you look at: click picks it up / puts it down,
@@ -287,6 +291,7 @@ src/play/geometry.js               PURE maths: room corners, wall splitting, doo
                                    roomsToRebuild
 src/utils/pickHelpers.js           Forgiving picks: the floor under an item = that item; a shared wall = the room on your side
 src/play/building.js               PURE maths: storeys, stairs, openings, supportHeight (where you stand)
+src/play/speeds.js                 THE walking speeds (v0.14.5): WALK_SPEED 2.2, RUN_SPEED 4.5, FLY_SPEED 6 m/s; the keys, the joystick, Take me there, the tour and every time estimate
 src/play/movement.js               Collision-safe movement in 0.1 m substeps (afterStep callback for step-up)
 src/play/character.js              Placeholder character; interface { root, update(dt,speed,flying), setVisible, dispose }
 src/store/workspaceStore.js        Zustand store: rooms, objects, floors, anchorData, selection, save/load
@@ -382,7 +387,15 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
   `subtractRects`), so stairs with no room above look up at the sky.
 - **Staircase:** 1.2 × 4.0 m, climbs exactly the height of the floor it starts on (`stairDims(rise)`: steps of at
   most 0.2 m, e.g. 18 for 3.5 m). Mesh (`buildAssetMesh(..., { rise })`, rebuilt when the floor height changes), walking
-  (`stairDimsFor` in `supportHeight`) and openings all use it. Placing one with no room where it arrives warns
+  (`stairDimsFor` in `supportHeight`) and openings all use it. **What is drawn is what is walked on (v0.14.5):**
+  `building.stairDrawn` is the one rule ObjectSystem draws by: on its floor (a saved `y` is ignored), level (saved
+  rotationX / Z ignored), its floor's height (scaleY ignored); an old save's scaleX / Z stay and count everywhere
+  (`stairSize`: `stairHeightAt`, `stairOpening`, `stairTop`, `stairBottom`, the walk map). Nothing new makes one: `stairPatch`
+  in `editorHistory.updateObject` drops y, tilt and resizing ("Normal size" is the only scale change), the Inspector has
+  no Height or size (`STAIRS_KEEP_SIZE`), the gizmos (`attachToMesh(…, { fixedShape })`) no up arrow, no tilt rings and
+  no scale, the R key says why. A flight has no collision mesh, so its **sides** are `building.stairPushOut` (playController
+  `stepUp`, not when flying): where its surface is more than `STEP_UP` over your feet it pushes you out, sideways or
+  out of the block; under a flight of the floor above nothing happens. Placing one with no room where it arrives warns
   "Build a room above to use these stairs" (`stairNeedsRoomAbove`). Walking uses `supportHeight` (STEP_UP 0.45),
   checked after every 0.1 m substep so it works at low fps. A room's floor reaches under its own walls there too
   (v0.13.4): the doorway between two rooms back to back upstairs is not a gap to fall into. `levelForY` decides which floor you're on (1 m lead).
@@ -452,13 +465,15 @@ Step v0.13.0 of `private-docs/NAVIGATION_PLAN.md` (4.1, 4.2, 4.6). Pure maths in
   stair opening, off the map). The ground floor is walkable 10 m around the building (`STREET`). Walls = what
   roomBuilder builds (`roomWallSegments` / `wallSegmentOpenings` / `splitWall`: shared walls once, doors of either
   room cut them, windows don't), + skirting (it collides). Items: as ObjectSystem makes them collide (not markers,
-  stairs, `solid: false`, nor y ≥ 1.8 m), catalogue size × scale, turned; `MODEL_SIZES` for the 10 models bigger than
+  stairs, `solid: false` (a DOOR_SINGLE item in an old save: v0.14.5), nor y ≥ 1.8 m), catalogue size × scale, turned; `MODEL_SIZES` for the 10 models bigger than
   their catalogue size (`footprints.test.js` measures every model). Items keep `ITEM_CLEARANCE` (0.32 + 0.02 m, v0.13.2),
   walls `CLEARANCE`: a 0.8 m aisle between a chair and the next desk row is open. Upper floors: a room's floor
-  reaches under its own walls (v0.13.2), so doors between rooms upstairs are walkable. A 1 m door leaves ~0.26 m. Doors from 0.8 m are
-  open, as for the real collision (v0.13.1): the cells a door's centre line crosses are tested ON that line (step 5,
-  door passages, kept in `map.passages`: cell → its point on the line; walls and items still exact), 0.7 m and narrower
-  stay closed. `map.isClear(x, z)`: FREE and the exact point clear (a cell's centre can be 7 cm further from a desk;
+  reaches under its own walls (v0.13.2), so doors between rooms upstairs are walkable. A 1 m door leaves ~0.26 m. Doors from `MIN_DOOR_PASS`
+  0.6 m (Studio's narrowest) are open, as for the real collision (v0.14.5, measured with the real meshes and controller in
+  `play/__tests__/doorsWalk.test.js`: 0.6 m passes, sliding to the middle; 0.4 m does not): the cells a door's centre line
+  crosses are tested ON that line (step 5, door passages, kept in `map.passages`: cell → its point on the line; a jamb
+  counts only up to the door's half width, walls and items still exact). A flight is an obstacle too (`kind: 'stairs'`,
+  v0.14.5): the cells beside it are BLOCKED, those on it stay `STAIRS`. `map.isClear(x, z)`: FREE and the exact point clear (a cell's centre can be 7 cm further from a desk;
   the spawn and `freeSpot` use it). Meridian: ~15 ms per floor. `createWalkMapCache` rebuilds only when the store's
   room / item records or floors change.
 - **Spawn** (`entrance.js` `entranceSpawn`): always the ground floor: its `SPAWN_POINT` (if blocked: the nearest free
@@ -488,15 +503,19 @@ viewer's debug view, search while walking (v0.13.3: how far, "Nearest washroom")
 - `findRoute(layout, from, to, { catalog | maps, links, name })` → `{ legs: [{ floor, points, stairsAtEnd? }], length,
   seconds, from, to }` or `{ problem, message }`. Exact A* over the FREE cells of all floors (8 neighbours, no
   corner cutting, octile); floors joined by **links** (`floorLinks`: a staircase from the spot in front of its bottom
-  step to `stairTop`, both ways, cost = the flight's length; stairs that lead nowhere are none; `options.links` for
-  lifts later); the heuristic goes through the links. `stairsAtEnd` = { kind, objectId, direction, toFloor, length }.
+  step to `stairTop`, both ways, `via` = up the flight's own line (v0.14.5: a landing can move aside, the flight's sides are solid), cost = its length; stairs that lead nowhere are none; `options.links` for
+  lifts later); the heuristic goes through the links. `stairsAtEnd` = { kind, objectId, direction, toFloor, length, via }.
 - Walking within 4 cells of a wall or item costs up to double (`NEAR_WALL_COST`): routes keep to the middle of
   doors and corridors. Never a block: a door under ~0.9 m is ONE cell wide on the walk map and routes go through
   it (on its centre line, `map.passages`).
 - Smoothing: the furthest point in line of sight (every crossed cell FREE + the segment ≥ body + 0.02 m from every
   wall and item, exactly), and no closer to any obstacle than the cell path came (− 5 cm).
-- Start / goal in a wall or desk: the nearest free spot (start: not a pocket between furniture; goal: one that can be
-  reached, within `SNAP_DISTANCE` 1.5 m). The walkable areas are labelled per map and joined by links, so "no route"
+- Start / goal in a wall or desk: the nearest free spot (start: not a pocket between furniture). **A goal only moves
+  within its own room, never across a wall (v0.14.5):** the room = `to.roomId` (places give their goals one, an item's or a
+  person's from where the desk stands, not a saved id) or `roomAt`; pulled inside it, then the nearest reachable spot within
+  `ROOM_SNAP_DISTANCE` 4 m in that same innermost room (`sameRoomTest`; none: `SNAP_DISTANCE` 1.5 m on the same side of every
+  wall, for a spot outside). Else it says why: "No walking route to Dhruv Khatwani's desk: Dhruv's office has no door" or
+  "…: something blocks the way into Dhruv's office", never a walk to the window outside. The walkable areas are labelled per map and joined by links, so "no route"
   is known at once: `NO_FLOOR`, `START_BLOCKED`, `NO_STAIRS` ("…: no stairs lead to Floor 2"), `GOAL_BLOCKED`,
   `NO_DOOR` ("No walking route to Server Room: it has no door"), `START_NO_DOOR`, `NO_ROUTE` ("…: something blocks
   the way"). The name: `options.name`, else the room there, else the floor.
@@ -505,7 +524,7 @@ viewer's debug view, search while walking (v0.13.3: how far, "Nearest washroom")
 - Speed: the longest Meridian route (entrance → Floor 1's far corner, 122 m) ~30 ms warm in Node (the plan's limit),
   ~100 ms the first time after a layout change (pass one `maps` = `createWalkMapCache` to reuse the maps).
 - Tests (`route.test.js`): an independent checker (every 2 cm of the route FREE and ≥ body radius from walls and
-  items; wall crossings only in doors), door middles, 0.8 m / 0.7 m doors, no door, stairs up / down, the
+  items; wall crossings only in doors), door middles, 0.6 m / 0.5 m doors, no door, stairs up / down, the
   Meridian-shaped layout (entrance → the far desk upstairs through the expected doors; every 3rd desk upstairs)
   and 200 random layouts.
 - **Debug view:** `viewer.html?mode=view&debug=walkmap` (`&to=x,z,floor`, `&from=x,z,floor`): the current floor's
@@ -593,14 +612,14 @@ Preview has no search box).
   `moveWithSteps` (collisions, step-up, stairs); null = free walking exactly as before (no pilot = no change at all).
   G and Esc go to `pilot.key` first. 'guide' never drives (the line only); 'auto' does.
 - **Following** (`follow.js`, PURE): `createFollower(route, { mapFor })` projects you on the route (`routePath`:
-  points with their distance along it, the stairs as one segment), steers to the furthest clear point ahead
+  points with their distance along it, a flight along its own line, as long as the route says), steers to the furthest clear point ahead
   (1.8 / 1.3 / 0.9 / 0.6 m, side offsets ± 0.1 / 0.2 m; clear = cells walkable + `FURNITURE_CLEARANCE` 0.44 m from
   items, or as much as there is), pushes away from furniture across the way; where it is **tight** (`tightAhead`: the map
   blocked on both sides within 0.3 m of the line in the next 1.5 m, a 1 m door, a narrow aisle) it follows the route's
-  own line closely, at most 2.8 m/s and 0.2 m per frame (a slow frame cut the corner into a door frame); a step never
+  own line closely, at most `TIGHT_SPEED` (0.9 × walking) and 0.2 m per frame (a slow frame cut the corner into a door frame); a step never
   ends closer than 0.36 m to a wall or item (`SAFE_CLEARANCE`, nor closer than you are), else it is halved (the turn off
   the top of a flight at 0.25 s frames), turns at most `TURN_RATE` (270°/s) and
-  slows for turns, corners and the last 2 m (`AUTO_SPEED` 4.2 = WALK_SPEED). `offRoute` (> 3 m: `OFF_ROUTE`),
+  slows for turns, corners and the last 2 m (`AUTO_SPEED` = `WALK_SPEED`). `offRoute` (> 3 m: `OFF_ROUTE`),
   `stuck` (< 0.3 m in 1.5 s), `arrived` (within 1 m on the goal's floor).
 - **NavigationSystem's rules:** off route → a new route (≤ every 0.5 s); stuck → a new route, stuck twice (the count
   resets after 3 m) → 'failed' "Can't get past here"; a movement key in 'auto' → paused (progress, `paused: true`),
@@ -858,7 +877,7 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
   srcRest / tgtRest must be the files' REST poses: `modelLoader.GLB_LOAD_OPTIONS` (every .glb load) starts no
   animation of a file (the loader's default plays the first one in its container, and copies then start mid-walk),
   and `restContainer` resets a file that runs one anyway (v0.12.2).
-  Speed: `people.clipSpeed` (root motion ≥ 0.2 m, else 2 × the foot's range / duration); `walkRatio` = your speed /
+  Speed: `people.clipSpeed` (root motion ≥ 0.2 m, else 2 × the foot's range / duration); (the built-in figure: `people.figureWalkCycle`, a step covers what the body moves, v0.14.5); `walkRatio` = your speed /
   that (0.25 to 6); below 0.3 m/s or flying = the standing pose. Eye height `playerEyeHeight` (0.93 × height).
   `playController.setCharacter(c, { eyeHeight })` (null = the simple figure). Your seated figure is hidden while
   walking (`CharacterSystem.setHiddenPerson`). No / unknown character, a failed file, quality 'low' = the simple
@@ -1091,7 +1110,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 
 - One straight flight per staircase, always 4.0 m long: on tall floors the steps get short and the flight steep; over
   6.3 m (walls go up to 15 m) it is very steep and the hints say so. A proper fix (landings / U-shaped flights) is not done.
-  A staircase turned 45° cuts a square opening. Stairs can't be resized (Preview's Edit item says so; Studio's scale gizmo still can).
+  A staircase turned 45° cuts a square opening. Stairs can't be resized anywhere (v0.14.5; an old save's scale stays until "Normal size").
 - Room labels: a name hidden because it would overlap a bigger room's shows on hover only. The hover card ignores items
   (pointing at a desk shows the room under it).
 - Old saves that stored elevations (no floor heights) still read a gap over 6.3 m as a missing floor, not one tall floor.
@@ -1221,6 +1240,16 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: stairs, goals, walking speed (v0.14.5, 8 Nov 2026, branch `fix/stairs-goal-speed`)
+
+Dhruv's bugs, on AHDUS v0.13.4. **Stairs** (see "Staircase" in "Multi-storey"): the turn was never wrong; a flight's
+sides had no collision, so from the side or behind you ended up inside the block; `y`, scale and tilt were drawn but not
+walked; a landing moved aside made Take me there cut through the side. **Goals** (see "Routes"): a goal moves only
+inside its own room; doors from 0.6 m are open on the walk map as they are in the walkthrough; a DOOR_SINGLE item never
+blocks. **Speed:** `play/speeds.js`: walk 2.2, run 4.5, fly 6 m/s for everything (was 4.2 / 7.5 / 9). Tests: stairsWalk,
+doorsWalk (real meshes + real controller), goalRoom; e2e:stairs. Screenshots: private-docs/screenshots/v0.14.5/ (not in git).
+The welcome card (start walking) is v0.14.6.
 
 ## DONE: the company tour (v0.14.4, 8 Nov 2026, branch `feature/tour`)
 

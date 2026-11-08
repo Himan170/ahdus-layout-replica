@@ -75,13 +75,11 @@ import {
 import {
   levelForY, elevationOf, supportHeight, stairHeightAt, floorAbove, floorBelow, placementHeight,
   floorHeight, floorPosition, stairDimsFor, stairNeedsRoomAbove, arrivalOnFloor, planWallHeight,
-  HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, wallHeightText,
+  HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, wallHeightText, stairPushOut, STAIRS_KEEP_SIZE,
 } from './building';
+import { WALK_SPEED as WALK, RUN_SPEED as RUN, FLY_SPEED as FLY } from './speeds';
 
 // ── Feel ──
-const WALK = 4.2;
-const RUN = 7.5;
-const FLY = 9;
 const JUMP_SPEED = 5.2;
 const GRAVITY = -18;
 const MOUSE_SENS = 0.0022;
@@ -808,7 +806,7 @@ export function createPlayController(scene, canvas, {
       return true;
     }
     if (obj.assetType === 'STAIRCASE' && (bigger || smaller)) {
-      say('Stairs always climb exactly one floor, so they keep their size', 2000);
+      say(STAIRS_KEEP_SIZE, 2000);
       return true;
     }
     // Several presses in a row on one item are one undo step
@@ -1375,6 +1373,16 @@ export function createPlayController(scene, canvas, {
     // Step up (stairs, room floors) after every small move, so climbing works at any frame rate
     const stepUp = () => {
       if (flying) return;
+      // the solid part of a flight: only its steps are walked on (from the side or behind it stops you)
+      const st = state();
+      const out = stairPushOut({
+        x: collider.position.x, z: collider.position.z, y: collider.position.y, floors: st.floors, stairs: stairsList(),
+        radius: BODY_RADIUS, bodyHeight: BODY_HEIGHT,
+      });
+      if (out) {
+        collider.computeWorldMatrix(true);
+        collider.moveWithCollisions(new Vector3(out.dx, 0, out.dz));
+      }
       const s = groundHeightAt(collider.position.x, collider.position.z, collider.position.y);
       if (s > collider.position.y) {
         collider.position.y = s;

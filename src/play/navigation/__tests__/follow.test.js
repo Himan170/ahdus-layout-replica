@@ -5,6 +5,7 @@ import {
   TURN_RATE, FURNITURE_CLEARANCE, AUTO_SPEED, STUCK_TIME,
 } from '../follow';
 import { findRoute, findNearestRoute } from '../route';
+import { WALK_SPEED } from '../../speeds';
 import { createWalkMapCache, buildWalkMap, itemObstacles, BODY_RADIUS } from '../walkMap';
 import { entranceSpawn } from '../entrance';
 import { buildPlaces } from '../places';
@@ -229,5 +230,24 @@ describe('the Meridian-shaped layout', () => {
   it('routes from findRoute too (one goal)', () => {
     const r = findRoute(layout, from, index.byId.get('person:far').goals[0], { maps });
     expect(walk(layout, r, { maps, check: false }).arrived).toBe(true);
+  });
+});
+
+describe('a flight on the path (v0.14.5)', () => {
+  it('is walked along its own line (via), and the path is as long as the route says', () => {
+    const route = {
+      length: 10,
+      legs: [
+        { floor: 0, points: [{ x: 0, z: 0 }, { x: 3, z: 0 }], stairsAtEnd: { kind: 'stairs', toFloor: 1, length: 4, via: [{ x: 3.5, z: 0 }, { x: 7.5, z: 0 }] } },
+        { floor: 1, points: [{ x: 8, z: 0 }, { x: 10, z: 0 }] },
+      ],
+    };
+    const p = routePath(route);
+    const on = p.points.filter((q) => q.inFlight);
+    expect(on.map((q) => q.x)).toEqual([3.5, 7.5]);
+    expect(p.length).toBeCloseTo(route.length, 5);
+  });
+  it('the speeds: Take me there walks at the one walking speed', () => {
+    expect(AUTO_SPEED).toBe(WALK_SPEED);
   });
 });

@@ -41,6 +41,21 @@ export function createGizmoController(scene, onTransformEnd) {
   let currentMode = null;      // 'position' | 'rotation' | 'scale' | null
   let attachedMesh = null;
   let attachedObjectId = null;
+  let fixedShape = false;      // a staircase: it moves on its floor and turns about Y only, no scale
+
+  /**
+   * A staircase is drawn as it is walked on (building.stairDrawn): no scale gizmo, no moving it up
+   * or down, no tilting. Everything else keeps all three axes.
+   */
+  function applyLimits() {
+    gizmoManager.scaleGizmoEnabled = currentMode === 'scale' && !fixedShape;
+    const { positionGizmo, rotationGizmo } = gizmoManager.gizmos ?? {};
+    if (positionGizmo) positionGizmo.yGizmo.isEnabled = !fixedShape;
+    if (rotationGizmo) {
+      rotationGizmo.xGizmo.isEnabled = !fixedShape;
+      rotationGizmo.zGizmo.isEnabled = !fixedShape;
+    }
+  }
 
   // ── Drag-end sync ──
 
@@ -107,6 +122,7 @@ export function createGizmoController(scene, onTransformEnd) {
     // Re-attach if we already have a mesh
     if (attachedMesh && mode) {
       gizmoManager.attachToMesh(attachedMesh);
+      applyLimits();
       syncOnDragEnd();
     } else if (!mode) {
       gizmoManager.attachToMesh(null);
@@ -118,13 +134,16 @@ export function createGizmoController(scene, onTransformEnd) {
    *
    * @param {BABYLON.Mesh} mesh — the root mesh of the object
    * @param {string} objectId — ObjectStore ID for sync
+   * @param {{ fixedShape?: boolean }} [options] — fixedShape: a staircase (see applyLimits)
    */
-  function attachToMesh(mesh, objectId) {
+  function attachToMesh(mesh, objectId, options = {}) {
     attachedMesh = mesh;
     attachedObjectId = objectId;
+    fixedShape = !!options.fixedShape;
 
     if (currentMode) {
       gizmoManager.attachToMesh(mesh);
+      applyLimits();
       syncOnDragEnd();
     }
   }

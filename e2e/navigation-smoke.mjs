@@ -110,6 +110,7 @@ await p.evaluate(async () => {
     let d = Infinity;
     let kind = '';
     for (const o of map.obstacles) {
+      if (o.kind === 'stairs') continue; // a flight is walked on (its sides: e2e:stairs)
       if (Math.abs(o.x - pos.x) > o.hw + o.hd + 1 || Math.abs(o.z - pos.z) > o.hw + o.hd + 1) continue;
       const dd = wm.distanceToRect(o, pos.x, pos.z);
       if (dd < d) { d = dd; kind = o.kind; }

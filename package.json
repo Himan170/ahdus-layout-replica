@@ -1,7 +1,7 @@
 {
   "name": "company-digital-twin",
   "private": true,
-  "version": "0.14.4",
+  "version": "0.14.5",
   "type": "module",
   "engines": {
     "node": ">=20.19"
@@ -19,7 +19,8 @@
     "test:watch": "vitest",
     "e2e:planner": "node e2e/editor-smoke.mjs",
     "e2e:play": "node e2e/play-smoke.mjs",
-    "e2e": "node e2e/editor-smoke.mjs && node e2e/play-smoke.mjs && node e2e/modules-smoke.mjs && node e2e/building-smoke.mjs && node e2e/tools-smoke.mjs && node e2e/measurements-smoke.mjs && node e2e/templates-smoke.mjs && node e2e/save-smoke.mjs && node e2e/perf-smoke.mjs && node e2e/shared-walls-smoke.mjs && node e2e/nested-rooms-smoke.mjs && node e2e/viewer-smoke.mjs && node e2e/controls-smoke.mjs && node e2e/touch-smoke.mjs && node e2e/tour-smoke.mjs && node e2e/embed-smoke.mjs && node e2e/characters-smoke.mjs && node e2e/seats-smoke.mjs",
+    "e2e": "node e2e/editor-smoke.mjs && node e2e/play-smoke.mjs && node e2e/modules-smoke.mjs && node e2e/building-smoke.mjs && node e2e/stairs-smoke.mjs && node e2e/tools-smoke.mjs && node e2e/measurements-smoke.mjs && node e2e/templates-smoke.mjs && node e2e/save-smoke.mjs && node e2e/perf-smoke.mjs && node e2e/shared-walls-smoke.mjs && node e2e/nested-rooms-smoke.mjs && node e2e/viewer-smoke.mjs && node e2e/controls-smoke.mjs && node e2e/touch-smoke.mjs && node e2e/tour-smoke.mjs && node e2e/embed-smoke.mjs && node e2e/characters-smoke.mjs && node e2e/seats-smoke.mjs",
+    "e2e:stairs": "node e2e/stairs-smoke.mjs",
     "e2e:shared-walls": "node e2e/shared-walls-smoke.mjs",
     "e2e:modules": "node e2e/modules-smoke.mjs",
     "e2e:building": "node e2e/building-smoke.mjs",

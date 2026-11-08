@@ -526,3 +526,41 @@ describe('floor and wall heights (one undo step each)', () => {
   });
 });
 
+describe('a staircase keeps its size, stands on its floor and stays level (v0.14.5)', () => {
+  const stairs = () => {
+    editor.addObject({ assetType: 'STAIRCASE', x: 2, z: 0, floor: 0 });
+    return objs()[0].id;
+  };
+  it('moving and turning work, one undo step each', () => {
+    const id = stairs();
+    editor.updateObject(id, { x: 5, rotationY: 1 });
+    expect(S().objects[id]).toMatchObject({ x: 5, rotationY: 1 });
+    editor.undo();
+    expect(S().objects[id].x).toBe(2);
+  });
+  it('resizing, a height and a tilt change nothing, and leave no undo step', () => {
+    const id = stairs();
+    const before = { ...S().objects[id] };
+    editor.updateObject(id, { scaleX: 2, scaleY: 2, scaleZ: 2 });
+    editor.updateObject(id, { y: 1.2 });
+    editor.updateObject(id, { rotationX: 0.3, rotationZ: 0.2 });
+    expect(S().objects[id]).toEqual(before);
+    expect(editor.canUndo?.() ?? true).toBe(true); // the placing itself
+    editor.undo();
+    expect(objs()).toHaveLength(0);
+  });
+  it('a resized flight from an old save goes back with Normal size, one undo step', () => {
+    const id = stairs();
+    S().updateObject(id, { scaleX: 1.5, scaleZ: 2 }); // as an old save has it
+    editor.updateObject(id, { scaleX: 1, scaleY: 1, scaleZ: 1 });
+    expect(S().objects[id]).toMatchObject({ scaleX: 1, scaleY: 1, scaleZ: 1 });
+    editor.undo();
+    expect(S().objects[id]).toMatchObject({ scaleX: 1.5, scaleZ: 2 });
+  });
+  it('other items resize as before', () => {
+    editor.addObject({ assetType: 'DESK_STANDARD', x: 2, z: 0, floor: 0 });
+    const id = objs()[0].id;
+    editor.updateObject(id, { scaleX: 2 });
+    expect(S().objects[id].scaleX).toBe(2);
+  });
+});

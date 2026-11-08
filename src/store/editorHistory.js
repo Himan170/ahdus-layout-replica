@@ -18,7 +18,7 @@
 import { useWorkspaceStore } from './workspaceStore';
 import {
   STOREY_HEIGHT, floorHeight, floorsInOrder, wallSpace, planWallHeight, planFloorHeight, copyRoomsUp, isGroundFloor,
-  GROUND_FLOOR_STAYS,
+  GROUND_FLOOR_STAYS, stairPatch,
 } from '../play/building';
 import { toV1 } from '../engine/model/toV1';
 import { normaliseLayout } from './layoutData';
@@ -267,10 +267,12 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
     updateObject(id, patch, options) {
       const obj = s.getObject(id);
       if (!obj) return;
+      // Stairs keep their size, stand on their floor and stay level (what you walk on is what you see)
+      const allowed = obj.assetType === 'STAIRCASE' ? stairPatch(patch) : patch;
       // Skip no-op updates so they don't create empty undo steps
-      const changed = Object.keys(patch).some((k) => obj[k] !== patch[k]);
+      const changed = Object.keys(allowed).some((k) => obj[k] !== allowed[k]);
       if (!changed) return;
-      run(new TransformCommand(s, id, patch, options));
+      run(new TransformCommand(s, id, allowed, options));
     },
     duplicateObject(id) {
       const obj = s.getObject(id);

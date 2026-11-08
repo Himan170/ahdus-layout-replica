@@ -12,6 +12,7 @@ import '@babylonjs/core/Collisions/collisionCoordinator'; // walking collides (S
 
 import { WalkthroughSystem, isTextField } from '../systems/WalkthroughSystem';
 import { createPlayController } from '../../play/playController';
+import { FLY_SPEED, RUN_SPEED, WALK_SPEED } from '../../play/speeds';
 
 const floors = { 0: { id: 0, name: 'Ground Floor', height: 3.5 } };
 const world = { rooms: {}, objects: {}, floors, currentFloor: 0, anchorData: {} } as any;
@@ -304,14 +305,28 @@ describe('touch (v0.14.1)', () => {
     };
     scene.render();
     const full = go(0, 1);
-    expect(full.dz).toBeGreaterThan(1.5); // yaw 0 = +Z: forward; 4.2 m/s for 0.5 s
+    expect(full.dz).toBeCloseTo(WALK_SPEED * 0.5, 1); // yaw 0 = +Z: forward; its top speed = the walking speed, for 0.5 s
     const half = go(0, 0.5);
-    expect(half.d).toBeGreaterThan(0.5);
+    expect(half.d).toBeGreaterThan(0.25);
     expect(half.d).toBeLessThan(full.d * 0.7);
-    expect(go(1, 0).dx).toBeGreaterThan(1.5); // right
+    expect(go(1, 0).dx).toBeCloseTo(WALK_SPEED * 0.5, 1); // right
     expect(go(0, 0).d).toBeLessThan(0.01); // let go
     w.setStick(5, 5); // too far: as far as it goes
     expect(Math.hypot(w.getStick().x, w.getStick().y)).toBeCloseTo(1);
+  });
+
+  it('the speeds (v0.14.5): one set of constants, W, Shift + W and flying', () => {
+    expect([WALK_SPEED, RUN_SPEED, FLY_SPEED]).toEqual([2.2, 4.5, 6]);
+    const w = walk();
+    scene.render();
+    expect(hold(w, 'KeyW', 5)).toBeCloseTo(WALK_SPEED * 0.5, 1);
+    key('ShiftLeft');
+    expect(hold(w, 'KeyW', 5)).toBeCloseTo(RUN_SPEED * 0.5, 1);
+    key('ShiftLeft', 'keyup');
+    key('KeyF'); // fly
+    key('KeyF', 'keyup');
+    expect(w.isFlying?.() ?? true).toBe(true);
+    expect(hold(w, 'KeyW', 5)).toBeCloseTo(FLY_SPEED * 0.5, 1);
   });
 
   it('the joystick works without the keys (a phone has none) and counts as moving: a route pauses', () => {

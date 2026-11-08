@@ -179,6 +179,8 @@ engine.on('tour', (e) => {});        // { type: 'started' | 'walking' | 'arrived
                                      //   navigation outline: the tour outlines the stop's rooms on arrival)
 
 // --- Going there (v0.13.4): Show route / Take me there ---
+// Speeds (play/speeds.js, v0.14.5): walk 2.2, Shift 4.5, fly 6 m/s; the joystick's top speed, Take me there, the tour and
+// every `seconds` use the walking speed. A goal only moves inside its own room, never across a wall.
 engine.navigation.routeTo('person:42', { walk: 'guide' }); // Show route: the line on the floor, you walk
 engine.navigation.routeTo({ type: 'RESTROOM' }, { walk: 'auto' }); // Take me there: walked there (keys pause, G, Esc)
                                      // target: a result id, { personId } { roomId } { deskId } { type } { x, z, floor };

@@ -6,6 +6,7 @@ import {
 import { createWalkMapCache, buildWalkMap, itemObstacles, wallObstacles, FREE, BODY_RADIUS } from '../walkMap';
 import { entranceSpawn } from '../entrance';
 import { stairTop, stairDimsFor } from '../../building';
+import { WALK_SPEED } from '../../speeds';
 import { ASSET_TYPES } from '../../../utils/assetCatalog';
 import { meridianLike } from './meridianLike';
 import { randomLayout } from './randomLayouts';
@@ -141,7 +142,7 @@ describe('routes on one floor', () => {
     expect(crossing.every((c) => c.door)).toBe(true);
     expect(Math.abs(crossing[0].u - 2)).toBeLessThan(0.18); // inside the 1 m door (0.5 − 0.32)
     expect(r.length).toBeGreaterThan(12.5); // longer than straight through the wall
-    expect(r.seconds).toBeCloseTo(r.length / 4.2, 5);
+    expect(r.seconds).toBeCloseTo(r.length / WALK_SPEED, 5);
     expect(r.legs).toHaveLength(1);
     expect(r.legs[0].points[0]).toEqual({ x: -2, z: -2 });
     expect(r.legs[0].points.at(-1)).toEqual({ x: 10, z: -2 });
@@ -161,8 +162,18 @@ describe('routes on one floor', () => {
     expect(Math.abs(c.u - 2)).toBeLessThan(0.08 + 1e-6); // within 0.4 − 0.32 of the door's middle
   });
 
-  it('a 0.7 m door is too narrow: no route, and a clear answer', () => {
-    const r = route(twoRooms(0.7), { x: -2, z: -2, floor: 0 }, { x: 10, z: -2, floor: 0 });
+  it('a 0.7 m and a 0.6 m door (Studio\'s narrowest) are walked through, in the middle', () => {
+    for (const width of [0.7, 0.6]) {
+      const layout = twoRooms(width);
+      const r = route(layout, { x: -2, z: -2, floor: 0 }, { x: 10, z: -2, floor: 0 });
+      expect(r.problem, r.message).toBeUndefined();
+      const [c] = wallCrossings(layout, 0, ...firstCrossingSegment(r, 4.075));
+      expect(Math.abs(c.u - 2)).toBeLessThan(0.05); // the door's centre line (doorsWalk.test.js: the body does get through)
+    }
+  });
+
+  it('a door too narrow for the body: no route, and a clear answer', () => {
+    const r = route(twoRooms(0.5), { x: -2, z: -2, floor: 0 }, { x: 10, z: -2, floor: 0 });
     expect(r).toEqual({ problem: 'NO_ROUTE', message: 'No walking route to Office B: something blocks the way' });
   });
 

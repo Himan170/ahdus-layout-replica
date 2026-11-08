@@ -14,6 +14,7 @@ import { useEffect } from 'react';
 
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { STUDIO_TOOLS } from '../ui/tools';
+import { STAIRS_KEEP_SIZE } from '../play/building';
 
 export function useStudioKeyboard({
   editor, handleCancelPlacement, handleSetGizmoMode, handleEnterPlay, handleSetPlannerTool,
@@ -157,6 +158,8 @@ export function useStudioKeyboard({
           // During placement: rotate preview 45°. Otherwise: scale gizmo.
           if (placementManagerRef.current?.isActive()) {
             placementManagerRef.current.rotatePreview();
+          } else if (store.objects[store.selectedObjectId]?.assetType === 'STAIRCASE') {
+            showStudioMessage(STAIRS_KEEP_SIZE);
           } else {
             handleSetGizmoMode('scale');
           }

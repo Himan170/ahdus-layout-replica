@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DESK_SIZES, SEAT_REACH, deskSeat, deskSeats, seatPose, personNear, chooseFullCharacters, MAX_FULL_CHARACTERS,
   normaliseBoneName, canonicalBoneName, BONE_TABLE, SEATED_POSE, STANDING_POSE, breathing, phaseOf,
-  playerEyeHeight, walkRatio, clipSpeed, MIN_WALK_RATIO, MAX_WALK_RATIO, visitorSpot, COUNTER_GAP,
+  playerEyeHeight, walkRatio, clipSpeed, MIN_WALK_RATIO, MAX_WALK_RATIO, visitorSpot, COUNTER_GAP, figureWalkCycle, FIGURE_LEG,
 } from '../people';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 
@@ -246,5 +246,15 @@ describe('walking as yourself', () => {
     expect(clipSpeed({ duration: 2, hipsTravel: -1.4, footRange: 0 })).toBeCloseTo(0.7); // walking towards -Z
     expect(clipSpeed({ duration: 1.1, hipsTravel: 0, footRange: 0.66 })).toBeCloseTo(1.2); // in place
     expect(clipSpeed({ duration: 0, hipsTravel: 1, footRange: 1 })).toBe(0);
+  });
+
+  it('the legs of the simple figure keep up with the ground: a step covers what the body moves, at every speed', () => {
+    for (const speed of [1, 2.2, 4.5, 6]) {
+      const { swing, rate } = figureWalkCycle(speed);
+      // a half cycle (one step: π / rate seconds) moves the foot 2 × leg × sin(swing)
+      expect((speed * Math.PI) / rate).toBeCloseTo(2 * FIGURE_LEG * Math.sin(swing), 5);
+    }
+    expect(figureWalkCycle(4.5).rate).toBeGreaterThan(figureWalkCycle(2.2).rate);
+    expect(figureWalkCycle(50).swing).toBeLessThanOrEqual(0.75);
   });
 });
