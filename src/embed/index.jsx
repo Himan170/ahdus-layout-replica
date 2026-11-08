@@ -15,6 +15,8 @@
  *                                      // option navigation: { search: false } hides the box)
  *   workplace.goTo('Kavya Iyer', { walk: 'auto' });  // walk there: 'guide' = Show route (a line on the floor),
  *                                      // 'auto' = Take me there; onEvent('navigation', { state, … }); stopRoute()
+ *   workplace.startTour({ follow: 'auto' }); // the company tour from the main entrance ('self' = "I'll walk");
+ *                                      // onEvent('tour', { type, state, index, count, stop, … }); stopTour()
  *
  * `npm run build:embed` (vite.embed.config.js) makes one IIFE file with React
  * and Babylon inside. It shows <LayoutViewer /> and works through layoutBridge
@@ -77,6 +79,16 @@ function call(fn, ...args) {
   }
 }
 
+/** The 'tour' event for the page: the stop's public part (not the whole plan). */
+function tourEvent(ev) {
+  const st = ev.stop;
+  return {
+    type: ev.type, state: ev.state, follow: ev.follow, index: ev.index, count: ev.count, visited: [...ev.visited],
+    remaining: ev.remaining, message: ev.message, mention: ev.mention ? { name: ev.mention.name, text: ev.mention.text, side: ev.mention.side } : null,
+    stop: st ? { id: st.id, n: st.n, kind: st.kind, name: st.name, floor: st.floor, floorName: st.floorName, text: st.text } : null,
+  };
+}
+
 /**
  * Show a layout in `element` (give it a size). Returns at once; the layout is
  * built a slice at a time, the start floor first ('progress' events), and
@@ -97,7 +109,8 @@ function call(fn, ...args) {
  *                                     // chooseUrl: where people choose their character; walkClipUrl: the walk clip
  *   player?: { personId?: string, assetReference?: string | null }, // the signed-in person (setPlayer): walking
  *                                     // through they are their own character; "Choose your character" on their card
- *   navigation?: { search?: boolean }, // search: the "Find a person, room or place" box (default true; false hides it)
+ *   navigation?: { search?: boolean, tour?: boolean }, // search: the "Find a person, room or place" box; tour: the Tour
+ *                                     // button and Find's "Take the company tour" (each default true; false hides it)
  *   departments?: { name: string, description?: string }[], // descriptions in the Find box's menu (setDepartments)
  *   onEvent?: (name: string, data: object) => void,
  *   onError?: (error: Error) => void,
@@ -127,6 +140,7 @@ export function mount(element, options = {}) {
   let player = resolvePlayer(playerGiven, new Map()); // …as the viewer takes it ({ personId, character, walk })
   const walkClipUrl = walkClipUrlOf(options.characters, document.baseURI);
   const search = options.navigation?.search !== false;
+  const tour = options.navigation?.tour !== false;
   let departments = cleanDepartments(options.departments); // descriptions in the Find box's menu (setDepartments)
 
   let resolveReady;
@@ -210,7 +224,7 @@ export function mount(element, options = {}) {
       <LayoutViewer
         layout={layout} mode={mode} quality={quality} assetBaseUrl={assetBaseUrl} people={people}
         player={player} chooseCharacterUrl={options.characters?.chooseUrl} walkClipUrl={walkClipUrl ?? undefined}
-        search={search} departments={departments} onReady={onReady} onError={fail} onProgress={onProgress}
+        search={search} tour={tour} departments={departments} onReady={onReady} onError={fail} onProgress={onProgress}
         onCard={(card) => emit('card', { title: card.title, body: card.body ?? card.text ?? '' })}
         style={{ width: '100%', height: '100%' }}
       />,
@@ -247,6 +261,8 @@ export function mount(element, options = {}) {
       store.subscribe((s) => s.currentFloor, (floorId) => emit('floorChange', floor(floorId))),
       // Show route / Take me there: started, progress, arrived, stopped, failed
       e.on('navigation', (ev) => emit('navigation', { ...ev })),
+      // the company tour (v0.14.4): what changed, and where the tour is (the plan itself stays inside)
+      e.on('tour', (ev) => emit('tour', tourEvent(ev))),
       // "Take me there" from above starts walking: the page's mode follows
       e.on('mode', ({ mode: next }) => {
         if (next === mode || next === 'edit') return;
@@ -437,6 +453,22 @@ export function mount(element, options = {}) {
     /** End Show route / Take me there (false: there was none). */
     stopRoute() {
       return whenReady(() => engine.navigation.stop());
+    },
+
+    /**
+     * The company tour (v0.14.4): from the main entrance (from above too), each department once, a washroom and
+     * a meeting room per floor, floor by floor. follow 'auto' ("Walk me", default) or 'self' ("I'll walk": the
+     * line shows the way). Answers { count, minutes, length } or { problem, message }; undefined until ready.
+     * onEvent('tour', { type: 'started' | 'walking' | 'arrived' | 'paused' | 'resumed' | 'done' | 'ended' | …,
+     * state, follow, index, count, stop: { id, name, kind, floor, text } | null, visited }).
+     */
+    startTour({ follow } = {}) {
+      return whenReady(() => engine.tour.start({ follow: follow === 'self' ? 'self' : 'auto' }));
+    },
+
+    /** End the tour (false: none). You stay where you are, walking. */
+    stopTour() {
+      return whenReady(() => engine.tour.stop());
     },
 
     /** Remove the viewer: the element, the 3D engine, its actions and listeners. */

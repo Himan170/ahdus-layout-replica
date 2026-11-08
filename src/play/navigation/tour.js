@@ -39,10 +39,28 @@ import { entranceSpawn, nearestFree, facingYaw } from './entrance';
 import {
   pathLength, floorLinks, findRoute, cellsClear, areaOf, WALK_SPEED, SNAP_DISTANCE,
 } from './route';
-import { buildPlaces, roomDoorSpots, words, ROOM_TYPE_LABEL, FACILITIES } from './places';
+import { buildPlaces, roomDoorSpots, roomDoorFrames, words, ROOM_TYPE_LABEL, FACILITIES, INSIDE_DOOR } from './places';
 
-/** A pause at each stop (s): the estimated time. */
+/** A pause at each department's stop and the reception (s): the estimated time, and how long "Walk me" stays. */
 export const STOP_PAUSE = 20;
+/** A shorter pause at a washroom or a meeting room, and at the entrance (s, v0.14.4). */
+export const FACILITY_PAUSE = 8;
+/**
+ * A facility right after the reception moves further on when a department is about as near: at most
+ * this many times as far from the reception, plus NEAR_EXTRA m (v0.14.4: the tour first meets people).
+ */
+const NEAR_FACTOR = 1.5;
+const NEAR_EXTRA = 4;
+/**
+ * A room's stop stands this far inside the wall's inner face (m, v0.14.4), on a free spot of the walk map in
+ * sight of the door, so the room's desks and people are in view; nearer (STOP_DEPTHS) or a little to the side
+ * (STOP_SIDES) where furniture is in the way; just inside the door when nothing fits.
+ */
+export const STOP_INSIDE = 2;
+const STOP_DEPTHS = [STOP_INSIDE, 1.7, 1.4, 1.1];
+const STOP_SIDES = [0, 0.4, -0.4, 0.8, -0.8];
+/** Keep this far from the room's far wall (m: the body and a little). */
+const FAR_WALL = 0.5;
 /** A room whose door the route passes this close (m), in sight, gets a passing mention. */
 export const MENTION_DISTANCE = 4;
 /** At most this many names on a stop. */
@@ -80,12 +98,13 @@ const sayList = (names) => (names.length < 2 ? names.join('') : `${names.slice(0
  * @param {{ personId, deskId, name?, department? }[]} [people]  the seats (setPeople's list)
  * @param {{ name: string, description?: string }[]} [departments]  the page's descriptions
  * @param {{ catalog?: object, maps?: { get(layout, floorId) }, speed?: number, pause?: number,
- *   backToReception?: boolean }} [options]
+ *   facilityPause?: number, backToReception?: boolean }} [options]  pause: at a department and the reception
+ *   (STOP_PAUSE), facilityPause: at a washroom, a meeting room and the entrance (FACILITY_PAUSE); none at the return
  * @returns {TourPlan}
  */
 export function planTour(layout, people = [], departments = [], options = {}) {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-  const { speed = WALK_SPEED, pause = STOP_PAUSE, backToReception = true } = options;
+  const { speed = WALK_SPEED, pause = STOP_PAUSE, facilityPause = FACILITY_PAUSE, backToReception = true } = options;
   const floors = layout.floors ?? {};
   const rooms = list(layout.rooms);
   const objects = list(layout.objects);
@@ -197,15 +216,45 @@ export function planTour(layout, people = [], departments = [], options = {}) {
       const s = nearestFree(map, p.x, p.z, { maxDistance: SNAP_DISTANCE, accept: (x, z) => reached({ x, z }) });
       return s && { x: s.x, z: s.z, floor };
     };
-    /** The nearest reachable spot just inside one of a room's doors (null: none). */
+    /**
+     * Where to stand in a room (v0.14.4): about STOP_INSIDE m in from one of its doors (the one nearest the
+     * floor's arrival), free, reachable, in sight of the door and inside the room; else just inside that door.
+     * faceOf: which way to look from it (into the room, towards its middle when that is ahead). null: none.
+     */
+    const faceOf = new WeakMap(); // a room spot → the point to face
     const roomSpot = (room) => {
       let best = null;
-      for (const s of roomDoorSpots(room)) {
+      const T = wallThicknessOf(room);
+      const inRoom = (p) => Math.abs(p.x - room.x) < room.width / 2 - T / 2 && Math.abs(p.z - room.z) < room.depth / 2 - T / 2;
+      for (const f of roomDoorFrames(room)) {
+        const door = { x: f.x + f.inX * (T / 2 + INSIDE_DOOR), z: f.z + f.inZ * (T / 2 + INSIDE_DOOR) };
+        let p = null;
+        const most = f.depth - T / 2 - FAR_WALL;
+        for (const depth of STOP_DEPTHS) {
+          const d = Math.min(T / 2 + depth, most);
+          if (d <= T / 2 + INSIDE_DOOR) break;
+          for (const side of STOP_SIDES) {
+            const q = { x: f.x + f.inX * d + f.alongX * side, z: f.z + f.inZ * d + f.alongZ * side };
+            if (inRoom(q) && map.isClear(q.x, q.z) && reached(q) && cellsClear(map, door.x, door.z, q.x, q.z)) { p = { ...q, floor }; break; }
+          }
+          if (p) break;
+        }
+        p = p ?? place(door);
+        if (!p) continue;
+        // into the room; halfway towards its middle when that is ahead (not behind or beside you)
+        const ahead = { x: p.x + f.inX * 4, z: p.z + f.inZ * 4 };
+        const toMid = (room.x - p.x) * f.inX + (room.z - p.z) * f.inZ;
+        faceOf.set(p, toMid > 0.5 ? { x: (ahead.x + room.x) / 2, z: (ahead.z + room.z) / 2 } : ahead);
+        if (!best || coarseCost(startField, p) < coarseCost(startField, best)) best = p;
+      }
+      if (!best) for (const s of roomDoorSpots(room)) { // a room with no door: its middle, if anywhere
         const p = place(s);
         if (p && (!best || coarseCost(startField, p) < coarseCost(startField, best))) best = p;
       }
       return best;
     };
+    /** A stop's way to face: from roomSpot, else towards the room's middle. */
+    const faceYawOf = (spot, room) => facingYaw(spot, faceOf.get(spot) ?? room);
     for (const r of floorRooms) if (!roomSpot(r)) skip(r, 'room', whyNot(r));
 
     const here = []; // this floor's stops, before ordering
@@ -239,7 +288,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
         roomId: main.id, rooms: reachable.map((r) => ({ id: r.id, name: roomName(r) })), department: d.name,
         description: descriptions.get(d.key) ?? textOf(main.description),
         elsewhere: d.rooms.filter((r) => floorOf(r) !== floor).map((r) => ({ id: r.id, name: roomName(r), floor: floorOf(r) })),
-        spot, yaw: facingYaw(spot, main), look: { x: main.x, z: main.z },
+        spot, yaw: faceYawOf(spot, main), look: { x: main.x, z: main.z },
         people: 0, names: [], lines: [], text: '', leg: null,
       });
     }
@@ -255,7 +304,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
         candidates.push({
           id: `room:${r.id}`, kind: 'facility', facility: type, name: roomName(r), floor, floorName: floorName(floor),
           roomId: r.id, rooms: [{ id: r.id, name: roomName(r) }], department: r.departmentRef?.trim() || null,
-          description: textOf(r.description), spot, yaw: facingYaw(spot, r), look: { x: r.x, z: r.z },
+          description: textOf(r.description), spot, yaw: faceYawOf(spot, r), look: { x: r.x, z: r.z },
           people: 0, names: [], lines: [], text: '', leg: null,
         });
       }
@@ -289,6 +338,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
       twoOpt(D, seq, !!end);
       for (const type of TOUR_FACILITIES) seq = insertBest(D, seq, candidates.filter((c) => c.facility === type), !!end);
       twoOpt(D, seq, !!end);
+      if (first) seq = notRightAfter(D, seq, !!end);
       const cost = D.path(seq);
       if (!best || cost < best.cost) best = { seq, cost, end };
     }
@@ -334,8 +384,10 @@ export function planTour(layout, people = [], departments = [], options = {}) {
   const doors = doorsByFloor(rooms);
   const mentioned = new Set();
   const walkedThrough = new Set();
+  const pauseOf = (s) => (s.kind === 'return' ? 0 : s.kind === 'facility' || s.kind === 'entrance' ? facilityPause : pause);
   stops.forEach((s, n) => {
     s.n = n + 1;
+    s.pause = pauseOf(s);
     const its = s.rooms.map((r) => roomsById.get(r.id)).filter(Boolean);
     const sitting = its.flatMap((r) => seated.get(r.id) ?? []);
     s.people = sitting.length;
@@ -349,10 +401,10 @@ export function planTour(layout, people = [], departments = [], options = {}) {
 
   const length = stops.reduce((sum, s) => sum + (s.leg?.length ?? 0), 0);
   const walkSeconds = length / speed;
-  const pauseSeconds = pause * stops.length;
+  const pauseSeconds = stops.reduce((sum, st) => sum + st.pause, 0);
   const seconds = walkSeconds + pauseSeconds;
   const minutes = Math.max(1, Math.round(seconds / 60));
-  entrance.lines = [...entrance.lines, `The tour: ${stops.length - 1} stop${stops.length === 2 ? '' : 's'}, about ${minutes} min`];
+  entrance.lines = [...entrance.lines, tourSummary(stops.length, minutes)];
   entrance.text = entrance.lines.join('\n');
 
   // rooms neither a stop, mentioned nor walked through
@@ -651,6 +703,37 @@ export function twoOpt(D, seq, fixedEnd) {
     if (!improved) break;
   }
   return seq;
+}
+
+/**
+ * "The tour: 20 stops, about 8 min": every count of the tour is the number of its stops (the entrance and the
+ * way back included), as "Stop 4 of 20" and the Find menu say.
+ */
+export function tourSummary(count, minutes) {
+  return `The tour: ${count} stop${count === 1 ? '' : 's'}, about ${minutes} min`;
+}
+
+/**
+ * A washroom or meeting room right after the reception (seq[1]) moves to where it adds the least walking further
+ * on, when a department is about as near the reception (NEAR_FACTOR, NEAR_EXTRA): the tour starts with people.
+ */
+export function notRightAfter(D, seq, fixedEnd) {
+  const f = seq[1];
+  if (!f || f.kind !== 'facility') return seq;
+  const near = D.d(seq[0], f) * NEAR_FACTOR + NEAR_EXTRA;
+  if (!seq.some((s) => s?.kind === 'department' && D.d(seq[0], s) <= near)) return seq;
+  const rest = [...seq.slice(0, 1), ...seq.slice(2)];
+  let best = null;
+  for (let i = 2; i <= rest.length; i++) {
+    if (fixedEnd && i === rest.length) continue; // never after the stairs
+    const a = rest[i - 1];
+    const b = rest[i];
+    const add = D.d(a, f) + (b !== undefined ? D.d(f, b) - D.d(a, b) : 0);
+    if (add < Infinity && (!best || add < best.add)) best = { i, add };
+  }
+  if (!best) return seq;
+  rest.splice(best.i, 0, f);
+  return rest;
 }
 
 /** The one candidate that adds the least walking, put where it adds the least (none: unchanged). */

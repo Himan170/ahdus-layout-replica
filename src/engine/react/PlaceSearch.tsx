@@ -13,7 +13,8 @@
  * play/navigation/browse.js): chips for the facility kinds this workplace has
  * (walking: "Nearest washroom · 8 m"), My desk, recent searches (per browser),
  * departments ("Engineering · 2 rooms · Floor 1 · 92 people", + the page's
- * description), places by kind and by floor; opening one lists its places.
+ * description), places by kind and by floor; opening one lists its places. At its top (v0.14.4): "Take the
+ * company tour · 20 stops · about 8 min" (engine.tour; the plan is made in idle time, so it starts at once).
  *
  * The card of the place shown has "Show route" (a line on the floor, you walk)
  * and "Take me there" (your character walks it): engine.navigation.routeTo,
@@ -58,6 +59,21 @@ export interface PlaceSearchProps {
   touch?: boolean;
   /** The box opened or closed (the viewer keeps its one-time hint out of the way meanwhile). */
   onOpenChange?: (open: boolean) => void;
+  /** The tour's entry at the top of the menu (v0.14.4; default true): its pick calls onStartTour. */
+  tour?: boolean;
+  onStartTour?: () => void;
+  /** More of the toolbar's buttons, after Find (the viewer's Tour button). */
+  after?: ReactNode;
+}
+
+/** The tour's entry: how many stops, about how long, how many visited (null: none to offer). */
+export interface TourOffer { count: number | null; minutes: number | null; visited: number }
+
+/** "20 stops · about 8 min · 3 visited" (the plan not made yet: "From the main entrance"). PURE: tested. */
+export function tourDetail(t: TourOffer): string {
+  const parts = t.count ? [count(t.count, 'stop'), `about ${t.minutes ?? 1} min`] : ['From the main entrance'];
+  if (t.visited) parts.push(`${t.visited} visited`);
+  return parts.join(' · ');
 }
 
 /** "Going to Kavya Iyer · 42 m · Floor 1": the strip's line (the floor when it isn't yours). */
@@ -91,7 +107,8 @@ export type BrowseEntry =
   | { type: 'place'; key: string; place: PlaceResult; name?: string; detail?: string; tag?: 'my-desk' | 'recent' }
   | { type: 'open'; key: string; view: BrowseView; name: string; detail: string; description?: string | null; count?: number }
   | { type: 'back'; key: string }
-  | { type: 'chip'; key: string; chip: Chip; name: string };
+  | { type: 'chip'; key: string; chip: Chip; name: string }
+  | { type: 'tour'; key: string; name: string; detail: string };
 export interface BrowseSection { key: string; title?: string; chips?: boolean; entries: BrowseEntry[] }
 export interface BrowseScreen {
   view: BrowseView;
@@ -111,7 +128,7 @@ export function chipLabel(chip: Chip, walking: boolean): string {
 }
 
 /** What the menu shows for a view (the start if what was opened is gone). PURE: tested. */
-export function browseScreen(menu: BrowseMenu, view: BrowseView, { walking = false } = {}): BrowseScreen {
+export function browseScreen(menu: BrowseMenu, view: BrowseView, { walking = false, tour = null }: { walking?: boolean; tour?: TourOffer | null } = {}): BrowseScreen {
   const place = (key: string, p: PlaceResult, more: Partial<Extract<BrowseEntry, { type: 'place' }>> = {}): BrowseEntry =>
     ({ type: 'place', key: `${key}:${p.id}`, place: p, ...more });
   const back: BrowseEntry = { type: 'back', key: 'back' };
@@ -143,8 +160,11 @@ export function browseScreen(menu: BrowseMenu, view: BrowseView, { walking = fal
     }
   }
 
-  // The start
+  // The start: the tour first (v0.14.4)
   const sections: BrowseSection[] = [];
+  if (tour) {
+    sections.push({ key: 'tour', entries: [{ type: 'tour', key: 'tour', name: 'Take the company tour', detail: tourDetail(tour) }] });
+  }
   if (menu.chips.length) {
     sections.push({ key: 'quick', title: walking ? 'Nearest' : 'Quick picks', chips: true,
       entries: menu.chips.map((c) => ({ type: 'chip', key: `chip:${c.facility}`, chip: c, name: chipLabel(c, walking) })) });
@@ -190,7 +210,9 @@ function saveRecent(ids: string[]): void {
   try { window.localStorage.setItem(RECENT_KEY, JSON.stringify(ids)); } catch { /* private window: kept for this visit only */ }
 }
 
-export function PlaceSearch({ engine, walking, people, departments, me = null, children, focusView, touch = false, onOpenChange }: PlaceSearchProps) {
+export function PlaceSearch({
+  engine, walking, people, departments, me = null, children, focusView, touch = false, onOpenChange, tour: offerTour = true, onStartTour, after,
+}: PlaceSearchProps) {
   const touchRef = useRef(touch);
   touchRef.current = touch;
   const uid = useId();
@@ -212,8 +234,8 @@ export function PlaceSearch({ engine, walking, people, departments, me = null, c
   useEffect(() => {
     if (!engine) return undefined;
     return engine.on('navigation', (e) => {
-      // a click on the floor (v0.14.0): no strip (the line shows the way); it replaced a route shown here
-      if (e.source === 'click') {
+      // a click on the floor (v0.14.0) or the tour (v0.14.4, its own panel): no strip; it replaced a route shown here
+      if (e.source === 'click' || e.source === 'tour') {
         if (e.state === 'started') setNav(null);
         return;
       }
@@ -248,7 +270,22 @@ export function PlaceSearch({ engine, walking, people, departments, me = null, c
     if (!engine || !open || typed) return null;
     return engine.navigation.browse({ recent });
   }, [engine, open, typed, walking, people, departments, me, recent]);
-  const screen = useMemo(() => (menu ? browseScreen(menu, view, { walking }) : null), [menu, view, walking]);
+  // the tour's entry (not while a tour runs: its panel is open)
+  const [touring, setTouring] = useState(false);
+  useEffect(() => {
+    if (!engine) return undefined;
+    setTouring(engine.tour.running);
+    return engine.on('tour', (e) => setTouring(e.state !== 'idle'));
+  }, [engine]);
+  const tourOffer: TourOffer | null = useMemo(() => {
+    if (!engine || !menu || !offerTour || !onStartTour || touring) return null;
+    const plan = engine.navigation.tourPlanReady; // never planned here: the menu doesn't wait
+    if (plan && !plan.stops.length) return null;
+    const ids = new Set(plan?.stops.map((st) => st.id) ?? []);
+    const visited = engine.tour.visitedNow().filter((id) => !plan || ids.has(id)).length;
+    return { count: plan?.stops.length ?? null, minutes: plan?.minutes ?? null, visited };
+  }, [engine, menu, offerTour, onStartTour, touring]);
+  const screen = useMemo(() => (menu ? browseScreen(menu, view, { walking, tour: tourOffer }) : null), [menu, view, walking, tourOffer]);
   const entries = useMemo(() => (screen ? screen.sections.flatMap((s) => s.entries) : []), [screen]);
 
   // the order shown (Rooms first for "Engineering"): up / down follow it
@@ -322,6 +359,11 @@ export function PlaceSearch({ engine, walking, people, departments, me = null, c
     if (entry.type === 'back') goBack();
     else if (entry.type === 'open') openView(entry.view);
     else if (entry.type === 'place') pick(entry.place);
+    else if (entry.type === 'tour') {
+      setQuery('');
+      close(false);
+      onStartTour?.();
+    }
     else if (entry.type === 'chip') {
       const c = entry.chip;
       if (walking && c.nearest) pick(c.nearest.place); // "Nearest washroom · 8 m": the nearest by walking
@@ -401,6 +443,17 @@ export function PlaceSearch({ engine, walking, people, departments, me = null, c
         </div>
       );
     }
+    if (entry.type === 'tour') {
+      return (
+        <div key={entry.key} {...common} data-tour-offer style={{ ...styles.option, ...styles.openRow, ...styles.tourRow, ...(on ? styles.optionOn : null) }}>
+          <span aria-hidden style={styles.tourIcon}><FlagIcon /></span>
+          <span style={{ minWidth: 0, flex: 1 }}>
+            <span style={styles.name}>{entry.name}</span>
+            <span data-tour-offer-detail style={styles.detail}>{entry.detail}</span>
+          </span>
+        </div>
+      );
+    }
     if (entry.type === 'back') {
       return (
         <div key={entry.key} {...common} data-browse-back aria-label="Back to all" style={{ ...styles.option, ...styles.back, ...(on ? styles.optionOn : null) }}>
@@ -449,6 +502,7 @@ export function PlaceSearch({ engine, walking, people, departments, me = null, c
         >
           <SearchIcon /> <span>Find</span>
         </button>
+        {after}
       </div>
 
       {open && (
@@ -647,6 +701,14 @@ function SearchIcon({ color = 'currentColor' }: { color?: string }) {
   );
 }
 
+function FlagIcon() {
+  return (
+    <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 22V4M4 4h12l-2 4 2 4H4" />
+    </svg>
+  );
+}
+
 function CloseIcon() {
   return (
     <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
@@ -752,6 +814,11 @@ const styles: Record<string, CSSProperties> = {
   },
   kbd: { border: `1px solid ${C.border}`, borderRadius: 4, padding: '0 5px', background: '#fff', font: `600 12px/1.4 ${C.font}` },
   stripFailed: { borderLeft: `4px solid ${C.danger}` },
+  tourRow: { borderBottom: `1px solid ${C.border}` },
+  tourIcon: {
+    flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28,
+    borderRadius: 999, background: C.accent, color: '#fff',
+  },
   srOnly: {
     position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)',
     whiteSpace: 'nowrap', border: 0,
@@ -759,3 +826,6 @@ const styles: Record<string, CSSProperties> = {
 };
 
 export default PlaceSearch;
+
+/** The toolbar's pill buttons (Find's look), for the viewer's other ones (Tour). */
+export const toolButtonStyles = { off: styles.toolButton, on: styles.toolButtonOn };

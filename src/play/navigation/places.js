@@ -87,21 +87,32 @@ export function words(text) {
 
 const OUTWARD = { north: { x: 0, z: 1 }, south: { x: 0, z: -1 }, east: { x: 1, z: 0 }, west: { x: -1, z: 0 } };
 
-/** Just inside each door of a room (world x, z); the room's middle if it has none. */
-export function roomDoorSpots(room) {
-  const T = wallThicknessOf(room);
-  const spots = [];
+/**
+ * Each door of a room: its centre on the wall line (x, z), the way into the room (inX, inZ) and along the wall
+ * (alongX, alongZ), and how deep the room is that way (depth, wall line to wall line). The tour stands inside
+ * along it (v0.14.4).
+ */
+export function roomDoorFrames(room) {
+  const frames = [];
   for (const door of roomOpenings(room)) {
     if (door.kind !== 'door') continue;
     const n = OUTWARD[door.wall];
     if (!n) continue;
     const alongX = door.wall === 'north' || door.wall === 'south';
-    const centre = alongX
-      ? { x: room.x + door.offset, z: room.z + n.z * room.depth / 2 }
-      : { x: room.x + n.x * room.width / 2, z: room.z + door.offset };
-    const d = T / 2 + INSIDE_DOOR;
-    spots.push({ x: centre.x - n.x * d, z: centre.z - n.z * d });
+    frames.push({
+      x: alongX ? room.x + door.offset : room.x + n.x * room.width / 2,
+      z: alongX ? room.z + n.z * room.depth / 2 : room.z + door.offset,
+      inX: -n.x, inZ: -n.z, alongX: alongX ? 1 : 0, alongZ: alongX ? 0 : 1,
+      depth: alongX ? room.depth : room.width,
+    });
   }
+  return frames;
+}
+
+/** Just inside each door of a room (world x, z); the room's middle if it has none. */
+export function roomDoorSpots(room) {
+  const d = wallThicknessOf(room) / 2 + INSIDE_DOOR;
+  const spots = roomDoorFrames(room).map((f) => ({ x: f.x + f.inX * d, z: f.z + f.inZ * d }));
   return spots.length ? spots : [{ x: room.x, z: room.z }];
 }
 

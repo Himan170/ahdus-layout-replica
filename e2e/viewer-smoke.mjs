@@ -245,12 +245,12 @@ const browse = await p.evaluate(() => ({
   groups: [...document.querySelectorAll('[data-browse-group]')].map((g) => g.dataset.browseGroup).filter((g) => g !== 'recent'),
   open: [...document.querySelectorAll('[data-browse-open]')].map((o) => `${o.dataset.browseOpen}=${o.innerText.split('\n').slice(0, 2).join(' · ')}`),
 }));
-log('an empty box is a browse menu: departments (from the seats), places by kind, by floor; nothing this layout lacks',
-  browse.view === 'home' && browse.groups.join() === 'quick,departments,kinds,floors' && browse.open.join() === [
+log('an empty box is a browse menu: the company tour first (v0.14.4), departments (from the seats), places by kind, by floor; nothing this layout lacks',
+  browse.view === 'home' && browse.groups.join() === 'tour,quick,departments,kinds,floors' && browse.open.join() === [
     'department:engineering=Engineering · Ground Floor · 1 person', 'department:hr=HR · Ground Floor · 1 person',
     'kind:OFFICE=Offices · Ground Floor', 'kind:MEETING=Meeting rooms · Floor 1', 'kind:RECEPTION=Reception · Ground Floor',
     'kind:STAIRCASE=Stairs · Ground Floor', 'floor:0=Ground Floor · 2 rooms', 'floor:1=Floor 1 · 1 room'].join(), JSON.stringify(browse));
-for (let i = 0; i < 3; i++) await p.keyboard.press('ArrowDown'); // past the 3 chips: Engineering
+for (let i = 0; i < 4; i++) await p.keyboard.press('ArrowDown'); // past the tour and the 3 chips: Engineering
 await p.keyboard.press('Enter');
 const dept = await p.evaluate(() => {
   const input = document.querySelector('[data-place-search] input');

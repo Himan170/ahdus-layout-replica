@@ -73,7 +73,7 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `assetBaseUrl` | string | Where the realistic look's files are (the `assets/` folder: `models/`, `textures/`, `env/`). Default: `assets/` next to `ahdus-workplace.js`. Set it when you host them elsewhere, e.g. `'https://cdn.example.com/ahdus/assets/'`. A file that can't be loaded keeps the simple look for that item or surface (a warning in the console, never an error). |
 | `characters` | object | `{ manifestUrl }`: where the **character manifest** is (section 4b), fetched with `credentials: 'include'` and `headers` on the first `setPeople`. Or `{ manifest }`: the manifest itself. Without it everyone is the neutral simple figure. Also `chooseUrl`: where people choose their character (http / https, or relative to the page), for the "Choose your character" link (section 4b), and `walkClipUrl`: the walk clip your own character walks with in `walkthrough` (section 4c). |
 | `player` | object | `{ personId, assetReference }`: the person looking, i.e. the signed-in user (the same `personId` and `assetReference` as in `setPeople`). In `walkthrough` they walk as their own character (section 4c); their own card offers "Choose your character" if they never chose one. Change it later with `setPlayer`. |
-| `navigation` | object | `{ search: true }` (default): a **Find** button in the view's toolbar opens the search box "Find a person, room or place" (section 4d). `{ search: false }` hides it (`find()` still works). |
+| `navigation` | object | `{ search: true, tour: true }` (default): a **Find** button in the view's toolbar opens the search box "Find a person, room or place" (section 4d); a **Tour** button and Find's "Take the company tour" start the company tour (section 4f). `{ search: false }` hides the search (`find()` still works), `{ tour: false }` the tour (`startTour()` still works). |
 | `departments` | array | `[{ name, description }]`: a short description for each department (AHDUS: `GET /api/teams/departments`), shown in the Find box's menu under the department of that name (section 4d). Departments that aren't in the layout or among the people are left out; only `name` and `description` are kept (text, at most 280 characters shown). Change it later with `setDepartments`. |
 | `onEvent(name, data)` | function | Everything that happens (section 5). |
 | `onError(error)` | function | The layout could not be shown (section 7). Without it, the message goes to the console. |
@@ -100,6 +100,8 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `find(query, { limit? })` | Search people (name and department), rooms, departments and facilities (section 4d). `[]` until `ready`. |
 | `goTo(target, { walk? })` | Go to a person, room or place (section 4e): `walk: 'guide'` (default) = **Show route**, `'auto'` = **Take me there**. From `view` it starts walking at the entrance. Returns `{ place, walk, length, seconds, floors }` or `{ problem, message }`. |
 | `stopRoute()` | Ends Show route / Take me there (`false`: there was none). |
+| `startTour({ follow? })` | The company tour (section 4f), from the main entrance (from `view` it starts walking there). `follow: 'auto'` (default) = **Walk me**, `'self'` = **I'll walk**. Returns `{ count, minutes, length }` or `{ problem, message }`. |
+| `stopTour()` | Ends the tour (`false`: none); the user stays where they are, walking. |
 | `destroy()` | Removes the viewer: the element is as you gave it, the 3D engine, its keys and its actions are gone. Safe to call twice. |
 
 Calls made before `ready` (`setFloor`, `focusOn`, `highlight`) wait for it and return `undefined`. After `destroy()` every call returns `false` (or `[]`).
@@ -296,6 +298,33 @@ words to search for, `{ personId }`, `{ roomId }`, `{ deskId }` / `{ objectId }`
 'RECEPTION' | 'STAIRS' }` (the nearest by walking) or a spot `{ x, z, floor, name? }`. A problem is
 `{ problem, message }`: `NOT_FOUND`, `NOT_WALKING` (walking could not start), or a route problem ("No walking route to Server Room: it has no door").
 
+### 4f. The company tour (`startTour`, `stopTour`, the `tour` event)
+
+A guided walk through the workplace, made from the layout and the seats (nothing to write): the main entrance, the
+reception, each department once, a washroom and a meeting room on each floor, floor by floor (up the stairs), back to
+reception. The **Tour** button (next to Find) and **"Take the company tour · 20 stops · about 8 min"** at the top of
+Find's menu start it; so does `startTour()`. It is planned while the page is idle after loading, so it starts at once.
+
+- **The panel** (top right; on a phone at the bottom, above the joystick, and one line while walking between stops: "Stop 2 of 20 · Lobby & Reception", Pause and ⌃ to open it): "Stop 4 of 20 · Marketing", what the stop
+  is (its department's description, how many people work there, some names), the way to the next stop ("Out of
+  Reception, turn right along the corridor. Sales is the second door on your right."), passing rooms ("On your left:
+  Restrooms"). **Pause / Resume** (P), **Previous**, **Next**, **Skip the walk**, **Exit** (Esc), and **All stops**: the
+  list, with a tick for each stop visited (kept per browser and layout) and **Restart**.
+- **Walk me** (default): the character walks to each stop by itself, as Take me there; a movement key or the joystick
+  pauses it, P or Resume walks on. **I'll walk**: the route line shows the way and getting there completes the stop.
+  Switch between them at any time. **Skip the walk**: a short fade, and you are at the next stop.
+- **At a stop:** the character stands about 2 m inside the room, its room is outlined, the view turns to face it and the
+  camera eases higher and further back so the desks and people show (with *reduced motion* set: a fade instead), and the
+  panel shows it; after a short pause (about 20 s, washrooms and meeting rooms about 8 s) the tour walks on.
+- **Narration:** the browser reads each stop aloud after the speaker button in the panel is turned on (off by default).
+- Without a tour, walking, Find and Take me there are exactly as before.
+
+```js
+workplace.startTour();                 // Walk me, from the main entrance
+workplace.startTour({ follow: 'self' }); // I'll walk
+workplace.stopTour();
+```
+
 ---
 
 ## 5. Events (`onEvent(name, data)`)
@@ -309,6 +338,7 @@ words to search for, `{ personId }`, `{ roomId }`, `{ deskId }` / `{ objectId }`
 | `interact` | E was pressed on an item, door or window | the target (section 4) |
 | `floorChange` | The floor shown or walked on changed | `{ floorId, name }` |
 | `card` | The viewer showed a card (E with no action for it) | `{ title, body }` |
+| `tour` | The company tour (section 4f) | `{ type, state, follow, index, count, visited, remaining, message, mention, stop }`; `type`: `started`, `walking`, `arrived`, `paused`, `resumed`, `follow`, `mention`, `progress`, `done`, `ended`, `problem`; `state`: `idle`, `walking`, `stop`, `paused`, `done`; `stop`: `{ id, n, kind, name, floor, floorName, text }` |
 | `navigation` | Show route / Take me there (section 4e) | `{ state, walk, place, remaining, length?, seconds?, floor?, paused?, rerouted?, problem?, message? }`; `state`: `started`, `progress` (about every metre or second; `paused: true` after a movement key), `arrived`, `stopped`, `failed` |
 
 `room` is `{ id, name, type, typeLabel, floorId, center: { x, z }, width, depth }`. Floors are numbered `0` (ground), `1`, `2`, … Positions are in metres, `y` is up.
@@ -380,7 +410,7 @@ If your Content-Security-Policy blocks added `<style>` elements, link the file i
 |---|---|
 | `view` | Drag to orbit, right-drag to pan, wheel to zoom |
 | `walkthrough`, touch screens (v0.14.1) | A **joystick** at the bottom left walks (push further = faster, let go = stop; it pauses a "Take me there" and ends a walk you tapped, as a key does); **drag** anywhere else to look around (a second finger looks while the joystick walks); **tap the floor** to walk there (the route line shows), tap a person (or their desk) for their card, tap a machine in reach to use it. The toolbar's buttons, Find and its cards work by tap. The first walk shows "Joystick to walk · drag to look · tap the floor to go there" once (per browser, apart from the mouse one); the HUD line and the "?" help ("Touch controls") use the same touch words. The words follow how the user last pointed: a finger = touch words and the joystick, a mouse = the keys and mouse words (a laptop with a touch screen gets both) |
-| `walkthrough` | The keys work **as soon as walking starts** (no click needed): W A S D (or the arrows) walk, Shift runs, **drag** (left or right button) to look around (the cursor stays visible, nothing is captured), **click the floor** to walk there, click a person (or their desk) for their card, click a machine in reach to use it (as E), Space jumps, F flies (Space up, C down), V first / third person, Page Up / Page Down change floor, **E** uses what you look at, **Home** (or the "Back to entrance" button) goes back to the start, G walks on after a paused "Take me there". **Double-click or L** = mouse look (the mouse is captured, a crosshair shows); **Esc** releases the mouse, the next Esc gives the keys back to the page. The "?" button lists every key; the first walk shows "W A S D to walk · drag to look · click the floor to go there" once (per browser). Every walk starts on the ground floor, outside the main entrance and facing it (or at the layout's spawn point); you never start or land inside a wall or furniture |
+| `walkthrough` | The keys work **as soon as walking starts** (no click needed): W A S D (or the arrows) walk, Shift runs, **drag** (left or right button) to look around (the cursor stays visible, nothing is captured), **click the floor** to walk there, click a person (or their desk) for their card, click a machine in reach to use it (as E), Space jumps, F flies (Space up, C down), V first / third person, Page Up / Page Down change floor, **E** uses what you look at, **Home** (or the "Back to entrance" button) goes back to the start, G walks on after a paused "Take me there", P pauses / resumes the company tour (section 4f). **Double-click or L** = mouse look (the mouse is captured, a crosshair shows); **Esc** releases the mouse, the next Esc gives the keys back to the page. The "?" button lists every key; the first walk shows "W A S D to walk · drag to look · click the floor to go there" once (per browser). Every walk starts on the ground floor, outside the main entrance and facing it (or at the layout's spawn point); you never start or land inside a wall or furniture |
 
 ---
 

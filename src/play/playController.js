@@ -90,6 +90,12 @@ const BODY_HEIGHT = 1.8;
 const EYE = 1.62; // the built-in figure's; another character brings its own (setCharacter)
 const CAM_DISTANCE = 3.8;
 const SHOULDER = 0.85;
+/**
+ * The company tour's stop view (v0.14.4): the third-person camera this much further back (m), higher (m) and
+ * looking this much further down (rad), eased in over about a second (STOP_VIEW.rate per second), so a room's
+ * desks and people show over the character's shoulder. Walls still pull the camera in and the ceiling caps it.
+ */
+export const STOP_VIEW = { back: 1.6, up: 0.8, tilt: 0.24, rate: 2.2 };
 
 /**
  * How far right of the character the third-person camera sits (m), for a view
@@ -223,6 +229,12 @@ export function createPlayController(scene, canvas, {
   // "Show route" / "Take me there" (LayoutEngine's NavigationSystem, v0.13.4): asked every frame
   // where to go; null = free walking, exactly as before. See setAutopilot.
   let pilot = null;
+  // The company tour (v0.14.4, LayoutEngine's TourSystem): sees each key first (P pauses, Esc ends the
+  // tour); true = taken (not walked, nothing else). null = none, exactly as before.
+  let keyHandler = null;
+  // the tour's stop view: 0 = the usual camera, 1 = STOP_VIEW (eased towards stopViewTarget)
+  let stopView = 0;
+  let stopViewTarget = 0;
   const keys = new Set();
   // The touch joystick (v0.14.1, look 'drag'): { x: right, y: forward }, each −1…1, length = how far
   // it is pushed (dragLook.stickVector). Moves like the keys (it pauses a route); 0, 0 = let go.
@@ -1020,6 +1032,10 @@ export function createPlayController(scene, canvas, {
     if (!active || typing(e)) return;
     if (onPage && !isEngaged()) return; // the page's keys
     if (e.ctrlKey || e.metaKey) return; // Ctrl+Z / Ctrl+Y handled by the editor
+    if (keyHandler && !e.repeat && keyHandler(e.code)) {
+      e.preventDefault();
+      return;
+    }
     keys.add(e.code);
     if (editKey(e.code, e.shiftKey) || stretchKey(e.code)) {
       e.preventDefault();
@@ -1402,15 +1418,23 @@ export function createPlayController(scene, canvas, {
 
     // ── Camera ──
     const dir = lookDir();
+    stopView += (stopViewTarget - stopView) * Math.min(1, dt * STOP_VIEW.rate);
+    if (Math.abs(stopViewTarget - stopView) < 0.002) stopView = stopViewTarget;
+    // the camera's own direction: the tour's stop view looks a little further down (aiming keeps dir)
+    const camDir = stopView > 0 ? new Vector3(
+      Math.sin(yaw) * Math.cos(pitch - STOP_VIEW.tilt * stopView),
+      Math.sin(pitch - STOP_VIEW.tilt * stopView),
+      Math.cos(yaw) * Math.cos(pitch - STOP_VIEW.tilt * stopView),
+    ) : dir;
     const eye = collider.position.add(new Vector3(0, eyeHeight, 0));
     let showCharacter = !firstPerson;
     if (firstPerson) {
       camera.position.copyFrom(eye.add(forward.scale(0.12)));
     } else {
       const desired = eye
-        .add(dir.scale(-CAM_DISTANCE))
+        .add(camDir.scale(-(CAM_DISTANCE + STOP_VIEW.back * stopView)))
         .add(right.scale(shoulderOffset(scene.getEngine().getAspectRatio(camera))))
-        .add(new Vector3(0, 0.45, 0));
+        .add(new Vector3(0, 0.45 + STOP_VIEW.up * stopView, 0));
       // Pull the camera in front of walls instead of looking through them
       const toCam = desired.subtract(eye);
       const dist = toCam.length();
@@ -1435,7 +1459,7 @@ export function createPlayController(scene, canvas, {
       // Never let the camera sink below the floor when looking up
       camera.position.y = Math.max(camera.position.y, collider.position.y + 0.3);
     }
-    camera.setTarget(camera.position.add(dir));
+    camera.setTarget(camera.position.add(firstPerson ? dir : camDir));
     character.setVisible(showCharacter);
 
     // ── Tool preview ──
@@ -1698,6 +1722,25 @@ export function createPlayController(scene, canvas, {
       pilot = next ?? null;
     },
     getAutopilot: () => pilot,
+
+    /**
+     * The company tour's stop view (v0.14.4): on = the camera eases higher and further back (STOP_VIEW), off = back
+     * to the usual one; instant (prefers-reduced-motion) = at once.
+     */
+    setStopView(on, { instant = false } = {}) {
+      stopViewTarget = on ? 1 : 0;
+      if (instant) stopView = stopViewTarget;
+    },
+
+    /** The tour's stop view now (0 to 1; tests). */
+    getStopView() {
+      return stopView;
+    },
+
+    /** The company tour's keys (v0.14.4): handler(code) sees each key first; true = taken. null = none. */
+    setKeyHandler(handler) {
+      keyHandler = handler ?? null;
+    },
 
     /** Go to a floor at the same spot (standing on a room there, or flying). */
     goToFloor,

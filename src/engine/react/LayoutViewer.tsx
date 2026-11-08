@@ -41,6 +41,11 @@
  * line beside the joystick ("Outside · Ground Floor", v0.14.2). Touch
  * words show while the last press was a finger (or, before any press, on a device whose main
  * pointer is coarse); a mouse brings back the keys and mouse words at once.
+ *
+ * The company tour (v0.14.4, engine.tour): a Tour button by Find and "Take the company tour" at the top of
+ * Find's menu start it at the main entrance (from above too); its panel (TourPanel) shows the stop, the way
+ * on and the controls: top right, or on a narrow view at the bottom above the joystick / the HUD. Skip the
+ * walk, Previous and a stop from the list fade the view (also arriving, with prefers-reduced-motion).
  */
 
 import { useEffect, useId, useRef, useState } from 'react';
@@ -58,6 +63,9 @@ import { readSavedLayout } from '../../services/savedLayouts';
 import { PlaceSearch } from './PlaceSearch';
 import { AUTO_FOCUS_ATTR } from '../systems/WalkthroughSystem';
 import { TouchControls, STICK_SIZE, STICK_MARGIN } from './TouchControls';
+import { TourPanel, TOUR_LABEL } from './TourPanel';
+import { toolButtonStyles } from './PlaceSearch';
+import type { TourEvent } from '../systems/TourSystem';
 
 export interface LayoutViewerProps {
   /** The layout: a save, an exported layout file or v2 JSON. */
@@ -110,6 +118,10 @@ export interface LayoutViewerProps {
   onModeChange?: (mode: Exclude<EngineMode, 'edit'>) => void;
   /** Show route / Take me there: { state: 'started' | 'progress' | 'arrived' | 'stopped' | 'failed', place, … }. */
   onNavigation?: (event: NavigationEvent) => void;
+  /** The company tour (v0.14.4): its Tour button, its entry in Find's menu and its panel. Default true. */
+  tour?: boolean;
+  /** The tour's events: { type, state, follow, index, count, stop, visited, … } (engine.tour). */
+  onTour?: (event: TourEvent) => void;
   className?: string;
   style?: CSSProperties;
 }
@@ -163,8 +175,9 @@ export const WALK_HELP: [string, string][] = [
   ['Page Up / Page Down', 'Floor above / below'],
   ['Home', 'Back to the entrance'],
   ['G', 'Walk on along a route'],
+  ['P', 'Pause / resume the tour'],
   ['Double-click or L', 'Mouse look (Esc releases)'],
-  ['Esc', 'Stop a route · give the keys back to the page'],
+  ['Esc', 'Stop a route or the tour · give the keys back to the page'],
 ];
 
 /** The "?" help on a touch screen (v0.14.1). */
@@ -178,10 +191,16 @@ export const WALK_HELP_TOUCH: [string, string][] = [
   ['Find', 'A person, room or place'],
   ['Back to entrance', 'Start again at the entrance'],
   ['Joystick on a route', 'Pauses it (Continue walks on)'],
+  ['Tour', 'The company tour, stop by stop'],
 ];
 /** The help's name: keys and mouse, or touch. */
 const HELP_TITLE = 'Keys and mouse';
 const HELP_TITLE_TOUCH = 'Touch controls';
+
+/** The tour's fade (Skip the walk, Previous, a stop from the list): to black and back, each this long (ms). */
+const FADE_MS = 250;
+/** Narrower than this (px), the tour's panel is full width at the bottom (a phone). */
+const NARROW_PX = 640;
 
 /** Does this device point with a finger first (before any press tells)? */
 function coarsePointer(): boolean {
@@ -220,7 +239,7 @@ function layoutFrom({ layout, companyId, layoutId }: LayoutViewerProps): unknown
 }
 
 export function LayoutViewer(props: LayoutViewerProps) {
-  const { mode = 'view', quality = 'high', assetBaseUrl, className, style, search = true } = props;
+  const { mode = 'view', quality = 'high', assetBaseUrl, className, style, search = true, tour = true } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
@@ -240,6 +259,21 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [hint, setHint] = useState<'shown' | 'fading' | null>(null);
   // the Find box is open: the one-time hint waits under it (v0.14.2)
   const [findOpen, setFindOpen] = useState(false);
+  // the company tour (v0.14.4): running, its stop list open, the fade, a narrow view
+  const [touring, setTouring] = useState(false);
+  const [tourList, setTourList] = useState(false);
+  const [fade, setFade] = useState(0);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return undefined;
+    const measure = () => setNarrow(box.clientWidth > 0 && box.clientWidth < NARROW_PX);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, []);
   const helpButtonRef = useRef<HTMLButtonElement>(null);
   // touch words and the joystick (v0.14.1): the last press was a finger (before any: a coarse main pointer)
   const [touchUI, setTouchUI] = useState(coarsePointer);
@@ -335,7 +369,21 @@ export function LayoutViewer(props: LayoutViewerProps) {
           setProgress(p);
           propsRef.current.onProgress?.(p);
         }),
+        e.on('tour', (ev) => {
+          setTouring(ev.state !== 'idle');
+          if (ev.type === 'ended') setTourList(false);
+          propsRef.current.onTour?.(ev);
+        }),
       );
+      // the tour's fade: to black, mid() (the jump), back
+      e.tour.setFader((mid) => new Promise<void>((resolve) => {
+        setFade(1);
+        setTimeout(() => {
+          try { mid(); } finally {
+            setTimeout(() => { setFade(0); setTimeout(resolve, FADE_MS); }, 120);
+          }
+        }, FADE_MS);
+      }));
       setEngine(e);
     }).catch((err) => {
       // e.g. no WebGL in this browser
@@ -491,11 +539,12 @@ export function LayoutViewer(props: LayoutViewerProps) {
     if (walking) engine?.walkthrough?.setTouch(touchUI);
   }, [engine, walking, touchUI]);
 
-  // The one-time hint, when walking starts and the floor shows (once per browser, the touch one apart; StrictMode-safe)
+  // The one-time hint, when walking starts and the floor shows (once per browser, the touch one apart; StrictMode-safe).
+  // During the company tour it waits (its panel covers that spot on a phone): it shows when the tour ends.
   const hintRef = useRef<{ show: boolean | null; done: boolean; touch: boolean }>({ show: null, done: false, touch: false });
   useEffect(() => {
     const h = hintRef.current;
-    if (!walking || error || !engine || !floorReady || h.done) return undefined;
+    if (!walking || error || !engine || !floorReady || h.done || touring) return undefined;
     if (h.show === null) {
       // in the words of how you walk now: keys and mouse, or the joystick (touch, v0.14.1)
       h.touch = touchRef.current;
@@ -507,7 +556,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
     const fade = setTimeout(() => setHint('fading'), HINT_MS);
     const gone = setTimeout(() => { h.done = true; setHint(null); }, HINT_MS + HINT_FADE_MS);
     return () => { clearTimeout(fade); clearTimeout(gone); setHint(null); };
-  }, [walking, engine, floorReady, error]);
+  }, [walking, engine, floorReady, error, touring]);
 
   // The "?" help closes when walking ends, or on a press anywhere else
   useEffect(() => {
@@ -546,6 +595,33 @@ export function LayoutViewer(props: LayoutViewerProps) {
     ? { ...styles.topLeft, bottom: touchWalk ? STICK_MARGIN + STICK_SIZE + 12 : TOOLBAR_BOTTOM_WALKING }
     : styles.topLeft;
   const helpTitle = touchUI ? HELP_TITLE_TOUCH : HELP_TITLE;
+  const focusView = () => {
+    // from above the box is no Tab stop yet (walking starts this moment): make it one, then focus it
+    const box = boxRef.current;
+    if (box && box.tabIndex < 0) box.tabIndex = 0;
+    box?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
+  };
+  const startTour = () => {
+    if (!engine) return;
+    const r = engine.tour.start({ follow: 'auto' });
+    if (r.problem) engine.walkthrough?.say(r.message ?? 'No tour here', 2500);
+    focusView();
+  };
+  const tourButton = tour && engine && !error ? (
+    <button
+      type="button"
+      data-tour-button
+      aria-label={TOUR_LABEL}
+      aria-pressed={touring}
+      title={touring ? 'The tour\'s stops' : 'Take the company tour'}
+      style={{ ...toolButtonStyles.off, ...(touring ? toolButtonStyles.on : null) }}
+      onClick={() => (touring ? setTourList((o) => !o) : startTour())}
+    >
+      <FlagIcon /> <span>Tour</span>
+    </button>
+  ) : null;
+  // a narrow view: the tour's panel at the bottom, above the joystick (touch) or the HUD
+  const tourBottom = touchWalk ? STICK_MARGIN + STICK_SIZE + 12 : TOOLBAR_BOTTOM_WALKING;
   const offerChoice = !!(person && chooseUrl && me != null && String(me) === person.who.personId
     && !(person.who.characterChosen ?? !!person.who.character));
   return (
@@ -651,20 +727,17 @@ export function LayoutViewer(props: LayoutViewerProps) {
         ) : null;
         if (search && engine && !error) {
           return (
-            <div style={toolbarStyle} data-viewer-toolbar>
+            <div style={{ ...toolbarStyle, ...(findOpen ? { zIndex: 3 } : null) }} data-viewer-toolbar>
               <PlaceSearch engine={engine} walking={walking} people={people} touch={touchUI}
                 departments={departments} me={me == null ? null : String(me)} onOpenChange={setFindOpen}
-                focusView={() => {
-                  // from above the box is no Tab stop yet (walking starts this moment): make it one, then focus it
-                  const box = boxRef.current;
-                  if (box && box.tabIndex < 0) box.tabIndex = 0;
-                  box?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
-                }}>{walkBar}</PlaceSearch>
+                tour={tour} onStartTour={startTour} after={tourButton}
+                focusView={focusView}>{walkBar}</PlaceSearch>
               {help}
             </div>
           );
         }
-        return walkBar ? <div style={toolbarStyle} data-viewer-toolbar><div style={styles.row}>{walkBar}</div>{help}</div> : null;
+        return walkBar || tourButton
+          ? <div style={toolbarStyle} data-viewer-toolbar><div style={styles.row}>{walkBar}{tourButton}</div>{help}</div> : null;
       })()}
       {walking && !error && hud && (
         <>
@@ -707,8 +780,15 @@ export function LayoutViewer(props: LayoutViewerProps) {
           )}
         </>
       )}
+      {engine && touring && !error && (
+        <TourPanel engine={engine} touch={touchUI} narrow={narrow} bottom={tourBottom}
+          listOpen={tourList} onListOpenChange={setTourList} focusView={focusView} />
+      )}
+      {/* the tour's fade (Skip the walk, Previous, a stop from the list; arriving with reduced motion) */}
+      <div aria-hidden data-tour-fade={fade ? 'on' : undefined}
+        style={{ ...styles.fade, opacity: fade, transition: `opacity ${FADE_MS}ms ease` }} />
       {walking && focused && <div aria-hidden data-focus-ring style={styles.focusRing} />}
-      {person && !error && (
+      {person && !error && !(touring && narrow && !person.at && !person.pinned) && (
         // text only (React escapes it): name and department, nothing else
         <div
           data-person-card={person.who.personId}
@@ -734,6 +814,14 @@ export function LayoutViewer(props: LayoutViewerProps) {
         </div>
       )}
     </div>
+  );
+}
+
+function FlagIcon() {
+  return (
+    <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flex: 'none' }}>
+      <path d="M4 22V4M4 4h12l-2 4 2 4H4" />
+    </svg>
   );
 }
 
@@ -819,6 +907,7 @@ const styles: Record<string, CSSProperties> = {
   personNear: { left: '50%', bottom: 96, transform: 'translateX(-50%)', textAlign: 'center' },
   // touch: above the joystick and its knob pushed forward (the HUD is beside it)
   personNearTouch: { bottom: STICK_MARGIN + STICK_SIZE + 44 },
+  fade: { position: 'absolute', inset: 0, zIndex: 4, background: '#0b1220', pointerEvents: 'none' },
 };
 
 export default LayoutViewer;
