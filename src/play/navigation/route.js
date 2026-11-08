@@ -732,10 +732,12 @@ function insideRoom(room, p) {
  * no wall between them (a free-standing wall in the room counts).
  */
 function sameRoomTest(layout, map, floor, room, target) {
-  const walls = map.obstacles.filter((o) => (o.kind === 'wall' || o.assetType === 'WALL_SEGMENT')
-    && distanceToRect(o, target.x, target.z) > 0);
+  let walls = null; // made when first asked: most goals stand on a free spot, and the room's check is enough
   return (x, z) => {
     if ((roomAt(layout, floor, x, z)?.id ?? null) !== (room?.id ?? null)) return false;
+    if (x === target.x && z === target.z) return true;
+    walls ??= map.obstacles.filter((o) => (o.kind === 'wall' || o.assetType === 'WALL_SEGMENT')
+      && distanceToRect(o, target.x, target.z) > 0);
     return !walls.some((o) => segmentToRect(o, target.x, target.z, x, z) === 0);
   };
 }

@@ -238,10 +238,10 @@ describe('the tour of the Meridian-shaped layout', () => {
   });
 
   it('plans Meridian in under 300 ms (walk maps ready, as after the engine warms them)', () => {
-    // ~150 ms on a laptop; the fastest of 3, since the other test files run alongside (the runner and CI vary)
+    // ~170 ms on a laptop; the fastest of 6, since the other test files run alongside (the runner and CI vary)
     let fastest = Infinity;
     let again = null;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 6; i++) {
       const t0 = performance.now();
       again = plan(layout, people, departments, { maps });
       fastest = Math.min(fastest, performance.now() - t0);

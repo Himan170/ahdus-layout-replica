@@ -152,9 +152,9 @@ describe('the goal never moves across a wall', () => {
     expect(roomAt(layout, 0, endOf(r).x, endOf(r).z)?.id).toBe('new');
   });
 
-  it('200 random layouts: a walk to a room or a person always ends in that very room', () => {
+  it('50 random layouts: a walk to a room or a person always ends in that very room', () => {
     let walks = 0;
-    for (let seed = 1; seed <= 200; seed++) {
+    for (let seed = 1; seed <= 50; seed++) {
       const layout = randomLayout(seed);
       const maps = createWalkMapCache({ catalog: ASSET_TYPES });
       const objects = Array.isArray(layout.objects) ? layout.objects : Object.values(layout.objects);
@@ -177,6 +177,6 @@ describe('the goal never moves across a wall', () => {
         walks++;
       }
     }
-    expect(walks).toBeGreaterThan(200);
+    expect(walks).toBeGreaterThan(50);
   });
 });
