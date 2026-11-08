@@ -277,12 +277,14 @@ From the search card, or from your page with `goTo`. Both start walking (from `v
   take, a green ring at the goal), and a strip "Going to Kavya Iyer · 42 m" with **Stop**. You walk yourself; the
   line follows you, and a new route is made when you are more than 3 m off it. `G` (or the strip's "Take me there")
   walks you the rest.
-- **Take me there** (`walk: 'auto'`): the character walks the route by itself at walking speed, through the same
+- **Take me there** (`walk: 'auto'`): the character walks the route by itself at walking speed (2.2 m/s, as with the keys), through the same
   collisions as the keys, turning smoothly, keeping about 0.44 m from furniture where there is room, up or down the
   stairs. Stuck (less than 0.3 m in 1.5 s): a new route; stuck twice: it stops with "Can't get past here".
   **Any movement key pauses it** ("Press G to continue"); **G** continues; **Esc** or **Stop** ends it.
 - **Arriving** (within 1 m): it stops, faces the person or room, and shows "You have arrived" (and the person's
   card). The place stays outlined until the strip is closed.
+- **A route ends in the place's own room.** If that room can't be reached it says why ("No walking route to Dhruv
+  Khatwani's desk: Dhruv's office has no door"); it never leads to a spot outside, on the other side of a wall.
 - Walking without a route is exactly as before.
 
 ```js
