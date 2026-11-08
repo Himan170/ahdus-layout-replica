@@ -161,7 +161,7 @@ export function buildPlaces(layout, people = []) {
     const typeLabel = ROOM_TYPE_LABEL[room.type] ?? '';
     const facility = ROOM_FACILITY[room.type] ?? null;
     const dept = room.departmentRef?.trim() || '';
-    const goals = roomDoorSpots(room).map((s) => ({ ...s, floor }));
+    const goals = roomDoorSpots(room).map((s) => ({ ...s, floor, roomId: room.id }));
     add({
       id: `room:${room.id}`, kind: facility ? 'facility' : 'room', group: facility ? 'facilities' : 'rooms',
       name, detail: joinDetail(facility ? FACILITIES[facility].label : typeLabel, dept !== name ? dept : '', floorName(floor)),
@@ -188,7 +188,7 @@ export function buildPlaces(layout, people = []) {
       detail: joinDetail('Department', its.length === 1 ? roomName(first) : `${its.length} rooms`, floorsOf.map(floorName).join(', ')),
       floor: floorOf(first), roomId: first.id, roomName: roomName(first), department: dept, facility: null,
       entityId: first.id, highlight: sorted.map((r) => r.id), x: first.x, z: first.z,
-      goals: sorted.flatMap((r) => roomDoorSpots(r).map((s) => ({ ...s, floor: floorOf(r) }))),
+      goals: sorted.flatMap((r) => roomDoorSpots(r).map((s) => ({ ...s, floor: floorOf(r), roomId: r.id }))),
     }, dept, ['department', ...its.map(roomName)]);
   }
 
@@ -213,7 +213,9 @@ export function buildPlaces(layout, people = []) {
     add({
       id: `item:${o.id}`, kind: 'facility', group: 'facilities', name, detail,
       floor, roomId: room?.id ?? null, roomName: roomName(room), department: null, facility, assetType: o.assetType,
-      entityId: o.id, highlight: [o.id], x: o.x, z: o.z, goals: [{ ...goal, floor }],
+      entityId: o.id, highlight: [o.id], x: o.x, z: o.z,
+      // an item stands where its middle is (a saved roomId can be old); stairs' goal is in front of the flight
+      goals: [{ ...goal, floor, ...(o.assetType === 'STAIRCASE' ? {} : { roomId: roomAround(rooms, floor, o.x ?? 0, o.z ?? 0)?.id ?? null }) }],
     }, name, [ITEM_LABEL[o.assetType], ...FACILITIES[facility].words]);
   }
 
@@ -235,7 +237,12 @@ export function buildPlaces(layout, people = []) {
       floor, roomId: room?.id ?? null, roomName: roomName(room), department: dept || null, facility: null,
       personId: String(p.personId), deskId: desk.id,
       entityId: desk.id, highlight: [desk.id, ...(pose?.chairId ? [pose.chairId] : [])],
-      x: at.x, z: at.z, goals: [{ ...(visitorSpot(desk) ?? (pose ? behind(pose) : { x: desk.x, z: desk.z })), floor }],
+      x: at.x, z: at.z,
+      // the walk ends in the room the desk stands in (behind a chair against a wall is through the wall)
+      goals: [{
+        ...(visitorSpot(desk) ?? (pose ? behind(pose) : { x: desk.x, z: desk.z })), floor,
+        roomId: roomAround(rooms, floor, desk.x ?? 0, desk.z ?? 0)?.id ?? null,
+      }],
     }, name, [dept]);
   }
 

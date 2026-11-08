@@ -591,8 +591,10 @@ export class NavigationSystem {
 
   /** The route from a spot to a place (the nearest of its goals by walking), each goal named after its own place. */
   private routeFrom(from: { x: number; z: number; floor: number }, place: Place): Route {
+    // a person: "No walking route to Dhruv Khatwani's desk: …"
+    const own = place.kind === 'person' ? `${place.name}'s desk` : place.name;
     const goals = place.goals.map((g: { x: number; z: number; floor: number; placeId?: string }) => ({
-      ...g, name: (g.placeId && this.places().byId.get(g.placeId)?.name) || place.name,
+      ...g, name: (g.placeId && this.places().byId.get(g.placeId)?.name) || own,
     }));
     return findNearestRoute(this.hooks.getLayout(), from, goals, { maps: this.walkMaps }) as unknown as Route;
   }

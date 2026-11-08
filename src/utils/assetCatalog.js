@@ -145,6 +145,7 @@ export const ASSET_TYPES = {
     category: OBJECT_CATEGORIES.ARCHITECTURE,
     defaultWidth: 1, defaultHeight: 2.2, defaultDepth: 0.1,
     color: '#8b6f47',
+    solid: false, // a door item never stops you (in a doorway it would close the room); the wall around it does
     buildMesh(scene, id) {
       const root = new TransformNode('arch_door_' + id, scene);
       // Door panel

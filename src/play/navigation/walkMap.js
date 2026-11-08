@@ -20,10 +20,11 @@
  *
  * The distance to each wall / item is measured exactly (from each cell's centre
  * to the obstacle's rectangle), so a 1 m door leaves a ~0.26 m wide strip. In a
- * door gap the cells on the door's centre line are tested on that line, so a
- * 0.8 m door (a 0.06 m strip, narrower than a cell) is open, as it is for the
- * real collision, and a 0.7 m one is closed (the body is 0.64 m wide, plus the
- * margin).
+ * door gap the cells on the door's centre line are tested on that line against
+ * the door's own jambs at half its width, so every door the real collision lets
+ * the body through (from 0.6 m, Studio's narrowest) is open on the map.
+ * A flight of stairs blocks around it like an item (from its sides and back the
+ * body is stopped, building.stairPushOut); its own cells are STAIRS.
  *
  * Used by entrance.js (where the walkthrough starts, nearestFree) and
  * play/playController.js. No Babylon. Tests: navigation/__tests__/walkMap.test.js.
@@ -56,6 +57,8 @@ export const ITEM_CLEARANCE = BODY_RADIUS + ITEM_MARGIN;
 export const STREET = 10;
 /** Keep this far (m) from the edge of a stair opening (v0.13.4: the body's centre over it falls). */
 export const HOLE_MARGIN = 0.15;
+/** The narrowest door the body walks through (m): Studio's narrowest door (geometry); the real collision lets it pass. */
+export const MIN_DOOR_PASS = 0.6;
 /** Skirting sticks out of the wall this much on each side (roomBuilder: wall thickness + 0.03), and collides. */
 export const SKIRTING_OUT = 0.015;
 /** A bigger floor gets bigger cells, so a map stays ≤ ~2.5 MB. */
@@ -122,6 +125,7 @@ export function itemFootprint(obj, catalog = {}) {
     rot: obj.rotationY ?? 0,
     kind: 'item',
     objectId: obj.id,
+    assetType: obj.assetType,
   };
 }
 
@@ -336,12 +340,15 @@ export function buildWalkMap(layout, floorId, options = {}) {
     });
   }
   // 5. Door passages: a narrow door's free strip (a 0.8 m door: 0.06 m wide) can fall between two
-  //    cell centres. The cells a door's centre line crosses are tested at the point ON that line
-  //    (level with the cell's centre, exactly, against every wall and item), so a door the body
-  //    fits through is open on the map. Everything else stays measured from cell centres.
+  //    cell centres, and a door under 0.74 m has none. The cells a door's centre line crosses are
+  //    tested at the point ON that line (level with the cell's centre, exactly), so a door the body
+  //    walks through is open on the map: the real collision lets it through every door from
+  //    MIN_DOOR_PASS, Studio's narrowest (v0.14.5, measured in doorsWalk.test.js). On that line the
+  //    door's own jambs are half its width away; everything else keeps its clearance. Everything
+  //    else on the map stays measured from cell centres.
   const passages = new Map(); // cell → the point on the door's centre line it was opened at (routes go through it)
   for (const d of doors) {
-    if (d.width / 2 < clearance) continue; // the body can't pass (0.7 m doors and narrower)
+    if (d.width < MIN_DOOR_PASS - 1e-6) continue; // narrower than Studio allows: the body can't pass
     const reach = d.depth / 2 + clearance + cell;
     const box = d.alongX
       ? { x0: d.x, x1: d.x, z0: d.z - reach, z1: d.z + reach }
@@ -360,7 +367,8 @@ export function buildWalkMap(layout, floorId, options = {}) {
       if (cells[k] !== BLOCKED || standing[k] === BLOCKED) continue;
       const qx = d.alongX ? d.x : cx(i);
       const qz = d.alongX ? cz(j) : d.z;
-      if (near.every((o) => distanceToRect(o, qx, qz) >= clearOf(o))) {
+      const jamb = d.width / 2 - 1e-6;
+      if (near.every((o) => distanceToRect(o, qx, qz) >= (o.kind === 'wall' ? Math.min(clearOf(o), jamb) : clearOf(o)))) {
         cells[k] = standing[k];
         passages.set(k, { x: qx, z: qz });
       }

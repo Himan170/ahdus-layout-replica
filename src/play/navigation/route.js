@@ -66,6 +66,11 @@ export const SEGMENT_CLEARANCE = BODY_RADIUS + 0.02;
 export const SMOOTH_SLACK = 0.05;
 /** Where a staircase's bottom link is: this far in front of its bottom step (as stairTop at the top). */
 const STAIR_LANDING = 0.6;
+/**
+ * A goal whose room is known (a desk, a room's door) moves this far to find a free spot, always inside
+ * that room: a chair against a wall leaves nowhere near it, and the far side of the desk is still "there".
+ */
+export const ROOM_SNAP_DISTANCE = 4;
 const SQRT2 = Math.SQRT2;
 const OCT = SQRT2 - 1;
 /** The bucket queue's resolution (m): routes come out within a few millimetres of the best. */
@@ -497,16 +502,26 @@ export function findRoute(layout, from, to, options = {}) {
     }
   }
   const gfi = fi(toFloor);
-  const goal = snap(maps[gfi], to, (x, z) => reach.has(`${gfi}:${areaAt(gfi, x, z)}`));
+  // The goal never moves across a wall: only to a free spot in the SAME room as the target (or, for a
+  // target outside every room, outside). If that room can't be reached the answer says why.
+  const goalRoom = goalRoomOf(layout, to, toFloor);
+  const target = goalRoom ? insideRoom(goalRoom, to) : { x: to.x, z: to.z };
+  const known = to.roomId != null && !!goalRoom;
+  const sameSide = sameRoomTest(layout, maps[gfi], toFloor, goalRoom, target);
+  const snapGoal = (accept) => snap(maps[gfi], target, accept, known ? ROOM_SNAP_DISTANCE : SNAP_DISTANCE);
+  const goal = snapGoal((x, z) => sameSide(x, z) && reach.has(`${gfi}:${areaAt(gfi, x, z)}`));
   if (!goal) {
-    if (!snap(maps[gfi], to)) return problem('GOAL_BLOCKED', `No walking route to ${name}: there's no room to stand there`);
-    const goalRoom = roomAt(layout, toFloor, to.x, to.z);
+    if (!snapGoal(sameSide)) return problem('GOAL_BLOCKED', `No walking route to ${name}: there's no room to stand there`);
     const startRoom = roomAt(layout, fromFloor, start.x, start.z);
-    if (goalRoom && !roomHasWayIn(goalRoom, rooms, links)) return problem('NO_DOOR', `No walking route to ${name}: it has no door`);
+    // "Dhruv Khatwani's desk: Office 3 has no door" (a room's own answer: "Office 3: it has no door")
+    const other = goalRoom?.name && goalRoom.name !== name ? goalRoom.name : null;
+    if (goalRoom && !roomHasWayIn(goalRoom, rooms, links)) {
+      return problem('NO_DOOR', `No walking route to ${name}: ${other ? `${other} has` : 'it has'} no door`);
+    }
     if (startRoom && !roomHasWayIn(startRoom, rooms, links)) {
       return problem('START_NO_DOOR', `No walking route to ${name}: the room you are in has no door`);
     }
-    return problem('NO_ROUTE', `No walking route to ${name}: something blocks the way`);
+    return problem('NO_ROUTE', `No walking route to ${name}: something blocks the way${other ? ` into ${other}` : ''}`);
   }
 
   // nodes: every cell of every floor, numbered floor after floor
@@ -684,12 +699,45 @@ export function findRoute(layout, from, to, options = {}) {
 
 /**
  * The point itself if the body fits exactly there (and `accept`s it), else the nearest free spot within
- * SNAP_DISTANCE that `accept(x, z)` takes (null: none).
+ * `maxDistance` that `accept(x, z)` takes (null: none).
  */
-function snap(map, p, accept = null) {
+function snap(map, p, accept = null, maxDistance = SNAP_DISTANCE) {
   if (map.isClear(p.x, p.z) && (!accept || accept(p.x, p.z))) return { x: p.x, z: p.z };
-  const spot = nearestFree(map, p.x, p.z, { maxDistance: SNAP_DISTANCE, accept });
+  const spot = nearestFree(map, p.x, p.z, { maxDistance, accept });
   return spot && { x: spot.x, z: spot.z };
+}
+
+/**
+ * The room a goal is in: `to.roomId` (a place knows its room, even when the spot behind a chair falls
+ * through the wall behind it), else the innermost room holding the spot; null: outside every room.
+ */
+function goalRoomOf(layout, to, floor) {
+  if (to.roomId != null) {
+    const room = list(layout.rooms).find((r) => r.id === to.roomId && floorOf(r) === floor);
+    if (room) return room;
+  }
+  return roomAt(layout, floor, to.x, to.z);
+}
+
+/** The spot itself, or the nearest one inside the room (clear of its walls). */
+function insideRoom(room, p) {
+  const r = roomRect(room);
+  const t = wallThicknessOf(room) / 2 + 0.02;
+  const clamp = (v, a, b) => (a > b ? (a + b) / 2 : Math.max(a, Math.min(b, v)));
+  return { x: clamp(p.x, r.x0 + t, r.x1 - t), z: clamp(p.z, r.z0 + t, r.z1 - t) };
+}
+
+/**
+ * accept(x, z) for a goal's free spot: in the same room as the target (null: outside every room), and
+ * no wall between them (a free-standing wall in the room counts).
+ */
+function sameRoomTest(layout, map, floor, room, target) {
+  const walls = map.obstacles.filter((o) => (o.kind === 'wall' || o.assetType === 'WALL_SEGMENT')
+    && distanceToRect(o, target.x, target.z) > 0);
+  return (x, z) => {
+    if ((roomAt(layout, floor, x, z)?.id ?? null) !== (room?.id ?? null)) return false;
+    return !walls.some((o) => segmentToRect(o, target.x, target.z, x, z) === 0);
+  };
 }
 
 /**

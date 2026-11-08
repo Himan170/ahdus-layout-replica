@@ -162,8 +162,18 @@ describe('routes on one floor', () => {
     expect(Math.abs(c.u - 2)).toBeLessThan(0.08 + 1e-6); // within 0.4 − 0.32 of the door's middle
   });
 
-  it('a 0.7 m door is too narrow: no route, and a clear answer', () => {
-    const r = route(twoRooms(0.7), { x: -2, z: -2, floor: 0 }, { x: 10, z: -2, floor: 0 });
+  it('a 0.7 m and a 0.6 m door (Studio\'s narrowest) are walked through, in the middle', () => {
+    for (const width of [0.7, 0.6]) {
+      const layout = twoRooms(width);
+      const r = route(layout, { x: -2, z: -2, floor: 0 }, { x: 10, z: -2, floor: 0 });
+      expect(r.problem, r.message).toBeUndefined();
+      const [c] = wallCrossings(layout, 0, ...firstCrossingSegment(r, 4.075));
+      expect(Math.abs(c.u - 2)).toBeLessThan(0.05); // the door's centre line (doorsWalk.test.js: the body does get through)
+    }
+  });
+
+  it('a door too narrow for the body: no route, and a clear answer', () => {
+    const r = route(twoRooms(0.5), { x: -2, z: -2, floor: 0 }, { x: 10, z: -2, floor: 0 });
     expect(r).toEqual({ problem: 'NO_ROUTE', message: 'No walking route to Office B: something blocks the way' });
   });
 

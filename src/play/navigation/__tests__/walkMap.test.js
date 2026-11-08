@@ -65,19 +65,19 @@ describe('walls', () => {
     expect(m.at(0.3, -2)).toBe(BLOCKED); // 0.2 m from the jamb
   });
 
-  it('a 0.6 m and a 0.7 m door are closed (the body is 0.64 m wide, plus the margin); 0.9 m is open', () => {
-    for (const [width, open] of [[0.6, false], [0.7, false], [0.9, true]]) {
+  it('every door the body walks through is open: 0.6 m (Studio\'s narrowest), 0.7 m, 0.9 m; narrower is not (doorsWalk.test.js measures it)', () => {
+    for (const [width, open] of [[0.5, false], [0.6, true], [0.7, true], [0.9, true]]) {
       const m = map([office({ doors: [{ wall: 'south', offset: 0, width }] })]);
       const any = [-0.05, 0, 0.05].some((x) => m.at(x, -2) === FREE);
       expect(any).toBe(open);
     }
   });
 
-  it('a 0.8 m door is open, on every wall and wherever it lies on the grid; 0.6 / 0.7 m stay closed', () => {
+  it('a door from 0.6 m is open, on every wall and wherever it lies on the grid; narrower stays closed', () => {
     const offsets = [0, 0.02, 0.03, 0.05, 0.07, 0.09, 0.43, -1.234];
     for (const wall of ['south', 'north', 'east', 'west']) {
       for (const offset of offsets) {
-        for (const [width, open] of [[0.6, false], [0.7, false], [0.8, true], [0.85, true]]) {
+        for (const [width, open] of [[0.5, false], [0.6, true], [0.7, true], [0.8, true], [0.85, true]]) {
           // the room off the grid's lines too (x, z), with thick walls sometimes
           const m = map([room('r', 0.013, -0.027, 6, 4, {
             doors: [{ wall, offset, width }], wallThickness: offset > 0.4 ? 0.3 : 0.15,
@@ -218,7 +218,8 @@ describe('floors', () => {
       expect(m.indexOf(p.x, p.z)).toBe(k);
     }
     expect(reaches(m, { x: 0, z: 0 }, { x: 0, z: -4 })).toBe(true);
-    expect(map([office({ doors: [{ wall: 'south', offset: 0, width: 0.7 }] })]).passages.size).toBe(0);
+    expect(map([office({ doors: [{ wall: 'south', offset: 0, width: 0.7 }] })]).passages.size).toBeGreaterThan(0);
+    expect(map([office({ doors: [{ wall: 'south', offset: 0, width: 0.5 }] })]).passages.size).toBe(0);
   });
 
   it('upper floor: only its rooms are standing room; the opening over stairs from below is not', () => {
