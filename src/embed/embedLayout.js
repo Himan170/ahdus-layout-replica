@@ -119,3 +119,17 @@ export function cleanDepartments(list) {
   }
   return out;
 }
+
+/**
+ * openAt (v0.14.6): where the page opens (a deep link): { personId } | { roomId } | { deskId } | a place id
+ * ("person:…", "room:…"). Only that one field is kept; anything else = null (no deep link).
+ */
+export function cleanOpenAt(openAt) {
+  if (typeof openAt === 'string') return openAt.trim() ? openAt.trim() : null;
+  if (!openAt || typeof openAt !== 'object') return null;
+  for (const key of ['personId', 'roomId', 'deskId']) {
+    const v = openAt[key];
+    if ((typeof v === 'string' && v.trim()) || (typeof v === 'number' && Number.isFinite(v))) return { [key]: String(v).trim() };
+  }
+  return null;
+}

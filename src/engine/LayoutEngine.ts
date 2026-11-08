@@ -75,6 +75,7 @@ import type { WalkthroughTarget, WalkthroughClick } from './systems/WalkthroughS
 import { createWorkspaceStore } from '../store/workspaceStore';
 import { createEditorHistory } from '../store/editorHistory';
 import { primaryAnchor } from '../integration/anchorsFromStore';
+import { softwareRenderer } from './startMode';
 
 /** Item types only Studio shows (markers for the editor): hidden in view and walkthrough mode (v0.13.1). */
 export const STUDIO_ONLY_TYPES = ['SPAWN_POINT'];
@@ -205,6 +206,9 @@ export const READ_ONLY = 'This layout is view-only here';
 
 /** Editor calls that change nothing, so they work in every mode. */
 const ALWAYS_ALLOWED = new Set(['clear', 'endBurst']);
+/** Overview (v0.14.6): at least this far (m) around where you stood, looking down at least this steeply. */
+const OVERVIEW_AROUND = 6;
+const OVERVIEW_BETA = 0.75;
 
 /** The editor's commands (store/editorHistory.js), on an engine's own store. */
 export type LayoutEditorApi = ReturnType<typeof createEditorHistory>;
@@ -258,6 +262,8 @@ export class LayoutEngine {
   /** The route line of Show route / Take me there (made when first shown). */
   private _routeLine: RouteLineSystem | null = null;
   private _warmed: Promise<void> = Promise.resolve();
+  /** Where Overview left you walking (resumeWalk goes back there); a new layout forgets it. */
+  private _walkPlace: { x: number; z: number; yaw: number; pitch: number; floor: number } | null = null;
   /** Builds the layout in slices (progressive loading). */
   private _builder: SceneBuilder;
 
@@ -457,6 +463,7 @@ export class LayoutEngine {
     this.navigation.stop(); // a route through the old layout means nothing in this one
     this._loaded = v2;
     this._cachedLayout = null;
+    this._walkPlace = null; // a place in the old layout means nothing in this one
     this.history.clear();
     // Built a slice at a time, the start floor first ('progress' events; whenBuilt())
     this._builder.start();
@@ -690,6 +697,62 @@ export class LayoutEngine {
     this._mode = mode;
     this._applyMode();
     this.emit('mode', { mode });
+  }
+
+  /**
+   * Overview (v0.14.6): the view from above, on the floor you walked to, looking at where you were. Your
+   * place is kept: resumeWalk() takes you back there. Not walking: just the view from above.
+   */
+  overview({ animate = true }: { animate?: boolean } = {}): void {
+    const walk = this._walkthrough;
+    if (this._mode === 'walkthrough' && walk?.isActive()) {
+      const p = walk.getPosition();
+      const floor = walk.getLevel();
+      this._walkPlace = { x: p.x, z: p.z, yaw: walk.getYaw(), pitch: walk.getPitch(), floor };
+      this.setMode('view');
+      this.setFloor(floor);
+      const camera = this._layoutScene.camera;
+      if (camera) {
+        camera.target.y = elevationOf(this._store.getState().floors, floor);
+        const d = OVERVIEW_AROUND;
+        flyTo(camera, this.scene, { min: { x: p.x - d, z: p.z - d }, max: { x: p.x + d, z: p.z + d } }, {
+          duration: animate ? 300 : 0, beta: OVERVIEW_BETA,
+        });
+      }
+      return;
+    }
+    this.setMode('view');
+  }
+
+  /**
+   * Walk again (v0.14.6): where Overview left you (same layout), else at the entrance as every walk starts.
+   * @returns true if you went back to where you were
+   */
+  resumeWalk(): boolean {
+    const place = this._walkPlace;
+    this._walkPlace = null;
+    this.setMode('walkthrough');
+    if (!place || !this._walkthrough?.isActive()) return false;
+    this._walkthrough.setPose(place);
+    return true;
+  }
+
+  /** Where Overview left you walking (resumeWalk goes back there), or null. */
+  get walkPlace(): { x: number; z: number; yaw: number; pitch: number; floor: number } | null {
+    return this._walkPlace ? { ...this._walkPlace } : null;
+  }
+
+  /**
+   * A device that walking would be slow on (v0.14.6): quality 'low', or WebGL drawn by the CPU (no graphics
+   * card in use: SwiftShader, llvmpipe, …). A viewer with startMode starts in Overview there.
+   */
+  get weakDevice(): boolean {
+    if (this._quality === 'low') return true;
+    try {
+      return softwareRenderer(this.babylonEngine.getGlInfo?.()?.renderer);
+    } catch {
+      return false;
+    }
   }
 
   /** The walkthrough (character, its room and floor); null until walkthrough mode is first used. */

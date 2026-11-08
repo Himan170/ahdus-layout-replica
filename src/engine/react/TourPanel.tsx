@@ -76,6 +76,8 @@ export interface TourPanelProps {
   narrow?: boolean;
   /** Where it sits at the bottom (px) when narrow: above the joystick or the HUD. */
   bottom?: number;
+  /** Where it sits at the top (px) when wide (v0.14.6: under the viewer's Overview button). */
+  top?: number;
   /** The stop list is open (the toolbar's Tour button toggles it). */
   listOpen?: boolean;
   onListOpenChange?: (open: boolean) => void;
@@ -83,7 +85,7 @@ export interface TourPanelProps {
   focusView?: () => void;
 }
 
-export function TourPanel({ engine, touch = false, narrow = false, bottom = 12, listOpen = false, onListOpenChange, focusView }: TourPanelProps) {
+export function TourPanel({ engine, touch = false, narrow = false, bottom = 12, top = 12, listOpen = false, onListOpenChange, focusView }: TourPanelProps) {
   const [status, setStatus] = useState<TourStatus>(() => engine.tour.status);
   const [speakOn, setSpeakOn] = useState(false);
   const [, setNow] = useState(0);
@@ -127,7 +129,7 @@ export function TourPanel({ engine, touch = false, narrow = false, bottom = 12, 
 
   const box: CSSProperties = narrow
     ? { ...styles.panel, left: 12, right: 12, bottom, maxHeight: '48%' }
-    : { ...styles.panel, top: 12, right: 12, width: 360, maxHeight: 'calc(100% - 24px)' };
+    : { ...styles.panel, top, right: 12, width: 360, maxHeight: `calc(100% - ${top + 12}px)` };
   // walking between stops on a phone: one line ("Stop 2 of 20 · Lobby & Reception · Pause · ⌃"), so the view shows
   const walkingOn = state === 'walking' || (state === 'paused' && status.pausedFrom === 'walking');
   const compact = narrow && walkingOn && !expanded && !listOpen;

@@ -64,6 +64,10 @@ export interface PlaceSearchProps {
   onStartTour?: () => void;
   /** More of the toolbar's buttons, after Find (the viewer's Tour button). */
   after?: ReactNode;
+  /** Open the box (v0.14.6: the welcome card's Find someone): each new number opens it, the box focused. */
+  openRequest?: number;
+  /** The toolbar row's style on top of its own (the viewer keeps it clear of its Overview button). */
+  rowStyle?: CSSProperties;
 }
 
 /** The tour's entry: how many stops, about how long, how many visited (null: none to offer). */
@@ -212,6 +216,7 @@ function saveRecent(ids: string[]): void {
 
 export function PlaceSearch({
   engine, walking, people, departments, me = null, children, focusView, touch = false, onOpenChange, tour: offerTour = true, onStartTour, after,
+  openRequest = 0, rowStyle,
 }: PlaceSearchProps) {
   const touchRef = useRef(touch);
   touchRef.current = touch;
@@ -230,6 +235,10 @@ export function PlaceSearch({
   // the route being followed (engine 'navigation' events), and what screen readers hear about it
   const [nav, setNav] = useState<NavigationEvent | null>(null);
   const [said, setSaid] = useState('');
+  // the welcome card's Find someone (v0.14.6): open (the box is focused when it opens)
+  useEffect(() => {
+    if (openRequest > 0) setOpen(true);
+  }, [openRequest]);
 
   useEffect(() => {
     if (!engine) return undefined;
@@ -487,7 +496,7 @@ export function PlaceSearch({
 
   return (
     <>
-      <div style={styles.row}>
+      <div style={rowStyle ? { ...styles.row, ...rowStyle } : styles.row}>
         {children}
         <button
           ref={buttonRef}

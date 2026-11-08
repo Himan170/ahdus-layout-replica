@@ -556,11 +556,10 @@ export class NavigationSystem {
    * Show a place (an id from find(), or a result): from above, its floor, the
    * camera flies to it and it is outlined; walking, it is outlined and the
    * walk to it from where you stand is measured ("Nearest washroom": the
-   * nearest by walking). null: no such place.
+   * nearest by walking). null: no such place. target: as routeTo's (v0.14.6: { personId }, { roomId }, … too).
    */
-  show(target: string | { id: string }, { animate = true, color = SEARCH_HIGHLIGHT } = {}): ShowResult | null {
-    const id = typeof target === 'string' ? target : target?.id;
-    let place = id ? this.place(id) : null;
+  show(target: RouteTarget, { animate = true, color = SEARCH_HIGHLIGHT } = {}): ShowResult | null {
+    let place = this.resolve(target);
     if (!place) return null;
     const walker = this.hooks.getWalker();
     const out: Partial<ShowResult> = {};

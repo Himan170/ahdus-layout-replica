@@ -1806,6 +1806,7 @@ export function createPlayController(scene, canvas, {
     isFlying: () => flying,
     getPosition: () => collider.position.clone(),
     getYaw: () => yaw,
+    getPitch: () => pitch,
 
     dispose() {
       this.deactivate();

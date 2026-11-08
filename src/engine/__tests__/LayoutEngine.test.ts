@@ -1112,3 +1112,51 @@ describe('a real engine connected to layoutBridge', () => {
     expect(got).toEqual(['Office 1']);
   });
 });
+
+describe('Overview and Walk (v0.14.6)', () => {
+  beforeEach(() => { controllers.length = 0; });
+
+  it('Overview keeps your place: from above on the floor you are on; resumeWalk takes you back there', () => {
+    const engine = makeEngine({ mode: 'walkthrough' });
+    engine.loadLayout(save());
+    const c = controllers[0];
+    c.pos = { x: 3, y: 3.5, z: -1, floor: 1 };
+    engine.overview({ animate: false });
+    expect(engine.mode).toBe('view');
+    expect(engine.floors.getView()).toEqual({ mode: 'planner', level: 1 });
+    expect(engine.walkPlace).toEqual({ x: 3, z: -1, yaw: 0.5, pitch: 0, floor: 1 });
+    // the camera looks at where you stood, from above
+    const camera = engine.scene.activeCamera as ArcRotateCamera;
+    expect(camera.target.x).toBeCloseTo(3);
+    expect(camera.target.z).toBeCloseTo(-1);
+    expect(camera.beta).toBeLessThanOrEqual(0.76);
+    c.setPose.mockClear();
+    expect(engine.resumeWalk()).toBe(true);
+    expect(engine.mode).toBe('walkthrough');
+    expect(c.setPose).toHaveBeenCalledWith({ x: 3, z: -1, yaw: 0.5, pitch: 0, floor: 1 });
+    expect(engine.walkPlace).toBeNull();
+  });
+
+  it('no place kept (never walked, or a new layout since): Walk starts at the entrance as every walk', () => {
+    const engine = makeEngine({ mode: 'view' });
+    engine.loadLayout(save());
+    engine.overview(); // not walking: just the view from above
+    expect(engine.walkPlace).toBeNull();
+    expect(engine.resumeWalk()).toBe(false);
+    expect(controllers[0].setPose).not.toHaveBeenCalled();
+    engine.overview({ animate: false });
+    expect(engine.walkPlace).not.toBeNull();
+    engine.loadLayout(save());
+    expect(engine.walkPlace).toBeNull();
+  });
+
+  it('weakDevice: quality low, or WebGL drawn by software', () => {
+    expect(makeEngine({ quality: 'low' }).weakDevice).toBe(true);
+    const engine = makeEngine();
+    const info = vi.spyOn(engine.babylonEngine, 'getGlInfo');
+    info.mockReturnValue({ vendor: 'Google Inc.', renderer: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)', version: '' });
+    expect(engine.weakDevice).toBe(true);
+    info.mockReturnValue({ vendor: 'Intel', renderer: 'ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)', version: '' });
+    expect(engine.weakDevice).toBe(false);
+  });
+});

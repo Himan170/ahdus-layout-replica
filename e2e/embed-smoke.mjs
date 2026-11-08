@@ -505,6 +505,30 @@ log('quality: \'low\' shows the simple models and materials and downloads no ass
   !low.error && lowLook.items > 0 && lowLook.models === 0 && !lowLook.sky && lowFiles.length === 0,
   JSON.stringify({ ...lowLook, files: lowFiles.length }));
 await removeExtra();
+// startMode (v0.14.6): the viewer decides the start; onEvent('mode') and handle.mode follow it
+const startWalk = await mountExtra({ layout: v2, startMode: 'walkthrough', weakDevice: false });
+await p.waitForSelector('#extra [data-welcome]', { timeout: 60000 }).catch(() => {});
+const walkStart = await p.evaluate(() => ({
+  mode: window.extra?.mode, card: !!document.querySelector('#extra [data-welcome]'),
+  button: document.querySelector('#extra [data-mode-button]')?.dataset.modeButton,
+}));
+log('option startMode "walkthrough": walking, the welcome card, the Overview button; onEvent("mode"), handle.mode',
+  !startWalk.error && startWalk.seen.includes('mode') && walkStart.mode === 'walkthrough' && walkStart.card && walkStart.button === 'overview',
+  JSON.stringify({ ...walkStart, seen: startWalk.seen }));
+await removeExtra();
+await p.evaluate(() => { try { localStorage.removeItem('ahdus.viewMode'); } catch { /* blocked */ } });
+const startWeak = await mountExtra({ layout: v2, startMode: 'walkthrough', quality: 'low' });
+const weakStart = await p.evaluate(() => ({
+  mode: window.extra?.mode, card: !!document.querySelector('#extra [data-welcome]'),
+  button: document.querySelector('#extra [data-mode-button]')?.dataset.modeButton,
+}));
+log('startMode with quality "low" (a weak device): from above, no card, a Walk button',
+  !startWeak.error && weakStart.mode === 'view' && !weakStart.card && weakStart.button === 'walk', JSON.stringify(weakStart));
+await removeExtra();
+const startEdit = await mountExtra({ layout: v2, startMode: 'edit' });
+log('startMode "edit" is refused: onError, the element is empty', /edit/i.test(startEdit.error ?? '') && startEdit.children === 0,
+  JSON.stringify(startEdit));
+await removeExtra();
 const fromApi = await mountExtra({ layoutUrl: `http://localhost:${apiPort}/api/v1/workplace/layouts/current`, headers: { Authorization: 'Bearer test-token' }, mode: 'view' });
 log('layoutUrl on another origin is fetched with the page\'s cookies (credentials: "include") and the headers given',
   !fromApi.error && fromApi.seen.includes('ready') && apiSeen.some((s) => /ahdus_session=ok/.test(s.cookie) && s.authorization === 'Bearer test-token'),
