@@ -46,6 +46,12 @@
  * Find's menu start it at the main entrance (from above too); its panel (TourPanel) shows the stop, the way
  * on and the controls: top right, or on a narrow view at the bottom above the joystick / the HUD. Skip the
  * walk, Previous and a stop from the list fade the view (also arriving, with prefers-reduced-motion).
+ *
+ * Start mode (v0.14.6): with `startMode` the viewer decides how it starts (startMode.chooseStart): walking from the
+ * main entrance with a welcome card ("Welcome to … · Start the tour · Explore · Find someone"), unless the person
+ * last chose Overview (per browser), the device is weak (quality 'low' or WebGL drawn by software: Overview, with a
+ * Walk button) or the page opens at a person or room (`openAt`: no card). Its own button at the top right switches:
+ * Overview (from above, on the floor you are on, looking at where you were) and Walk (back where you were).
  */
 
 import { useEffect, useId, useRef, useState } from 'react';
@@ -66,6 +72,12 @@ import { TouchControls, STICK_SIZE, STICK_MARGIN } from './TouchControls';
 import { TourPanel, TOUR_LABEL } from './TourPanel';
 import { toolButtonStyles } from './PlaceSearch';
 import type { TourEvent } from '../systems/TourSystem';
+import type { RouteTarget } from '../systems/NavigationSystem';
+import { WelcomeCard } from './WelcomeCard';
+import type { WelcomeAction } from './WelcomeCard';
+import { tourDetail } from './PlaceSearch';
+import { chooseStart, readStartMode, rememberStartMode } from '../startMode';
+import type { StartMode, StartChoice } from '../startMode';
 
 export interface LayoutViewerProps {
   /** The layout: a save, an exported layout file or v2 JSON. */
@@ -73,8 +85,21 @@ export interface LayoutViewerProps {
   /** Or a layout saved in this browser (used when `layout` is not given). */
   companyId?: string;
   layoutId?: string;
-  /** 'view' (orbit, default) or 'walkthrough'. */
+  /** 'view' (orbit, default) or 'walkthrough'. With `startMode`: only for changing it later. */
   mode?: Exclude<EngineMode, 'edit'>;
+  /**
+   * How the viewer starts (v0.14.6): 'walkthrough' (walking from the main entrance, the welcome card) or 'view'.
+   * The person's last choice, a weak device (Overview) and `openAt` (no card) come first; the viewer then shows its
+   * own Overview / Walk button at the top right. Not given: `mode` alone, no card, no button (as before).
+   */
+  startMode?: StartMode;
+  /**
+   * Open at a person or room (a deep link, v0.14.6; with startMode): { personId } | { roomId } | a place id, as
+   * engine.navigation.routeTo takes. From above it is shown; walking, Show route from the entrance. No welcome card.
+   */
+  openAt?: RouteTarget | null;
+  /** The weak-device test's answer, given (tests, a page that knows better). Default: engine.weakDevice. */
+  weakDevice?: boolean;
   /** 'high' (default): realistic look (real models, photo textures, sky); 'low': simple look for slow computers. */
   quality?: QualityLevel;
   /** Where the real assets are (models/, textures/, env/). Default: the app's public/assets/. */
@@ -201,6 +226,12 @@ const HELP_TITLE_TOUCH = 'Touch controls';
 const FADE_MS = 250;
 /** Narrower than this (px), the tour's panel is full width at the bottom (a phone). */
 const NARROW_PX = 640;
+/** With startMode: the Overview / Walk button sits at the top right; what was there moves this far down (px). */
+const UNDER_MODE_BUTTON = 56;
+/** …and the toolbar's row keeps this much of the right clear (px). */
+const MODE_BUTTON_ROOM = 124;
+/** Keys that walk: the welcome card closes (= Explore) and they walk at once. */
+const WALK_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 
 /** Does this device point with a finger first (before any press tells)? */
 function coarsePointer(): boolean {
@@ -239,7 +270,11 @@ function layoutFrom({ layout, companyId, layoutId }: LayoutViewerProps): unknown
 }
 
 export function LayoutViewer(props: LayoutViewerProps) {
-  const { mode = 'view', quality = 'high', assetBaseUrl, className, style, search = true, tour = true } = props;
+  const { mode: modeProp, quality = 'high', assetBaseUrl, className, style, search = true, tour = true } = props;
+  const mode = modeProp ?? 'view';
+  // startMode (v0.14.6): the viewer decides how it starts, and keeps its own Overview / Walk button
+  const startMode = props.startMode === 'walkthrough' || props.startMode === 'view' ? props.startMode : null;
+  const owned = startMode !== null;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
@@ -264,6 +299,12 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [tourList, setTourList] = useState(false);
   const [fade, setFade] = useState(0);
   const [narrow, setNarrow] = useState(false);
+  // the start (v0.14.6): how it started, the welcome card, the layout's name, the tour's size, Find opened from it
+  const [start, setStart] = useState<StartChoice | null>(null);
+  const [welcome, setWelcome] = useState(false);
+  const [welcomeName, setWelcomeName] = useState<string | null>(null);
+  const [welcomeTour, setWelcomeTour] = useState<string | null>(null);
+  const [findRequest, setFindRequest] = useState(0);
   useEffect(() => {
     const box = boxRef.current;
     if (!box) return undefined;
@@ -326,7 +367,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
     // WebGL context with the next one (that broke the next one's sky: a black part in dev)
     const abort = new AbortController();
 
-    LayoutEngine.create(canvas, { mode, quality, assetBaseUrl, focusTarget: boxRef.current, signal: abort.signal }).then((e) => {
+    // with startMode the engine starts from above; the start effect below then walks (or not)
+    LayoutEngine.create(canvas, { mode: owned ? 'view' : mode, quality, assetBaseUrl, focusTarget: boxRef.current, signal: abort.signal }).then((e) => {
       if (disposed) {
         e.dispose();
         return;
@@ -430,10 +472,50 @@ export function LayoutViewer(props: LayoutViewerProps) {
     return () => { live = false; };
   }, [engine, layout, companyId, layoutId]);
 
+  // How it starts (v0.14.6, startMode): once per engine, right after its first layout is loaded
+  const startedRef = useRef<LayoutEngine | null>(null);
+  const { openAt } = props;
   useEffect(() => {
-    engine?.setMode(mode);
-    if (engine) setShownMode(engine.mode);
-  }, [engine, mode]);
+    if (!engine || !startMode || startedRef.current === engine || !engine.getLayout()) return undefined;
+    startedRef.current = engine;
+    const choice = chooseStart({
+      startMode, remembered: readStartMode(), weak: propsRef.current.weakDevice ?? engine.weakDevice, openAt: openAt != null,
+    });
+    setStart(choice);
+    setWelcomeName(String(engine.getStore().getState().layoutName ?? '').trim() || null);
+    setWelcome(choice.welcome);
+    const was = engine.mode;
+    engine.setMode(choice.mode);
+    setShownMode(engine.mode);
+    // the page always hears how it started (from above the engine was in 'view' already: no 'mode' event)
+    if (engine.mode === was && engine.mode !== 'edit') propsRef.current.onModeChange?.(engine.mode);
+    let live = true;
+    if (openAt != null) {
+      // a deep link: once the layout is built (its people seated); from above shown, walking the route's line
+      engine.whenBuilt().then(() => {
+        if (!live) return;
+        if (engine.mode === 'walkthrough') engine.navigation.routeTo(openAt, { walk: 'guide' });
+        else engine.navigation.show(openAt);
+      });
+    }
+    return () => { live = false; };
+    // the start is decided once; later props change the mode through `mode`
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine, layout, companyId, layoutId]);
+
+  // `mode`: with startMode only a change of it (the start is the viewer's own)
+  const firstModeRef = useRef(modeProp);
+  const modeMovedRef = useRef(false);
+  useEffect(() => {
+    if (!engine) return;
+    if (owned) {
+      if (!modeMovedRef.current && modeProp === firstModeRef.current) return;
+      modeMovedRef.current = true;
+      if (modeProp === undefined) return;
+    }
+    engine.setMode(mode);
+    setShownMode(engine.mode);
+  }, [engine, mode, modeProp, owned]);
 
   const { people, departments } = props;
   useEffect(() => {
@@ -544,7 +626,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const hintRef = useRef<{ show: boolean | null; done: boolean; touch: boolean }>({ show: null, done: false, touch: false });
   useEffect(() => {
     const h = hintRef.current;
-    if (!walking || error || !engine || !floorReady || h.done || touring) return undefined;
+    if (!walking || error || !engine || !floorReady || h.done || touring || welcome) return undefined;
     if (h.show === null) {
       // in the words of how you walk now: keys and mouse, or the joystick (touch, v0.14.1)
       h.touch = touchRef.current;
@@ -556,7 +638,50 @@ export function LayoutViewer(props: LayoutViewerProps) {
     const fade = setTimeout(() => setHint('fading'), HINT_MS);
     const gone = setTimeout(() => { h.done = true; setHint(null); }, HINT_MS + HINT_FADE_MS);
     return () => { clearTimeout(fade); clearTimeout(gone); setHint(null); };
-  }, [walking, engine, floorReady, error, touring]);
+  }, [walking, engine, floorReady, error, touring, welcome]);
+
+  // The welcome card (v0.14.6) goes when walking ends, or (= Explore) on a walking key, Esc or a press on the view
+  useEffect(() => {
+    if (!walking) setWelcome(false);
+  }, [walking]);
+  useEffect(() => {
+    if (touring) setWelcome(false);
+  }, [touring]);
+  useEffect(() => {
+    if (!welcome || !walking) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (e.key === 'Escape') {
+        // the card's, not the walkthrough's (that gives the keys back to the page)
+        e.preventDefault();
+        e.stopPropagation();
+        setWelcome(false);
+      } else if (WALK_KEYS.has(e.code)) {
+        setWelcome(false); // and it walks: the key goes on to the view
+      }
+    };
+    const canvas = canvasRef.current;
+    const onDown = () => setWelcome(false);
+    window.addEventListener('keydown', onKey, true);
+    canvas?.addEventListener('pointerdown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      canvas?.removeEventListener('pointerdown', onDown);
+    };
+  }, [welcome, walking]);
+  // The tour's size on the card, once it is planned (in idle time)
+  useEffect(() => {
+    if (!welcome || !engine || !tour) return undefined;
+    let live = true;
+    const fill = () => {
+      const plan = engine.navigation.tourPlanReady;
+      if (live && plan?.stops?.length) setWelcomeTour(tourDetail({ count: plan.stops.length, minutes: plan.minutes, visited: 0 }));
+    };
+    fill();
+    engine.whenNavigationReady().then(fill, () => {});
+    return () => { live = false; };
+  }, [welcome, engine, tour]);
 
   // The "?" help closes when walking ends, or on a press anywhere else
   useEffect(() => {
@@ -607,6 +732,37 @@ export function LayoutViewer(props: LayoutViewerProps) {
     if (r.problem) engine.walkthrough?.say(r.message ?? 'No tour here', 2500);
     focusView();
   };
+  const onWelcome = (action: WelcomeAction) => {
+    setWelcome(false);
+    if (action === 'tour') startTour();
+    else if (action === 'find') setFindRequest((n) => n + 1);
+    else focusView();
+  };
+  // Overview / Walk (v0.14.6, startMode): the person's choice, remembered in this browser
+  const modeButton = owned && engine && !error ? (
+    <button
+      type="button"
+      data-mode-button={walking ? 'overview' : 'walk'}
+      aria-label={walking ? 'Overview' : 'Walk'}
+      title={walking ? 'See this floor from above (your place is kept)' : start?.reason === 'weak' && !engine.walkPlace
+        ? 'Walk through (it may be slow on this device)' : 'Walk through from where you were'}
+      style={{ ...toolButtonStyles.off, ...styles.modeButton }}
+      onClick={() => {
+        setWelcome(false);
+        if (walking) {
+          rememberStartMode('view');
+          engine.overview();
+        } else {
+          rememberStartMode('walkthrough');
+          engine.resumeWalk();
+          focusView();
+        }
+      }}
+    >
+      {walking ? <MapIcon /> : <WalkIcon />} <span>{walking ? 'Overview' : 'Walk'}</span>
+    </button>
+  ) : null;
+  const rowStyle = owned ? { maxWidth: `calc(100% - ${MODE_BUTTON_ROOM}px)` } : undefined;
   const tourButton = tour && engine && !error ? (
     <button
       type="button"
@@ -730,15 +886,20 @@ export function LayoutViewer(props: LayoutViewerProps) {
             <div style={{ ...toolbarStyle, ...(findOpen ? { zIndex: 3 } : null) }} data-viewer-toolbar>
               <PlaceSearch engine={engine} walking={walking} people={people} touch={touchUI}
                 departments={departments} me={me == null ? null : String(me)} onOpenChange={setFindOpen}
-                tour={tour} onStartTour={startTour} after={tourButton}
+                tour={tour} onStartTour={startTour} after={tourButton} openRequest={findRequest} rowStyle={rowStyle}
                 focusView={focusView}>{walkBar}</PlaceSearch>
               {help}
             </div>
           );
         }
         return walkBar || tourButton
-          ? <div style={toolbarStyle} data-viewer-toolbar><div style={styles.row}>{walkBar}{tourButton}</div>{help}</div> : null;
+          ? <div style={toolbarStyle} data-viewer-toolbar><div style={{ ...styles.row, ...rowStyle }}>{walkBar}{tourButton}</div>{help}</div> : null;
       })()}
+      {modeButton}
+      {welcome && walking && floorReady && !error && (
+        <WelcomeCard name={welcomeName} tour={tour} search={search} tourDetail={welcomeTour} touch={touchUI}
+          narrow={narrow} bottom={tourBottom} onAction={onWelcome} />
+      )}
       {walking && !error && hud && (
         <>
           {/* mouse-look mode: what a click or E is on (dragging to look needs none: the cursor is there) */}
@@ -781,7 +942,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
         </>
       )}
       {engine && touring && !error && (
-        <TourPanel engine={engine} touch={touchUI} narrow={narrow} bottom={tourBottom}
+        <TourPanel engine={engine} touch={touchUI} narrow={narrow} bottom={tourBottom} top={owned ? UNDER_MODE_BUTTON : 12}
           listOpen={tourList} onListOpenChange={setTourList} focusView={focusView} />
       )}
       {/* the tour's fade (Skip the walk, Previous, a stop from the list; arriving with reduced motion) */}
@@ -808,7 +969,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
         </div>
       )}
       {card && (
-        <div role="status" data-viewer-card style={styles.card}>
+        <div role="status" data-viewer-card style={owned ? { ...styles.card, top: UNDER_MODE_BUTTON } : styles.card}>
           <strong>{card.title}</strong>
           <div style={{ whiteSpace: 'pre-line' }}>{card.body ?? card.text}</div>
         </div>
@@ -821,6 +982,26 @@ function FlagIcon() {
   return (
     <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flex: 'none' }}>
       <path d="M4 22V4M4 4h12l-2 4 2 4H4" />
+    </svg>
+  );
+}
+
+/** Overview: a floor plan. */
+function MapIcon() {
+  return (
+    <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flex: 'none' }}>
+      <path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3Z" />
+      <path d="M9 3v15M15 6v15" />
+    </svg>
+  );
+}
+
+/** Walk: a walking person. */
+function WalkIcon() {
+  return (
+    <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flex: 'none' }}>
+      <circle cx="13" cy="4" r="2" />
+      <path d="m9 20 3-6 3 3v4M7 12l3-4 4 1 3 3M12 14l-1-5" />
     </svg>
   );
 }
@@ -908,6 +1089,8 @@ const styles: Record<string, CSSProperties> = {
   // touch: above the joystick and its knob pushed forward (the HUD is beside it)
   personNearTouch: { bottom: STICK_MARGIN + STICK_SIZE + 44 },
   fade: { position: 'absolute', inset: 0, zIndex: 4, background: '#0b1220', pointerEvents: 'none' },
+  // startMode's Overview / Walk (v0.14.6): top right
+  modeButton: { position: 'absolute', top: 12, right: 12, zIndex: 2 },
 };
 
 export default LayoutViewer;

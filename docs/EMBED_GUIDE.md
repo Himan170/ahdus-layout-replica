@@ -69,6 +69,9 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `layoutUrl` | string | Or where to fetch it. Fetched with `credentials: 'include'` (your login cookie goes along). Must return one of the two formats above. Used only when `layout` is not given. |
 | `headers` | object | Extra request headers for `layoutUrl`, e.g. `{ Authorization: 'Bearer ' + token }`. |
 | `mode` | `'view'` \| `'walkthrough'` | `view` (default): orbit and zoom around the building, seen from above: the chosen floor (the ground floor at first) without its roof, the floors above it hidden, so its desks and people show. `walkthrough`: walk through it as a character; back in `view`, the floor you walked to is shown (a `floorChange` event says which). **`'edit'` is refused**: admins edit in Workplace Studio (section 6). |
+| `startMode` | `'walkthrough'` \| `'view'` | **v0.14.6, instead of `mode`:** the viewer decides how it starts (section 4g): walking from the main entrance with a welcome card ("Welcome to … · Start the tour · Explore · Find someone"), unless the person last chose Overview or the device is weak (then from above, with a Walk button); with `openAt` there is no card. It shows its own **Overview / Walk** button at the top right. `'edit'` is refused. |
+| `openAt` | object \| string | **v0.14.6, with `startMode`:** open at a person or a room (a deep link such as `3d-model.html?person=…`): `{ personId }`, `{ roomId }`, `{ deskId }` or a place id. From above it is shown (the camera on it, outlined); walking, its route from the entrance is shown (Show route). No welcome card. Only that one field is kept. |
+| `weakDevice` | boolean | **v0.14.6:** the weak-device test's answer, given (default: tested: `quality: 'low'`, or WebGL drawn by the computer's processor, e.g. no graphics driver). |
 | `quality` | `'high'` \| `'low'` | `high` (default): the realistic look: real furniture models, photo textures on floors and walls, a photographed sky. They load after the workplace is drawn (the simple look shows until then). `low`: the simple models and materials, nothing extra downloaded: for slow computers. |
 | `assetBaseUrl` | string | Where the realistic look's files are (the `assets/` folder: `models/`, `textures/`, `env/`). Default: `assets/` next to `ahdus-workplace.js`. Set it when you host them elsewhere, e.g. `'https://cdn.example.com/ahdus/assets/'`. A file that can't be loaded keeps the simple look for that item or surface (a warning in the console, never an error). |
 | `characters` | object | `{ manifestUrl }`: where the **character manifest** is (section 4b), fetched with `credentials: 'include'` and `headers` on the first `setPeople`. Or `{ manifest }`: the manifest itself. Without it everyone is the neutral simple figure. Also `chooseUrl`: where people choose their character (http / https, or relative to the page), for the "Choose your character" link (section 4b), and `walkClipUrl`: the walk clip your own character walks with in `walkthrough` (section 4c). |
@@ -327,6 +330,31 @@ workplace.startTour({ follow: 'self' }); // I'll walk
 workplace.stopTour();
 ```
 
+### 4g. How it starts (`startMode`, `openAt`)
+
+With `startMode: 'walkthrough'` (what AHDUS's 3D Company page sets), everyone walks by default, phones too:
+
+- **Walking from the main entrance, third person, with a welcome card:** "Welcome to *the layout's name*", "You are at
+  the main entrance. How would you like to start?" and three buttons: **Start the tour** (with its size, "20 stops ·
+  about 8 min"; the company tour, section 4f), **Explore** (walk around yourself) and **Find someone** (opens Find). The
+  keys work at once: a movement key, Esc or a press on the view closes the card (= Explore) and walks. On a phone it
+  sits at the bottom, above the joystick. The one-time walking hint waits until it closes.
+- **Overview / Walk** (the button at the top right): **Overview** shows the floor you are on from above, looking at where
+  you stood, and keeps your place; **Walk** takes you back there, facing the same way (no place kept: the entrance).
+- **Three guards:** (1) the person's **last choice** (Overview or Walk, per browser) wins next time: someone who mostly
+  looks from above starts from above, with no card; (2) a **weak device** (`quality: 'low'`, or WebGL drawn by the
+  processor) starts from above with a Walk button (its tooltip says walking may be slow); (3) **`openAt`** (a deep link)
+  shows no card: from above the person or room is shown, walking its route from the entrance is shown.
+- `onEvent('mode', { mode })` and `workplace.mode` follow every change (the start, Overview / Walk, Take me there
+  from above). `setMode()` still works and is not remembered as the person's choice.
+
+```js
+const workplace = AHDUSWorkplace.mount(el, {
+  layoutUrl, startMode: 'walkthrough',
+  openAt: params.get('person') ? { personId: params.get('person') } : null, // 3d-model.html?person=…
+});
+```
+
 ---
 
 ## 5. Events (`onEvent(name, data)`)
@@ -339,6 +367,7 @@ workplace.stopTour();
 | `exitRoom` | The character left a room (also: switching to `view`) | `{ roomId, room, floorId, toRoomId }` |
 | `interact` | E was pressed on an item, door or window | the target (section 4) |
 | `floorChange` | The floor shown or walked on changed | `{ floorId, name }` |
+| `mode` | The mode changed (v0.14.6): the start with `startMode`, Overview / Walk, Take me there from above | `{ mode }` |
 | `card` | The viewer showed a card (E with no action for it) | `{ title, body }` |
 | `tour` | The company tour (section 4f) | `{ type, state, follow, index, count, visited, remaining, message, mention, stop }`; `type`: `started`, `walking`, `arrived`, `paused`, `resumed`, `follow`, `mention`, `progress`, `done`, `ended`, `problem`; `state`: `idle`, `walking`, `stop`, `paused`, `done`; `stop`: `{ id, n, kind, name, floor, floorName, text }` |
 | `navigation` | Show route / Take me there (section 4e) | `{ state, walk, place, remaining, length?, seconds?, floor?, paused?, rerouted?, problem?, message? }`; `state`: `started`, `progress` (about every metre or second; `paused: true` after a movement key), `arrived`, `stopped`, `failed` |

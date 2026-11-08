@@ -23,13 +23,15 @@
  *
  * Each place has `goals`: where a walk to it ends ({ x, z, floor }): just
  * inside each door of a room, behind a person's chair (their aisle side; at a
- * reception desk: in front of its counter, people.visitorSpot), in
- * front of a staircase's bottom step. Tests: navigation/__tests__/places.test.js.
+ * reception desk: in front of its counter, people.visitorSpot; at an L-shaped
+ * corner desk: at an open side of the L, inside the room, people.visitorSpots), in
+ * front of a staircase's bottom step (in the flight's room).
+ * Tests: navigation/__tests__/places.test.js.
  */
 
 import { floorAbove, floorsInOrder, stairDimsFor } from '../building';
 import { roomOpenings, wallThicknessOf } from '../geometry';
-import { deskSeats, seatPose, isDesk, visitorSpot } from '../people';
+import { deskSeats, seatPose, isDesk, visitorSpots } from '../people';
 import { stairBottom } from './route';
 
 const list = (v) => (Array.isArray(v) ? v : Object.values(v ?? {}));
@@ -75,6 +77,8 @@ export const GROUP_LIMIT = 6;
 export const INSIDE_DOOR = 0.6;
 /** …to a person this far behind their chair (m): the aisle, facing them. */
 export const BEHIND_SEAT = 0.7;
+/** A visitor's spot at a corner desk's open side counts only this far (m, its centre) inside the room's walls. */
+export const VISITOR_WALL_GAP = 0.4;
 
 /** Lower case, no accents, words of letters and digits: "Data & AI" → ['data', 'ai']. */
 export function words(text) {
@@ -207,15 +211,15 @@ export function buildPlaces(layout, people = []) {
       const above = floorAbove(floors, floor);
       detail = joinDetail('Stairs', above ? `${floorName(floor)} to ${floorName(above.id)}` : floorName(floor));
     } else if (isDesk(o.assetType)) {
-      const pose = seatPose(o.id, objects, floors);
-      goal = visitorSpot(o) ?? (pose ? behind(pose) : goal);
+      goal = deskGoals(o, seatPose(o.id, objects, floors), roomAround(rooms, floor, o.x ?? 0, o.z ?? 0))[0];
     }
     add({
       id: `item:${o.id}`, kind: 'facility', group: 'facilities', name, detail,
       floor, roomId: room?.id ?? null, roomName: roomName(room), department: null, facility, assetType: o.assetType,
       entityId: o.id, highlight: [o.id], x: o.x, z: o.z,
-      // an item stands where its middle is (a saved roomId can be old); stairs' goal is in front of the flight
-      goals: [{ ...goal, floor, ...(o.assetType === 'STAIRCASE' ? {} : { roomId: roomAround(rooms, floor, o.x ?? 0, o.z ?? 0)?.id ?? null }) }],
+      // an item stands where its middle is (a saved roomId can be old); stairs' goal is in front of the flight,
+      // in the flight's own room when that spot is through its wall (a bottom step facing a wall, v0.14.6)
+      goals: [{ ...goal, floor, ...itemGoalRoom(o, goal, roomAround(rooms, floor, o.x ?? 0, o.z ?? 0), rooms, floor) }],
     }, name, [ITEM_LABEL[o.assetType], ...FACILITIES[facility].words]);
   }
 
@@ -238,17 +242,41 @@ export function buildPlaces(layout, people = []) {
       personId: String(p.personId), deskId: desk.id,
       entityId: desk.id, highlight: [desk.id, ...(pose?.chairId ? [pose.chairId] : [])],
       x: at.x, z: at.z,
-      // the walk ends in the room the desk stands in (behind a chair against a wall is through the wall)
-      goals: [{
-        ...(visitorSpot(desk) ?? (pose ? behind(pose) : { x: desk.x, z: desk.z })), floor,
-        roomId: roomAround(rooms, floor, desk.x ?? 0, desk.z ?? 0)?.id ?? null,
-      }],
+      // the walk ends in the room the desk stands in (behind a chair against a wall is through the wall);
+      // at a corner desk, at an open side of its L (the nearest by walking)
+      goals: deskGoals(desk, pose, roomAround(rooms, floor, desk.x ?? 0, desk.z ?? 0)).map((g) => ({
+        ...g, floor, roomId: roomAround(rooms, floor, desk.x ?? 0, desk.z ?? 0)?.id ?? null,
+      })),
     }, name, [dept]);
   }
 
   // the floors, lowest first (the browse menu's By floor)
   const floorList = floorsInOrder(floors).map((f) => ({ id: f.id, name: floorName(f.id) }));
   return { places, byId: new Map(places.map((p) => [p.id, p])), floors: floorList };
+}
+
+/**
+ * Where a walk to a desk's person ends ({ x, z }, best first): the visitor's spots (people.visitorSpots: a
+ * reception desk's front; a corner desk's open sides, those VISITOR_WALL_GAP inside its room), else
+ * behind their chair.
+ */
+function deskGoals(desk, pose, room) {
+  const spots = visitorSpots(desk, pose).filter((s) => !s.side || !room || insideBy(room, s, VISITOR_WALL_GAP));
+  if (spots.length) return spots.map((s) => ({ x: s.x, z: s.z }));
+  return [pose ? behind(pose) : { x: desk.x, z: desk.z }];
+}
+
+/** The room an item's walk ends in ({ roomId } or {}: route.js finds it): see the item facilities above. */
+function itemGoalRoom(o, goal, around, rooms, floor) {
+  if (o.assetType !== 'STAIRCASE') return { roomId: around?.id ?? null };
+  if (!around || roomAround(rooms, floor, goal.x, goal.z)?.id === around.id) return {};
+  return { roomId: around.id };
+}
+
+/** Is a point at least `gap` inside a room's walls (from their inside faces)? */
+function insideBy(room, p, gap) {
+  const t = wallThicknessOf(room) / 2 + gap;
+  return Math.abs(p.x - room.x) <= room.width / 2 - t && Math.abs(p.z - room.z) <= room.depth / 2 - t;
 }
 
 /** BEHIND_SEAT behind a seated (or standing) person: facing them from the aisle. */

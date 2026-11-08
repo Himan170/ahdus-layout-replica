@@ -78,6 +78,10 @@ import { LayoutEditor, LayoutViewer } from '@engine/react';   // later: '@ahdus/
   people={people}                 // who sits where: [{ personId, deskId, name, department, character }]
   search={true}                   // the "Find a person, room or place" box (default true; false hides it)
   departments={[{ name: 'Engineering', description: 'Builds the product' }]} // descriptions in its menu (v0.14.2)
+  startMode="walkthrough"         // v0.14.6, instead of mode: walk by default with the welcome card, its own Overview /
+                                  // Walk button top right; the last choice (per browser), a weak device (from above)
+  openAt={{ personId: 'p_42' }}   // v0.14.6: open at a person or room (a deep link): no welcome card
+  onModeChange={(mode) => { ... }} // the mode changed (the start, Overview / Walk, Take me there from above)
 />
 ```
 
@@ -218,6 +222,10 @@ engine.on('mode', ({ mode }) => { ... });           // the mode changed (setMode
 
 // --- Mode and edits ---
 engine.setMode('walkthrough');       // "edit" | "view" | "walkthrough"
+engine.overview();                   // v0.14.6: from above on the floor you walked to, looking at where you stood;
+                                     // your place is kept (engine.walkPlace)
+engine.resumeWalk();                 // walk again where Overview left you (true), else at the entrance (false)
+engine.weakDevice;                   // quality 'low', or WebGL drawn by software: <LayoutViewer startMode> starts from above
 engine.editor.addRoom({ ... });      // every Studio edit (store/editorHistory.js); outside edit mode
                                      // each one changes nothing and returns { problem }
 engine.undo(); engine.redo();        // false outside edit mode

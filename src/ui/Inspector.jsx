@@ -104,7 +104,7 @@ function Section({ title, children }) {
 
 // ── Item ────────────────────────────────────────────────────────────────
 
-function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetPositionRef }) {
+function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetPositionRef, stairWarnings = [] }) {
   const [keepProportions, setKeepProportions] = useState(true);
   const commit = (patch) => onUpdate(object.id, patch);
   const deg = toDeg(object.rotationY ?? 0);
@@ -128,6 +128,11 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
 
   return (
     <>
+      {isStairs && stairWarnings.length > 0 && (
+        <section className="insp-section" data-stairs-problems>
+          {stairWarnings.map((text) => <p key={text} className="insp-note is-bad" role="alert">{text}.</p>)}
+        </section>
+      )}
       <Section title="Position">
         <div className="insp-grid">
           <NumberField label="X" value={object.x} suffix="m" onCommit={(v) => commit({ x: v })} />
@@ -439,6 +444,7 @@ function LayersBody({ rooms = [], objects = [], floors = [], routes = [], onPick
 export default function Inspector({
   mode,                 // 'object' | 'room' | 'opening' | 'layers' | null
   object, room, floorName,
+  stairWarnings = [],   // a staircase: why it can't be used as it stands (building.stairProblems' texts)
   opening,              // { roomId, kind, index, room, data, partnerRoom } (a selected door/window)
   onResizeOpening,      // (change) => problem text or null
   onDeleteOpening,
@@ -574,7 +580,7 @@ export default function Inspector({
       <div className="inspector__body">
         {mode === 'object' && seatPanel && <SeatSection key={object.id} {...seatPanel} />}
         {mode === 'object' && (
-          <ObjectBody object={object} floorName={floorName} onUpdate={onUpdateObject}
+          <ObjectBody object={object} floorName={floorName} onUpdate={onUpdateObject} stairWarnings={stairWarnings}
             hookPoints={hookPoints} positions={positions} onSetPositionRef={onSetPositionRef} />
         )}
         {mode === 'room' && (

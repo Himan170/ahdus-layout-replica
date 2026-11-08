@@ -292,11 +292,13 @@ export const ASSET_TYPES = {
     buildMesh(scene, id) {
       const root = new TransformNode('furn_ldsk_' + id, scene);
       const topMat = mat(scene, '#c8a87a');
-      const seg1 = box(scene, 'ls1', 2.4, 0.04, 0.8, 0, 0.75, 0.8);
-      const seg2 = box(scene, 'ls2', 0.8, 0.04, 2.4, -0.8, 0.75, 0);
+      // The same L as its real model (Kenney deskCorner): an arm along -Z and one along -X, 0.96 m deep
+      // (people.CORNER_DESK_ARM; the walk map blocks these two, walkMap.ITEM_PARTS); the +X, +Z corner is open
+      const seg1 = box(scene, 'ls1', 2.4, 0.04, 0.96, 0, 0.75, -0.72);
+      const seg2 = box(scene, 'ls2', 0.96, 0.04, 1.44, -0.72, 0.75, 0.48);
       [seg1, seg2].forEach(s => { s.material = topMat; s.parent = root; s.isPickable = true; });
       const legMat = metalMat(scene, '#606870');
-      [[-1.1,0,-0.34],[1.1,0,0.42],[-0.42,0,1.08],[-0.42,0,-1.08]].forEach(([x,y,z],i)=>{
+      [[1.12,0,-1.12],[1.12,0,-0.28],[-1.12,0,-1.12],[-1.12,0,1.12],[-0.28,0,1.12]].forEach(([x,y,z],i)=>{
         const leg = box(scene,'cll'+i,0.05,0.73,0.05,x,y,z);
         leg.material = legMat; leg.parent = root; leg.isPickable = false;
       });

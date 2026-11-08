@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { readLayout, toLayout, modeProblem, actionMatcher, filterAnchors, cleanDepartments, MAX_DEPARTMENTS, EDIT_REFUSED, NOT_A_LAYOUT } from '../embedLayout';
+import { readLayout, toLayout, modeProblem, actionMatcher, filterAnchors, cleanDepartments, cleanOpenAt, MAX_DEPARTMENTS, EDIT_REFUSED, NOT_A_LAYOUT } from '../embedLayout';
 import { migrateV1toV2 } from '../../engine/model/migrate';
 import { toV1 } from '../../engine/model/toV1';
 import { createWorkspaceStore } from '../../store/workspaceStore';
@@ -170,5 +170,18 @@ describe('cleanDepartments (v0.14.2)', () => {
     expect(cleanDepartments('Engineering')).toEqual([]);
     expect(cleanDepartments(undefined)).toEqual([]);
     expect(cleanDepartments(Array.from({ length: 900 }, (_, i) => ({ name: `D${i}` })))).toHaveLength(MAX_DEPARTMENTS);
+  });
+});
+
+describe('cleanOpenAt (v0.14.6: a deep link)', () => {
+  it('keeps one of personId / roomId / deskId, or a place id; nothing else', () => {
+    expect(cleanOpenAt({ personId: 'p1', email: 'x@y.z' })).toEqual({ personId: 'p1' });
+    expect(cleanOpenAt({ roomId: 42 })).toEqual({ roomId: '42' });
+    expect(cleanOpenAt({ deskId: ' d1 ' })).toEqual({ deskId: 'd1' });
+    expect(cleanOpenAt(' person:p1 ')).toBe('person:p1');
+    expect(cleanOpenAt({ name: 'Kavya' })).toBeNull();
+    expect(cleanOpenAt('')).toBeNull();
+    expect(cleanOpenAt(null)).toBeNull();
+    expect(cleanOpenAt({ personId: '' })).toBeNull();
   });
 });

@@ -24,7 +24,9 @@
  * the door's own jambs at half its width, so every door the real collision lets
  * the body through (from 0.6 m, Studio's narrowest) is open on the map.
  * A flight of stairs blocks around it like an item (from its sides and back the
- * body is stopped, building.stairPushOut); its own cells are STAIRS.
+ * body is stopped, building.stairPushOut); its own cells are STAIRS. A flight
+ * that leads nowhere (no room where it arrives) is a block all round (v0.14.6).
+ * An L-shaped corner desk blocks its two arms, not its whole square (ITEM_PARTS).
  *
  * Used by entrance.js (where the walkthrough starts, nearestFree) and
  * play/playController.js. No Babylon. Tests: navigation/__tests__/walkMap.test.js.
@@ -34,8 +36,9 @@ import {
   roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, wallThicknessOf,
 } from '../geometry';
 import {
-  floorsInOrder, floorBelow, stairOpening, stairDimsFor, rectContains, roomRect,
+  floorsInOrder, floorBelow, stairOpening, stairDimsFor, rectContains, roomRect, stairNeedsRoomAbove,
 } from '../building';
+import { CORNER_DESK_ARM } from '../people';
 
 /** Cell size (m): a 1 m door minus the body leaves ~3 cells; narrower doors are opened along their centre line. */
 export const CELL = 0.1;
@@ -198,11 +201,50 @@ function wallsAndDoors(rooms) {
   return { walls: out, doors: gaps };
 }
 
-/** Solid items of one floor as rectangles (itemFootprint). */
+/**
+ * Items that are not one solid box, as the parts that block: rectangles in fractions of the item's
+ * footprint (−0.5 … 0.5 along its own x and z). The L-shaped corner desk (as drawn, its real model and
+ * its primitive model alike: assetCatalog DESK_CORNER) has an arm along its −Z side and one along its
+ * −X side, CORNER_DESK_ARM of its size deep; the square at its +X, +Z corner is open (its chair goes there).
+ */
+const A = 0.5 - CORNER_DESK_ARM;
+export const ITEM_PARTS = {
+  DESK_CORNER: [
+    { x0: -0.5, x1: 0.5, z0: -0.5, z1: -A },
+    { x0: -0.5, x1: -A, z0: -A, z1: 0.5 },
+  ],
+};
+
+/**
+ * The rectangles an item blocks: its footprint (itemFootprint), or for the items in ITEM_PARTS each part,
+ * turned and scaled with the item (a negative scale mirrors it, as it does the mesh).
+ */
+export function itemFootprints(obj, catalog = {}) {
+  const fp = itemFootprint(obj, catalog);
+  const parts = ITEM_PARTS[obj.assetType];
+  if (!parts) return [fp];
+  const sx = Math.sign(obj.scaleX ?? obj.scale?.x ?? 1) || 1;
+  const sz = Math.sign(obj.scaleZ ?? obj.scale?.z ?? 1) || 1;
+  const c = Math.cos(fp.rot);
+  const s = Math.sin(fp.rot);
+  return parts.map((p) => {
+    const lx = ((p.x0 + p.x1) / 2) * 2 * fp.hw * sx;
+    const lz = ((p.z0 + p.z1) / 2) * 2 * fp.hd * sz;
+    return {
+      ...fp,
+      x: fp.x + lx * c + lz * s,
+      z: fp.z - lx * s + lz * c,
+      hw: (p.x1 - p.x0) * fp.hw,
+      hd: (p.z1 - p.z0) * fp.hd,
+    };
+  });
+}
+
+/** Solid items of one floor as rectangles (itemFootprints: an L-shaped desk is two). */
 export function itemObstacles(objects, floorId, catalog = {}) {
   return objects
     .filter((o) => floorOf(o) === floorId && isSolidItem(o, catalog))
-    .map((o) => itemFootprint(o, catalog));
+    .flatMap((o) => itemFootprints(o, catalog));
 }
 
 /** A rectangle turned by rot (Babylon: local +X → (cos, −sin)), as staircases and items are. */
@@ -251,9 +293,14 @@ export function buildWalkMap(layout, floorId, options = {}) {
   const items = itemObstacles(objects, floorId, catalog);
   // A flight is a solid block: the body keeps clear of its sides and its back (playController stops it
   // there too, building.stairPushOut). Its own cells stay STAIRS: it is walked on, from its bottom step.
+  // A flight that leads nowhere is not walked on at all: a block all round (`nowhere`).
+  const allRooms = list(layout.rooms);
   const flights = objects.filter((o) => o.assetType === 'STAIRCASE' && floorOf(o) === floorId).map((s) => {
     const dims = stairDimsFor(floors, s);
-    return { x: s.x, z: s.z, hw: dims.width / 2, hd: dims.length / 2, rot: s.rotationY ?? 0, kind: 'stairs', objectId: s.id };
+    return {
+      x: s.x, z: s.z, hw: dims.width / 2, hd: dims.length / 2, rot: s.rotationY ?? 0, kind: 'stairs', objectId: s.id,
+      nowhere: stairNeedsRoomAbove(s, floors, allRooms),
+    };
   });
   const obstacles = [...walls, ...items, ...flights];
 
@@ -314,8 +361,8 @@ export function buildWalkMap(layout, floorId, options = {}) {
       forBox(edge, (k, x, z) => { if (cells[k] === FREE && rectContains(edge, x, z)) cells[k] = BLOCKED; });
     }
   }
-  // 3. Staircases starting on this floor: walkable, not a place to start
-  for (const s of stairs.filter((o) => floorOf(o) === floorId)) {
+  // 3. Staircases starting on this floor: walkable, not a place to start (those that lead nowhere: no)
+  for (const s of stairs.filter((o) => floorOf(o) === floorId && !stairNeedsRoomAbove(o, floors, allRooms))) {
     const dims = stairDimsFor(floors, s);
     const rect = { x: s.x, z: s.z, hw: dims.width / 2, hd: dims.length / 2, rot: s.rotationY ?? 0 };
     forBox(rectBounds(rect), (k, x, z) => {
@@ -335,7 +382,7 @@ export function buildWalkMap(layout, floorId, options = {}) {
       const dz = z - o.z;
       const ex = Math.max(Math.abs(dx * cos - dz * sin) - o.hw, 0);
       const ez = Math.max(Math.abs(dx * sin + dz * cos) - o.hd, 0);
-      if (o.kind === 'stairs' && ex === 0 && ez === 0) return; // on the flight itself: STAIRS
+      if (o.kind === 'stairs' && !o.nowhere && ex === 0 && ez === 0) return; // on the flight itself: STAIRS
       if (ex * ex + ez * ez < c2) cells[k] = BLOCKED;
     });
   }

@@ -408,6 +408,11 @@ export class WalkthroughSystem {
     return this.controller.getYaw();
   }
 
+  /** How far the view looks up or down (radians, negative = down). */
+  getPitch(): number {
+    return this.controller.getPitch?.() ?? 0;
+  }
+
   /** The room the character is in, or null. */
   getRoomId(): string | null {
     return this.controller.getRoomId();

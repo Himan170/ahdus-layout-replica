@@ -180,3 +180,37 @@ describe('the goal never moves across a wall', () => {
     expect(walks).toBeGreaterThan(50);
   });
 });
+
+describe('a corner desk with its chair in the L, by the window wall (v0.14.6)', () => {
+  // A 7 × 6 m corner office (x −3.5 … 3.5, z −3 … 3), the window in its north wall, doors in its west and east
+  // walls. Its corner desk (x −3.2 … −0.8, z 0.4 … 2.8) stands in the north-west corner, its open corner towards
+  // the window wall, the chair inside the L. Its +Z side is 12.5 cm from the wall: nobody can stand there.
+  const cornerOffice = () => ({
+    rooms: [room('corner', 0, 0, 7, 6, {
+      name: 'Corner office',
+      doors: [{ wall: 'west', offset: -1.5, width: 1, height: 2.1 }, { wall: 'east', offset: -1, width: 1, height: 2.1 }],
+      windows: [{ wall: 'north', offset: -1.5, width: 1.5, height: 1.2, sill: 0.9 }],
+    })],
+    objects: [
+      item('desk', 'DESK_CORNER', -2, 1.6),
+      item('chair', 'CHAIR_OFFICE', -1.6, 2.2, { rotationY: Math.PI }),
+      item('desk2', 'DESK_CORNER', 2, 1.6, { rotationY: -Math.PI / 2 }),
+    ],
+    floors,
+  });
+  it("the walk ends at the L's open side, inside the room, near the person, through a door", () => {
+    const layout = cornerOffice();
+    const goals = goalsOf(layout);
+    // the side by the window wall has no room to stand: only the open side towards the room
+    expect(goals).toHaveLength(1);
+    const r = findNearestRoute(layout, { x: 6, z: -1, floor: 0 }, goals, { catalog: ASSET_TYPES });
+    expect(r.problem).toBeUndefined();
+    const end = endOf(r);
+    expect(roomAt(layout, 0, end.x, end.z)?.id).toBe('corner');
+    expect(end.x).toBeGreaterThan(-2 + 1.2); // out of the L's square, at its open side
+    expect(Math.abs(end.z - 2.2)).toBeLessThan(0.3); // level with the person
+    expect(Math.hypot(end.x - -1.6, end.z - 2.2)).toBeLessThan(1.8); // their card shows there
+    const map = createWalkMapCache({ catalog: ASSET_TYPES }).get(layout, 0);
+    expect(map.isClear(end.x, end.z)).toBe(true);
+  });
+});

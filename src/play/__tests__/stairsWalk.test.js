@@ -13,10 +13,11 @@ import { ObjectSystem } from '../../engine/systems/ObjectSystem';
 import { createPlayController } from '../playController';
 import {
   elevationOf, stairDimsFor, stairDrawn, stairHeightAt, stairOpening, stairPatch, stairPushOut, stairSize, stairTop, supportHeight,
+  stairProblems, STAIRS_LEAD_NOWHERE,
 } from '../building';
 import { stairBottom, floorLinks, findRoute } from '../navigation/route';
 import { createFollower } from '../navigation/follow';
-import { createWalkMapCache, STAIRS } from '../navigation/walkMap';
+import { createWalkMapCache, STAIRS, BLOCKED } from '../navigation/walkMap';
 
 vi.mock('../../utils/materialLibrary', async (orig) => ({ ...(await orig()), getAssetMaterial: () => null }));
 
@@ -136,10 +137,11 @@ function walker(objects, roomList = rooms()) {
   engine = new NullEngine();
   const scene = new Scene(engine);
   engine.getDeltaTime = () => 50;
-  const world = { rooms: roomList, objects, floors, anchorData: {}, currentFloor: 0 };
+  const world = { rooms: roomList, objects, floors, anchorData: {}, currentFloor: 0, hud: null };
   const play = createPlayController(scene, document.createElement('canvas'), {
     getState: () => world, actions: {}, readOnly: true, isEngaged: () => true, look: 'drag',
     onLevelChange: (id) => { world.currentFloor = id; },
+    onHud: (info) => { world.hud = info; },
   });
   play.activate();
   return { scene, play, world };
@@ -372,5 +374,100 @@ describe('stairPushOut: the side of a flight stops you, where it is too high to 
   it('inside the block (an old spot): out by the nearest side', () => {
     const out = stairPushOut({ ...base, stairs: [s], x: 1.5, z: 0.5, y: 0.02 });
     expect(out.dz).toBeGreaterThan(0);
+  });
+});
+
+// ── Stairs that lead nowhere (v0.14.6: one floor, a flight up into the roof) ──
+
+describe('stairs that lead nowhere can not be climbed', () => {
+  // only a ground floor: nothing above, so nowhere to arrive
+  const oneFloor = { 0: { id: 0, name: 'Ground Floor', height: 4 } };
+  const hall = [{ id: 'h', type: 'OFFICE', name: 'Hall', floor: 0, x: 0, z: 0, width: 30, depth: 30, wallHeight: 3.7,
+    wallThickness: 0.15, doors: [{ wall: 'south', offset: 0, width: 1.2, height: 2.1 }], windows: [] }];
+
+  it.each(ANGLES)('from the bottom step you stay on the floor, and it says why (%d°)', (a) => {
+    const s = stair({ rotationY: a * DEG, x: 3, z: 2 });
+    const { scene, play, world } = walker([s], hall);
+    world.floors = oneFloor;
+    const dims = stairDimsFor(oneFloor, s);
+    const start = at(s, 0, -dims.length / 2 - 0.8);
+    play.setPose({ x: start.x, z: start.z, yaw: yawOf(s), pitch: 0, floor: 0, y: 0.02 });
+    let said = false;
+    walkForward(scene, play, 120, (p) => {
+      expect(p.y, 'never up the steps').toBeLessThan(0.1);
+      expect(stairHeightAt(s, p.x, p.z, dims), 'never on the flight').toBeNull();
+      if (world.hud?.message === STAIRS_LEAD_NOWHERE) said = true;
+    });
+    expect(said).toBe(true);
+    expect(play.getLevel()).toBe(0);
+  });
+
+  it('with a floor above but no room where they arrive: the same (Floor 1 has a room elsewhere)', () => {
+    const s = stair({ x: 0, z: 0 });
+    const { scene, play } = walker([s], [hall[0], { ...hall[0], id: 'far', floor: 1, x: 40, width: 6, depth: 6 }]);
+    play.setPose({ x: 0, z: -3, yaw: 0, pitch: 0, floor: 0, y: 0.02 });
+    walkForward(scene, play, 120, (p) => { expect(p.y).toBeLessThan(0.1); });
+  });
+
+  it('supportHeight gives the floor, not the steps; stairPushOut stops you at the bottom step too', () => {
+    const s = stair({ rotationY: 90 * DEG }); // climbs towards +X, from x −2 to x 2
+    expect(supportHeight({ x: 1.5, z: 0, y: 3, floors: oneFloor, rooms: hall, stairs: [s] })).toBeCloseTo(0.02, 1);
+    const out = stairPushOut({ floors: oneFloor, rooms: hall, stairs: [s], x: -2.1, z: 0, y: 0.02, radius: 0.32 });
+    expect(out).toMatchObject({ nowhere: true });
+    expect(out.dx).toBeLessThan(0); // back off the bottom step
+    // without rooms (an old caller) it is the v0.14.5 rule: you walk onto the bottom step
+    expect(stairPushOut({ floors: oneFloor, stairs: [s], x: -2.1, z: 0, y: 0.02, radius: 0.32 })).toBeNull();
+    // standing on it (an old pose): out by the nearest end or side
+    const inside = stairPushOut({ floors: oneFloor, rooms: hall, stairs: [s], x: -1.9, z: 0, y: 0.02, radius: 0.32 });
+    expect(inside.dx).toBeLessThan(-0.3);
+  });
+
+  it('the walk map blocks the whole flight; no link, so no route up', () => {
+    const s = stair({ x: 3, z: 2 });
+    const layout = { rooms: hall, objects: [s], floors: oneFloor };
+    const map = createWalkMapCache().get(layout, 0);
+    expect(map.at(3, 2)).toBe(BLOCKED);
+    expect(map.at(3, 2 - 1.9)).toBe(BLOCKED); // the bottom step
+    expect(floorLinks(layout)).toEqual([]);
+    // with a room above where it arrives: STAIRS again
+    const two = { rooms: [...rooms(2)], objects: [s], floors };
+    expect(createWalkMapCache().get(two, 0).at(3, 2)).toBe(STAIRS);
+  });
+});
+
+describe('stairProblems: what Studio says about a staircase', () => {
+  const oneFloor = { 0: { id: 0, name: 'Ground Floor', height: 4 } };
+  // a small stair room, 2.5 × 3.5 m (x 4.75 … 7.25, z −4.75 … −1.25), a door on its west and east walls
+  const stairRoom = { id: 'sr', type: 'STAIRCASE', name: 'Stair hall', floor: 0, x: 6, z: -3, width: 2.5, depth: 3.5,
+    wallHeight: 3.7, wallThickness: 0.15, windows: [],
+    doors: [{ wall: 'east', offset: 0, width: 1, height: 2.1 }, { wall: 'west', offset: 0.5, width: 1, height: 2.1 }] };
+  const codes = (s, fl, rs) => stairProblems(s, fl, rs).map((p) => p.code);
+
+  it('a half-size flight turned round: leads nowhere, its bottom step faces the wall, it stands in front of the west door', () => {
+    // 2 m long, z −3.4 … −1.4: its bottom step (+Z end) 7.5 cm from the north wall's inside face
+    const s = stair({ x: 5.4, z: -2.4, rotationY: Math.PI, scaleX: 0.5, scaleY: 0.5, scaleZ: 0.5 });
+    const problems = stairProblems(s, oneFloor, [stairRoom]);
+    expect(problems.map((p) => p.code)).toEqual(['NOWHERE', 'NO_STEP_ON', 'BLOCKS_DOOR']);
+    expect(problems[0].text).toBe(`${STAIRS_LEAD_NOWHERE}: there is no floor above. Add one, with a room where they arrive`);
+    expect(problems[1].text).toBe("These stairs don't fit Stair hall: there's no room in front of the bottom step");
+    expect(problems[2].text).toBe("These stairs don't fit Stair hall: they block a door");
+  });
+
+  it('a normal-size flight (4 m) sticks out of a 3.5 m stair room', () => {
+    expect(codes(stair({ x: 6, z: -3 }), oneFloor, [stairRoom])).toContain('STICKS_OUT');
+  });
+
+  it('a floor above with no room where they arrive: build one there', () => {
+    const s = stair({ x: 0, z: 0 });
+    const [p] = stairProblems(s, floors, rooms(1));
+    expect(p).toMatchObject({ code: 'NOWHERE', text: `${STAIRS_LEAD_NOWHERE}: build a room on Floor 1 where they arrive` });
+  });
+
+  it('a flight in the middle of a big room, with a room above: nothing to say', () => {
+    expect(stairProblems(stair({ x: 3, z: 2, rotationY: 90 * DEG }), floors, rooms(2))).toEqual([]);
+  });
+
+  it('outside every room only "leads nowhere" counts', () => {
+    expect(codes(stair({ x: 100, z: 0 }), oneFloor, [stairRoom])).toEqual(['NOWHERE']);
   });
 });

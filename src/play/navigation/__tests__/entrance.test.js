@@ -143,7 +143,11 @@ describe('entranceSpawn', () => {
 
 describe('nearestFree', () => {
   it('finds the closest free cell, never a blocked one, and honours accept / values', () => {
-    const rooms = [room('office', 0, 0, 10, 8, { doors: [{ wall: 'south', offset: 0, width: 1.2 }] })];
+    // the stairs lead to a room on Floor 1 (stairs that lead nowhere are a block: walkMap.test.js)
+    const rooms = [
+      room('office', 0, 0, 10, 8, { doors: [{ wall: 'south', offset: 0, width: 1.2 }] }),
+      room('up', 0, 0, 10, 8, { floor: 1 }),
+    ];
     const objects = [item('d', 'DESK_STANDARD', 0, 0), item('st', 'STAIRCASE', 3, 0)];
     const map = buildWalkMap({ rooms, objects, floors }, 0, { catalog: ASSET_TYPES });
     const spot = nearestFree(map, 0, 0);

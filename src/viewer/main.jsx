@@ -10,6 +10,9 @@
  *   …/viewer.html?mode=view&debug=walkmap                  the walk map + a route (viewer/walkMapDebug.js;
  *                                                          &to=x,z,floor, &from=x,z,floor)
  *   …/viewer.html?mode=view&debug=tour                     the company tour's plan (viewer/tourDebug.js)
+ *   …/viewer.html?start=walk                               startMode (v0.14.6): the welcome card, Overview / Walk
+ *                                                          (start=view: from above); &weak=1 / &weak=0 = a weak device
+ *                                                          or not (default: tested); &at=person:p1 / &at=room:… opens there
  *
  * Only the viewer, a mode switch and a live list of the bridge's events and
  * anchors: no Workplace Studio code is loaded (e2e/viewer-smoke.mjs checks).
@@ -29,6 +32,10 @@ const layout = companyId && layoutId ? undefined : SAMPLE_LAYOUT;
 const EVENTS = ['enterRoom', 'exitRoom', 'interact'];
 const WALK_MAP_DEBUG = params.get('debug') === 'walkmap';
 const TOUR_DEBUG = params.get('debug') === 'tour';
+// startMode (v0.14.6): ?start=walk | view; &weak=1 | 0; &at=<place id>
+const START = { walk: 'walkthrough', view: 'view' }[params.get('start')] ?? undefined;
+const WEAK = params.has('weak') ? params.get('weak') === '1' : undefined;
+const OPEN_AT = params.get('at') || undefined;
 
 if (params.has('demoModules')) {
   import('../integration/demoModules').then((m) => m.installDemoModules(layoutBridge));
@@ -40,7 +47,7 @@ function describe(event, p) {
 }
 
 function ViewerPage() {
-  const [mode, setMode] = useState(params.get('mode') === 'view' ? 'view' : 'walkthrough');
+  const [mode, setMode] = useState(START ? undefined : params.get('mode') === 'view' ? 'view' : 'walkthrough');
   const [log, setLog] = useState([]);
   const [anchors, setAnchors] = useState([]);
   const [people, setPeople] = useState(layout && params.has('people') ? SAMPLE_PEOPLE : undefined);
@@ -110,6 +117,7 @@ function ViewerPage() {
       <main style={styles.main} ref={mainRef}>
         <LayoutViewer
           layout={layout} companyId={companyId} layoutId={layoutId} mode={mode} people={people}
+          startMode={START} weakDevice={WEAK} openAt={OPEN_AT}
           search={params.get('search') !== '0'}
           onModeChange={setMode} onNavigation={onNavigation}
           onReady={onReady} onCard={onCard} style={{ flex: 1, minWidth: 0 }}

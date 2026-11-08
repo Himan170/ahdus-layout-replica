@@ -76,6 +76,7 @@ import {
   levelForY, elevationOf, supportHeight, stairHeightAt, floorAbove, floorBelow, placementHeight,
   floorHeight, floorPosition, stairDimsFor, stairNeedsRoomAbove, arrivalOnFloor, planWallHeight,
   HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, wallHeightText, stairPushOut, STAIRS_KEEP_SIZE,
+  STAIRS_LEAD_NOWHERE,
 } from './building';
 import { WALK_SPEED as WALK, RUN_SPEED as RUN, FLY_SPEED as FLY } from './speeds';
 
@@ -1376,10 +1377,11 @@ export function createPlayController(scene, canvas, {
       // the solid part of a flight: only its steps are walked on (from the side or behind it stops you)
       const st = state();
       const out = stairPushOut({
-        x: collider.position.x, z: collider.position.z, y: collider.position.y, floors: st.floors, stairs: stairsList(),
-        radius: BODY_RADIUS, bodyHeight: BODY_HEIGHT,
+        x: collider.position.x, z: collider.position.z, y: collider.position.y, floors: st.floors, rooms: st.rooms,
+        stairs: stairsList(), radius: BODY_RADIUS, bodyHeight: BODY_HEIGHT,
       });
       if (out) {
+        if (out.nowhere) say(STAIRS_LEAD_NOWHERE);
         collider.computeWorldMatrix(true);
         collider.moveWithCollisions(new Vector3(out.dx, 0, out.dz));
       }
@@ -1804,6 +1806,7 @@ export function createPlayController(scene, canvas, {
     isFlying: () => flying,
     getPosition: () => collider.position.clone(),
     getYaw: () => yaw,
+    getPitch: () => pitch,
 
     dispose() {
       this.deactivate();

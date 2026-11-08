@@ -17,6 +17,9 @@
  *                                      // 'auto' = Take me there; onEvent('navigation', { state, … }); stopRoute()
  *   workplace.startTour({ follow: 'auto' }); // the company tour from the main entrance ('self' = "I'll walk");
  *                                      // onEvent('tour', { type, state, index, count, stop, … }); stopTour()
+ *   mount(element, { startMode: 'walkthrough', openAt: { personId } }) // v0.14.6: walk by default with the
+ *                                      // welcome card, the Overview / Walk button top right, the last choice
+ *                                      // remembered, weak devices from above; openAt = a deep link (no card)
  *
  * `npm run build:embed` (vite.embed.config.js) makes one IIFE file with React
  * and Babylon inside. It shows <LayoutViewer /> and works through layoutBridge
@@ -30,7 +33,7 @@ import { createRoot } from 'react-dom/client';
 import { LayoutViewer } from '../engine/react/LayoutViewer';
 import { layoutBridge } from '../integration/layoutBridge';
 import { anchorsFromStore } from '../integration/anchorsFromStore';
-import { readLayout, modeProblem, actionMatcher, filterAnchors, cleanDepartments } from './embedLayout';
+import { readLayout, modeProblem, actionMatcher, filterAnchors, cleanDepartments, cleanOpenAt } from './embedLayout';
 import { readManifest, resolvePeople, resolvePlayer, walkClipUrlOf } from './characterManifest';
 import css from './embed.css?inline';
 
@@ -102,6 +105,12 @@ function tourEvent(ev) {
  *   layoutUrl?: string,               // or where to fetch it (with the page's cookies)
  *   headers?: Record<string, string>, // extra request headers for layoutUrl (e.g. Authorization)
  *   mode?: 'view' | 'walkthrough',    // default 'view'; 'edit' is refused
+ *   startMode?: 'walkthrough' | 'view', // v0.14.6, instead of mode: the viewer decides the start (walking + the
+ *                                     // welcome card; the person's last choice, a weak device = from above) and
+ *                                     // shows its own Overview / Walk button; onEvent('mode', { mode }) follows it
+ *   openAt?: { personId } | { roomId } | string, // v0.14.6, with startMode: open at a person or room (a deep
+ *                                     // link): from above shown, walking Show route from the entrance; no card
+ *   weakDevice?: boolean,             // v0.14.6: the weak-device test's answer, given (default: tested)
  *   quality?: 'high' | 'low',         // 'low': simple models and materials, no downloads (slow PCs)
  *   assetBaseUrl?: string,            // where models/, textures/, env/ are; default: assets/ next to this script
  *   characters?: { manifestUrl?: string, manifest?: object, chooseUrl?: string, walkClipUrl?: string },
@@ -124,7 +133,10 @@ export function mount(element, options = {}) {
   const quality = options.quality === 'low' ? 'low' : 'high';
   const assetBaseUrl = options.assetBaseUrl ?? SCRIPT_ASSETS;
   const id = ++mountCount;
-  let mode = options.mode ?? 'view';
+  // startMode (v0.14.6): the viewer decides the start; `mode` follows it ('mode' events)
+  const startMode = options.startMode ?? null;
+  const openAt = cleanOpenAt(options.openAt);
+  let mode = startMode ? null : options.mode ?? 'view';
   let layout = null; // the validated v2 layout, once read
   let engine = null; // the LayoutEngine, once the layout is drawn
   let root = null;
@@ -222,13 +234,23 @@ export function mount(element, options = {}) {
   function render() {
     root?.render(
       <LayoutViewer
-        layout={layout} mode={mode} quality={quality} assetBaseUrl={assetBaseUrl} people={people}
+        layout={layout} mode={mode ?? undefined} startMode={startMode ?? undefined} openAt={openAt}
+        weakDevice={typeof options.weakDevice === 'boolean' ? options.weakDevice : undefined} onModeChange={onModeChange}
+        quality={quality} assetBaseUrl={assetBaseUrl} people={people}
         player={player} chooseCharacterUrl={options.characters?.chooseUrl} walkClipUrl={walkClipUrl ?? undefined}
         search={search} tour={tour} departments={departments} onReady={onReady} onError={fail} onProgress={onProgress}
         onCard={(card) => emit('card', { title: card.title, body: card.body ?? card.text ?? '' })}
         style={{ width: '100%', height: '100%' }}
       />,
     );
+  }
+
+  /** The viewer's mode changed (its start, Overview / Walk, "Take me there" from above): the page hears it. */
+  function onModeChange(next) {
+    if (closed || next === mode || next === 'edit') return;
+    mode = next;
+    render();
+    emit('mode', { mode: next });
   }
 
   /** Building the layout: the viewer shows its own "Building your workplace… 40 %" from now on. */
@@ -263,17 +285,12 @@ export function mount(element, options = {}) {
       e.on('navigation', (ev) => emit('navigation', { ...ev })),
       // the company tour (v0.14.4): what changed, and where the tour is (the plan itself stays inside)
       e.on('tour', (ev) => emit('tour', tourEvent(ev))),
-      // "Take me there" from above starts walking: the page's mode follows
-      e.on('mode', ({ mode: next }) => {
-        if (next === mode || next === 'edit') return;
-        mode = next;
-        render();
-      }),
+      // ("Take me there" from above starts walking: the page's mode follows through onModeChange)
     );
     const s = store.getState();
     emit('ready', {
       name: s.layoutName ?? '',
-      mode,
+      mode: mode ?? e.mode,
       floors: Object.values(s.floors).sort((a, b) => a.id - b.id).map((f) => ({ id: f.id, name: f.name })),
       rooms: Object.keys(s.rooms).map(room),
     });
@@ -309,7 +326,7 @@ export function mount(element, options = {}) {
     ready,
 
     get mode() {
-      return mode;
+      return mode ?? startMode;
     },
 
     /** 'view' or 'walkthrough' (false: refused, e.g. 'edit'). */
@@ -486,7 +503,7 @@ export function mount(element, options = {}) {
 
   // Load: refuse edit, read the layout, then draw it (always after mount() returns)
   (async () => {
-    const problem = modeProblem(mode);
+    const problem = modeProblem(startMode ?? mode);
     if (problem) throw new Error(problem);
     layout = await readLayout(options, { signal: abort.signal });
     if (closed) return;
