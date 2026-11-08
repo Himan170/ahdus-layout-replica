@@ -141,7 +141,7 @@ try {
     const m = document.querySelector('[data-mode-button]')?.getBoundingClientRect();
     return t && m ? Math.round(t.top - m.bottom) : null;
   });
-  log('Start the tour (with its size: "4 stops · about 1 min"): the tour starts, its panel under the Overview button',
+  log('Start the tour (with its size: "5 stops · about 1 min": with people, Engineering is a stop, v0.14.9): the tour starts, its panel under the Overview button',
     /stops · about \d+ min/.test(tourText) && tourPanel && await card() === 0 && tourTop !== null && tourTop >= 0, `${tourText} · gap ${tourTop}px`);
   await p.click('[data-tour-exit]').catch(() => {});
 

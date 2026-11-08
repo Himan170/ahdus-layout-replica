@@ -28,6 +28,8 @@
  *   PUT  /api/workplace/sites/{site}/seats/{deskId}       { userId } → the seat (Admin and HR; moves / replaces)
  *   DELETE /api/workplace/sites/{site}/seats/{deskId}     → 204 (Admin and HR)
  *   GET  /api/workplace/people?q=                         → [{ id, name, email, department }] (Admin and HR, ≤ 20)
+ *   GET  /api/teams/departments                           → [{ id, name, description, teams, … }] (v0.14.9: the room
+ *                                                           Inspector's Department choices; only the names are kept)
  *
  * Seats (who sits at which desk) are not in the layout: they are saved at once, are not part of undo and need no
  * publish (ui/seatFlow.js, hooks/useAhdusSeats.js).
@@ -313,6 +315,14 @@ export async function removeSeat(site, deskId) {
   const res = await request('DELETE', sitePath(site, `/seats/${encodeURIComponent(deskId)}`));
   if (!res.ok && !res.notFound) return res; // 404: nobody sat there already
   return { ok: true };
+}
+
+/** The company's department names, in AHDUS's order (v0.14.9). @returns {Promise<{ ok: true, names: string[] }|{ ok: false, error }>} */
+export async function listDepartments() {
+  const res = await request('GET', '/api/teams/departments');
+  if (!res.ok) return res;
+  const list = Array.isArray(res.data) ? res.data : [];
+  return { ok: true, names: list.filter((d) => d && typeof d.name === 'string' && d.name.trim()).map((d) => d.name.trim()) };
 }
 
 /** Active people whose name or e-mail contains `q` (Admin and HR). @returns {Promise<{ ok: true, people }|{ ok: false, error }>} */

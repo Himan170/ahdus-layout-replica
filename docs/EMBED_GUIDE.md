@@ -77,7 +77,7 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `characters` | object | `{ manifestUrl }`: where the **character manifest** is (section 4b), fetched with `credentials: 'include'` and `headers` on the first `setPeople`. Or `{ manifest }`: the manifest itself. Without it everyone is the neutral simple figure. Also `chooseUrl`: where people choose their character (http / https, or relative to the page), for the "Choose your character" link (section 4b), and `walkClipUrl`: the walk clip your own character walks with in `walkthrough` (section 4c). |
 | `player` | object | `{ personId, assetReference }`: the person looking, i.e. the signed-in user (the same `personId` and `assetReference` as in `setPeople`). In `walkthrough` they walk as their own character (section 4c); their own card offers "Choose your character" if they never chose one. Change it later with `setPlayer`. |
 | `navigation` | object | `{ search: true, tour: true }` (default): a **Find** button in the view's toolbar opens the search box "Find a person, room or place" (section 4d); a **Tour** button and Find's "Take the company tour" start the company tour (section 4f). `{ search: false }` hides the search (`find()` still works), `{ tour: false }` the tour (`startTour()` still works). |
-| `departments` | array | `[{ name, description }]`: a short description for each department (AHDUS: `GET /api/teams/departments`), shown in the Find box's menu under the department of that name (section 4d). Departments that aren't in the layout or among the people are left out; only `name` and `description` are kept (text, at most 280 characters shown). Change it later with `setDepartments`. |
+| `departments` | array | `[{ name, description }]`: a short description for each department (AHDUS: `GET /api/teams/departments`), shown in the Find box's menu under the department of that name (section 4d). Departments that aren't in the layout or among the people are left out; only `name` and `description` are kept (text, at most 280 characters shown). Change it later with `setDepartments`. Rooms get their department in Workplace Studio (the room's **Department** field, v0.14.9, saved as `departmentRef`), or from the people seated in them (section 4d); the company tour stops once at each. |
 | `onEvent(name, data)` | function | Everything that happens (section 5). |
 | `onError(error)` | function | The layout could not be shown (section 7). Without it, the message goes to the console. |
 
@@ -239,7 +239,7 @@ person's name ("Engineering", "Sales"), **Rooms** comes first (the department, t
 as wide as the view.
 
 - **What it finds:** people from `setPeople` (their **name and department only**: nothing else you pass, such as an
-  email, is kept or shown), every room by its name (or type), departments (`departmentRef` of several rooms), and
+  email, is kept or shown), every room by its name (or type), departments (`departmentRef` of several rooms; **v0.14.9:** a room with no `departmentRef` takes the department of more than half of the people seated in it, from `setPeople`: a tie or nobody = none, and reception, washrooms, meeting rooms, stairs and corridors never take one from their seats), and
   facilities: washrooms (`washroom`, `restroom`, `toilet`, `WC`…), meeting rooms, reception, stairs.
 - **Picking a result** in `view`: its floor is shown, the camera flies to it and it is outlined in green (a person:
   their desk and chair). In `walkthrough` it is outlined and the box says how far it is to walk ("42 m walk, about
@@ -252,7 +252,7 @@ as wide as the view.
     is the nearest one and the walk there, "Nearest washroom · 8 m", and a tap shows it;
   - **My desk** (the `player`'s seat, if they have one) and **Recent** searches (the last 5 places picked, kept in
     this browser);
-  - **Departments**: rooms' `departmentRef` plus the people's departments, "Engineering · 2 rooms · Floor 1 · 92
+  - **Departments**: rooms' departments (`departmentRef`, else from their seats, v0.14.9) plus the people's departments, "Engineering · 2 rooms · Floor 1 · 92
     people", with the description from the `departments` option. Opening one lists all of it, its rooms and its
     people;
   - **Places** by kind (Offices, Meeting rooms, Washrooms, Reception, Stairs, then other room types), each with a

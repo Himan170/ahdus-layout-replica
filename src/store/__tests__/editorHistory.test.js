@@ -169,6 +169,30 @@ describe('editor actions are all undoable', () => {
     expect(editor.history.undoLabel).toMatch(/^Add/);
   });
 
+  it('a room\'s department (v0.14.9): a pick is one step, typing merges, undo / redo back to none; saved', () => {
+    editor.addRoom({ type: 'OFFICE', x: 0, z: 0 });
+    const id = rooms()[0].id;
+    editor.updateRoom(id, { departmentRef: 'Sales' }, { label: 'Change department' });
+    editor.updateRoom(id, { departmentRef: 'HR' }, { label: 'Change department' });
+    expect(S().rooms[id].departmentRef).toBe('HR');
+    editor.undo();
+    expect(S().rooms[id].departmentRef).toBe('Sales');
+    editor.undo();
+    expect(S().rooms[id].departmentRef).toBeUndefined();
+    editor.redo();
+    editor.redo();
+    expect(S().rooms[id].departmentRef).toBe('HR');
+    for (const v of ['F', 'Fi', 'Finance']) editor.updateRoom(id, { departmentRef: v }, { mergeKey: 'room-department' });
+    editor.undo(); // all the typing at once
+    expect(S().rooms[id].departmentRef).toBe('HR');
+    editor.redo();
+    editor.updateRoom(id, { departmentRef: undefined }, { label: 'Change department' }); // None
+    expect(S().rooms[id].departmentRef).toBeUndefined();
+    expect(JSON.parse(JSON.stringify(S().rooms[id]))).not.toHaveProperty('departmentRef');
+    editor.undo();
+    expect(S().rooms[id].departmentRef).toBe('Finance');
+  });
+
   it('rooms: add, typing in fields (merged), door toggle, delete are all undoable', () => {
     editor.addRoom({ type: 'MEETING', x: 0, z: 0 });
     const id = rooms()[0].id;

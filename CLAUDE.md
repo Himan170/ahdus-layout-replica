@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1144, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1162, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -44,7 +44,7 @@ npm run e2e:stairs   # 24 checks   e2e/stairs-smoke.mjs    (viewer.html: W climb
                      #                                       back down; first person; from the side it stops you; Take me there; Studio:
                      #                                       no Height / size for stairs, R says why, "lead nowhere"; SHOTS=<dir>: shots)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
-npm run e2e:tools    # 45 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
+npm run e2e:tools    # 46 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
                      #                                       room's floor + Preview's Edit item)
 npm run e2e:measurements # 23   e2e/measurements-smoke.mjs (off at start, the Measurements panel, measure distance
                      #                                       in 2D, wall lengths, room areas, toggles, Esc, per floor,
@@ -107,7 +107,7 @@ npm run e2e:navigation # 20 checks e2e/navigation-smoke.mjs (viewer.html, the Me
                      #                                       E there = "E Details: Kavya Iyer" + her card (v0.14.7),
                      #                                       W pauses + G, the time, Esc / Stop, free walking, phone; run it
                      #                                       ALONE; SHOTS=<dir>: screenshots + a .webm recording)
-npm run e2e:seats    # 24 checks   e2e/seats-smoke.mjs     (NO dev server: starts its own in AHDUS mode on port 3100,
+npm run e2e:seats    # 26 checks   e2e/seats-smoke.mjs     (NO dev server: starts its own in AHDUS mode on port 3100,
                      #                                       the AHDUS API faked by page.route: "Who sits here",
                      #                                       search, move / replace questions, not in undo, People
                      #                                       without a desk, the Publish warning, editors read-only,
@@ -564,7 +564,9 @@ viewer's debug view, search while walking (v0.13.3: how far, "Nearest washroom")
 Step v0.13.3 of `private-docs/NAVIGATION_PLAN.md` (4.4, and the "not walking" part of 4.5). No backend change.
 - **Index** (`src/play/navigation/places.js`, PURE): `buildPlaces(layout, people)` = people (setPeople: personId, deskId,
   **name and department only**: nothing else is copied, so an email can never show or match; a desk not in the layout
-  = not found), rooms (name, else type label), departments (`room.departmentRef` of several rooms, or one room of
+  = not found), rooms (name, else type label), departments (a room's department, `places.roomDepartments` (v0.14.9): `room.departmentRef`, else the department of MORE THAN
+  HALF of the people seated in it (a tie or nobody: none; never for `SHARED_ROOM_TYPES`: reception, washrooms, meeting
+  rooms, stairs, corridors), the same for Find, the browse menu and the tour; of several rooms, or one room of
   another name), facilities (`FACILITIES`: RESTROOM = washroom / restroom / toilet / WC / bathroom…, MEETING,
   RECEPTION, STAIRS: rooms of those types, and RECEPTION_DESK / STAIRCASE items not in a room of their kind). Each
   place: `detail` ("HR · Ground Floor, Lobby & Reception"), `entityId` (focusOn), `highlight` ids (a person: desk +
@@ -689,7 +691,7 @@ Section 3.5 of `private-docs/EXPERIENCE_PLAN.md` (decisions in its section 6). P
   `navigation.tourPlanReady` (null until then), `tourPlan()` = that plan (cached, keyed on rooms, items, floors,
   people and departments), so "Start tour" never waits.
 - **Stops, in order:** the main entrance (`entranceSpawn`), the reception (a RECEPTION_DESK's `visitorSpot`, facing
-  it, else just inside its door); each department once (`room.departmentRef` by `words`; its rooms on one floor
+  it, else just inside its door); each department once (`places.roomDepartments`: `departmentRef`, else from the seats, v0.14.9; by `words`; its rooms on one floor
   grouped, on several floors it stops where most of them are, the others in "Also on Floor 1: …"); ONE washroom and
   ONE meeting room per floor (`TOUR_FACILITIES`: the one that adds the least walking, `insertBest`); floor by floor,
   ground floor first, then up by the stairs (`floorLinks`); back to reception (`backToReception`, default true).
@@ -1040,7 +1042,7 @@ site on the server (local mode renames the layout), the leave check. Saving, und
   `Show Wall Lengths`, `Show Room Areas`, `Clear Measurements`), `Room labels`. Studio at 1280×720 and 1920×1080: no page / tool rail scroll, canvas ≥ 75 % wide. While Preview has the mouse captured, clicks go to the canvas: release it first.
   Also (keep them too): `All layouts` (AHDUS: `Back to AHDUS`), `Versions`, `Shortcuts`, `Search rooms`, `Search furniture`,
   the libraries (`Rooms library`, …; `data-library`), `Add floor`, `Full screen` / `Exit full screen`, `Reset view`, `Zoom in`, `Zoom out`, `Orbit`, `Pan`, `Top view`,
-  `Front view`, `Side view`, `Room type`; on a phone `More` (menu `More actions`) and `Close the library`.
+  `Front view`, `Side view`, `Room type`, `Room department`; on a phone `More` (menu `More actions`) and `Close the library`.
   AHDUS seats: the section `Who sits here`, `Search people`, `People found`, the banner `People without a desk`.
   `Export floor plan` and `Measurements` keep their labels (the visible text is "Export" / "Measure").
   e2e scripts pick a tool with `pick(tile, option)`: it opens the tile's library unless it is open (a click on an open
@@ -1326,6 +1328,17 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: departments for Studio's layouts (v0.14.9, 8 Nov 2026, branch `fix/room-departments`)
+
+private-docs/EXPERIENCE_PLAN.md 3.5: a department stop needed `room.departmentRef`, which only seed data set, so a
+Studio-made company's tour had almost no stops. Now a room with none takes the department of most of the people seated
+in it (`places.roomDepartments`, used by Find, the browse menu and the tour; see "Search"), and Studio's room Inspector
+has a **Department** field (`ui/roomDepartment.js`, aria-label `Room department`, `data-room-department` = list | text):
+the page's departments (AHDUS: `ahdusBackend.listDepartments` = `GET /api/teams/departments`; `<LayoutEditor
+departments>`) + None, free text when there are none; saved as `departmentRef` through `editor.updateRoom` (a pick =
+one undo step, typing = `mergeKey: 'room-department'`). The furniture "Department" field is unchanged. e2e:tools 46,
+e2e:seats 26.
 
 ## DONE: a weak device's note (v0.14.8, 8 Nov 2026, branch `fix/weak-device-note`)
 

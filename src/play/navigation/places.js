@@ -9,8 +9,10 @@
  *                 their name and department ONLY (nothing else is copied, so an
  *                 email or anything else in the list can never show or match);
  *   - room        every room (its name, else its type), except the facilities;
- *   - department  `room.departmentRef` shared by several rooms (or by one room
- *                 with another name): all its rooms;
+ *   - department  a room's department shared by several rooms (or by one room
+ *                 with another name): all its rooms. A room's department is its
+ *                 `departmentRef`, else (v0.14.9) that of most of the people
+ *                 seated in it (roomDepartments);
  *   - facility    rooms of type RESTROOM (washroom, restroom, toilet, WC…),
  *                 MEETING, RECEPTION, STAIRCASE, and the items RECEPTION_DESK
  *                 and STAIRCASE when no room of that kind holds them.
@@ -131,6 +133,57 @@ function roomAround(rooms, floor, x, z) {
   return best;
 }
 
+/** Rooms everyone uses: they take a department only from their own departmentRef (v0.14.9). */
+export const SHARED_ROOM_TYPES = new Set(['RECEPTION', 'RESTROOM', 'MEETING', 'STAIRCASE', 'CORRIDOR']);
+
+/** The room a desk counts for: its saved room (on its floor), else the innermost room around it. */
+function deskRoom(rooms, o) {
+  return (o.roomId && rooms.find((r) => r.id === o.roomId && floorOf(r) === floorOf(o)))
+    || roomAround(rooms, floorOf(o), o.x ?? 0, o.z ?? 0);
+}
+
+/**
+ * Each room's department (v0.14.9): its `departmentRef` when set (it wins); else the department of MORE THAN HALF of
+ * the people seated in it (setPeople's list, a desk's room as `deskRoom`; people with no department count too); a
+ * tie, no majority or no one seated: none. Shared spaces (`SHARED_ROOM_TYPES`: reception, washrooms, meeting rooms,
+ * stairs, corridors) never take one from their seats: a receptionist from HR doesn't make the reception HR. So a layout
+ * made in Studio (no departmentRef) still has departments for Find and the tour. The name is spelt as the first of
+ * that majority gave it.
+ * @returns {Map<string, string>} room id → department name (rooms with none are left out)
+ */
+export function roomDepartments(layout, people = []) {
+  const rooms = list(layout.rooms);
+  const objectsById = new Map(list(layout.objects).map((o) => [o.id, o]));
+  const out = new Map();
+  for (const r of rooms) {
+    const set = typeof r.departmentRef === 'string' ? r.departmentRef.trim() : '';
+    if (set) out.set(r.id, set);
+  }
+  // who sits in each room without one: their departments, counted by words ("Data & AI" = "data ai")
+  const seats = new Map(); // room id → { total, byKey: Map<key, { name, n }> }
+  for (const p of list(people)) {
+    if (!p || p.personId == null || p.deskId == null) continue;
+    const desk = objectsById.get(String(p.deskId));
+    if (!desk) continue;
+    const room = deskRoom(rooms, desk);
+    if (!room || out.has(room.id) || SHARED_ROOM_TYPES.has(room.type)) continue;
+    if (!seats.has(room.id)) seats.set(room.id, { total: 0, byKey: new Map() });
+    const s = seats.get(room.id);
+    s.total += 1;
+    const name = typeof p.department === 'string' ? p.department.trim() : '';
+    const key = words(name).join(' ');
+    if (!key) continue;
+    if (!s.byKey.has(key)) s.byKey.set(key, { name, n: 0 });
+    s.byKey.get(key).n += 1;
+  }
+  for (const [roomId, s] of seats) {
+    for (const d of s.byKey.values()) {
+      if (d.n * 2 > s.total) { out.set(roomId, d.name); break; }
+    }
+  }
+  return out;
+}
+
 const roomName = (r) => (r ? (r.name?.trim() || ROOM_TYPE_LABEL[r.type] || 'Room') : '');
 const joinDetail = (...parts) => parts.filter(Boolean).join(' · ');
 
@@ -138,7 +191,7 @@ const joinDetail = (...parts) => parts.filter(Boolean).join(' · ');
  * One index of everything that can be searched.
  * @param {{ rooms, objects, floors }} layout  store shape (v1 names)
  * @param {{ personId, deskId, name?, department? }[]} [people]  setPeople's list
- * @returns {{ places: Place[], byId: Map<string, Place>, floors: { id: number, name: string }[] }}
+ * @returns {{ places: Place[], byId: Map<string, Place>, floors: { id: number, name: string }[], roomDepartments: Map<string, string> }}
  */
 export function buildPlaces(layout, people = []) {
   const floors = layout.floors ?? {};
@@ -155,8 +208,9 @@ export function buildPlaces(layout, people = []) {
     places.push({ ...p, floorName: floorName(p.floor), words: { name, other }, nameKey: words(nameText).join(' ') });
   };
 
-  const roomOf = (o) => (o.roomId && rooms.find((r) => r.id === o.roomId && floorOf(r) === floorOf(o)))
-    || roomAround(rooms, floorOf(o), o.x ?? 0, o.z ?? 0);
+  const roomOf = (o) => deskRoom(rooms, o);
+  // each room's department: departmentRef, else most of the people seated in it (v0.14.9)
+  const roomDept = roomDepartments(layout, people);
 
   // Rooms and room facilities
   for (const room of rooms) {
@@ -164,7 +218,7 @@ export function buildPlaces(layout, people = []) {
     const name = roomName(room);
     const typeLabel = ROOM_TYPE_LABEL[room.type] ?? '';
     const facility = ROOM_FACILITY[room.type] ?? null;
-    const dept = room.departmentRef?.trim() || '';
+    const dept = roomDept.get(room.id) ?? '';
     const goals = roomDoorSpots(room).map((s) => ({ ...s, floor, roomId: room.id }));
     add({
       id: `room:${room.id}`, kind: facility ? 'facility' : 'room', group: facility ? 'facilities' : 'rooms',
@@ -177,7 +231,7 @@ export function buildPlaces(layout, people = []) {
   // Departments: their rooms
   const byDept = new Map();
   for (const room of rooms) {
-    const dept = room.departmentRef?.trim();
+    const dept = roomDept.get(room.id);
     if (!dept) continue;
     if (!byDept.has(dept)) byDept.set(dept, []);
     byDept.get(dept).push(room);
@@ -252,7 +306,7 @@ export function buildPlaces(layout, people = []) {
 
   // the floors, lowest first (the browse menu's By floor)
   const floorList = floorsInOrder(floors).map((f) => ({ id: f.id, name: floorName(f.id) }));
-  return { places, byId: new Map(places.map((p) => [p.id, p])), floors: floorList };
+  return { places, byId: new Map(places.map((p) => [p.id, p])), floors: floorList, roomDepartments: roomDept };
 }
 
 /**

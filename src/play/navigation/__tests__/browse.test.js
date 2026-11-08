@@ -37,6 +37,7 @@ function small() {
     objects: [
       { id: 'd1', assetType: 'DESK_STANDARD', floor: 0, roomId: 'r_a', x: 6, y: 0, z: 0, rotationY: 0 },
       { id: 'd2', assetType: 'DESK_STANDARD', floor: 0, roomId: 'r_b', x: 12, y: 0, z: 0, rotationY: 0 },
+      { id: 'd3', assetType: 'DESK_STANDARD', floor: 0, roomId: 'r_b', x: 12, y: 0, z: 1.8, rotationY: 0 },
     ],
     floors: { 0: { id: 0, name: 'Ground Floor', height: 3.5 } },
   };
@@ -112,7 +113,9 @@ describe('browsePlaces on a small layout without meeting rooms', () => {
   const layout = small();
   const index = buildPlaces(layout, [
     { personId: 'p1', deskId: 'd1', name: 'Asha', department: 'Design' },
-    { personId: 'p2', deskId: 'd2', name: 'Ravi', department: 'Sales' }, // a department with no room of its own
+    // two departments with no room of their own: r_b is theirs half each (a tie: no department, v0.14.9)
+    { personId: 'p2', deskId: 'd2', name: 'Ravi', department: 'Sales' },
+    { personId: 'p3', deskId: 'd3', name: 'Meera', department: 'Marketing' },
   ]);
   const menu = browsePlaces(index);
 
@@ -123,7 +126,7 @@ describe('browsePlaces on a small layout without meeting rooms', () => {
 
   it('departments from rooms and from people (no rooms: its people\'s floor)', () => {
     expect(menu.departments.map((d) => `${d.name}: ${d.detail}`)).toEqual([
-      'Design: 1 room · Ground Floor · 1 person', 'Sales: Ground Floor · 1 person',
+      'Design: 1 room · Ground Floor · 1 person', 'Marketing: Ground Floor · 1 person', 'Sales: Ground Floor · 1 person',
     ]);
     expect(menu.departments.find((d) => d.name === 'Sales').place).toBeNull();
   });

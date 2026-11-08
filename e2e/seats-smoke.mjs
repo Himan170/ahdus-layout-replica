@@ -3,7 +3,8 @@
 // Checks: people drawn at their desks; the desk Inspector section (Admin / HR: Change, Remove, Assign someone with
 // a debounced name search; appointed editors: names only); move / replace questions; saved at once, not in undo,
 // no layout save; "People without a desk (N)" + Assign a desk; the Publish dialog's "N people lose their desk";
-// phone width.
+// phone width. v0.14.9: a room's Department lists the company's departments (GET /api/teams/departments, faked),
+// saved as departmentRef in the draft, Undo / Redo / None.
 //
 // NO dev server needed: it starts its own Vite dev server in AHDUS mode (VITE_LAYOUT_BACKEND=ahdus) on port 3100.
 // One-time setup:   npx playwright install chromium
@@ -88,6 +89,8 @@ async function fakeAhdus(route) {
   const send = (status, data) => route.fulfill({ status, contentType: 'application/json', body: data === undefined ? '' : JSON.stringify(data) });
   if (path === '/frontend/workplace/characters.json') return send(200, MANIFEST);
   if (path === '/api/workplace/me') return send(200, api.me);
+  // v0.14.9: the company's departments (the room Inspector's Department choices)
+  if (path === '/api/teams/departments') return send(200, [{ id: 1, name: 'HR', description: 'People', teams: [] }, { id: 2, name: 'Finance', teams: [] }, { id: 3, name: 'Sales', teams: [] }]);
   if (path === '/api/workplace/sites') return send(200, [{ id: 1, name: 'Seats HQ', published: true, publishedRevision: 3, draftRevision: api.revision }]);
   if (path === '/api/workplace/sites/1/layout' && method === 'GET') return send(200, { layout: DRAFT, revision: api.revision, name: 'Seats HQ' });
   if (path === '/api/workplace/sites/1/layout' && method === 'PUT') { api.revision += 1; return send(200, { revision: api.revision }); }
@@ -123,6 +126,7 @@ async function openStudio({ width = 1280, height = 720 } = {}) {
   const ctx = await b.newContext({ viewport: { width, height }, ...(width < 600 ? { hasTouch: true, isMobile: true } : {}) });
   await ctx.addInitScript(() => { localStorage.setItem('authToken', 'test-token'); });
   await ctx.route('**/api/workplace/**', fakeAhdus);
+  await ctx.route('**/api/teams/**', fakeAhdus);
   await ctx.route('**/frontend/workplace/characters.json', fakeAhdus);
   const p = await ctx.newPage();
   p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
@@ -281,6 +285,33 @@ await p.keyboard.press('Control+z');
 await p.waitForSelector('[data-seats-banner]', { state: 'detached', timeout: 15000 }).catch(() => {});
 log('Ctrl+Z brings the desk back, and Asha with it (no list)', (await p.locator('[data-seats-banner]').count()) === 0);
 await p.context().close();
+
+// ── 7b. v0.14.9: a room's Department, from the company's departments (GET /api/teams/departments) ──
+{
+  const r = await openStudio();
+  await until(() => calls('GET', /\/api\/teams\/departments$/).length > 0);
+  await r.evaluate(() => { const st = window.__ahdusStore.getState(); st.selectObject(null); st.selectRoom('room_open'); });
+  const field = r.locator('aside[aria-label="Inspector"] [aria-label="Room department"]');
+  await field.waitFor({ timeout: 15000 });
+  const kind = await field.getAttribute('data-room-department');
+  const options = await field.locator('option').allTextContents();
+  const putsBefore = calls('PUT', /\/layout$/).length;
+  await field.selectOption('Sales');
+  const dept = () => r.evaluate(() => window.__ahdusStore.getState().rooms.room_open.departmentRef ?? null);
+  const picked = await dept();
+  const saved = await until(() => calls('PUT', /\/layout$/).slice(putsBefore).some((c) => JSON.stringify(c.body?.layout ?? {}).includes('"departmentRef":"Sales"')), 20000);
+  log('a room: "Department" lists None + the company\'s departments (HR, Finance, Sales); picking Sales saves departmentRef in the draft (PUT …/layout)',
+    kind === 'list' && options.join() === 'None,HR,Finance,Sales' && picked === 'Sales' && saved, JSON.stringify({ kind, options, picked, saved }));
+  await r.click('[aria-label="Undo"]');
+  const undone = await dept();
+  await r.click('[aria-label="Redo"]');
+  const redone = await dept();
+  await field.selectOption({ label: 'None' });
+  const none = await dept();
+  log('…Undo takes it away, Redo brings it back, None clears it', undone === null && redone === 'Sales' && none === null, JSON.stringify({ undone, redone, none }));
+  if (SHOTS) await shot(r, 'desktop-room-department.png');
+  await r.context().close();
+}
 
 // ── 8. An appointed editor: names only ──
 api.me = { canEdit: true, canAppoint: false };

@@ -369,7 +369,8 @@ const found = await p.evaluate(() => {
 });
 log('workplace.find(): people (name and department only), rooms, facilities',
   found.asha.length === 1 && found.asha[0].name === 'Asha Patel' && found.asha[0].deskId === 'obj_desk_1' && found.asha[0].floorName === 'Ground Floor' &&
-  !('email' in found.asha[0]) && found.offices.join() === 'room:Office 1,room:Office 2' && found.reception.includes('facilities:Reception') &&
+  // v0.14.9: Asha alone in Office 1 makes it Engineering's room, so "office" finds the department too
+  !('email' in found.asha[0]) && found.offices.join() === 'room:Office 1,room:Office 2,department:Engineering' && found.reception.includes('facilities:Reception') &&
   found.none.length === 0, JSON.stringify(found));
 await p.click('#workplace button[aria-label="Find a person, room or place"]');
 await p.keyboard.type('asha');
@@ -394,7 +395,7 @@ const menu = await p.evaluate(() => ({
 }));
 await p.keyboard.press('Escape');
 log('setDepartments(): the Find menu shows the description under Engineering (from the seats); none for a department not here',
-  described === 2 && menu.departments.length === 1 && /^Engineering \| Ground Floor · 1 person \| Builds the product/.test(menu.departments[0]) &&
+  described === 2 && menu.departments.length === 1 && /^Engineering \| 1 room · Ground Floor · 1 person \| Builds the product/.test(menu.departments[0]) &&
   menu.quick.length > 0, JSON.stringify({ described, ...menu }));
 // A phone: the view is full width, so is the search box (12 px from each side), nothing off-screen
 await p.setViewportSize({ width: 390, height: 844 });
