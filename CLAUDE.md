@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1124, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1137, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -71,13 +71,21 @@ npm run e2e:viewer   # 34 checks   e2e/viewer-smoke.mjs    (viewer.html: <Layout
                      #                                       departments, kinds, floors; ↓ Enter / Esc), recent
                      #                                       searches, walking chips "Nearest stairs · 7 m");
                      #                                       v0.14.3: ?debug=tour (the plan, its panel, its route)
-npm run e2e:embed    # 35 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
+npm run e2e:embed    # 38 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
                      #                                       in it (no Supabase), serves embed-test.html itself; keys at once, the page's own field / button, hover, Esc, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
                      #                                       with cookies, destroy(), assets next to the script, quality low,
                      #                                       find(), the search box (no email), full width at 390 px,
                      #                                       navigation: { search: false }, goTo + stopRoute,
-                     #                                       setDepartments' description in the Find menu)
+                     #                                       setDepartments' description in the Find menu,
+                     #                                       v0.14.6: startMode (the card, Overview, onEvent 'mode'),
+                     #                                       quality low = from above, startMode 'edit' refused)
+npm run e2e:welcome  # 24 checks   e2e/welcome-smoke.mjs   (viewer.html?start=walk, v0.14.6: walking at the entrance with
+                     #                                       the welcome card, W walks at once and closes it, the hint
+                     #                                       waits, Explore / Esc, Find someone, Start the tour, Overview
+                     #                                       keeps your place + Walk back, the last choice remembered,
+                     #                                       &weak=1 and SwiftShader itself = from above, &at= (no card),
+                     #                                       no ?start = as before, phone; SHOTS=<dir>: screenshots)
 npm run e2e:characters # 36     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
                      #                                       on 2 floors: the view from above (no roof: at the start,
                      #                                       after setFloor, after walking), simple figures, full characters near the
@@ -256,6 +264,9 @@ src/play/playController.js         Preview: movement, camera, aiming, every hotb
 src/play/dragLook.js               PURE (v0.14.0): click vs drag vs double-click (6 px, 250 ms), the drag's look deltas;
                                    touch (v0.14.1): a tap (10 px, 500 ms, never a double), stickVector (the joystick)
 src/engine/react/TouchControls.tsx The viewer's touch joystick (v0.14.1): bottom left, walkthrough.setStick
+src/engine/startMode.ts            PURE (v0.14.6): chooseStart (how a viewer with startMode starts), softwareRenderer
+                                   (a weak device), the welcome card's words; the last choice (localStorage, try / catch)
+src/engine/react/WelcomeCard.tsx   The welcome card (v0.14.6): "Welcome to …" · Start the tour · Explore · Find someone
 src/planner/plannerTools.js        Studio mouse tools: draw room / wall, door / window, drag a wall to resize
 src/utils/buildPreview.js          Blue/red build previews shared by both modes
 src/play/navigation/               PURE (v0.13.0): walkMap.js (the walk map of a floor: 0.1 m cells, walls with door gaps,
@@ -825,6 +836,38 @@ Preview ignores touch as before** (look 'lock' listens to mousedown only).
   stick's speed, keys not needed, the route pauses, touch words), `e2e/touch-smoke.mjs` (hides viewer.html's
   bridge-events panel so the view is a phone's full width).
 
+## Start mode: walk by default, the welcome card, Overview (v0.14.6, how it works)
+
+Section 3.1 of `private-docs/EXPERIENCE_PLAN.md` (decisions in its section 6). Viewer / embed only: Studio and a viewer
+without `startMode` are unchanged (no card, no button; `mode` as before).
+- **`startMode: 'walkthrough' | 'view'`** (`<LayoutViewer startMode>`, the embed's `startMode` option, AHDUS sets it):
+  the viewer decides the start. The engine is made in 'view'; once its first layout is loaded, `startMode.chooseStart({
+  startMode, remembered, weak, openAt })` (PURE, tested) gives `{ mode, welcome, reason }`: a **weak device** = 'view'
+  (reason 'weak'); else the **last choice** (localStorage `ahdus.viewMode`, try / catch: set ONLY by the viewer's own
+  Overview / Walk button) or startMode; **`openAt`** = no card (reason 'link'); a walk otherwise shows the card. `mode` is
+  then only for changing it later (its first value is ignored; a change applies). The embed's `mode` follows the
+  'mode' events (`onModeChange` → `onEvent('mode', { mode })`, `handle.mode`).
+- **Weak device** (`engine.weakDevice`): quality 'low', or `getGlInfo().renderer` names a software renderer
+  (`softwareRenderer`: SwiftShader, llvmpipe, softpipe, Microsoft Basic Render, …). Override: `weakDevice` prop /
+  option (viewer.html `&weak=1 | 0`). **e2e runs on SwiftShader, so it counts as weak**: scripts that want the walk start
+  pass `weak=0` (or `weakDevice: false`).
+- **The welcome card** (`react/WelcomeCard.tsx`, `[data-welcome]` = wide | narrow): "Welcome to <layoutName>"
+  (`welcomeTitle`; none: "Welcome"), "You are at the main entrance. How would you like to start?", buttons
+  (`data-welcome-action`, `welcomeActions`): tour (with the plan's size, `tourDetail`, once `whenNavigationReady`),
+  explore, find (only with `tour` / `search`). It never takes the keys: a walking key (W A S D, arrows) closes it AND
+  walks, Esc closes it (preventDefault: not the walkthrough's Esc), a press on the canvas closes it; leaving walking or a
+  tour starting closes it. Explore = focus the view; Find someone = `PlaceSearch` `openRequest` (the box focused); Start
+  the tour = the Tour button's start. Shown only once the start floor is built; the one-time walk hint waits for it.
+  Desktop: centred, 520 px; under 640 px: full width at the bottom, above the joystick / HUD (the tour panel's spot).
+- **Overview / Walk** (`data-mode-button` = overview | walk, aria-label `Overview` / `Walk`, top right, 12 px):
+  `engine.overview()` = the walker's pose kept (`walkPlace`: x, z, yaw, pitch, floor), 'view', `setFloor(that floor)`,
+  the camera on that spot (`OVERVIEW_AROUND` 6 m, beta ≤ 0.75); `engine.resumeWalk()` = 'walkthrough' + `setPose(walkPlace)`
+  (none: the entrance, as every walk). A new layout forgets the place. With it the toolbar row keeps 124 px of the right
+  clear (`rowStyle`), and the bridge card and the tour panel (`TourPanel top`) sit 56 px down.
+- **`openAt`** (prop / embed option, `embedLayout.cleanOpenAt`: one of personId / roomId / deskId, or a place id;
+  viewer.html `&at=person:p_asha`): after `whenBuilt`, from above `navigation.show(openAt)` (show takes routeTo's targets
+  now), walking `navigation.routeTo(openAt, { walk: 'guide' })` (the strip: "Going to …").
+
 ## Progressive loading (how it works)
 
 Opening a layout never freezes the page: `engine/systems/SceneBuilder` builds the rooms and items in slices of
@@ -980,7 +1023,7 @@ site on the server (local mode renames the layout), the leave check. Saving, und
 - viewer.html's dev hooks: `__ahdusViewer` (the LayoutEngine; `.walkthrough.setPose`), `__ahdusScene`, `ahdus`,
   `__viewerEvents` (bridge events), `__ahdusCards`, `__ahdusWalkDebug` (only with `&debug=walkmap`), `__ahdusTourDebug` (only with `&debug=tour`; the tour itself: `__ahdusViewer.tour`), `__ahdusSetPeople`
   (the people prop; `?people=1` = two sample people, `?search=0` = no search box), `__viewerNav` (every 'navigation'
-  event). On a touch screen (v0.14.1, the last press a finger) the "?" button and its dialog are named `Touch controls`
+  event); `?start=walk | view` = startMode (v0.14.6; `&weak=1 | 0`, `&at=<place id>`: see "Start mode"). On a touch screen (v0.14.1, the last press a finger) the "?" button and its dialog are named `Touch controls`
   (`Keys and mouse` with a mouse); `walkthrough.getStick()` = the joystick now. viewer.html gives the view only 60 % of
   a phone (its bridge-events `aside`): e2e:touch hides it. Take me there's time is GAME time (`navigation.walking.elapsed`): SwiftShader frames are capped at 0.25 s. The search's Find button sits at the
   viewer's top left (12, 12): raw clicks / taps meant for the canvas must avoid it. Since v0.14.0 a viewer's walk
@@ -1182,6 +1225,9 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Touch (v0.14.1): no pinch to zoom, no flying or floor buttons by touch (Find + Take me there, or the stairs); the
   joystick has no run speed. The joystick is hidden from screen readers (Find + Take me there cover them).
 - A click on a wall walks to the spot in front of it; there is no "walk to the room behind this wall".
+- Start mode (v0.14.6): a weak device is found by the WebGL renderer's name only (software rendering) or quality 'low';
+  a slow graphics card is not measured. The welcome card shows on every start that walks (not once per browser). Deep
+  links are the page's to read (`openAt`): the viewer reads no address itself.
 - The embed's `focusOn` works in view mode only. A keyboard-only user who tabs to a walking view can walk and press E
   but not turn (turning needs the mouse).
 
@@ -1253,6 +1299,14 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: stairs that lead nowhere, the corner desk's L + walk by default (v0.14.6, 8 Nov 2026, branch `fix/stairs-corner-desk-start-mode`)
+
+Part 1, found in a customer's real layout: stairs that lead nowhere can't be climbed, Studio's stair warnings
+(`stairProblems`), the corner desk's real L on the walk map and a visitor at its open side (see "Multi-storey", "Where
+walking starts", "Search"). Part 2, private-docs/EXPERIENCE_PLAN.md 3.1: `startMode`, the welcome card, Overview / Walk,
+the last choice, weak devices, `openAt` (see "Start mode"); e2e:welcome. Screenshots: private-docs/screenshots/v0.14.6/
+(not in git).
 
 ## DONE: stairs, goals, walking speed (v0.14.5, 8 Nov 2026, branch `fix/stairs-goal-speed`)
 
