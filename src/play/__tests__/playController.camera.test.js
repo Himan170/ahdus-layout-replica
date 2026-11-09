@@ -1,6 +1,6 @@
 // The third-person camera's shoulder offset (v0.13.1): centred on a portrait phone, over the shoulder when wide.
 import { describe, expect, it } from 'vitest';
-import { shoulderOffset, thirdPersonCamera } from '../playController';
+import { SHOULDER_EASE_S, easeShoulder, shoulderOffset, thirdPersonCamera } from '../playController';
 
 const FOV = 1.0; // playController's camera (vertical)
 const CAM_DISTANCE = 3.8;
@@ -72,6 +72,18 @@ describe('thirdPersonCamera', () => {
     expect(cam.hideCharacter).toBe(false);
   });
 
+  it('(a) a wall behind and a high camera (the tour stop view): pulled in, it keeps its height', () => {
+    // 2 m behind you, looking down 0.36 rad, 5.4 m back and 1.25 m up: the ray hits the wall high up.
+    // Lowering the spot to the ceiling BEFORE the ray made the pulled-in camera sit only ~0.4 m over the eyes.
+    const eye15 = { x: 0, y: 1.5, z: 0 };
+    const wall = { x0: -10, x1: 10, z0: -2.1, z1: -2, top: 3 };
+    const cam = thirdPersonCamera({ eye: eye15, right, distance: 5.4, up: 1.25, dir: looking(-0.36), shoulder: 0,
+      ceiling: 2.76, cast: caster([wall]) });
+    expect(cam.position.z).toBeGreaterThan(-2);
+    expect(cam.position.y).toBeLessThanOrEqual(2.76 + 1e-9);
+    expect(cam.position.y - eye15.y).toBeGreaterThan(0.9);
+  });
+
   it('(b) the shoulder spot in a wall: the camera slides to the middle behind you, not in', () => {
     const wall = { x0: 0.5, x1: 0.6, z0: -10, z1: 10, top: 3 };
     const cam = thirdPersonCamera({ ...base, dir: looking(-0.1), shoulder: 0.85, ceiling: null, cast: caster([wall]) });
@@ -93,5 +105,58 @@ describe('thirdPersonCamera', () => {
     const dir = looking(-0.1);
     expect(thirdPersonCamera({ ...base, dir, shoulder: 0, ceiling: null, cast: caster([near]) }).hideCharacter).toBe(true);
     expect(thirdPersonCamera({ ...base, dir, shoulder: 0, ceiling: null, cast: caster([mid]) }).hideCharacter).toBe(false);
+  });
+
+  it('(b) it says where the offset should go: 0 by a wall, the full offset in the open', () => {
+    const wall = { x0: 0.5, x1: 0.6, z0: -10, z1: 10, top: 3 };
+    const dir = looking(-0.1);
+    expect(thirdPersonCamera({ ...base, dir, shoulder: 0.85, ceiling: null, cast: caster([wall]) }).wantShoulder).toBe(0);
+    expect(thirdPersonCamera({ ...base, dir, shoulder: 0.85, ceiling: null, cast: caster([]) }).wantShoulder).toBe(0.85);
+  });
+
+  it('(b) while it slides the camera stands at the offset it has now (shoulderNow)', () => {
+    const wall = { x0: 0.5, x1: 0.6, z0: -10, z1: 10, top: 3 };
+    const cam = thirdPersonCamera({ ...base, dir: looking(-0.1), shoulder: 0.85, shoulderNow: 0.3, ceiling: null, cast: caster([wall]) });
+    expect(cam.position.x).toBeCloseTo(0.3);
+    expect(cam.wantShoulder).toBe(0);
+  });
+});
+
+// v0.15.1: the slide to behind the head (and back) eases over about 0.25 s instead of jumping
+describe('easeShoulder', () => {
+  const slide = (from, to, fps) => {
+    let s = from; let t = 0; const seen = [s];
+    while (s !== to && t < 2) { s = easeShoulder(s, to, 1 / fps, 0.85); t += 1 / fps; seen.push(s); }
+    return { t, seen };
+  };
+
+  it('to the middle and back each take about 0.25 s, both ways, at 60 and 30 fps', () => {
+    for (const fps of [60, 30]) {
+      for (const [from, to] of [[0.85, 0], [0, 0.85]]) {
+        const { t, seen } = slide(from, to, fps);
+        expect(t).toBeGreaterThan(SHOULDER_EASE_S - 2 / fps);
+        expect(t).toBeLessThan(SHOULDER_EASE_S + 2 / fps);
+        // a steady slide: never further than its target, every step the same way
+        for (let i = 1; i < seen.length; i++) {
+          expect(Math.abs(seen[i] - to)).toBeLessThanOrEqual(Math.abs(seen[i - 1] - to) + 1e-12);
+        }
+      }
+    }
+  });
+
+  it('no jump: one 60 fps frame moves it at most a quarter of the way', () => {
+    expect(easeShoulder(0.85, 0, 1 / 60, 0.85)).toBeGreaterThan(0.85 * 0.75);
+  });
+
+  it('a slow frame (0.25 s, the controller cap) gets there; none yet = the target at once', () => {
+    expect(easeShoulder(0.85, 0, 0.25, 0.85)).toBe(0);
+    expect(easeShoulder(null, 0.85, 1 / 60, 0.85)).toBe(0.85);
+  });
+
+  it('turning back halfway goes back from where it is (no jump)', () => {
+    const half = easeShoulder(0.85, 0, 0.125, 0.85);
+    expect(half).toBeCloseTo(0.425);
+    expect(easeShoulder(half, 0.85, 1 / 60, 0.85)).toBeGreaterThan(half);
+    expect(easeShoulder(half, 0.85, 1 / 60, 0.85) - half).toBeLessThan(0.1);
   });
 });
