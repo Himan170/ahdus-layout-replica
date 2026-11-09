@@ -220,6 +220,7 @@ export function createGizmoController(scene, onTransformEnd) {
   }
 
   return {
+    isDragging: () => !!gizmoManager.isDragging, // an arrow is dragged (the selection bar hides)
     setMode,
     attachToMesh,
     detach,

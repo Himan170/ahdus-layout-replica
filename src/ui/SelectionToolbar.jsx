@@ -5,15 +5,16 @@
  * Duplicate | Delete, for an item and for a room (a room's Move says how; Rotate turns it a
  * quarter turn). Lock, Scale (R) and the room's name and type are in the Inspector.
  * Follows its target every frame, stays inside the canvas card, and hides
- * while the camera moves fast.
+ * while the camera moves fast and while something is dragged. It sits above the
+ * item's top edge and clear of the room labels (ui/selectionSpot.js, v0.15.1).
  */
 
 import { useEffect, useRef } from 'react';
 import { Move, RotateCw, Copy, Trash2 } from 'lucide-react';
 import { projectBox } from './projection';
+import { selectionSpot } from './selectionSpot';
 
 const ICON = { size: 18, strokeWidth: 1.75 };
-const GAP = 10;          // px between the target and the pill
 const FAST = 14;         // px per frame: the view is moving fast → hide
 const SETTLE_MS = 160;   // shown again once the view has been still this long
 
@@ -48,6 +49,7 @@ export default function SelectionToolbar({
   onTurnRoom,        // a quarter turn
   onDuplicateRoom,   // a copy next to it
   minTop = 8,        // px from the canvas top it keeps clear (a phone: the floor switcher, Reset / Fit)
+  isBusy = () => false, // () => true while an item, a room, a wall or a gizmo arrow is dragged: hidden
 }) {
   const ref = useRef(null);
 
@@ -61,17 +63,20 @@ export default function SelectionToolbar({
       const b = getBounds();
       const card = el.parentElement;
       const box = b && projectBox(scene, b.min, b.max);
-      if (!box || !box.visible || !card) { el.dataset.hidden = 'true'; return; }
+      if (!box || !box.visible || !card || isBusy()) { el.dataset.hidden = 'true'; return; }
 
       const w = el.offsetWidth;
       const h = el.offsetHeight;
       const cw = card.clientWidth;
       const ch = card.clientHeight;
-      let x = (box.left + box.right) / 2 - w / 2;
-      let y = box.top - GAP - h;
-      if (y < minTop) y = Math.min(box.bottom + GAP, ch - h - 8); // no room above: put it below
-      x = Math.max(8, Math.min(cw - w - 8, x));
-      y = Math.max(minTop, Math.min(ch - h - 8, y));
+      // the room labels on screen: the bar keeps clear of them
+      const at = card.getBoundingClientRect();
+      const avoid = [...card.querySelectorAll('.room-label')].map((l) => l.getBoundingClientRect())
+        .filter((r) => r.width > 0 && r.height > 0)
+        .map((r) => ({ left: r.left - at.left, top: r.top - at.top, right: r.right - at.left, bottom: r.bottom - at.top }));
+      const spot = selectionSpot({ box, w, h, cw, ch, minTop, avoid });
+      const x = spot.x;
+      const y = Math.max(minTop, Math.min(ch - h - 8, spot.y));
 
       const now = performance.now();
       const moved = last ? Math.hypot(x - last.x, y - last.y) : 0;
@@ -82,7 +87,7 @@ export default function SelectionToolbar({
     };
     const obs = scene.onAfterRenderObservable.add(place);
     return () => scene.onAfterRenderObservable.remove(obs);
-  }, [scene, getBounds, targetKey, minTop]);
+  }, [scene, getBounds, targetKey, minTop, isBusy]);
 
   const locked = !!object?.isLocked;
   const isRoom = kind === 'room';

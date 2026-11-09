@@ -1093,6 +1093,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     return { text: toolHint(plannerTool, placementMode), tone: 'hint' };
   })();
 
+  /** Something is being dragged: the selection bar hides (v0.15.1). */
+  const isSelectionBusy = useCallback(() => !!plannerToolsRef.current?.isDragging() ||
+    !!gizmoControllerRef.current?.isDragging?.(), []);
+
   const getSelectionBounds = useCallback(() => {
     if (selectedObjectId) return boundsOf(objectSystemRef.current?.getObjectMesh(selectedObjectId));
     if (selectedRoomId) return boundsOf(roomSystemRef.current?.getRoomMesh(selectedRoomId));
@@ -1457,6 +1461,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               onTurnRoom={() => handleTurnRoom(selectedRoomId)}
               onDuplicateRoom={() => handleDuplicateRoom(selectedRoomId)}
               minTop={phone ? 120 : 8}
+              isBusy={isSelectionBusy}
             />
           )}
           {isPlaying && (
