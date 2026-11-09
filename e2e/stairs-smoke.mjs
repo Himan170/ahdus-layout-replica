@@ -246,19 +246,17 @@ const problems = await st.evaluate(() => document.querySelector('[data-stairs-pr
 log('Studio, stairs on the only floor: "These stairs lead nowhere" in the Inspector', /These stairs lead nowhere/.test(problems), problems);
 const before = await st.evaluate((id) => window.__ahdusStore.getState().objects[id], stairsId);
 await st.locator('canvas').first().hover();
-await st.keyboard.press('r');
+await st.keyboard.press('s'); // v0.15.1: S = resize (R turns 90°)
 await st.waitForTimeout(600);
 const afterR = await st.evaluate((id) => window.__ahdusStore.getState().objects[id], stairsId);
 const page = await st.evaluate(() => document.body.innerText);
-log('the R key (Resize) on stairs says why instead of offering it',
+log('the S key (Resize) on stairs says why instead of offering it',
   /keep their size/.test(page) && afterR.scaleX === before.scaleX && afterR.scaleZ === before.scaleZ, '');
 if (SHOTS) {
-  // the gizmos: no up arrow (Move) and only the flat ring (Rotate)
+  // the move gizmo: no up arrow (v0.15.1: no rotation rings any more; R turns 90°)
   await st.waitForTimeout(1500);
   await st.keyboard.press('w'); await st.waitForTimeout(1500);
   await st.screenshot({ path: join(shotDir, 'stairs-studio-move.png'), timeout: 120000 });
-  await st.keyboard.press('e'); await st.waitForTimeout(1500);
-  await st.screenshot({ path: join(shotDir, 'stairs-studio-rotate.png'), timeout: 120000 });
 }
 
 await b.close();

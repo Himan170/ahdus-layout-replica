@@ -51,9 +51,9 @@
   "objects": [
     { "id": "obj_reception_desk", "assetType": "RECEPTION_DESK", "floor": 0, "roomId": "room_reception", "x": -9, "y": 0, "z": -1, "rotationY": 0 },
     { "id": "obj_work_desk_1", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_open_workspace", "x": 0, "y": 0, "z": 1, "rotationY": 0 },
-    { "id": "obj_work_chair_1", "assetType": "CHAIR_OFFICE", "floor": 0, "roomId": "room_open_workspace", "x": 0, "y": 0, "z": 0.2, "rotationY": 3.141592653589793 },
+    { "id": "obj_work_chair_1", "assetType": "CHAIR_OFFICE", "floor": 0, "roomId": "room_open_workspace", "x": 0, "y": 0, "z": 0.2, "rotationY": 0 },
     { "id": "obj_work_desk_2", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_open_workspace", "x": 4, "y": 0, "z": 1, "rotationY": 0 },
-    { "id": "obj_work_chair_2", "assetType": "CHAIR_OFFICE", "floor": 0, "roomId": "room_open_workspace", "x": 4, "y": 0, "z": 0.2, "rotationY": 3.141592653589793 },
+    { "id": "obj_work_chair_2", "assetType": "CHAIR_OFFICE", "floor": 0, "roomId": "room_open_workspace", "x": 4, "y": 0, "z": 0.2, "rotationY": 0 },
     { "id": "obj_work_desk_3", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_open_workspace", "x": 0, "y": 0, "z": -2, "rotationY": 0 },
     { "id": "obj_work_chair_3", "assetType": "CHAIR_OFFICE", "floor": 0, "roomId": "room_open_workspace", "x": 0, "y": 0, "z": -2.8, "rotationY": 0 },
     { "id": "obj_private_desk_1", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_private_office_1", "x": -10, "y": 0, "z": 8.5, "rotationY": 0 },

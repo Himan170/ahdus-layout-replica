@@ -27,6 +27,7 @@ import { FLOOR_FINISHES, floorKindOf } from '../utils/materialLibrary';
 import { MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, STAIRS_KEEP_SIZE } from '../play/building';
 import { describeRoom, describeObject, describeAccessibilityRoutes } from '../utils/accessibleSummary';
 import SeatSection from './SeatSection';
+import { itemSize, scaleForSize, sizeLimits } from './itemSize';
 import { departmentOptions, departmentPatch, MAX_DEPARTMENT_NAME } from './roomDepartment';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
@@ -111,15 +112,16 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
   const deg = toDeg(object.rotationY ?? 0);
   const isStairs = object.assetType === 'STAIRCASE'; // on its floor, one size: what you walk on is what you see
 
-  const setScale = (axis, v) => {
-    const old = object[axis] || 1;
-    if (!keepProportions || v <= 0) { commit({ [axis]: v }); return; }
-    const f = v / old;
-    commit({
-      scaleX: +((object.scaleX ?? 1) * f).toFixed(3),
-      scaleY: +((object.scaleY ?? 1) * f).toFixed(3),
-      scaleZ: +((object.scaleZ ?? 1) * f).toFixed(3),
-    });
+  // Sizes are shown and typed in metres (v0.15.1); what is saved is still the scale
+  const def = ASSET_TYPES[object.assetType];
+  const size = itemSize(object, def);
+  const setSize = (axis, metres) => {
+    const patch = scaleForSize(object, def, axis, metres, keepProportions);
+    if (patch) commit(patch);
+  };
+  const sizeField = (axis, label) => {
+    const { min, max } = sizeLimits(def, axis);
+    return <NumberField label={label} value={size[axis]} step={0.05} min={min} max={max} suffix="m" onCommit={(v) => setSize(axis, v)} />;
   };
 
   const linkable = hookPoints.find((a) => a.kind === 'workstation') ?? hookPoints.find((a) => a.kind === 'reception');
@@ -150,12 +152,6 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
 
       <Section title="Rotation">
         <div className="insp-rotation">
-          <input
-            type="range" min={-180} max={180} step={5}
-            aria-label="Rotation slider"
-            value={deg}
-            onChange={(e) => commit({ rotationY: toRad(parseFloat(e.target.value)) })}
-          />
           <NumberField label="Angle" value={deg} step={5} digits={0} suffix="°"
             onCommit={(v) => commit({ rotationY: toRad(v) })} />
         </div>
@@ -183,9 +179,9 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
       ) : (
         <Section title="Size">
           <div className="insp-grid insp-grid--3">
-            <NumberField label="Width" value={object.scaleX ?? 1} step={0.05} min={0.1} max={5} suffix="×" onCommit={(v) => setScale('scaleX', v)} />
-            <NumberField label="Height" value={object.scaleY ?? 1} step={0.05} min={0.1} max={5} suffix="×" onCommit={(v) => setScale('scaleY', v)} />
-            <NumberField label="Depth" value={object.scaleZ ?? 1} step={0.05} min={0.1} max={5} suffix="×" onCommit={(v) => setScale('scaleZ', v)} />
+            {sizeField('width', 'Width')}
+            {sizeField('depth', 'Depth')}
+            {sizeField('height', 'Height')}
           </div>
           <div className="insp-row">
             <button
@@ -217,6 +213,11 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
           </select>
         </label>
 
+      </Section>
+
+      {(hookPoints.length > 0 || linkable) && (
+        <details className="insp-advanced" data-inspector-advanced>
+          <summary className="insp-advanced__summary">Advanced</summary>
         {hookPoints.length > 0 && (
           <p className="insp-note">{kinds}: other modules attach here.</p>
         )}
@@ -251,7 +252,8 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
             )}
           </label>
         )}
-      </Section>
+        </details>
+      )}
     </>
   );
 }
@@ -331,6 +333,17 @@ function RoomBody({ room, departmentChoices: choices, onUpdate, onSetFloor, onSe
             onCommit={(v) => onUpdate(room.id, { wallHeight: v })} />
         </div>
         <p className="insp-room__note">{Math.round(area * 10) / 10} m² · or drag its walls in the view</p>
+      </div>
+
+      <div className="insp-room__group">
+        <h3 className="insp-room__title">Position</h3>
+        <div className="insp-grid">
+          <NumberField label="Room X" value={room.x} step={0.5} digits={2} suffix="m"
+            onCommit={(v) => onUpdate(room.id, { x: v })} />
+          <NumberField label="Room Z" value={room.z} step={0.5} digits={2} suffix="m"
+            onCommit={(v) => onUpdate(room.id, { z: v })} />
+        </div>
+        <p className="insp-room__note">Its furniture and the rooms inside it move with it · or drag its floor</p>
       </div>
 
       <div className="insp-room__group">

@@ -48,12 +48,15 @@ const cardText = () => p.evaluate(() => {
 });
 const anchorData = () => p.evaluate(() => window.__ahdusStore.getState().anchorData);
 
-/** Stand so the crosshair (camera is 0.85 m over the right shoulder) lines up
- *  with x = targetX while facing -Z, then tilt down until the prompt matches. */
+/** Stand so the crosshair lines up with x = targetX while facing -Z, then tilt down until the prompt matches.
+ *  The camera is 0.85 m over the right shoulder, but close to a wall behind you it moves behind the head
+ *  (v0.15.1): so both places are tried. */
 async function lookAt(targetX, standZ, re) {
   const yaw = Math.PI; // facing -Z: the shoulder camera sits 0.85 m towards -X
-  for (const pitch of [-0.3, -0.2, -0.4, -0.15, -0.5, -0.1, -0.6, -0.05]) {
-    await pose(targetX + 0.85, standZ, yaw, pitch);
+  const tries = [];
+  for (const pitch of [-0.3, -0.2, -0.4, -0.15, -0.5, -0.1, -0.6, -0.05]) for (const dx of [0.85, 0]) tries.push([dx, pitch]);
+  for (const [dx, pitch] of tries) {
+    await pose(targetX + dx, standZ, yaw, pitch);
     // the on-screen prompt can lag a few frames behind on a slow machine
     for (let i = 0; i < 8; i++) {
       const t = await promptText();
@@ -149,6 +152,8 @@ await p.evaluate((id) => {
   st.selectObject(id);
 }, ids.desk);
 await wait(800);
+// v0.15.1: the hook points and the linked position are in the closed Advanced section
+await p.locator('[data-inspector-advanced] summary').click();
 const select = p.locator('select[aria-label="Linked position"]');
 const hasDropdown = await select.isVisible().catch(() => false);
 log('the Inspector shows a "Linked position" dropdown with Yashashwi\'s positions', hasDropdown &&

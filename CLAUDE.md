@@ -44,11 +44,13 @@ npm run e2e:stairs   # 24 checks   e2e/stairs-smoke.mjs    (viewer.html: W climb
                      #                                       back down; first person; from the side it stops you; Take me there; Studio:
                      #                                       no Height / size for stairs, R says why, "lead nowhere"; SHOTS=<dir>: shots)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
-npm run e2e:tools    # 58 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
+npm run e2e:tools    # 70 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
                      #                                       room's floor + Preview's Edit item; v0.15.0: a desk
                      #                                       dragged with its monitor, a Desk Plant dragged onto a
                      #                                       desk, the move arrow still works past it, a door in a
-                     #                                       Wall-tool wall, sliding a door, G in Preview)
+                     #                                       Wall-tool wall, sliding a door, G in Preview; v0.15.1:
+                     #                                       the desk's chair by drag / arrow / R / typed X, a room
+                     #                                       with its furniture by drag / Room X, an empty hand)
 npm run e2e:measurements # 23   e2e/measurements-smoke.mjs (off at start, the Measurements panel, measure distance
                      #                                       in 2D, wall lengths, room areas, toggles, Esc, per floor,
                      #                                       Clear Measurements keeps the room)
@@ -198,7 +200,17 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   The move gizmo has no up arrow any more (the Inspector's Height lifts an item on purpose), and **the nearest thing
   under the mouse wins** (`gizmoController`, a top-priority pre-pointer observer): where the item itself is nearer than
   the gizmo (from above, always over the item: the arrows lie at its foot) the press is the item's drag; where an arrow
-  or ring sticks out in front of it, the gizmo's. **Door / window tool on a wall drawn with the Wall tool** (a
+  or ring sticks out in front of it, the gizmo's. **v0.15.1:** a desk also takes its chair (`play/carry.js` `carriedBy`: the
+  chair `people.deskSeat` pairs with it) on every move of one item: the drag, the arrow keys, R, the Inspector's X / Z / angle,
+  the gizmo and Plan view all go through `plannerTools.moveItem(id, patch, { label, mergeKey })` → one `moveObjects`
+  (`carryMoves`: the chair turns round the desk). **Keys (v0.15.1):** R turns the selected item 90° (Shift+R 15°,
+  `carry.turnStep`; a room: a quarter turn, but not a room with items in it yet: "Turning a room with its furniture
+  comes later"; the selection bar's Rotate still turns the room alone), W shows / hides the move arrows (hidden until then; the selection bar's Move
+  too), S the resize handles (was R; stairs say why), no E (rotation rings gone; the Inspector's Rotation = 4 buttons +
+  the angle box), Ctrl+S saves now (`saveNow`, also in Preview; never the browser's "Save page as"), F or a double-click flies to the selection (`focusSelection`; nothing selected: F fits the building).
+  The Inspector's sizes are in metres (`ui/itemSize.js`: Width / Depth / Height ↔ scale, 0.1 to 5); the hook-point note
+  and Linked position sit in a closed **Advanced** section (`data-inspector-advanced`). The selection bar sits above the
+  item, clear of room labels (`ui/selectionSpot.js`), hidden while dragging. **Door / window tool on a wall drawn with the Wall tool** (a
   WALL_SEGMENT item): the wall is cut there (`geometry.planWallSegmentOpening`: the side pieces, the part above a door /
   below and above a window, plus a DOOR_SINGLE / WINDOW_FRAME item), one undo step (`editor.replaceObjects`); too
   short / too low / locked walls say why. **Slide a door / window:** select it, drag it (not a blue handle) along its
@@ -240,11 +252,16 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   Furniture stacks on table tops. Clicking the floor under a desk selects the desk.
   Code: `WorkplaceEditor.jsx` (wiring) + `src/ui/*`, `src/utils/gizmoController.js`, `src/utils/placementManager.js`.
 - **Preview**: Minecraft-style. Third-person character (over the shoulder; centred on a portrait phone: `shoulderOffset(aspect)`), hotbar 1–9, B = catalog, left-click builds, right-click
-  removes, R rotates, E interacts, N adds a floor above, F fly (Space up / C down), V first/third person, Shift runs, Tab or
+  removes, R turns 90° (Shift+R 15°), E interacts, N adds a floor above, F fly (Space up / C down), V first/third person, Shift runs, Tab or
   "Back to Studio" returns. Code: `src/play/playController.js` + `src/components/PlayHUD.jsx` (+ `src/ui/preview.css`).
   Default hotbar (`src/play/hotbarItems.js`): Office room, Meeting room, Stretch, Door, Window, Desk, Chair, Staircase, Edit item.
+  **It starts with an empty hand (v0.15.1, `EMPTY_HAND` −1):** nothing is built until 1–9 / B picks an item (the catalog puts
+  it in a slot, `catalogSlot`, and holds it). **The third-person camera** (`thirdPersonCamera`, pure, v0.15.1): a ray to the wanted
+  spot pulls it in front of a wall, then the ceiling lowers it and a ray to the lowered spot is tested too (a ray over a
+  wall's top, lowered afterwards, ended behind it); blocked over the shoulder = behind the head (shoulder 0) before it
+  pulls in, sliding there and back over `SHOULDER_EASE_S` 0.25 s (`easeShoulder`); closer than `HIDE_CHARACTER_BELOW` 0.5 m = the character hidden. First person (V) unchanged.
   **Edit item** (slot 9) = Studio's gizmo actions on what you look at: click picks it up / puts it down,
-  R turns, + / − resizes (keeps proportions), 0 normal size, L lock/unlock. On a **door/window**: + / − width,
+  R turns 90° (Shift+R 15°), + / − resizes (keeps proportions), 0 normal size, L lock/unlock. On a **door/window**: + / − width,
   Shift + / − height (0.1 m), 0 standard size; the hint shows "Door 0.9 × 2.1 m" or why it is blocked.
   **v0.15.0:** a click on a door / window picks it up: look along its wall to slide it (`moveOpening`, the same rule as
   Studio), click puts it there, right-click cancels. **G or middle-click** picks up the item you look at whatever is in
@@ -268,7 +285,7 @@ src/hooks/studioPointer.js         installStudioPointer(): Studio's scene.onPoin
 src/hooks/useStoreMeshSync.js      Store → scene, right after useStudioScene: room + item meshes of every floor
                                    (builder.start() / request()), the floor being edited + camera height, the gizmo on
                                    the selected object. Refs and values passed in by WorkplaceEditor (same names)
-src/hooks/useStudioKeyboard.js     Studio's keyboard shortcuts (keydown: Tab, Esc, 1–6, Delete, arrows, W / E / R, L,
+src/hooks/useStudioKeyboard.js     Studio's keyboard shortcuts (keydown: Tab, Esc, 1–6, Delete, arrows, W / R / S, L,
                                    Ctrl+Z / Y / D; Preview: undo / redo only) + the wheel (placement ghost height)
 src/hooks/useStudioFileActions.js  Returns Studio's file / layout actions: All layouts, reload the other tab's save, export /
                                    import layout, save as copy, floor plan PNG / PDF, photo reconstruction (flag-checked)
@@ -324,6 +341,8 @@ src/engine/systems/CharacterSystem.ts  People: simple figures (thin instances) +
 src/engine/systems/PlayerCharacter.ts  Walking as yourself: your character (copyCharacter) + the walk clip baked onto
                                    its bones (retargeted by name, rest-pose corrected), playController's character
 src/embed/characterManifest.js     PURE: the character manifest (assetReference → { url, rig, height }), setPeople's list
+src/play/carry.js                  PURE (v0.15.1): what an item takes along (carriedBy: a desk's chair + riders), carryMoves,
+                                   turnStep (R 90°, Shift+R 15°)
 src/play/geometry.js               PURE maths: room corners, wall splitting, doors, neighbours, stretchRoom, resizeOpening,
                                    shared walls (roomWallSegments, wallPickTarget), nesting (roomContainedBy, containerOf,
                                    planRoomMove, roomRectBlocker), snapping (snapRoomRect),
@@ -374,7 +393,7 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 ## Rules (follow these)
 
 1. **Every layout change goes through `editorHistory`** (`createEditorHistory()`: addObject, updateObject,
-   deleteObject, duplicateObject, moveObjects, replaceObjects, toggleLock, addRoom, updateRoom, deleteRoom, toggleDoor, addOpenings,
+   deleteObject, duplicateObject, moveObjects, replaceObjects, toggleLock, addRoom, updateRoom, moveRoom, deleteRoom, toggleDoor, addOpenings,
    removeOpenings, resizeOpening, setWallHeight, setFloorHeight, setAnchorData, addFloor({ copyRooms }), removeFloor,
    renameFloor, restoreVersion). Never call store mutators directly from
    UI or tools, or undo breaks. Continuous edits (slider drag, typing, + / − bursts) pass `{ mergeKey }` so they are
@@ -497,7 +516,9 @@ parent ids). Details: `docs/ROOM_FORMAT.md`.
   - **Drawing:** the outer room's floor (and ceiling, if the inner walls reach it) is cut out under the inner room
     (`floorSurfaceHoles`). The inner room's own walls are drawn 1 cm thinner on the outside (`nested`), so no wall
     faces coincide, and it has no roof of its own under an outer room at least as tall (`roofCovered`).
-  - **Studio:** drag a selected room's floor to move it (`planRoomMove`). This happens only after a 5 px drag, and
+  - **Studio:** drag a selected room's floor (or type its Room X / Z) to move it (`planRoomMove(room, x, z, rooms, objects)`:
+    v0.15.1, the rooms inside it (`roomsInside`) and the items standing in it (`itemInRoom`, locked ones too) go along,
+    one `editor.moveRoom` step). This happens only after a 5 px drag, and
     never where an item stands (a click selects what is under the cursor). The Inspector size snaps the edges it
     moves (so it sets x / z too) and keeps inner rooms inside (`planRoomResize`).
 
@@ -1105,6 +1126,9 @@ site on the server (local mode renames the layout), the leave check. Saving, und
 - The dev build runs in React StrictMode: effects mount → unmount → mount. Scene teardown must leave no stale
   references (the mesh maps are cleared there; reopening a layout with rooms crashed before that).
 - Without a GPU, Playwright runs on SwiftShader at ~1 fps; e2e scripts allow long timeouts. A long run can use ~2 GB.
+- **Preview aims (v0.15.1):** the third-person camera is 0.85 m over the right shoulder only while nothing is close
+  behind you; with a wall there it moves behind the head first (`thirdPersonCamera`), so the crosshair moves 0.85 m.
+  e2e aims indoors try both places (tools, modules) or measure where the crosshair lands (play-smoke).
 - **Don't edit app files while an e2e test runs**: Vite HMR reloads the page and the test fails.
 - When killing dev servers, don't use a `pkill -f` pattern that also matches your own shell command.
 
@@ -1229,8 +1253,8 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
   wall checks only that room's items, not the neighbour's on the other side of a shared wall. The build previews
   and the wall highlight use the room's own thickness, not the shared wall's. Free-standing walls (Walls tool) are
   still 0.15 m.
-- Nested rooms: the outer room's slab and roof are not cut; moving or resizing the outer room doesn't take the rooms
-  inside along (it is blocked if they would stick out of it); moving a room doesn't move its furniture; rooms can be
+- Nested rooms: the outer room's slab and roof are not cut; resizing the outer room doesn't take the rooms
+  inside along (it is blocked if they would stick out of it); turning a room (R) doesn't turn its furniture; rooms can be
   moved by their floor only in Studio. A nested room's own walls are drawn 1 cm thinner on the outside than the data says.
 - Rooms saved before 22 Oct with a gap (0.15 m or more from the outer wall, or apart from a sibling) keep their own
   walls; stretching or moving the edge to within 0.35 m snaps it. With the 0.5 m grid on, drawing to a grid line
@@ -1249,8 +1273,8 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - The layout name is saved at once but is not part of undo.
 - Doors and windows slide along their own wall (v0.15.0) but can't move to another wall (remove and add again);
   window sills are fixed (0.9 m).
-- Easy building (v0.15.0): Preview's carry (G, Edit item) moves only the item itself, not what stands on it (Studio's
-  drag takes the monitor along). A door cut into a free-standing wall is an item with wall pieces around it: removing
+- Easy building (v0.15.0): Preview's carry (G, Edit item) moves only the item itself, not what stands on it nor a desk's
+  chair (Studio takes them along). A gizmo arrow drag moves the chair only when it is let go. A door cut into a free-standing wall is an item with wall pieces around it: removing
   the door leaves the gap (Ctrl+Z puts the whole wall back), and it can't slide or be resized like a room door. From
   above, the move arrows can be grabbed only where they stick out past the item. Dragging an item that isn't selected
   opens the Inspector, so the view narrows under the mouse while you drag (the item stays under the cursor).
@@ -1357,6 +1381,14 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: easy building, part 2 (v0.15.1, 9 Nov 2026, branch `fix/easy-building-2`)
+
+A desk takes its chair along (every move of one item, one undo step), a room what stands in it and the rooms inside it
+(`editor.moveRoom`), R = 90° / Shift+R = 15° in both modes, W = move arrows (hidden until then), S = resize, no E, F /
+double-click = focus on the selection, Inspector sizes in metres + Advanced, the selection bar above the item, Walk
+through with an empty hand, catalog room names, the third-person camera near walls (see "Easy building" and
+"Preview"; CHANGELOG.md). Also fixed: two Small Office template chairs faced away from their desks. e2e:tools 70 checks.
 
 ## DONE: easy building (v0.15.0, 9 Nov 2026, branch `feature/easy-building`)
 

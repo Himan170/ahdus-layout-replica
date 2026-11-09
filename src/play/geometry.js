@@ -587,18 +587,53 @@ export function roomRectBlocker(room, rect, rooms) {
     null;
 }
 
+/** The rooms inside `room` (at any depth), on its floor. */
+export function roomsInside(room, rooms) {
+  const area = room.width * room.depth;
+  return rooms.filter((other) => other.id !== room.id && floorOf(other) === floorOf(room) &&
+    other.width * other.depth < area - GEOMETRY_EPSILON && insideRoomFootprint(room, other));
+}
+
+/** Whether an item's centre is inside the room's rectangle (on its floor). */
+export function itemInRoom(room, obj) {
+  if ((obj.floor ?? 0) !== floorOf(room)) return false;
+  return Math.abs((obj.x ?? 0) - room.x) < room.width / 2 - 0.01 &&
+    Math.abs((obj.z ?? 0) - room.z) < room.depth / 2 - 0.01;
+}
+
 /**
  * Validate a whole-room move while preserving any existing enclosing rooms.
  * The room keeps its size; it lands back to back on a neighbour (or on the
  * wall of the room it stands in) when it comes close (snapRoomRect).
+ * What is in it goes along (v0.15.1): the rooms inside it (any depth) and every
+ * item whose centre is in it (locked ones too: a lock keeps an item from being
+ * moved on its own, not from its room), by the same amount.
+ * @param {object}   room
+ * @param {number}   x, z     where its centre should go
+ * @param {object[]} rooms    rooms (any floors)
+ * @param {object[]} [objects] items (any floors)
+ * @returns {{ rect, blocker, dx: number, dz: number,
+ *   rooms: [string, { x: number, z: number }][], objects: [string, { x: number, z: number }][] }}
  */
-export function planRoomMove(room, x, z, rooms) {
-  const rect = snapRoomRect({ x, z, width: room.width, depth: room.depth, floor: floorOf(room) }, rooms, {
-    id: room.id, container: containerOf(room, rooms), translate: true,
+export function planRoomMove(room, x, z, rooms, objects = []) {
+  const inside = roomsInside(room, rooms);
+  const insideIds = new Set(inside.map((r) => r.id));
+  // the rooms inside go along: they neither block the move nor are snapped to
+  const others = rooms.filter((r) => !insideIds.has(r.id));
+  const rect = snapRoomRect({ x, z, width: room.width, depth: room.depth, floor: floorOf(room) }, others, {
+    id: room.id, container: containerOf(room, others), translate: true,
   });
+  const dx = rect.x - room.x;
+  const dz = rect.z - room.z;
+  const r3 = (v) => Math.round(v * 1000) / 1000;
   return {
     rect: { x: rect.x, z: rect.z, width: rect.width, depth: rect.depth },
-    blocker: roomRectBlocker(room, rect, rooms),
+    blocker: roomRectBlocker(room, rect, others),
+    dx,
+    dz,
+    rooms: inside.map((r) => [r.id, { x: r3(r.x + dx), z: r3(r.z + dz) }]),
+    objects: objects.filter((o) => itemInRoom(room, o))
+      .map((o) => [o.id, { x: r3((o.x ?? 0) + dx), z: r3((o.z ?? 0) + dz) }]),
   };
 }
 

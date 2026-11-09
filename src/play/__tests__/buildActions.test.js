@@ -89,7 +89,7 @@ describe('planRoomMove', () => {
   const meeting = { id: 'meeting', name: 'Meeting', floor: 0, x: 0, z: 0, width: 3, depth: 3 };
 
   it('moves a nested room inside its enclosing room', () => {
-    expect(planRoomMove(meeting, 2, 1, [outer, meeting])).toEqual({
+    expect(planRoomMove(meeting, 2, 1, [outer, meeting])).toMatchObject({
       rect: { x: 2, z: 1, width: 3, depth: 3 },
       blocker: null,
     });

@@ -2,8 +2,8 @@
  * useStudioKeyboard.js
  *
  * Workplace Studio's keyboard shortcuts, moved as one piece out of WorkplaceEditor.jsx:
- * the keydown listener (Tab, Esc, 1–6, Delete, arrow keys, W / E / R, L, Ctrl+Z / Y / D;
- * in Preview only undo / redo; the AHDUS look's camera keys through cameraKeyRef) and the wheel
+ * the keydown listener (Tab, Esc, 1–6, Delete, arrow keys, W / R / S, L, Ctrl+Z / Y / D / S;
+ * in Preview only undo / redo / save; the AHDUS look's camera keys through cameraKeyRef) and the wheel
  * listener (height of the placement ghost).
  *
  * WorkplaceEditor passes the refs, setters and callbacks in under the same names and
@@ -15,10 +15,12 @@ import { useEffect } from 'react';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { STUDIO_TOOLS } from '../ui/tools';
 import { STAIRS_KEEP_SIZE } from '../play/building';
-import { findRoomAt } from '../play/geometry';
+import { findRoomAt, itemInRoom } from '../play/geometry';
+import { saveNow } from '../services/apiService';
+import { turnStep } from '../play/carry';
 
 export function useStudioKeyboard({
-  editor, handleCancelPlacement, handleSetGizmoMode, handleEnterPlay, handleSetPlannerTool,
+  editor, handleCancelPlacement, handleToggleGizmo, handleTurnItem, handleTurnRoom, handleEnterPlay, handleSetPlannerTool,
   handleDeleteOpening, showStudioMessage, isPlayingRef, plannerToolsRef, measureModeRef, measureStartRef,
   placementManagerRef, snapRef, setMeasureMode, setMeasureStart, setMeasurePreview, setLayersOpen,
   setOpenTray, setAnnounceText,
@@ -27,6 +29,15 @@ export function useStudioKeyboard({
   // ─── Keyboard shortcuts ───
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Ctrl+S saves now (also while typing, and in Preview), never the browser's "Save page as"
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        saveNow().then((result) => {
+          if (result?.ok === false) showStudioMessage(`Not saved: ${result.error ?? 'unknown error'}`, true);
+          else showStudioMessage('Saved');
+        }).catch((err) => showStudioMessage(`Not saved: ${err?.message ?? err}`, true));
+        return;
+      }
       // Ignore if typing in an input
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
 
@@ -135,35 +146,49 @@ export function useStudioKeyboard({
           const newX = Math.round(((Number(obj.x) || 0) + dx) * 1000) / 1000;
           const newZ = Math.round(((Number(obj.z) || 0) + dz) * 1000) / 1000;
 
-          editor.updateObject(
-            store.selectedObjectId,
-            { x: newX, z: newZ, roomId: findRoomAt(Object.values(store.rooms), newX, newZ, obj.floor ?? 0)?.id ?? null },
-            { label: 'Move item (keyboard)' }
-          );
+          // with what it takes along (a desk: its chair and its monitor), one undo step
+          const patch = { x: newX, z: newZ, roomId: findRoomAt(Object.values(store.rooms), newX, newZ, obj.floor ?? 0)?.id ?? null };
+          if (!plannerToolsRef.current?.moveItem(store.selectedObjectId, patch, { label: 'Move item (keyboard)' })) {
+            editor.updateObject(store.selectedObjectId, patch, { label: 'Move item (keyboard)' });
+          }
           setAnnounceText(`Moved ${obj.label || obj.assetType} to X ${newX}, Z ${newZ}`);
           break;
         }
 
         case 'w':
         case 'W':
-          handleSetGizmoMode('position');
-          break;
-
-        case 'e':
-        case 'E':
-          handleSetGizmoMode('rotation');
+          // Move: show (or hide) the move arrows. Dragging an item moves it anyway.
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
+          if (store.selectedObjectId) handleToggleGizmo('position');
           break;
 
         case 'r':
-        case 'R':
-          // During placement: rotate preview 45°. Otherwise: scale gizmo.
+        case 'R': {
+          // v0.15.1, one way to turn (as in Walk through): R = 90°, Shift+R = 15°
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
           if (placementManagerRef.current?.isActive()) {
-            placementManagerRef.current.rotatePreview();
-          } else if (store.objects[store.selectedObjectId]?.assetType === 'STAIRCASE') {
-            showStudioMessage(STAIRS_KEEP_SIZE);
-          } else {
-            handleSetGizmoMode('scale');
+            placementManagerRef.current.rotatePreview(turnStep(e.shiftKey));
+          } else if (store.selectedObjectId && !store.selectedOpening) {
+            handleTurnItem(store.selectedObjectId, e.shiftKey);
+          } else if (store.selectedRoomId && !store.selectedOpening) {
+            const room = store.rooms[store.selectedRoomId];
+            // v0.15.1: R on a room with furniture waits until the furniture turns with it (the selection bar's
+            // Rotate still turns the room alone, as before)
+            if (room && Object.values(store.objects).some((o) => itemInRoom(room, o))) {
+              showStudioMessage('Turning a room with its furniture comes later');
+            } else if (e.shiftKey) showStudioMessage('Rooms turn in quarter turns: press R');
+            else handleTurnRoom(store.selectedRoomId);
           }
+          break;
+        }
+
+        case 's':
+        case 'S':
+          // Resize: show (or hide) the size handles (was R before v0.15.1)
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
+          if (!store.selectedObjectId) break;
+          if (store.objects[store.selectedObjectId]?.assetType === 'STAIRCASE') showStudioMessage(STAIRS_KEEP_SIZE);
+          else handleToggleGizmo('scale');
           break;
 
         case 'l':
@@ -224,5 +249,5 @@ export function useStudioKeyboard({
       window.removeEventListener('wheel', handleWheel);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the refs and state setters passed in are stable
-  }, [editor, handleCancelPlacement, handleSetGizmoMode, handleEnterPlay, handleSetPlannerTool, handleDeleteOpening, showStudioMessage]);
+  }, [editor, handleCancelPlacement, handleToggleGizmo, handleTurnItem, handleTurnRoom, handleEnterPlay, handleSetPlannerTool, handleDeleteOpening, showStudioMessage]);
 }

@@ -27,7 +27,7 @@ const ASSETS = `${import.meta.env?.BASE_URL ?? '/'}assets/`;
 const PAGES = {
   rooms: { title: 'Rooms', text: 'Drag a room onto the floor, or click it to place it in the middle.', touch: 'Tap one, then tap the floor' },
   furniture: { title: 'Furniture', text: 'Drag into a room. It lands on the floor or a table top.', touch: 'Tap one, then tap the floor' },
-  stairs: { title: 'Stairs', text: 'Drag the staircase onto the floor, or click it to place it in the middle. R turns it.', touch: 'Tap it, then tap the floor' },
+  stairs: { title: 'Stairs', text: 'Drag the staircase onto the floor, or click it to place it in the middle. R turns it 90°.', touch: 'Tap it, then tap the floor' },
   walls: { title: 'Walls', text: 'Pick the wall, then drag on the floor from where it starts to where it ends.', touch: 'Tap it, then drag on the floor' },
   doors: { title: 'Doors & windows', text: 'Pick one, then click a room wall to add it. Click one to remove it.', touch: 'Tap one, then tap a wall' },
 };

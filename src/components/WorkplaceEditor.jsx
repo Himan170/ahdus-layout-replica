@@ -23,6 +23,8 @@ import {
 
 // Phase 3 utilities
 import { ASSET_TYPES } from '../utils/assetCatalog';
+import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents';
+import { turnStep, turnText } from '../play/carry';
 
 // Phase 4 — Zustand store + API
 import {
@@ -81,10 +83,10 @@ import { activeTile, toolHint, phoneIdleHint } from '../ui/tools';
 
 import {
   openingData, openingPartner, openingCentre, resizeOpening, planRemoveOpening,
-  planRoomResize, planWallThickness, planRoomTurn, planRoomCopy,
+  planRoomResize, planWallThickness, planRoomTurn, planRoomCopy, planRoomMove,
 } from '../play/geometry';
 import { FLOOR_BY_ROOM_TYPE } from '../utils/materialLibrary';
-import { DEFAULT_HOTBAR } from '../play/hotbarItems';
+import { DEFAULT_HOTBAR, EMPTY_HAND, catalogSlot } from '../play/hotbarItems';
 
 // Team integration: how other modules connect to the layout (docs/TEAM_INTEGRATION.md)
 import { layoutBridge } from '../integration/layoutBridge';
@@ -144,7 +146,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   const isPlayingRef = useRef(false);
   const [playHud, setPlayHud] = useState(null);
   const [hotbar, setHotbar] = useState(DEFAULT_HOTBAR);
-  const [selectedSlot, setSelectedSlot] = useState(0);
+  const [selectedSlot, setSelectedSlot] = useState(EMPTY_HAND); // walking first: building is a choice (1–9, B)
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [interaction, setInteraction] = useState(null);
   const cardTimerRef = useRef(null);
@@ -227,7 +229,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   const selectedRoomId = useWorkspaceStore((s) => s.selectedRoomId);
   const selectedObjectId = useWorkspaceStore((s) => s.selectedObjectId);
   const placementMode = useWorkspaceStore((s) => s.placementMode);
-  const gizmoMode = useWorkspaceStore((s) => s.gizmoMode) || 'position';
+  const gizmoMode = useWorkspaceStore((s) => s.gizmoMode) ?? null; // null: no arrows until Move (W)
   const is3D = useWorkspaceStore((s) => s.is3D);
   const isDirty = useWorkspaceStore((s) => s.isDirty);
   const saveError = useWorkspaceStore((s) => s.saveError);
@@ -410,10 +412,13 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
 
   // Picking an item (or closing the catalog) goes straight back to playing
   const handleAssignToSlot = useCallback((item) => {
-    setHotbar((bar) => bar.map((it, i) => (i === selectedSlot ? item : it)));
+    // an empty hand: the first empty slot (else slot 1) gets it, and you hold it
+    const slot = catalogSlot(hotbar, selectedSlot);
+    setHotbar((bar) => bar.map((it, i) => (i === slot ? item : it)));
+    setSelectedSlot(slot);
     setCatalogOpen(false);
     handleResumePlay();
-  }, [selectedSlot, handleResumePlay]);
+  }, [hotbar, selectedSlot, handleResumePlay]);
 
   const handleCloseCatalog = useCallback(() => {
     setCatalogOpen(false);
@@ -604,6 +609,17 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       editor.updateRoom(id, { departmentRef: patch.departmentRef }, { mergeKey: typing ? 'room-department' : undefined, label: 'Change department' });
       return;
     }
+    if ('x' in patch || 'z' in patch) {
+      // Typing its position: the room moves with the rooms inside it and its items (one step per burst)
+      const state = useWorkspaceStore.getState();
+      const room = state.rooms[id];
+      if (!room) return;
+      const plan = planRoomMove(room, patch.x ?? room.x, patch.z ?? room.z,
+        Object.values(state.rooms), Object.values(state.objects));
+      if (plan.blocker) showStudioMessage(`Overlaps ${plan.blocker.name}. Try another position.`, true);
+      else editor.moveRoom(id, plan, { label: `Move ${room.name}`, mergeKey: 'room-position' });
+      return;
+    }
     // Typing a name / size merges into one undo step; changing the type is its own step
     const mergeKey = 'type' in patch ? undefined : 'room-fields';
     if ('wallHeight' in patch) {
@@ -647,6 +663,15 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     editor.updateRoom(id, patch, { mergeKey });
   }, [editor, showStudioMessage]);
 
+  /**
+   * Move / turn an item with what it takes along (a desk: its chair and what stands on it), ONE undo
+   * step (plannerTools.moveItem → editor.moveObjects). Before the scene is up: the item alone.
+   */
+  const moveItemCarrying = useCallback((id, patch, { label, mergeKey } = {}) => {
+    if (plannerToolsRef.current?.moveItem(id, patch, { label, mergeKey })) return;
+    editor.updateObject(id, patch, { label, mergeKey });
+  }, [editor]);
+
   // ─── AHDUS look: a room's Rotate, Duplicate and floor (selection bar, properties panel) ───
   const handleTurnRoom = useCallback((id) => {
     const st = useWorkspaceStore.getState();
@@ -657,6 +682,19 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     editor.updateRoom(id, plan.patch, { label: 'Turn room' });
     showStudioMessage(`Turned ${room.name}. Its furniture stays where it is. Ctrl+Z to undo.`);
   }, [editor, showStudioMessage]);
+
+  /**
+   * R / the Rotate button: turn an item 90° (Shift+R: 15°) with what it takes along (a desk: its
+   * chair goes round it). One undo step.
+   */
+  const handleTurnItem = useCallback((id, fine = false) => {
+    const obj = useWorkspaceStore.getState().objects[id];
+    if (!obj) return;
+    const name = obj.label || ASSET_TYPES[obj.assetType]?.label || 'Item';
+    if (obj.isLocked) { showStudioMessage(`${name} is locked. Select it and press L`, true); return; }
+    moveItemCarrying(id, { rotationY: (obj.rotationY ?? 0) + turnStep(fine) }, { label: `Turn ${name}` });
+    showStudioMessage(`Turned ${name} ${turnText(fine)}. ${fine ? '' : 'Shift+R turns 15°. '}Ctrl+Z to undo.`);
+  }, [moveItemCarrying, showStudioMessage]);
 
   const handleDuplicateRoom = useCallback((id) => {
     const st = useWorkspaceStore.getState();
@@ -796,11 +834,59 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   // A new scene has a new camera: keep the choice
   useEffect(() => { if (sceneReady) setPanMode(cameraRef.current, panMode); }, [sceneReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /**
+   * Fly the camera smoothly to what is selected (an item, a room, a door / window): F and a
+   * double-click (v0.15.1). Small things get at least a 4 m frame. Returns false with nothing selected.
+   */
+  const focusSelection = useCallback(() => {
+    const st = useWorkspaceStore.getState();
+    let box = null;
+    if (st.selectedOpening) {
+      const room = st.rooms[st.selectedOpening.roomId];
+      const o = room && openingData(room, st.selectedOpening.kind, st.selectedOpening.index);
+      if (o) {
+        const c = openingCentre(room, o.wall, o.offset);
+        box = { min: { x: c.x, z: c.z }, max: { x: c.x, z: c.z } };
+      }
+    } else if (st.selectedObjectId) {
+      box = boundsOf(objectSystemRef.current?.getObjectMesh(st.selectedObjectId));
+    } else if (st.selectedRoomId) {
+      const room = st.rooms[st.selectedRoomId];
+      if (room) box = { min: { x: room.x - room.width / 2, z: room.z - room.depth / 2 }, max: { x: room.x + room.width / 2, z: room.z + room.depth / 2 } };
+    }
+    if (!box) return false;
+    const MIN_FRAME = 4;
+    const grow = (a, b) => { const c = (a + b) / 2; const h = Math.max(b - a, MIN_FRAME) / 2; return [c - h, c + h]; };
+    const [x0, x1] = grow(box.min.x, box.max.x);
+    const [z0, z1] = grow(box.min.z, box.max.z);
+    const camera = cameraRef.current;
+    const scene = sceneRef.current;
+    if (camera && scene) {
+      flyCamera(camera, scene, { min: { x: x0, z: z0 }, max: { x: x1, z: z1 } },
+        { duration: 450, beta: st.is3D ? 0.9 : undefined });
+    }
+    return true;
+  }, [boundsOf]);
+
+  // Double-click an item or a room (Select tool) = focus on it
+  useEffect(() => {
+    const scene = sceneReady;
+    if (!scene) return undefined;
+    const obs = scene.onPointerObservable.add((info) => {
+      if (info.type !== PointerEventTypes.POINTERDOUBLETAP || info.event?.button !== 0) return;
+      if (isPlayingRef.current || measureModeRef.current || placementManagerRef.current?.isActive()) return;
+      if (plannerToolsRef.current && plannerToolsRef.current.getTool().kind !== 'select') return;
+      focusSelection();
+    });
+    return () => scene.onPointerObservable.remove(obs);
+  }, [sceneReady, focusSelection]);
+
   const cameraKeyRef = useRef(null);
   cameraKeyRef.current = !planView ? (key) => {
     const act = {
       7: () => cameraActions.view('top'), 8: () => cameraActions.view('front'), 9: () => cameraActions.view('side'),
-      h: cameraActions.reset, f: cameraActions.fit,
+      // F: focus on what is selected; nothing selected = fit the building
+      h: cameraActions.reset, f: () => { if (!focusSelection()) cameraActions.fit(); },
       '+': () => cameraActions.zoom(1), '=': () => cameraActions.zoom(1), '-': () => cameraActions.zoom(-1),
       o: () => cameraActions.setPan(false), p: () => cameraActions.setPan(true),
     }[key.toLowerCase()];
@@ -838,10 +924,16 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     editor.deleteObject(id);
   }, [editor]);
 
-  // Inspector sliders / typing: a burst of edits on one object = one undo step
+
+  // Inspector sliders / typing: a burst of edits on one object = one undo step.
+  // Typed X / Z or an angle move the item with what it takes along (one step each).
   const handleUpdateObject = useCallback((id, patch) => {
+    if ('x' in patch || 'z' in patch || 'rotationY' in patch) {
+      moveItemCarrying(id, patch, { label: 'Edit properties', mergeKey: 'inspector-move' });
+      return;
+    }
     editor.updateObject(id, patch, { mergeKey: 'inspector', label: 'Edit properties' });
-  }, [editor]);
+  }, [editor, moveItemCarrying]);
 
   const handleToggleLock = useCallback((id) => {
     editor.toggleLock(id);
@@ -852,6 +944,16 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     const ctrl = gizmoControllerRef.current;
     if (ctrl) ctrl.setMode(mode);
   }, [storeActions]);
+
+  /** Move (W) / Resize (S): show those handles, or hide them when they are already shown. */
+  const handleToggleGizmo = useCallback((mode) => {
+    handleSetGizmoMode(useWorkspaceStore.getState().gizmoMode === mode ? null : mode);
+  }, [handleSetGizmoMode]);
+
+  // Another selection starts with no arrows (dragging moves it; Move shows them)
+  useEffect(() => {
+    if (useWorkspaceStore.getState().gizmoMode) handleSetGizmoMode(null);
+  }, [selectedObjectId, handleSetGizmoMode]);
 
   const handleDuplicateObject = useCallback((id) => {
     editor.duplicateObject(id);
@@ -897,7 +999,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
 
   // ─── Keyboard shortcuts (hooks/useStudioKeyboard.js) ───
   useStudioKeyboard({
-    editor, handleCancelPlacement, handleSetGizmoMode, handleEnterPlay, handleSetPlannerTool,
+    editor, handleCancelPlacement, handleToggleGizmo, handleTurnItem, handleTurnRoom, handleEnterPlay, handleSetPlannerTool,
     handleDeleteOpening, showStudioMessage, isPlayingRef, plannerToolsRef, measureModeRef, measureStartRef,
     placementManagerRef, snapRef, setMeasureMode, setMeasureStart, setMeasurePreview, setLayersOpen,
     setOpenTray, setAnnounceText, cameraKeyRef,
@@ -990,6 +1092,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     }
     return { text: toolHint(plannerTool, placementMode), tone: 'hint' };
   })();
+
+  /** Something is being dragged: the selection bar hides (v0.15.1). */
+  const isSelectionBusy = useCallback(() => !!plannerToolsRef.current?.isDragging() ||
+    !!gizmoControllerRef.current?.isDragging?.(), []);
 
   const getSelectionBounds = useCallback(() => {
     if (selectedObjectId) return boundsOf(objectSystemRef.current?.getObjectMesh(selectedObjectId));
@@ -1267,28 +1373,20 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               snap={{ enabled: snapEnabled, step: snapStep }}
               ground={currentFloor === 0}
               onMoveObject={(id, to) => {
-                // one undo step per drag, like the 3D gizmo
-                editor.updateObject(id, to, { label: 'Move item' });
+                // one undo step per drag, with what it takes along (a desk: its chair, its monitor)
+                moveItemCarrying(id, to, { label: 'Move item' });
                 editor.endBurst();
               }}
               onRotateObject={(id) => {
                 const object = objectsMap[id];
                 if (object && !object.isLocked) {
-                  editor.updateObject(
-                    id,
-                    { rotationY: (Number(object.rotationY) || 0) + Math.PI / 2 },
-                    { label: 'Rotate object' }
-                  );
+                  moveItemCarrying(id, { rotationY: (Number(object.rotationY) || 0) + Math.PI / 2 }, { label: 'Rotate object' });
                 }
               }}
               onRotateByAngle={(id, deltaRad) => {
                 const object = objectsMap[id];
                 if (object && !object.isLocked) {
-                  editor.updateObject(
-                    id,
-                    { rotationY: (Number(object.rotationY) || 0) + deltaRad },
-                    { label: 'Rotate object' }
-                  );
+                  moveItemCarrying(id, { rotationY: (Number(object.rotationY) || 0) + deltaRad }, { label: 'Rotate object' });
                 }
               }}
             />
@@ -1356,12 +1454,14 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               object={selectedObject}
               gizmoMode={gizmoMode}
               onGizmoMode={handleSetGizmoMode}
+              onTurn={() => handleTurnItem(selectedObjectId)}
               onDuplicate={() => editor.duplicateObject(selectedObjectId)}
               onDelete={() => (selectedObject ? editor.deleteObject(selectedObjectId) : editor.deleteRoom(selectedRoomId))}
-              onMoveRoom={() => showStudioMessage("Drag the room's floor to move it. Its furniture stays where it is.")}
+              onMoveRoom={() => showStudioMessage("Drag the room's floor to move it. Its furniture and the rooms inside it move with it.")}
               onTurnRoom={() => handleTurnRoom(selectedRoomId)}
               onDuplicateRoom={() => handleDuplicateRoom(selectedRoomId)}
               minTop={phone ? 120 : 8}
+              isBusy={isSelectionBusy}
             />
           )}
           {isPlaying && (

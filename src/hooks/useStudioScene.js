@@ -31,6 +31,7 @@ import { createGizmoController } from '../utils/gizmoController';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { createPerformanceMonitor } from '../utils/performanceOptimiser';
 import { createPlayController } from '../play/playController';
+import { nextSlot } from '../play/hotbarItems';
 import { createPlannerTools } from '../planner/plannerTools';
 import { layoutBridge } from '../integration/layoutBridge';
 import { installStudioPointer } from './studioPointer';
@@ -125,7 +126,7 @@ export function useStudioScene({
       getObjectMesh: (id) => objectSystem.getObjectMesh(id),
       onHud: setPlayHud,
       onSlotKey: (i) => setSelectedSlot(i),
-      onSlotScroll: (d) => setSelectedSlot((cur) => (cur + d + 9) % 9),
+      onSlotScroll: (d) => setSelectedSlot((cur) => nextSlot(cur, d)),
       onCatalog: () => {
         setCatalogOpen((open) => {
           if (!open && document.pointerLockElement) document.exitPointerLock?.();
@@ -240,6 +241,7 @@ export function useStudioScene({
         removeOpenings: (list) => editor.removeOpenings(list),
         resizeOpening: (list, opts) => editor.resizeOpening(list, opts),
         moveObjects: (moves, opts) => editor.moveObjects(moves, opts),
+        moveRoom: (id, plan, opts) => editor.moveRoom(id, plan, opts),
         replaceObjects: (ids, list, opts) => {
           editor.replaceObjects(ids, list, opts);
           useWorkspaceStore.getState().selectObject(null);
@@ -263,11 +265,15 @@ export function useStudioScene({
       const elev = elevationOf(st.floors, floor);
       // the room it stands in now (moved into another room: that one)
       const room = findRoomAt(Object.values(st.rooms), transform.x, transform.z, floor);
-      editor.updateObject(objectId, { ...transform, y: transform.y - elev, roomId: room?.id ?? null }, { label: 'Move / rotate / scale' });
+      const patch = { ...transform, y: transform.y - elev, roomId: room?.id ?? null };
+      // a desk takes its chair and what stands on it along (one undo step)
+      if (!plannerToolsRef.current?.moveItem(objectId, patch, { label: 'Move / rotate / scale' })) {
+        editor.updateObject(objectId, patch, { label: 'Move / rotate / scale' });
+      }
     });
     gizmoControllerRef.current = gizmoCtrl;
     if (import.meta.env.DEV) window.__ahdusGizmo = gizmoCtrl; // e2e: gizmoScene() (the arrows), isPointerOver()
-    gizmoCtrl.setMode('position'); // default to position gizmo
+    gizmoCtrl.setMode(null); // v0.15.1: the arrows show only after Move (W); dragging moves an item
 
     // ── Pointer handlers (hooks/studioPointer.js) ──
     installStudioPointer({

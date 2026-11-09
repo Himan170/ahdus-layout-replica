@@ -14,7 +14,7 @@
  *   Camera        V switches third-person / first-person
  *   Use tool      Left-click
  *   Remove        Right-click (cancels a half-drawn room/wall first)
- *   Rotate        R (furniture)
+ *   Rotate        R turns furniture 90°, Shift+R 15° (as in Studio)
  *   Pick up       G or middle-click: pick up the item you look at, whatever is in your hand
  *                 (also a left-click with an empty hand); click puts it down, R turns it
  *   Interact      E on what you look at (other modules decide what happens)
@@ -83,6 +83,7 @@ import {
   STAIRS_LEAD_NOWHERE,
 } from './building';
 import { WALK_SPEED as WALK, RUN_SPEED as RUN, FLY_SPEED as FLY } from './speeds';
+import { turnStep } from './carry';
 
 // ── Feel ──
 const JUMP_SPEED = 5.2;
@@ -111,6 +112,84 @@ export function shoulderOffset(aspect) {
   if (!(aspect > 0)) return SHOULDER;
   const t = Math.min(1, Math.max(0, (aspect - 0.8) / (1.3 - 0.8)));
   return SHOULDER * t;
+}
+
+/** Hide the character when the third-person camera is closer than this to the eye (m): really inside it. */
+export const HIDE_CHARACTER_BELOW = 0.5;
+const WALL_GAP = 0.25;      // the camera stays this far in front of a wall it was pulled in by
+const MIN_CAM_DISTANCE = 0.3;
+/** How long the camera takes to slide from over the shoulder to behind the head, or back (s). */
+export const SHOULDER_EASE_S = 0.25;
+
+/**
+ * The shoulder offset one frame later: it moves towards `target` at a steady pace, so the whole way
+ * (from 0 to `full`, or back) takes SHOULDER_EASE_S. PURE.
+ * @param {number|null} current  the offset now (null: none yet = the target at once)
+ * @param {number} target  where it is going (0 or the full offset)
+ * @param {number} dt  seconds since the last frame
+ * @param {number} full  the full offset (shoulderOffset), the size of the whole way
+ */
+export function easeShoulder(current, target, dt, full) {
+  if (current === null || current === undefined || !Number.isFinite(current)) return target;
+  const step = (Math.max(Math.abs(full), Math.abs(target - current), 1e-6) / SHOULDER_EASE_S) * Math.max(0, dt);
+  const way = target - current;
+  return Math.abs(way) <= step ? target : current + Math.sign(way) * step;
+}
+
+/**
+ * Where the third-person camera goes (PURE: plain { x, y, z } vectors).
+ * @param {object} p
+ * @param {{x,y,z}} p.eye       the character's eye
+ * @param {{x,y,z}} p.dir       where the camera looks (unit)
+ * @param {{x,y,z}} p.right     the character's right (unit, level)
+ * @param {number}  p.distance  how far behind the eye
+ * @param {number}  p.shoulder  how far right over the shoulder (shoulderOffset)
+ * @param {number}  [p.shoulderNow]  the offset the camera has now while it slides (easeShoulder); default: where it goes
+ * @param {number}  p.up        how far up
+ * @param {number|null} p.ceiling  indoors: the highest the camera may be (world y), else null
+ * @param {(from, to) => number|null} p.cast  the first wall / item between two points: its distance from `from`
+ * @returns {{ position: {x,y,z}, distance: number, hideCharacter: boolean, wantShoulder: number }}
+ *   wantShoulder: where the offset should go (0 when the spot over the shoulder is in a wall)
+ */
+export function thirdPersonCamera({ eye, dir, right, distance, shoulder, shoulderNow, up, ceiling, cast }) {
+  const hasCeiling = ceiling !== null && ceiling !== undefined;
+  const spot = (s) => ({
+    x: eye.x - dir.x * distance + right.x * s,
+    y: eye.y - dir.y * distance + right.y * s + up,
+    z: eye.z - dir.z * distance + right.z * s,
+  });
+  const along = (to, d) => {
+    const v = { x: to.x - eye.x, y: to.y - eye.y, z: to.z - eye.z };
+    const len = Math.hypot(v.x, v.y, v.z) || 1;
+    return { x: eye.x + (v.x / len) * d, y: eye.y + (v.y / len) * d, z: eye.z + (v.z / len) * d };
+  };
+  const lengthTo = (to) => Math.hypot(to.x - eye.x, to.y - eye.y, to.z - eye.z);
+  const blocked = (h) => h !== null && h !== undefined;
+  /** In front of the first wall between the eye and `to` (or `to` itself), and whether one was in the way. */
+  const pullIn = (to) => {
+    const hit = cast(eye, to);
+    return blocked(hit) ? { at: along(to, Math.max(MIN_CAM_DISTANCE, hit - WALL_GAP)), hit: true } : { at: to, hit: false };
+  };
+  /**
+   * Where the camera goes for one shoulder offset. The ray to the wanted spot pulls it in front of a wall
+   * (from where it would really be: a high spot keeps its height); then (a) the ceiling lowers it, and a ray
+   * to the LOWERED spot is tested too: a ray over the top of a wall, lowered afterwards, ended behind it.
+   */
+  const place = (s) => {
+    const first = pullIn(spot(s));
+    if (!hasCeiling || first.at.y <= ceiling) return first;
+    const second = pullIn({ ...first.at, y: ceiling });
+    return { at: second.at, hit: first.hit || second.hit };
+  };
+  // (b) the shoulder spot in a wall: straight behind the character first, only then pulled in. The
+  // offset slides there over SHOULDER_EASE_S (the caller eases `shoulderNow` towards wantShoulder), both ways.
+  let wantShoulder = shoulder;
+  if (Math.abs(shoulder) > 1e-6 && place(shoulder).hit) wantShoulder = 0;
+  const s = Number.isFinite(shoulderNow) ? shoulderNow : wantShoulder;
+  const position = place(s).at;
+  const d = lengthTo(position);
+  // (c) hidden only when the camera is really inside the body
+  return { position, distance: d, hideCharacter: d < HIDE_CHARACTER_BELOW, wantShoulder };
 }
 const REACH = 9;          // furniture / doors: how far you can build
 const FLOOR_REACH = 45;   // rooms / walls: corners can be far away
@@ -241,6 +320,7 @@ export function createPlayController(scene, canvas, {
   let keyHandler = null;
   // the tour's stop view: 0 = the usual camera, 1 = STOP_VIEW (eased towards stopViewTarget)
   let stopView = 0;
+  let camShoulder = null; // the shoulder offset the camera has now (easeShoulder; null: none yet)
   let stopViewTarget = 0;
   const keys = new Set();
   // The touch joystick (v0.14.1, look 'drag'): { x: right, y: forward }, each −1…1, length = how far
@@ -449,7 +529,7 @@ export function createPlayController(scene, canvas, {
     ghost.rotation.y = ghostRotation;
 
     aim = { type: 'placeObject', x, y, z };
-    const keys = [['Left-click', 'Place'], ['R', 'Rotate'], ['G', 'Pick up'], ['Right-click', 'Remove']];
+    const keys = [['Left-click', 'Place'], ['R', 'Turn 90°'], ['G', 'Pick up'], ['Right-click', 'Remove']];
     if (tool.assetType === 'STAIRCASE' &&
         stairNeedsRoomAbove({ x, z, rotationY: ghostRotation, floor: currentLevel }, state().floors, state().rooms)) {
       return { title: tool.label, detail: STAIRS_NEED_ROOM, keys };
@@ -814,13 +894,13 @@ export function createPlayController(scene, canvas, {
       carry.mesh.rotation.y = carry.rotationY;
       if (s.problem) {
         aim = null;
-        return { title: `Moving ${itemName(obj)}`, detail: s.problem, bad: s.bad, keys: [['R', 'Turn'], ['Right-click', 'Cancel']] };
+        return { title: `Moving ${itemName(obj)}`, detail: s.problem, bad: s.bad, keys: [['R', 'Turn 90°'], ['Right-click', 'Cancel']] };
       }
       carry.mesh.position.set(s.x, s.worldY, s.z);
       aim = { type: 'dropItem', id: obj.id, x: s.x, y: s.y, z: s.z };
       return {
         title: `Moving ${itemName(obj)}`,
-        keys: [['Left-click', 'Put it here'], ['R', 'Turn'], ['Right-click', 'Cancel']],
+        keys: [['Left-click', 'Put it here'], ['R', 'Turn 90°'], ['Right-click', 'Cancel']],
       };
     }
     // ── A door / window picked up: it slides along its wall ──
@@ -849,7 +929,7 @@ export function createPlayController(scene, canvas, {
     return {
       title: itemName(obj),
       detail: itemSize(mesh),
-      keys: [['Left-click', 'Move'], ['R', 'Turn'], ['+ / −', 'Resize'], ['0', 'Normal size'], ['L', 'Lock']],
+      keys: [['Left-click', 'Move'], ['R', 'Turn 90°'], ['+ / −', 'Resize'], ['0', 'Normal size'], ['L', 'Lock']],
     };
   }
 
@@ -868,7 +948,7 @@ export function createPlayController(scene, canvas, {
     if (!(turn || bigger || smaller || reset || lock)) return false;
 
     if (carry && turn) {
-      carry.rotationY += Math.PI / 4;
+      carry.rotationY += turnStep(shift); // R = 90°, Shift+R = 15° (as in Studio)
       return true;
     }
     if (carry && lock) return true; // put it down first
@@ -900,7 +980,7 @@ export function createPlayController(scene, canvas, {
     }
     // Several presses in a row on one item are one undo step
     if (turn) {
-      actions.updateObject?.(obj.id, { rotationY: (obj.rotationY ?? 0) + Math.PI / 4 }, { label: `Turn ${itemName(obj)}`, mergeKey: 'play-turn' });
+      actions.updateObject?.(obj.id, { rotationY: (obj.rotationY ?? 0) + turnStep(shift) }, { label: `Turn ${itemName(obj)}`, mergeKey: 'play-turn' });
     } else if (reset) {
       actions.updateObject?.(obj.id, { scaleX: 1, scaleY: 1, scaleZ: 1 }, { label: `Resize ${itemName(obj)}` });
     } else {
@@ -936,7 +1016,7 @@ export function createPlayController(scene, canvas, {
     // the item in your hand waits: its preview hides while you carry this one
     ghost?.setEnabled(false);
     pv.hideAll();
-    if (startCarry(obj)) say(`Picked up ${itemName(obj)}. Click to put it down, R turns it, right-click cancels.`, 3000);
+    if (startCarry(obj)) say(`Picked up ${itemName(obj)}. Click to put it down, R turns it 90° (Shift+R 15°), right-click cancels.`, 3000);
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -1232,7 +1312,7 @@ export function createPlayController(scene, canvas, {
         firstPerson = !firstPerson;
         break;
       case 'KeyR':
-        ghostRotation += Math.PI / 4;
+        ghostRotation += turnStep(e.shiftKey); // R = 90°, Shift+R = 15°
         break;
       case 'KeyB':
         onCatalog();
@@ -1606,31 +1686,37 @@ export function createPlayController(scene, canvas, {
     if (firstPerson) {
       camera.position.copyFrom(eye.add(forward.scale(0.12)));
     } else {
-      const desired = eye
-        .add(camDir.scale(-(CAM_DISTANCE + STOP_VIEW.back * stopView)))
-        .add(right.scale(shoulderOffset(scene.getEngine().getAspectRatio(camera))))
-        .add(new Vector3(0, 0.45 + STOP_VIEW.up * stopView, 0));
-      // Pull the camera in front of walls instead of looking through them
-      const toCam = desired.subtract(eye);
-      const dist = toCam.length();
-      const ray = new Ray(eye, toCam.normalize(), dist);
-      const hit = scene.pickWithRay(ray, (m) =>
-        m.isPickable && m.isEnabled() && !isPlayerMesh(m) && !isGhostMesh(m) && !m.metadata?.pickPane &&
-        (m.metadata?.part === 'wall' || m.metadata?.part === 'window' || !!objectIdOf(m)));
-      const d = hit?.hit ? Math.max(0.3, hit.distance - 0.25) : dist;
-      // In a tight spot the camera is pulled right up to the character: hide
-      // the body so you don't look through the inside of its head
-      if (d < 1.1) showCharacter = false;
-      camera.position.copyFrom(eye.add(toCam.normalize().scale(d)));
       // Indoors the camera stays under the ceiling (except on the stairs,
       // where you look up through the stairwell)
       const roomNow = roomHere();
       const onStairs = stairsList().some((s) =>
         stairHeightAt(s, collider.position.x, collider.position.z, stairDimsFor(state().floors, s)) !== null);
-      if (roomNow && !onStairs) {
-        const ceiling = levelElev() + (roomNow.wallHeight ?? 3) - 0.12;
-        camera.position.y = Math.min(camera.position.y, ceiling);
-      }
+      const ceiling = roomNow && !onStairs ? levelElev() + (roomNow.wallHeight ?? 3) - 0.12 : null;
+      // Pull the camera in front of walls instead of looking through them (thirdPersonCamera:
+      // the ceiling first, then the ray; a blocked shoulder spot slides to the middle first)
+      const fullShoulder = shoulderOffset(scene.getEngine().getAspectRatio(camera));
+      const cam = thirdPersonCamera({
+        eye, dir: camDir, right,
+        distance: CAM_DISTANCE + STOP_VIEW.back * stopView,
+        shoulder: fullShoulder,
+        shoulderNow: camShoulder ?? undefined,
+        up: 0.45 + STOP_VIEW.up * stopView,
+        ceiling,
+        cast: (from, to) => {
+          const toCam = new Vector3(to.x - from.x, to.y - from.y, to.z - from.z);
+          const dist = toCam.length();
+          if (dist < 1e-6) return null;
+          const hit = scene.pickWithRay(new Ray(new Vector3(from.x, from.y, from.z), toCam.normalize(), dist), (m) =>
+            m.isPickable && m.isEnabled() && !isPlayerMesh(m) && !isGhostMesh(m) && !m.metadata?.pickPane &&
+            (m.metadata?.part === 'wall' || m.metadata?.part === 'window' || !!objectIdOf(m)));
+          return hit?.hit ? hit.distance : null;
+        },
+      });
+      // Pulled right up to the character: hide the body so you don't look through the inside of its head
+      if (cam.hideCharacter) showCharacter = false;
+      camera.position.set(cam.position.x, cam.position.y, cam.position.z);
+      // next frame a step nearer where it should be: the slide to behind the head (and back) eases
+      camShoulder = easeShoulder(camShoulder, cam.wantShoulder, dt, fullShoulder);
       // Never let the camera sink below the floor when looking up
       camera.position.y = Math.max(camera.position.y, collider.position.y + 0.3);
     }

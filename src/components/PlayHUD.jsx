@@ -26,7 +26,7 @@ const CONTROLS = [
   ['V', 'First / third person'],
   ['Left-click', 'Build with the item in your hand'],
   ['Right-click', 'Remove what you look at'],
-  ['R', 'Rotate furniture'],
+  ['R', 'Turn furniture 90° (Shift+R: 15°)'],
   ['G or middle-click', 'Pick up what you look at, then click to put it down'],
   ['9', 'Edit item: move, turn (R), resize (+ / −), lock (L), slide a door along its wall'],
   ['E', 'Use what you look at'],
@@ -221,7 +221,7 @@ export default function PlayHUD({
             <h2 className="hud-panel__title">Walk through your workplace</h2>
             <p className="hud-panel__text">
               Walk around as your character. You can still build with the item in your hand.
-              {selectedItem ? ` You're holding: ${selectedItem.label}.` : ''}
+              {selectedItem ? ` You're holding: ${selectedItem.label}.` : ' Your hands are empty: press 1–9 or B to pick something to build.'}
             </p>
             <dl className="hud-controls">
               {CONTROLS.map(([k, v]) => (
@@ -275,7 +275,7 @@ export default function PlayHUD({
             aria-label="Catalog"
           >
             <div className="hud-catalog__head">
-              <h2 className="hud-panel__title">Choose an item for slot {selectedSlot + 1}</h2>
+              <h2 className="hud-panel__title">{selectedSlot >= 0 ? `Choose an item for slot ${selectedSlot + 1}` : 'Choose an item to hold'}</h2>
               <button className="ui-btn" onClick={onCloseCatalog}>Close</button>
             </div>
             <CatalogPicker

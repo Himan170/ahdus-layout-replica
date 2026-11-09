@@ -41,6 +41,8 @@ import {
   elevationOf, floorBelow, planWallHeight, wallHeightText, HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT,
   placementHeight,
 } from '../play/building';
+import { carriedBy, carryMoves } from '../play/carry';
+import { isDesk } from '../play/people';
 
 const FLOOR_Y = 0.02;
 const CLICK_SLOP = 5; // px the mouse may move with the button down and still count as a click
@@ -54,7 +56,7 @@ export function createPlannerTools(scene, canvas, {
   getCamera,             // () => the planner camera (detached while dragging, so the view doesn't spin)
   getState,              // () => store state: rooms, objects, floors, currentFloor, selectedRoomId
   actions,               // { addRoom, updateRoom, setWallHeight, addObject, addOpenings, removeOpenings, resizeOpening,
-                         //   moveObjects, replaceObjects }
+                         //   moveObjects, replaceObjects, moveRoom }
   getSnapStep = () => 0.5, // () => grid step in metres, 0 when snap is off
   getObjectMesh = () => null, // (objectId) => the item's root node (moved while it is dragged)
   isOverGizmo = () => false,  // () => true while the mouse is on the move / turn / size gizmo (it wins)
@@ -331,17 +333,26 @@ export function createPlannerTools(scene, canvas, {
   const dragMeshes = (d) => d.items.map((it) => getObjectMesh(it.id)).filter(Boolean);
   const isDragged = (d, m) => dragMeshes(d).some((root) => m === root || m.isDescendantOf?.(root));
 
-  /** Items standing on `obj` (a monitor on a desk): their foot is at its top, inside its outline. */
+  /**
+   * Items standing on `obj` (a monitor on a desk): their foot is at its top, inside its outline.
+   * The outline is the mesh's, moved back to where the store has the item (a gizmo drag has already
+   * moved the mesh when it reports).
+   */
   function ridersOf(obj, mesh) {
     if (!mesh?.getHierarchyBoundingVectors) return [];
     const { min, max } = mesh.getHierarchyBoundingVectors(true);
-    const e = elev();
+    const sx = (mesh.position?.x ?? obj.x) - obj.x;
+    const sz = (mesh.position?.z ?? obj.z) - obj.z;
+    const e = elevationOf(st().floors, obj.floor ?? 0);
     const top = max.y - e;
     return Object.values(st().objects).filter((o) => o.id !== obj.id && (o.floor ?? 0) === (obj.floor ?? 0) &&
       !o.isLocked && !KEEP_HEIGHT.has(o.assetType) && o.assetType !== 'STAIRCASE' &&
       (o.y ?? 0) > 0.05 && Math.abs((o.y ?? 0) - top) < 0.2 &&
-      o.x >= min.x && o.x <= max.x && o.z >= min.z && o.z <= max.z);
+      o.x >= min.x - sx && o.x <= max.x - sx && o.z >= min.z - sz && o.z <= max.z - sz);
   }
+
+  /** What `obj` takes along (carry.carriedBy): its chair (a desk) and what stands on it. */
+  const carriedWith = (obj) => carriedBy(obj, st().objects, ridersOf(obj, getObjectMesh(obj.id)));
 
   /** Where the dragged item would stand: { worldY, y, on } (on: the item it stands on) or null. */
   function dragSurface(d, x, z) {
@@ -382,17 +393,35 @@ export function createPlannerTools(scene, canvas, {
     const e = elev();
     for (const it of drag.items) {
       const mesh = getObjectMesh(it.id);
-      mesh?.position.set(it.x + dx, e + (it.y ?? 0) + dy, it.z + dz);
+      mesh?.position.set(it.x + dx, e + (it.y ?? 0) + (it.onTop ? dy : 0), it.z + dz);
     }
     drag.plan = { dx, dz, dy };
-    const riders = drag.items.length - 1;
+    const riders = drag.items.filter((it, i) => i > 0 && it.onTop).length;
+    const chair = drag.items.some((it, i) => i > 0 && !it.onTop);
     const room = findRoomAt(floorRooms(), x, z);
     const where = s.on ? `On ${nameOf(s.on)}` : room ? `In ${room.name}` : 'Outside the rooms';
     return saveDragHint({
       title: `Move ${name}`,
-      detail: riders ? `${where} · with ${riders === 1 ? 'the item' : `the ${riders} items`} on it` : where,
+      detail: [where, chair && 'with its chair', riders && `with ${riders === 1 ? 'the item' : `the ${riders} items`} on it`]
+        .filter(Boolean).join(' · '),
       keys: [['Release', 'Put it here'], ['Esc', 'Cancel']],
     });
+  }
+
+  /** A room being dragged: its items' meshes move with it by (dx, dz); `moved` keeps their ids to put back. */
+  function moveRoomItemMeshes(d, dx, dz, objects) {
+    const e = elev();
+    d.movedItems = new Set([...(d.movedItems ?? []), ...objects.map(([id]) => id)]);
+    for (const id of d.movedItems) {
+      const o = st().objects[id];
+      const mesh = getObjectMesh(id);
+      if (o && mesh && !mesh.isDisposed?.()) mesh.position.set(o.x + dx, e + (o.y ?? 0), o.z + dz);
+    }
+  }
+
+  /** The room drag ended without a move: its items' meshes back where the store says. */
+  function restoreRoomItems(d) {
+    if (d?.movedItems) moveRoomItemMeshes(d, 0, 0, []);
   }
 
   /** The item drag ended without a move: every mesh back where the store says. */
@@ -427,8 +456,8 @@ export function createPlannerTools(scene, canvas, {
     hover = { type: 'grabItem', objectId: obj.id };
     return {
       title: nameOf(obj),
-      detail: 'Drag to move it',
-      keys: [['Drag', 'Move'], ['Click', 'Select'], ['Delete', 'Remove']],
+      detail: isDesk(obj.assetType) ? 'Drag to move it with its chair' : 'Drag to move it',
+      keys: [['Drag', 'Move'], ['Click', 'Select'], ['R', 'Turn 90°'], ['Delete', 'Remove']],
     };
   }
 
@@ -481,8 +510,8 @@ export function createPlannerTools(scene, canvas, {
       hover = { type: 'grabRoom', roomId: room.id };
       return {
         title: room.name,
-        detail: `${formatRoomSize(room.width, room.depth)} · drag the floor to move`,
-        keys: [['Drag', 'Move the room']],
+        detail: `${formatRoomSize(room.width, room.depth)} · drag the floor to move it with its furniture`,
+        keys: [['Drag', 'Move the room'], ['R', 'Turn 90°']],
       };
     }
     // Doors and windows are not grab points: clicking one selects it. In 2D
@@ -676,12 +705,17 @@ export function createPlannerTools(scene, canvas, {
       const room = floorRooms().find((r) => r.id === drag.roomId);
       if (!room) { cancelDrag(); return null; }
       if (!p) return lastDragHint();
-      const result = planRoomMove(room, drag.origin.x + p.x - drag.start.x, drag.origin.z + p.z - drag.start.z, floorRooms());
+      const result = planRoomMove(room, drag.origin.x + p.x - drag.start.x, drag.origin.z + p.z - drag.start.z,
+        floorRooms(), Object.values(st().objects));
       pv.room(result.rect, elev(), room.wallHeight ?? 3, !result.blocker);
       drag.plan = result.blocker ? null : { room, result };
+      // its items follow the room's outline while it is dragged (the store changes on release)
+      moveRoomItemMeshes(drag, result.blocker ? 0 : result.dx, result.blocker ? 0 : result.dz, result.objects);
+      const carried = [result.objects.length && `${result.objects.length} item${result.objects.length === 1 ? '' : 's'}`,
+        result.rooms.length && `${result.rooms.length} room${result.rooms.length === 1 ? '' : 's'} inside`].filter(Boolean);
       return saveDragHint(result.blocker
         ? { title: `Move ${room.name}`, detail: `Overlaps ${result.blocker.name}. Move the room.`, bad: true, keys: [['Esc', 'Cancel']] }
-        : { title: `Move ${room.name}`, detail: `${formatRoomSize(room.width, room.depth)} · inside ${result.rect.x.toFixed(1)}, ${result.rect.z.toFixed(1)}`, keys: [['Release', 'Move the room'], ['Esc', 'Cancel']] });
+        : { title: `Move ${room.name}`, detail: carried.length ? `With its ${carried.join(' and ')}` : formatRoomSize(room.width, room.depth), keys: [['Release', 'Move the room'], ['Esc', 'Cancel']] });
     }
 
     if (!p) return lastDragHint();
@@ -723,6 +757,7 @@ export function createPlannerTools(scene, canvas, {
       commitItemDrag(d);
       return;
     }
+    if (d.kind === 'move' && !d.plan) restoreRoomItems(d);
     if (!d.plan) {
       // Say why nothing was built (a plain click, an overlap, too short)
       if (d.hint?.bad) onMessage(d.hint.detail, true);
@@ -753,9 +788,11 @@ export function createPlannerTools(scene, canvas, {
       onMessage(`${room.name} is now ${formatRoomSize(result.rect.width, result.rect.depth)}. Ctrl+Z to undo.`);
     } else if (d.kind === 'move') {
       const { room, result } = d.plan;
-      if (Math.abs(result.rect.x - room.x) < 0.01 && Math.abs(result.rect.z - room.z) < 0.01) return;
-      actions.updateRoom(room.id, { x: result.rect.x, z: result.rect.z }, { label: `Move ${room.name}` });
-      onMessage(`Moved ${room.name}. Ctrl+Z to undo.`);
+      if (Math.abs(result.rect.x - room.x) < 0.01 && Math.abs(result.rect.z - room.z) < 0.01) { restoreRoomItems(d); return; }
+      // the room, the rooms inside it and its items: one undo step
+      actions.moveRoom(room.id, result, { label: `Move ${room.name}` });
+      restoreRoomItems(d); // the store has them now (meshes that didn't rebuild are put where it says)
+      onMessage(`Moved ${room.name}${result.objects.length ? ` with its ${result.objects.length} item${result.objects.length === 1 ? '' : 's'}` : ''}. Ctrl+Z to undo.`);
     } else if (d.kind === 'room') {
       const { rect } = d.plan;
       actions.addRoom({ type: tool.roomType, ...rect, floor: currentFloor });
@@ -780,7 +817,8 @@ export function createPlannerTools(scene, canvas, {
     const moves = d.items.map((it) => {
       const x = r3(it.x + plan.dx);
       const z = r3(it.z + plan.dz);
-      return [it.id, { x, z, y: Math.max(0, r3((it.y ?? 0) + plan.dy)), roomId: findRoomAt(rooms, x, z)?.id ?? null }];
+      const y = it.onTop ? Math.max(0, r3((it.y ?? 0) + plan.dy)) : it.y ?? 0;
+      return [it.id, { x, z, y, roomId: findRoomAt(rooms, x, z)?.id ?? null }];
     });
     const obj = st().objects[d.objectId];
     actions.moveObjects(moves, { label: `Move ${nameOf(obj)}` });
@@ -819,6 +857,7 @@ export function createPlannerTools(scene, canvas, {
     const d = drag;
     endDrag();
     if (d.kind === 'item') restoreItemDrag(d);
+    if (d.kind === 'move') restoreRoomItems(d);
     refresh();
   }
 
@@ -884,8 +923,10 @@ export function createPlannerTools(scene, canvas, {
         const obj = st().objects[hover.objectId];
         const p = groundPoint();
         if (obj && p) {
-          const riders = ridersOf(obj, getObjectMesh(obj.id));
-          const items = [obj, ...riders].map((o) => ({ id: o.id, x: o.x, y: o.y ?? 0, z: o.z }));
+          // what it takes along: its chair (a desk) keeps its height, what stands on it rises with it
+          const carried = carriedWith(obj);
+          const items = [{ item: obj, onTop: true }, ...carried].map(({ item: o, onTop }) =>
+            ({ id: o.id, x: o.x, y: o.y ?? 0, z: o.z, onTop }));
           armMove({ kind: 'item', objectId: obj.id, start: p, items });
         }
         return false;
@@ -965,6 +1006,40 @@ export function createPlannerTools(scene, canvas, {
     },
     getTool: () => tool,
     isDragging: () => !!drag,
+
+    /**
+     * Move and / or turn an item with what it takes along (its chair, what stands on it), as ONE
+     * undo step (editor.moveObjects): the keyboard arrows, typed X / Z / angle, a gizmo drag, R.
+     * Other fields of `patch` (y, scale) go to the item itself. Locked: nothing moves (false).
+     * @param {string} id
+     * @param {object} patch  x, z, rotationY (+ any other item fields)
+     * @param {{ label?: string, mergeKey?: string }} [options]  mergeKey: typing = one undo step per burst
+     * @returns {boolean} whether anything was asked to change
+     */
+    moveItem(id, patch, { label, mergeKey } = {}) {
+      const obj = st().objects[id];
+      if (!obj || obj.isLocked) return false;
+      const { x, z, rotationY, roomId: _roomId, ...rest } = patch;
+      const target = {};
+      if (x !== undefined) target.x = x;
+      if (z !== undefined) target.z = z;
+      if (rotationY !== undefined) target.rotationY = rotationY;
+      const moving = Math.abs((target.x ?? obj.x) - obj.x) > 1e-6 || Math.abs((target.z ?? obj.z) - obj.z) > 1e-6 ||
+        Math.abs((target.rotationY ?? obj.rotationY ?? 0) - (obj.rotationY ?? 0)) > 1e-9;
+      const carried = moving ? carriedWith(obj) : [];
+      const rooms = Object.values(st().rooms);
+      const moves = carryMoves(obj, carried, target).map(([mid, p], i) => {
+        const o = st().objects[mid];
+        const out = i === 0 ? { ...rest, ...p } : p;
+        // its room is the one it ends in
+        out.roomId = findRoomAt(rooms, out.x ?? o.x, out.z ?? o.z, o.floor ?? 0)?.id ?? null;
+        return [mid, out];
+      });
+      // a turn about the item itself only: keep the exact x / z it had (no rounding drift)
+      if (target.x === undefined && target.z === undefined) { delete moves[0][1].x; delete moves[0][1].z; }
+      actions.moveObjects(moves, { label: label ?? `Move ${nameOf(obj)}`, mergeKey });
+      return true;
+    },
     cancel: cancelDrag,
 
     /** Off in Build mode (it has its own tools). */
