@@ -266,6 +266,7 @@ export function useStudioScene({
       editor.updateObject(objectId, { ...transform, y: transform.y - elev, roomId: room?.id ?? null }, { label: 'Move / rotate / scale' });
     });
     gizmoControllerRef.current = gizmoCtrl;
+    if (import.meta.env.DEV) window.__ahdusGizmo = gizmoCtrl; // e2e: gizmoScene() (the arrows), isPointerOver()
     gizmoCtrl.setMode('position'); // default to position gizmo
 
     // ── Pointer handlers (hooks/studioPointer.js) ──

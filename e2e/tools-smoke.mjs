@@ -270,6 +270,62 @@ log('v0.14.9 a room\'s Department (no list given: free text): typing saves depar
   JSON.stringify({ deptKind, deptTyped, deptUndone, deptRedone, furnitureDept }));
 await key('Escape');
 
+// ── v0.15.0 easy building (Select tool, 2D view) ──
+const objNow = async (id) => (await store()).objects.find((o) => o.id === id);
+/** World box of an item's meshes (its root node and what is under it). */
+const itemBox = (id) => p.evaluate((id) => {
+  const root = window.__ahdusScene.transformNodes.find((n) => n.metadata?.objectId === id && !n.parent?.metadata?.objectId);
+  if (!root) return null;
+  const { min, max } = root.getHierarchyBoundingVectors(true);
+  return { minX: min.x, maxX: max.x, minY: min.y, maxY: max.y, minZ: min.z, maxZ: max.z };
+}, id);
+// The Desk Plant: dropped on the floor, then dragged (still selected, as it is right after placing) onto the desk
+await dragTile('Desk Plant', 0.5, 0.02, 0);
+const plant = (await store()).objects.find((o) => o.assetType === 'PLANT_SMALL');
+log('v0.15.0 a Desk Plant dropped on the floor stands on the floor', !!plant && plant.y < 0.05, plant ? `(${plant.x}, ${plant.y}, ${plant.z})` : 'none');
+await tile('Furniture'); await wait(250); await frames(2); // close the library: the view as wide as before
+const deskTop = (await itemBox(desk.id)).maxY;
+await dragWorld([plant.x, 0.15, plant.z], [desk.x - 0.5, deskTop, desk.z + 0.2]);
+const plantOn = await objNow(plant.id);
+const deskBox = await itemBox(desk.id);
+const plantUndo = await p.locator('[aria-label="Undo"]').first().getAttribute('title');
+// (selected, its move arrows lie over it: the plant is nearer, so the drag is the Select tool's, not an arrow's)
+log('v0.15.0 dragging the Desk Plant (selected) onto the desk: it stands on the desk top, one undo step "Move Desk Plant"',
+  near(plantOn.y, deskTop, 0.04) && plantOn.x > deskBox.minX && plantOn.x < deskBox.maxX && plantOn.z > deskBox.minZ && plantOn.z < deskBox.maxZ &&
+  /Move Desk Plant/.test(plantUndo ?? ''),
+  `plant (${plantOn.x}, ${plantOn.y.toFixed(2)}, ${plantOn.z}), desk top ${deskTop.toFixed(2)}, "${plantUndo}"`);
+await shot('t3c-plant-on-desk.png');
+// Where the X arrow sticks out past the plant, the arrow still wins: it slides the plant along X only
+const arrowAt = await p.evaluate(([x, y, z]) => {
+  const sc = window.__ahdusScene; const eng = sc.getEngine(); const cam = sc.activeCamera;
+  const V = cam.position.constructor; const M = sc.getTransformMatrix().constructor;
+  const vp = cam.viewport.toGlobal(eng.getRenderWidth(), eng.getRenderHeight());
+  const gizmoScenes = [window.__ahdusGizmo.gizmoScene()].filter(Boolean); // the arrows' own scene
+  const k = eng.getHardwareScalingLevel(); // scene.pick takes CSS pixels, Project gives render pixels
+  let far = null;
+  for (let d = 0.05; d < 3; d += 0.025) {
+    const r = V.Project(new V(x + d, y, z), M.Identity(), sc.getTransformMatrix(), vp);
+    const v = { x: r.x * k, y: r.y * k };
+    const onGizmo = gizmoScenes.some((s) => s.pick(v.x, v.y)?.hit);
+    const onItem = sc.pick(v.x, v.y, (m) => m.isPickable && m.isEnabled())?.pickedMesh;
+    const isPlant = !!onItem && (onItem.metadata?.objectId ?? onItem.parent?.metadata?.objectId) === window.__ahdusStore.getState().selectedObjectId;
+    if (onGizmo && !isPlant) far = d;
+  }
+  return far;
+}, [plantOn.x, plantOn.y, plantOn.z]);
+if (arrowAt) {
+  const at = arrowAt * 0.75;
+  await dragWorld([plantOn.x + at, plantOn.y, plantOn.z], [plantOn.x + at + 0.4, plantOn.y, plantOn.z + 0.3]);
+}
+const plantArrow = await objNow(plant.id);
+const arrowUndo = await p.locator('[aria-label="Undo"]').first().getAttribute('title');
+log('v0.15.0 the move arrow, where it sticks out past the plant, still slides it along X only (its height kept)',
+  !!arrowAt && plantArrow.x > plantOn.x + 0.2 && near(plantArrow.z, plantOn.z, 0.001) && near(plantArrow.y, plantOn.y, 0.001) &&
+  /Move \/ rotate \/ scale/.test(arrowUndo ?? ''),
+  `arrow to ${arrowAt?.toFixed(2)} m, (${plantOn.x}, ${plantOn.z}) → (${plantArrow.x.toFixed(2)}, ${plantArrow.z}), "${arrowUndo}"`);
+await key('Control+z');
+await key('Escape');
+
 // ── Upper floor: the tools draw on the floor being edited ──
 await floorMenu('[aria-label="Add floor above"]');
 await p.click('[aria-label="Empty floor"]'); await frames(3);
