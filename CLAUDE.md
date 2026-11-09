@@ -44,7 +44,7 @@ npm run e2e:stairs   # 24 checks   e2e/stairs-smoke.mjs    (viewer.html: W climb
                      #                                       back down; first person; from the side it stops you; Take me there; Studio:
                      #                                       no Height / size for stairs, R says why, "lead nowhere"; SHOTS=<dir>: shots)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
-npm run e2e:tools    # 68 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
+npm run e2e:tools    # 70 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
                      #                                       room's floor + Preview's Edit item; v0.15.0: a desk
                      #                                       dragged with its monitor, a Desk Plant dragged onto a
                      #                                       desk, the move arrow still works past it, a door in a
@@ -204,9 +204,10 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   chair `people.deskSeat` pairs with it) on every move of one item: the drag, the arrow keys, R, the Inspector's X / Z / angle,
   the gizmo and Plan view all go through `plannerTools.moveItem(id, patch, { label, mergeKey })` → one `moveObjects`
   (`carryMoves`: the chair turns round the desk). **Keys (v0.15.1):** R turns the selected item 90° (Shift+R 15°,
-  `carry.turnStep`; a room: a quarter turn), W shows / hides the move arrows (hidden until then; the selection bar's Move
+  `carry.turnStep`; a room: a quarter turn, but not a room with items in it yet: "Turning a room with its furniture
+  comes later"; the selection bar's Rotate still turns the room alone), W shows / hides the move arrows (hidden until then; the selection bar's Move
   too), S the resize handles (was R; stairs say why), no E (rotation rings gone; the Inspector's Rotation = 4 buttons +
-  the angle box), F or a double-click flies to the selection (`focusSelection`; nothing selected: F fits the building).
+  the angle box), Ctrl+S saves now (`saveNow`, also in Preview; never the browser's "Save page as"), F or a double-click flies to the selection (`focusSelection`; nothing selected: F fits the building).
   The Inspector's sizes are in metres (`ui/itemSize.js`: Width / Depth / Height ↔ scale, 0.1 to 5); the hook-point note
   and Linked position sit in a closed **Advanced** section (`data-inspector-advanced`). The selection bar sits above the
   item, clear of room labels (`ui/selectionSpot.js`), hidden while dragging. **Door / window tool on a wall drawn with the Wall tool** (a
@@ -255,9 +256,10 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   "Back to Studio" returns. Code: `src/play/playController.js` + `src/components/PlayHUD.jsx` (+ `src/ui/preview.css`).
   Default hotbar (`src/play/hotbarItems.js`): Office room, Meeting room, Stretch, Door, Window, Desk, Chair, Staircase, Edit item.
   **It starts with an empty hand (v0.15.1, `EMPTY_HAND` −1):** nothing is built until 1–9 / B picks an item (the catalog puts
-  it in a slot, `catalogSlot`, and holds it). **The third-person camera** (`thirdPersonCamera`, pure, v0.15.1): the wanted
-  spot is kept under the ceiling first, then the ray; blocked over the shoulder = behind the head (shoulder 0) before it
-  pulls in; closer than `HIDE_CHARACTER_BELOW` 0.5 m = the character hidden. First person (V) unchanged.
+  it in a slot, `catalogSlot`, and holds it). **The third-person camera** (`thirdPersonCamera`, pure, v0.15.1): a ray to the wanted
+  spot pulls it in front of a wall, then the ceiling lowers it and a ray to the lowered spot is tested too (a ray over a
+  wall's top, lowered afterwards, ended behind it); blocked over the shoulder = behind the head (shoulder 0) before it
+  pulls in, sliding there and back over `SHOULDER_EASE_S` 0.25 s (`easeShoulder`); closer than `HIDE_CHARACTER_BELOW` 0.5 m = the character hidden. First person (V) unchanged.
   **Edit item** (slot 9) = Studio's gizmo actions on what you look at: click picks it up / puts it down,
   R turns 90° (Shift+R 15°), + / − resizes (keeps proportions), 0 normal size, L lock/unlock. On a **door/window**: + / − width,
   Shift + / − height (0.1 m), 0 standard size; the hint shows "Door 0.9 × 2.1 m" or why it is blocked.
@@ -1386,7 +1388,7 @@ A desk takes its chair along (every move of one item, one undo step), a room wha
 (`editor.moveRoom`), R = 90° / Shift+R = 15° in both modes, W = move arrows (hidden until then), S = resize, no E, F /
 double-click = focus on the selection, Inspector sizes in metres + Advanced, the selection bar above the item, Walk
 through with an empty hand, catalog room names, the third-person camera near walls (see "Easy building" and
-"Preview"; CHANGELOG.md). Also fixed: two Small Office template chairs faced away from their desks. e2e:tools 68 checks.
+"Preview"; CHANGELOG.md). Also fixed: two Small Office template chairs faced away from their desks. e2e:tools 70 checks.
 
 ## DONE: easy building (v0.15.0, 9 Nov 2026, branch `feature/easy-building`)
 
