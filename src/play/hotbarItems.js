@@ -12,11 +12,20 @@ const ROOM_ICONS = {
   PRODUCTION: '🏭', STAIRCASE: '🪜', SERVER_ROOM: '🖧', RESTROOM: '🚻',
 };
 
+/**
+ * A room type's name in the catalog: "Office room", but "Meeting Room",
+ * "Restroom" and "Production Area" as they are (no "Meeting Room room").
+ */
+export function roomItemLabel(label) {
+  const name = String(label ?? '').trim();
+  return /(room|area)$/i.test(name) ? name : `${name} room`;
+}
+
 /** Room-building items, one per room type */
 export const ROOM_ITEMS = Object.entries(ROOM_TYPES).map(([roomType, def]) => ({
   kind: 'room',
   roomType,
-  label: `${def.label} room`,
+  label: roomItemLabel(def.label),
   icon: ROOM_ICONS[roomType] ?? '⬜',
   color: def.color,
 }));
@@ -72,6 +81,22 @@ export const DEFAULT_HOTBAR = [
   obj('STAIRCASE'),
   structure('edit'),
 ].map((item) => item ?? null);
+
+/** No slot chosen: Preview starts with an empty hand (walking first, building is a choice). */
+export const EMPTY_HAND = -1;
+
+/** The slot after a wheel step (+1 / -1) from `current` (EMPTY_HAND: the first or the last slot). */
+export function nextSlot(current, step, size = 9) {
+  if (!(current >= 0 && current < size)) return step > 0 ? 0 : size - 1;
+  return (current + step + size) % size;
+}
+
+/** The slot a catalog pick goes into: the chosen one, else (empty hand) the first empty slot, else the first. */
+export function catalogSlot(hotbar, selected) {
+  if (selected >= 0 && selected < hotbar.length) return selected;
+  const free = hotbar.findIndex((item) => !item);
+  return free >= 0 ? free : 0;
+}
 
 /** Catalog sections shown when you press B */
 export function catalogSections() {
