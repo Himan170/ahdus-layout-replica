@@ -131,6 +131,26 @@ class RoomGroupCommand extends CompositeCommand {
 }
 
 /**
+ * Item and room patches as ONE step that merges with the next one carrying the
+ * same mergeKey on the same records (typing a desk's X moves it and its chair:
+ * one undo step per burst). v0.15.1.
+ */
+class PatchGroupCommand extends CompositeCommand {
+  constructor(label, commands, ids, mergeKey) {
+    super(label, commands);
+    this.mergeKey = mergeKey;
+    this.ids = ids.join('|');
+  }
+  mergeWith(next) {
+    if (!(next instanceof PatchGroupCommand) || !this.mergeKey ||
+        next.mergeKey !== this.mergeKey || next.ids !== this.ids) return false;
+    this.commands.forEach((c, i) => c.mergeWith(next.commands[i]));
+    this.label = next.label;
+    return true;
+  }
+}
+
+/**
  * A floor's height and the wall heights that go with it, as ONE undo step
  * (raising a room's walls past its floor raises the floor, and the rooms
  * that filled it). `planFn` (building.planWallHeight / planFloorHeight) runs
@@ -290,19 +310,22 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
      * Move several items as ONE undo step: an item dragged in Studio with what
      * stands on it (the monitor and keyboard on a desk). Locked items stay.
      * @param {[string, object][]} moves  [objectId, patch]
-     * @param {{label?: string}} [options]
+     * @param {{label?: string, mergeKey?: string}} [options]  mergeKey: a burst on the same items (typing) = one step
      */
-    moveObjects(moves, { label = 'Move items' } = {}) {
+    moveObjects(moves, { label = 'Move items', mergeKey } = {}) {
       const cmds = [];
+      const ids = [];
       for (const [id, patch] of moves) {
         const obj = s.getObject(id);
         if (!obj || obj.isLocked) continue;
         const allowed = obj.assetType === 'STAIRCASE' ? stairPatch(patch) : patch;
         if (!Object.keys(allowed).some((k) => obj[k] !== allowed[k])) continue;
-        cmds.push(new TransformCommand(s, id, allowed, { label }));
+        cmds.push(new TransformCommand(s, id, allowed, { label, mergeKey: mergeKey ? `group:${mergeKey}` : undefined }));
+        ids.push(id);
       }
       if (cmds.length === 0) return;
-      run(cmds.length === 1 ? cmds[0] : new CompositeCommand(label, cmds));
+      if (mergeKey) run(new PatchGroupCommand(label, cmds, ids, mergeKey));
+      else run(cmds.length === 1 ? cmds[0] : new CompositeCommand(label, cmds));
     },
     /**
      * Remove some items and add others as ONE undo step: a door or window cut
@@ -344,6 +367,38 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
     deleteRoom(id) {
       if (!s.getRoom(id)) return;
       run(new DeleteRoomCommand(s, id));
+    },
+    /**
+     * Move a room with what is in it as ONE undo step (v0.15.1): `plan` is
+     * geometry.planRoomMove's (rect, rooms inside it, items in it, locked ones too).
+     * @param {string} id
+     * @param {{ rect: object, blocker: object|null, rooms?: [string, object][], objects?: [string, object][] }} plan
+     * @param {{ label?: string, mergeKey?: string }} [options]  mergeKey: typing X / Z = one step per burst
+     * @returns {boolean} whether it moved
+     */
+    moveRoom(id, plan, { label, mergeKey } = {}) {
+      const room = s.getRoom(id);
+      if (!room || !plan || plan.blocker) return false;
+      if (Math.abs(plan.rect.x - room.x) < 1e-6 && Math.abs(plan.rect.z - room.z) < 1e-6) return false;
+      const text = label ?? `Move ${room.name ?? 'room'}`;
+      const sub = { label: text, mergeKey: mergeKey ? `group:${mergeKey}` : undefined };
+      const cmds = [new UpdateRoomCommand(s, id, { x: plan.rect.x, z: plan.rect.z }, sub)];
+      const ids = [`room:${id}`];
+      for (const [roomId, patch] of plan.rooms ?? []) {
+        if (!s.getRoom(roomId)) continue;
+        cmds.push(new UpdateRoomCommand(s, roomId, patch, sub));
+        ids.push(`room:${roomId}`);
+      }
+      for (const [objectId, patch] of plan.objects ?? []) {
+        const obj = s.getObject(objectId);
+        if (!obj) continue;
+        const allowed = obj.assetType === 'STAIRCASE' ? stairPatch(patch) : patch;
+        cmds.push(new TransformCommand(s, objectId, allowed, sub));
+        ids.push(objectId);
+      }
+      if (mergeKey) run(new PatchGroupCommand(text, cmds, ids, mergeKey));
+      else run(cmds.length === 1 ? cmds[0] : new CompositeCommand(text, cmds));
+      return true;
     },
     updateRoom(id, patch, options) {
       const room = s.getRoom(id);

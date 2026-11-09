@@ -241,6 +241,7 @@ export function useStudioScene({
         removeOpenings: (list) => editor.removeOpenings(list),
         resizeOpening: (list, opts) => editor.resizeOpening(list, opts),
         moveObjects: (moves, opts) => editor.moveObjects(moves, opts),
+        moveRoom: (id, plan, opts) => editor.moveRoom(id, plan, opts),
         replaceObjects: (ids, list, opts) => {
           editor.replaceObjects(ids, list, opts);
           useWorkspaceStore.getState().selectObject(null);

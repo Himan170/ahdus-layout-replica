@@ -81,7 +81,7 @@ import { activeTile, toolHint, phoneIdleHint } from '../ui/tools';
 
 import {
   openingData, openingPartner, openingCentre, resizeOpening, planRemoveOpening,
-  planRoomResize, planWallThickness, planRoomTurn, planRoomCopy,
+  planRoomResize, planWallThickness, planRoomTurn, planRoomCopy, planRoomMove,
 } from '../play/geometry';
 import { FLOOR_BY_ROOM_TYPE } from '../utils/materialLibrary';
 import { DEFAULT_HOTBAR, EMPTY_HAND, catalogSlot } from '../play/hotbarItems';
@@ -607,6 +607,17 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       editor.updateRoom(id, { departmentRef: patch.departmentRef }, { mergeKey: typing ? 'room-department' : undefined, label: 'Change department' });
       return;
     }
+    if ('x' in patch || 'z' in patch) {
+      // Typing its position: the room moves with the rooms inside it and its items (one step per burst)
+      const state = useWorkspaceStore.getState();
+      const room = state.rooms[id];
+      if (!room) return;
+      const plan = planRoomMove(room, patch.x ?? room.x, patch.z ?? room.z,
+        Object.values(state.rooms), Object.values(state.objects));
+      if (plan.blocker) showStudioMessage(`Overlaps ${plan.blocker.name}. Try another position.`, true);
+      else editor.moveRoom(id, plan, { label: `Move ${room.name}`, mergeKey: 'room-position' });
+      return;
+    }
     // Typing a name / size merges into one undo step; changing the type is its own step
     const mergeKey = 'type' in patch ? undefined : 'room-fields';
     if ('wallHeight' in patch) {
@@ -845,16 +856,16 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
    * Move / turn an item with what it takes along (a desk: its chair and what stands on it), ONE undo
    * step (plannerTools.moveItem → editor.moveObjects). Before the scene is up: the item alone.
    */
-  const moveItemCarrying = useCallback((id, patch, { label } = {}) => {
-    if (plannerToolsRef.current?.moveItem(id, patch, { label })) return;
-    editor.updateObject(id, patch, { label });
+  const moveItemCarrying = useCallback((id, patch, { label, mergeKey } = {}) => {
+    if (plannerToolsRef.current?.moveItem(id, patch, { label, mergeKey })) return;
+    editor.updateObject(id, patch, { label, mergeKey });
   }, [editor]);
 
   // Inspector sliders / typing: a burst of edits on one object = one undo step.
   // Typed X / Z or an angle move the item with what it takes along (one step each).
   const handleUpdateObject = useCallback((id, patch) => {
     if ('x' in patch || 'z' in patch || 'rotationY' in patch) {
-      moveItemCarrying(id, patch, { label: 'Edit properties' });
+      moveItemCarrying(id, patch, { label: 'Edit properties', mergeKey: 'inspector-move' });
       return;
     }
     editor.updateObject(id, patch, { mergeKey: 'inspector', label: 'Edit properties' });

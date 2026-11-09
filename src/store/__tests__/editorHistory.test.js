@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useWorkspaceStore } from '../workspaceStore';
 import { createEditorHistory } from '../editorHistory';
 import { elevationOf } from '../../play/building';
+import { planRoomMove } from '../../play/geometry';
 
 const S = () => useWorkspaceStore.getState();
 const objs = () => Object.values(S().objects);
@@ -636,5 +637,75 @@ describe('moving several items, cutting a door into a free-standing wall (v0.15.
     expect(S().objects[wall.id]).toMatchObject({ scaleX: 2, label: 'Wall 6.0 m' });
     editor.redo();
     expect(objs()).toHaveLength(3);
+  });
+});
+
+describe('moving a room with what is in it (v0.15.1)', () => {
+  it('moveRoom: the room, the room inside it and its items (a locked one too) as ONE undo step', () => {
+    editor.addRoom({ type: 'OFFICE', x: 0, z: 0, width: 10, depth: 8 });
+    editor.addRoom({ type: 'MEETING', x: 2, z: 1, width: 4, depth: 4 });
+    const rooms = Object.values(S().rooms);
+    const office = rooms.find((r) => r.width === 10);
+    const cabin = rooms.find((r) => r.width === 4);
+    editor.addObject({ assetType: 'DESK_STANDARD', x: -3, z: 2 });
+    editor.addObject({ assetType: 'CHAIR_OFFICE', x: 2, z: 1 });
+    editor.addObject({ assetType: 'PLANT', x: 20, z: 0 });
+    const [desk, chair, plant] = objs();
+    editor.toggleLock(desk.id);
+    const plan = planRoomMove(office, 4, 0, Object.values(S().rooms), objs());
+    expect(editor.moveRoom(office.id, plan, { label: 'Move Office' })).toBe(true);
+    expect(S().rooms[office.id]).toMatchObject({ x: 4, z: 0 });
+    expect(S().rooms[cabin.id]).toMatchObject({ x: 6, z: 1 });
+    expect(S().objects[desk.id]).toMatchObject({ x: 1, z: 2 });
+    expect(S().objects[chair.id]).toMatchObject({ x: 6, z: 1 });
+    expect(S().objects[plant.id].x).toBe(20);
+    expect(editor.history.undoLabel).toBe('Move Office');
+    editor.undo();
+    expect(S().rooms[office.id]).toMatchObject({ x: 0, z: 0 });
+    expect(S().rooms[cabin.id]).toMatchObject({ x: 2, z: 1 });
+    expect(S().objects[desk.id]).toMatchObject({ x: -3, z: 2 });
+    expect(S().objects[chair.id]).toMatchObject({ x: 2, z: 1 });
+    editor.redo();
+    expect(S().objects[chair.id].x).toBe(6);
+  });
+
+  it('moveRoom refuses a blocked plan and a move to the same spot (no undo step)', () => {
+    editor.addRoom({ type: 'OFFICE', x: 0, z: 0, width: 4, depth: 4 });
+    const [room] = Object.values(S().rooms);
+    const before = editor.history.undoLabel;
+    expect(editor.moveRoom(room.id, { rect: { x: 0, z: 0 }, blocker: null })).toBe(false);
+    expect(editor.moveRoom(room.id, { rect: { x: 3, z: 0 }, blocker: { id: 'x' } })).toBe(false);
+    expect(editor.history.undoLabel).toBe(before);
+  });
+});
+
+describe('typing a position: one undo step per burst (v0.15.1)', () => {
+  it('moveObjects with a mergeKey: a desk + its chair typed 1 → 12 → 12.5 is one step', () => {
+    editor.addObject({ assetType: 'DESK_STANDARD', x: 0, z: 0 });
+    editor.addObject({ assetType: 'CHAIR_OFFICE', x: 0, z: 0.7 });
+    const [desk, chair] = objs();
+    for (const x of [1, 12, 12.5]) {
+      editor.moveObjects([[desk.id, { x }], [chair.id, { x }]], { label: 'Edit properties', mergeKey: 'inspector-move' });
+    }
+    expect(S().objects[chair.id].x).toBe(12.5);
+    editor.undo();
+    expect(S().objects[desk.id].x).toBe(0);
+    expect(S().objects[chair.id].x).toBe(0);
+  });
+
+  it('moveRoom with a mergeKey: typing a room X is one step', () => {
+    editor.addRoom({ type: 'OFFICE', x: 0, z: 0, width: 4, depth: 4 });
+    const [room] = Object.values(S().rooms);
+    editor.addObject({ assetType: 'PLANT', x: 1, z: 1 });
+    const [plant] = objs();
+    for (const x of [1, 12]) {
+      const cur = S().rooms[room.id];
+      editor.moveRoom(room.id, planRoomMove(cur, x, 0, Object.values(S().rooms), objs()), { mergeKey: 'room-position' });
+    }
+    expect(S().rooms[room.id].x).toBe(12);
+    expect(S().objects[plant.id].x).toBe(13);
+    editor.undo();
+    expect(S().rooms[room.id].x).toBe(0);
+    expect(S().objects[plant.id].x).toBe(1);
   });
 });

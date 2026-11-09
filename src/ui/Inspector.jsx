@@ -334,6 +334,17 @@ function RoomBody({ room, departmentChoices: choices, onUpdate, onSetFloor, onSe
       </div>
 
       <div className="insp-room__group">
+        <h3 className="insp-room__title">Position</h3>
+        <div className="insp-grid">
+          <NumberField label="Room X" value={room.x} step={0.5} digits={2} suffix="m"
+            onCommit={(v) => onUpdate(room.id, { x: v })} />
+          <NumberField label="Room Z" value={room.z} step={0.5} digits={2} suffix="m"
+            onCommit={(v) => onUpdate(room.id, { z: v })} />
+        </div>
+        <p className="insp-room__note">Its furniture and the rooms inside it move with it · or drag its floor</p>
+      </div>
+
+      <div className="insp-room__group">
         <h3 className="insp-room__title" id="insp-floor">Floor</h3>
         <div className="insp-swatches" role="radiogroup" aria-labelledby="insp-floor">
           {FLOOR_FINISHES.map((kind) => (

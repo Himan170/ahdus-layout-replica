@@ -55,7 +55,7 @@ export function createPlannerTools(scene, canvas, {
   getCamera,             // () => the planner camera (detached while dragging, so the view doesn't spin)
   getState,              // () => store state: rooms, objects, floors, currentFloor, selectedRoomId
   actions,               // { addRoom, updateRoom, setWallHeight, addObject, addOpenings, removeOpenings, resizeOpening,
-                         //   moveObjects, replaceObjects }
+                         //   moveObjects, replaceObjects, moveRoom }
   getSnapStep = () => 0.5, // () => grid step in metres, 0 when snap is off
   getObjectMesh = () => null, // (objectId) => the item's root node (moved while it is dragged)
   isOverGizmo = () => false,  // () => true while the mouse is on the move / turn / size gizmo (it wins)
@@ -407,6 +407,22 @@ export function createPlannerTools(scene, canvas, {
     });
   }
 
+  /** A room being dragged: its items' meshes move with it by (dx, dz); `moved` keeps their ids to put back. */
+  function moveRoomItemMeshes(d, dx, dz, objects) {
+    const e = elev();
+    d.movedItems = new Set([...(d.movedItems ?? []), ...objects.map(([id]) => id)]);
+    for (const id of d.movedItems) {
+      const o = st().objects[id];
+      const mesh = getObjectMesh(id);
+      if (o && mesh && !mesh.isDisposed?.()) mesh.position.set(o.x + dx, e + (o.y ?? 0), o.z + dz);
+    }
+  }
+
+  /** The room drag ended without a move: its items' meshes back where the store says. */
+  function restoreRoomItems(d) {
+    if (d?.movedItems) moveRoomItemMeshes(d, 0, 0, []);
+  }
+
   /** The item drag ended without a move: every mesh back where the store says. */
   function restoreItemDrag(d) {
     const e = elev();
@@ -688,12 +704,17 @@ export function createPlannerTools(scene, canvas, {
       const room = floorRooms().find((r) => r.id === drag.roomId);
       if (!room) { cancelDrag(); return null; }
       if (!p) return lastDragHint();
-      const result = planRoomMove(room, drag.origin.x + p.x - drag.start.x, drag.origin.z + p.z - drag.start.z, floorRooms());
+      const result = planRoomMove(room, drag.origin.x + p.x - drag.start.x, drag.origin.z + p.z - drag.start.z,
+        floorRooms(), Object.values(st().objects));
       pv.room(result.rect, elev(), room.wallHeight ?? 3, !result.blocker);
       drag.plan = result.blocker ? null : { room, result };
+      // its items follow the room's outline while it is dragged (the store changes on release)
+      moveRoomItemMeshes(drag, result.blocker ? 0 : result.dx, result.blocker ? 0 : result.dz, result.objects);
+      const carried = [result.objects.length && `${result.objects.length} item${result.objects.length === 1 ? '' : 's'}`,
+        result.rooms.length && `${result.rooms.length} room${result.rooms.length === 1 ? '' : 's'} inside`].filter(Boolean);
       return saveDragHint(result.blocker
         ? { title: `Move ${room.name}`, detail: `Overlaps ${result.blocker.name}. Move the room.`, bad: true, keys: [['Esc', 'Cancel']] }
-        : { title: `Move ${room.name}`, detail: `${formatRoomSize(room.width, room.depth)} · inside ${result.rect.x.toFixed(1)}, ${result.rect.z.toFixed(1)}`, keys: [['Release', 'Move the room'], ['Esc', 'Cancel']] });
+        : { title: `Move ${room.name}`, detail: carried.length ? `With its ${carried.join(' and ')}` : formatRoomSize(room.width, room.depth), keys: [['Release', 'Move the room'], ['Esc', 'Cancel']] });
     }
 
     if (!p) return lastDragHint();
@@ -735,6 +756,7 @@ export function createPlannerTools(scene, canvas, {
       commitItemDrag(d);
       return;
     }
+    if (d.kind === 'move' && !d.plan) restoreRoomItems(d);
     if (!d.plan) {
       // Say why nothing was built (a plain click, an overlap, too short)
       if (d.hint?.bad) onMessage(d.hint.detail, true);
@@ -765,9 +787,11 @@ export function createPlannerTools(scene, canvas, {
       onMessage(`${room.name} is now ${formatRoomSize(result.rect.width, result.rect.depth)}. Ctrl+Z to undo.`);
     } else if (d.kind === 'move') {
       const { room, result } = d.plan;
-      if (Math.abs(result.rect.x - room.x) < 0.01 && Math.abs(result.rect.z - room.z) < 0.01) return;
-      actions.updateRoom(room.id, { x: result.rect.x, z: result.rect.z }, { label: `Move ${room.name}` });
-      onMessage(`Moved ${room.name}. Ctrl+Z to undo.`);
+      if (Math.abs(result.rect.x - room.x) < 0.01 && Math.abs(result.rect.z - room.z) < 0.01) { restoreRoomItems(d); return; }
+      // the room, the rooms inside it and its items: one undo step
+      actions.moveRoom(room.id, result, { label: `Move ${room.name}` });
+      restoreRoomItems(d); // the store has them now (meshes that didn't rebuild are put where it says)
+      onMessage(`Moved ${room.name}${result.objects.length ? ` with its ${result.objects.length} item${result.objects.length === 1 ? '' : 's'}` : ''}. Ctrl+Z to undo.`);
     } else if (d.kind === 'room') {
       const { rect } = d.plan;
       actions.addRoom({ type: tool.roomType, ...rect, floor: currentFloor });
@@ -832,6 +856,7 @@ export function createPlannerTools(scene, canvas, {
     const d = drag;
     endDrag();
     if (d.kind === 'item') restoreItemDrag(d);
+    if (d.kind === 'move') restoreRoomItems(d);
     refresh();
   }
 
@@ -987,10 +1012,10 @@ export function createPlannerTools(scene, canvas, {
      * Other fields of `patch` (y, scale) go to the item itself. Locked: nothing moves (false).
      * @param {string} id
      * @param {object} patch  x, z, rotationY (+ any other item fields)
-     * @param {{ label?: string }} [options]
+     * @param {{ label?: string, mergeKey?: string }} [options]  mergeKey: typing = one undo step per burst
      * @returns {boolean} whether anything was asked to change
      */
-    moveItem(id, patch, { label } = {}) {
+    moveItem(id, patch, { label, mergeKey } = {}) {
       const obj = st().objects[id];
       if (!obj || obj.isLocked) return false;
       const { x, z, rotationY, roomId: _roomId, ...rest } = patch;
@@ -1011,7 +1036,7 @@ export function createPlannerTools(scene, canvas, {
       });
       // a turn about the item itself only: keep the exact x / z it had (no rounding drift)
       if (target.x === undefined && target.z === undefined) { delete moves[0][1].x; delete moves[0][1].z; }
-      actions.moveObjects(moves, { label: label ?? `Move ${nameOf(obj)}` });
+      actions.moveObjects(moves, { label: label ?? `Move ${nameOf(obj)}`, mergeKey });
       return true;
     },
     cancel: cancelDrag,
