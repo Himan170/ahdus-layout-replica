@@ -588,3 +588,53 @@ describe('a staircase keeps its size, stands on its floor and stays level (v0.14
     expect(S().objects[id].scaleX).toBe(2);
   });
 });
+
+describe('moving several items, cutting a door into a free-standing wall (v0.15.0)', () => {
+  it('moveObjects: a desk and the monitor on it move as ONE undo step; locked items stay', () => {
+    editor.addObject({ assetType: 'DESK_STANDARD', x: 0, z: 0 });
+    editor.addObject({ assetType: 'MONITOR', x: 0.2, y: 0.75, z: 0 });
+    editor.addObject({ assetType: 'PLANT', x: 5, z: 5 });
+    const [desk, monitor, plant] = objs();
+    editor.toggleLock(plant.id);
+    editor.moveObjects([
+      [desk.id, { x: 2, z: 1 }],
+      [monitor.id, { x: 2.2, z: 1, y: 0.75 }],
+      [plant.id, { x: 9 }],
+    ], { label: 'Move Desk' });
+    expect(S().objects[desk.id]).toMatchObject({ x: 2, z: 1 });
+    expect(S().objects[monitor.id]).toMatchObject({ x: 2.2, z: 1 });
+    expect(S().objects[plant.id].x).toBe(5);
+    expect(editor.history.undoLabel).toBe('Move Desk');
+    editor.undo();
+    expect(S().objects[desk.id]).toMatchObject({ x: 0, z: 0 });
+    expect(S().objects[monitor.id]).toMatchObject({ x: 0.2, z: 0 });
+    editor.redo();
+    expect(S().objects[monitor.id].x).toBe(2.2);
+  });
+
+  it('moveObjects with nothing that changes adds no undo step', () => {
+    editor.addObject({ assetType: 'DESK_STANDARD', x: 1, z: 1 });
+    const [desk] = objs();
+    const before = editor.history.undoLabel;
+    editor.moveObjects([[desk.id, { x: 1, z: 1 }]]);
+    expect(editor.history.undoLabel).toBe(before);
+  });
+
+  it('replaceObjects: the wall becomes its pieces + the door in one step, undo brings the wall back', () => {
+    editor.addObject({ assetType: 'WALL_SEGMENT', x: 0, z: 0, scaleX: 2, label: 'Wall 6.0 m' });
+    const [wall] = objs();
+    editor.replaceObjects([wall.id], [
+      { assetType: 'WALL_SEGMENT', x: -1.75, z: 0, scaleX: 0.833 },
+      { assetType: 'WALL_SEGMENT', x: 2.25, z: 0, scaleX: 0.25 },
+      { assetType: 'DOOR_SINGLE', x: 1, z: 0 },
+    ], { label: 'Add door' });
+    expect(S().objects[wall.id]).toBeUndefined();
+    expect(objs().map((o) => o.assetType).sort()).toEqual(['DOOR_SINGLE', 'WALL_SEGMENT', 'WALL_SEGMENT']);
+    expect(editor.history.undoLabel).toBe('Add door');
+    editor.undo();
+    expect(objs()).toHaveLength(1);
+    expect(S().objects[wall.id]).toMatchObject({ scaleX: 2, label: 'Wall 6.0 m' });
+    editor.redo();
+    expect(objs()).toHaveLength(3);
+  });
+});
