@@ -24,7 +24,7 @@ import '@babylonjs/core/Gizmos/boundingBoxGizmo';
  *
  * @param {BABYLON.Scene} scene
  * @param {Function} onTransformEnd — (meshId, { x, y, z, rotationX, ... }) called after drag
- * @returns {{ setMode, attachToMesh, detach, isAttached, getMode, dispose }}
+ * @returns {{ setMode, attachToMesh, detach, isAttached, isPointerOver, getMode, dispose }}
  */
 export function createGizmoController(scene, onTransformEnd) {
   const gizmoManager = new GizmoManager(scene);
@@ -44,13 +44,15 @@ export function createGizmoController(scene, onTransformEnd) {
   let fixedShape = false;      // a staircase: it moves on its floor and turns about Y only, no scale
 
   /**
-   * A staircase is drawn as it is walked on (building.stairDrawn): no scale gizmo, no moving it up
-   * or down, no tilting. Everything else keeps all three axes.
+   * A staircase is drawn as it is walked on (building.stairDrawn): no scale gizmo, no tilting.
+   * Nothing is moved up or down with the arrows (v0.15.0: items ended up floating or sunk in the
+   * floor): an item stands on the floor or on a table top when it is dragged, and the
+   * Inspector's Height field lifts it on purpose (a screen on a wall).
    */
   function applyLimits() {
     gizmoManager.scaleGizmoEnabled = currentMode === 'scale' && !fixedShape;
     const { positionGizmo, rotationGizmo } = gizmoManager.gizmos ?? {};
-    if (positionGizmo) positionGizmo.yGizmo.isEnabled = !fixedShape;
+    if (positionGizmo) positionGizmo.yGizmo.isEnabled = false;
     if (rotationGizmo) {
       rotationGizmo.xGizmo.isEnabled = !fixedShape;
       rotationGizmo.zGizmo.isEnabled = !fixedShape;
@@ -165,6 +167,15 @@ export function createGizmoController(scene, onTransformEnd) {
   }
 
   /**
+   * Whether the mouse is on one of the gizmo's arrows / rings (or dragging one):
+   * the Select tool's own item drag waits for it.
+   */
+  function isPointerOver() {
+    if (!attachedMesh || !currentMode) return false;
+    return !!(gizmoManager.isHovered || gizmoManager.isDragging);
+  }
+
+  /**
    * Current gizmo mode.
    */
   function getMode() {
@@ -184,6 +195,7 @@ export function createGizmoController(scene, onTransformEnd) {
     attachToMesh,
     detach,
     isAttached,
+    isPointerOver,
     getMode,
     dispose,
   };

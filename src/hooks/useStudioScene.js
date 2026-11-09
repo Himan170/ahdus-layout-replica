@@ -24,6 +24,7 @@ import { CharacterSystem } from '../engine/systems/CharacterSystem';
 import { SceneBuilder } from '../engine/systems/SceneBuilder';
 import { progressPercent } from '../play/buildSchedule';
 import { elevationOf } from '../play/building';
+import { findRoomAt } from '../play/geometry';
 import { createFloorOutline } from '../utils/floorOutline';
 import { createPlacementManager } from '../utils/placementManager';
 import { createGizmoController } from '../utils/gizmoController';
@@ -119,6 +120,7 @@ export function useStudioScene({
         addOpenings: (list) => editor.addOpenings(list),
         removeOpenings: (list) => editor.removeOpenings(list),
         resizeOpening: (list, opts) => editor.resizeOpening(list, opts),
+        replaceObjects: (ids, list, opts) => editor.replaceObjects(ids, list, opts),
       },
       getObjectMesh: (id) => objectSystem.getObjectMesh(id),
       onHud: setPlayHud,
@@ -237,8 +239,15 @@ export function useStudioScene({
         addOpenings: (list) => editor.addOpenings(list),
         removeOpenings: (list) => editor.removeOpenings(list),
         resizeOpening: (list, opts) => editor.resizeOpening(list, opts),
+        moveObjects: (moves, opts) => editor.moveObjects(moves, opts),
+        replaceObjects: (ids, list, opts) => {
+          editor.replaceObjects(ids, list, opts);
+          useWorkspaceStore.getState().selectObject(null);
+        },
       },
       getSnapStep: () => (snapRef.current.enabled ? snapRef.current.step : 0),
+      getObjectMesh: (id) => objectSystem.getObjectMesh(id),
+      isOverGizmo: () => !!gizmoControllerRef.current?.isPointerOver(),
       onHint: setPlannerHint,
       onMessage: (text, bad) => showStudioMessage(text, bad),
     });
@@ -250,8 +259,11 @@ export function useStudioScene({
       // Gizmo reports once per drag (on drag end) → one undo step per drag.
       // The mesh is at a world height; the object stores height above its floor.
       const st = useWorkspaceStore.getState();
-      const elev = elevationOf(st.floors, st.objects[objectId]?.floor ?? 0);
-      editor.updateObject(objectId, { ...transform, y: transform.y - elev }, { label: 'Move / rotate / scale' });
+      const floor = st.objects[objectId]?.floor ?? 0;
+      const elev = elevationOf(st.floors, floor);
+      // the room it stands in now (moved into another room: that one)
+      const room = findRoomAt(Object.values(st.rooms), transform.x, transform.z, floor);
+      editor.updateObject(objectId, { ...transform, y: transform.y - elev, roomId: room?.id ?? null }, { label: 'Move / rotate / scale' });
     });
     gizmoControllerRef.current = gizmoCtrl;
     gizmoCtrl.setMode('position'); // default to position gizmo

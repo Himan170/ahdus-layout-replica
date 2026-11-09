@@ -4,12 +4,15 @@
  * The planner's mouse tools: what Build mode does with the crosshair, done
  * with the mouse.
  *
- *   select          click to select. Drag a room floor to move it, a wall to
+ *   select          click to select. Drag an item to move it (what stands on
+ *                   it comes along). Drag a room floor to move it, a wall to
  *                   resize it; drag a blue handle on top of its walls (3D) to
- *                   raise or lower them.
+ *                   raise or lower them. Drag a selected door / window to slide
+ *                   it along its wall, its blue handles to resize it.
  *   room            drag on the floor from one corner to the opposite corner
  *   wall            drag from where a free-standing wall starts to where it ends
- *   door / window   click a room wall to add one; click an existing one to remove it
+ *   door / window   click a wall to add one (a room wall, or a free-standing wall:
+ *                   it is cut around the door); click an existing one to remove it
  *
  * Furniture is placed from the Objects panel (utils/placementManager.js),
  * which stacks items on table tops the same way Build mode does.
@@ -32,30 +35,39 @@ import {
   snap, formatRoomSize, wallSegmentTransform, openingAt, roomOpenings,
   planRoom, planRoomAt, planRoomMove, planOpening, planRemoveOpening, wallSegmentData, stretchRoom,
   openingData, wallLine, formatOpeningSize, resizeOpening, OPENING_STEP, wallThicknessOf, OVERHANG_WARNING,
+  planWallSegmentOpening, moveOpening, findRoomAt,
 } from '../play/geometry';
 import {
   elevationOf, floorBelow, planWallHeight, wallHeightText, HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT,
+  placementHeight,
 } from '../play/building';
 
 const FLOOR_Y = 0.02;
 const CLICK_SLOP = 5; // px the mouse may move with the button down and still count as a click
 const WALL_LABEL = { north: 'north', south: 'south', east: 'east', west: 'west' };
 const VIEW_KEYS = [['Right-drag', 'Move the view'], ['Wheel', 'Zoom'], ['Esc', 'Stop']];
+/** Building parts keep their height when dragged (never stacked on a table); stairs stand on their floor. */
+const KEEP_HEIGHT = new Set(['WALL_SEGMENT', 'DOOR_SINGLE', 'WINDOW_FRAME', 'GLASS_PARTITION']);
+const objectIdOf = (m) => m?.metadata?.objectId ?? m?.parent?.metadata?.objectId ?? null;
 
 export function createPlannerTools(scene, canvas, {
   getCamera,             // () => the planner camera (detached while dragging, so the view doesn't spin)
   getState,              // () => store state: rooms, objects, floors, currentFloor, selectedRoomId
-  actions,               // { addRoom, updateRoom, setWallHeight, addObject, addOpenings, removeOpenings, resizeOpening }
+  actions,               // { addRoom, updateRoom, setWallHeight, addObject, addOpenings, removeOpenings, resizeOpening,
+                         //   moveObjects, replaceObjects }
   getSnapStep = () => 0.5, // () => grid step in metres, 0 when snap is off
+  getObjectMesh = () => null, // (objectId) => the item's root node (moved while it is dragged)
+  isOverGizmo = () => false,  // () => true while the mouse is on the move / turn / size gizmo (it wins)
   onHint = () => {},     // (hint | null) => void   same shape as Build mode's HUD hint
   onMessage = () => {},  // (text) => void          short feedback after a change
 }) {
   let tool = { kind: 'select' };
-  let drag = null;   // { kind: 'stretch' | 'room' | 'wall', start?, roomId?, wallName?, plan? }
+  let drag = null;   // { kind: 'stretch' | 'room' | 'wall' | 'move' | 'item' | 'slide' | ..., start?, roomId?, wallName?, plan? }
   let pendingMove = null; // { drag, x, y }: a room's floor pressed, not dragged yet (armMove)
   let hover = null;  // what a click would do right now
   let enabled = true;
   let lastHint = '';
+  let pointerId = null; // the pointer pressed last: captured by the canvas while it drags something
   const pv = createBuildPreview(scene, 'planner');
 
   // ── Helpers ──
@@ -232,12 +244,27 @@ export function createPlannerTools(scene, canvas, {
     const handle = hit?.hit ? hit.pickedMesh.metadata.openingHandle : null;
     const size = formatOpeningSize(t.kind, t.data.width, t.data.height);
     if (!handle) {
+      // On the door / window itself: drag it along its wall
+      const p = wallPlanePoint(t.line);
+      const { start, end } = openingEdges(t);
+      const bottom = elev() + t.data.sill;
+      const on = p && p.along >= start - 0.05 && p.along <= end + 0.05 &&
+        (p.y === null || (p.y >= bottom - 0.05 && p.y <= bottom + t.data.height + 0.05));
+      if (on) {
+        setCursor('move');
+        hover = { type: 'grabOpening', along: p.along };
+        return {
+          title: size,
+          detail: `On ${t.room.name} · drag it along the wall`,
+          keys: [['Drag', `Move the ${t.kind}`], ['Drag a handle', 'Resize'], ['Delete', `Remove ${t.kind}`]],
+        };
+      }
       setCursor('');
       hover = null;
       return {
         title: size,
-        detail: `On ${t.room.name} · drag a blue handle to resize`,
-        keys: [['Drag a handle', 'Resize'], ['Delete', `Remove ${t.kind}`], ['Esc', 'Deselect']],
+        detail: `On ${t.room.name} · drag it to move it, a blue handle to resize`,
+        keys: [['Drag', `Move the ${t.kind}`], ['Drag a handle', 'Resize'], ['Delete', `Remove ${t.kind}`], ['Esc', 'Deselect']],
       };
     }
     setCursor(handle === 'top' ? 'ns-resize' : t.line.axis === 'z' ? 'ew-resize' : 'ns-resize');
@@ -279,11 +306,139 @@ export function createPlannerTools(scene, canvas, {
       : { title: size, detail: `On ${t.room.name}`, keys: [['Release', 'Set this size'], ['Esc', 'Cancel']] });
   }
 
+  /** Sliding the selected door / window along its wall: it follows the mouse in 0.1 m steps. */
+  function updateSlideDrag() {
+    const t = selectedOpeningTarget();
+    if (!t) { cancelDrag(); return null; }
+    const p = wallPlanePoint(t.line);
+    if (!p) return lastDragHint();
+    const wanted = drag.startOffset + Math.round((p.along - drag.grabAlong) / OPENING_STEP) * OPENING_STEP;
+    const result = moveOpening(floorRooms(), t.room, t.kind, t.index, wanted, {
+      stairs: Object.values(st().objects).filter((o) => o.assetType === 'STAIRCASE'),
+    });
+    const shown = result.problem ? Math.round(wanted * 100) / 100 : result.offset;
+    pv.opening(t.room, t.data.wall, shown, { width: t.data.width, height: t.data.height, sill: t.data.sill }, elev(), !result.problem);
+    drag.plan = result.problem ? null : { target: t, result };
+    const title = `Move ${t.kind}`;
+    return saveDragHint(result.problem
+      ? { title, detail: result.problem, bad: true, keys: [['Esc', 'Cancel']] }
+      : { title, detail: `On ${t.room.name}`, keys: [['Release', 'Put it here'], ['Esc', 'Cancel']] });
+  }
+
+  // ── Dragging an item (Select tool): its real mesh follows the mouse ──
+
+  /** The meshes of an item and of what stands on it (they move together). */
+  const dragMeshes = (d) => d.items.map((it) => getObjectMesh(it.id)).filter(Boolean);
+  const isDragged = (d, m) => dragMeshes(d).some((root) => m === root || m.isDescendantOf?.(root));
+
+  /** Items standing on `obj` (a monitor on a desk): their foot is at its top, inside its outline. */
+  function ridersOf(obj, mesh) {
+    if (!mesh?.getHierarchyBoundingVectors) return [];
+    const { min, max } = mesh.getHierarchyBoundingVectors(true);
+    const e = elev();
+    const top = max.y - e;
+    return Object.values(st().objects).filter((o) => o.id !== obj.id && (o.floor ?? 0) === (obj.floor ?? 0) &&
+      !o.isLocked && !KEEP_HEIGHT.has(o.assetType) && o.assetType !== 'STAIRCASE' &&
+      (o.y ?? 0) > 0.05 && Math.abs((o.y ?? 0) - top) < 0.2 &&
+      o.x >= min.x && o.x <= max.x && o.z >= min.z && o.z <= max.z);
+  }
+
+  /** Where the dragged item would stand: { worldY, y, on } (on: the item it stands on) or null. */
+  function dragSurface(d, x, z) {
+    const obj = st().objects[d.objectId];
+    if (obj.assetType === 'STAIRCASE') return { worldY: elev(), y: 0, on: null };
+    if (KEEP_HEIGHT.has(obj.assetType)) return { worldY: elev() + (obj.y ?? 0), y: obj.y ?? 0, on: null };
+    const hit = scene.pick(scene.pointerX, scene.pointerY, (m) =>
+      m.isPickable && m.isEnabled() && !pv.owns(m) && !isDragged(d, m) && (
+        (m.name === 'ground' && elev() === 0) ||
+        (onLevel(m) && (m.metadata?.part === 'floor' || (!!objectIdOf(m) &&
+          !KEEP_HEIGHT.has(st().objects[objectIdOf(m)]?.assetType))))));
+    if (!hit?.hit) {
+      // Nothing under the mouse (or only walls): on the ground floor it still stands on the ground
+      return elev() === 0 || findRoomAt(floorRooms(), x, z) ? { worldY: elev(), y: 0, on: null } : null;
+    }
+    const surface = objectIdOf(hit.pickedMesh) ? 'object' : hit.pickedMesh.name === 'ground' ? 'ground' : 'floor';
+    const h = placementHeight({ surface, normalY: hit.getNormal(true)?.y ?? 0, pointY: hit.pickedPoint.y, elevation: elev() });
+    if (!h) return null;
+    return { worldY: h.worldY, y: h.y, on: surface === 'object' ? st().objects[objectIdOf(hit.pickedMesh)] : null };
+  }
+
+  function updateItemDrag() {
+    const obj = st().objects[drag.objectId];
+    if (!obj || !getObjectMesh(drag.objectId)) { cancelDrag(); return null; }
+    const p = groundPoint();
+    if (!p) return lastDragHint();
+    const x = snapV(drag.items[0].x + p.x - drag.start.x);
+    const z = snapV(drag.items[0].z + p.z - drag.start.z);
+    const s = dragSurface(drag, x, z);
+    const name = nameOf(obj);
+    if (!s) {
+      drag.plan = null;
+      return saveDragHint({ title: `Move ${name}`, detail: 'Put it on the floor or on a table top', bad: true, keys: [['Esc', 'Cancel']] });
+    }
+    const dx = x - drag.items[0].x;
+    const dz = z - drag.items[0].z;
+    const dy = s.y - (drag.items[0].y ?? 0);
+    const e = elev();
+    for (const it of drag.items) {
+      const mesh = getObjectMesh(it.id);
+      mesh?.position.set(it.x + dx, e + (it.y ?? 0) + dy, it.z + dz);
+    }
+    drag.plan = { dx, dz, dy };
+    const riders = drag.items.length - 1;
+    const room = findRoomAt(floorRooms(), x, z);
+    const where = s.on ? `On ${nameOf(s.on)}` : room ? `In ${room.name}` : 'Outside the rooms';
+    return saveDragHint({
+      title: `Move ${name}`,
+      detail: riders ? `${where} · with ${riders === 1 ? 'the item' : `the ${riders} items`} on it` : where,
+      keys: [['Release', 'Put it here'], ['Esc', 'Cancel']],
+    });
+  }
+
+  /** The item drag ended without a move: every mesh back where the store says. */
+  function restoreItemDrag(d) {
+    const e = elev();
+    for (const it of d.items) {
+      const o = st().objects[it.id];
+      const mesh = getObjectMesh(it.id);
+      if (o && mesh && !mesh.isDisposed?.()) mesh.position.set(o.x, e + (o.y ?? 0), o.z);
+    }
+  }
+
+  /** What the mouse is on, when it is an item on this floor: hover = grabItem. Null if it isn't. */
+  function updateItemHover() {
+    if (isOverGizmo()) return null; // the gizmo's arrows and rings win
+    const hit = scene.pick(scene.pointerX, scene.pointerY, (m) =>
+      m.isPickable && m.isEnabled() && !pv.owns(m) && !handles?.includes(m) && !heightHandles?.includes(m));
+    if (!hit?.hit) return null;
+    const m = hit.pickedMesh;
+    let id = objectIdOf(m);
+    // The floor between a desk's legs is the desk
+    if (!id && (m.name === 'ground' || m.metadata?.part === 'floor')) id = itemOverFloorPoint(scene, hit.pickedPoint, onLevel);
+    const obj = id ? st().objects[id] : null;
+    if (!obj || (obj.floor ?? 0) !== st().currentFloor) return null;
+    pv.hide('box');
+    if (obj.isLocked) {
+      setCursor('not-allowed');
+      hover = null;
+      return { title: nameOf(obj), detail: 'Locked. Select it and press L to unlock it.', bad: true };
+    }
+    setCursor('grab');
+    hover = { type: 'grabItem', objectId: obj.id };
+    return {
+      title: nameOf(obj),
+      detail: 'Drag to move it',
+      keys: [['Drag', 'Move'], ['Click', 'Select'], ['Delete', 'Remove']],
+    };
+  }
+
   function updateSelect() {
     const opening = selectedOpeningTarget();
     if (opening) {
       pv.hide('box');
-      return updateSelectedOpening(opening);
+      const h = updateSelectedOpening(opening);
+      if (hover) return h; // a handle, or the door / window itself
+      return updateItemHover() ?? h;
     }
     hideHandles();
     const { selectedRoomId, selectedObjectId } = st();
@@ -291,6 +446,8 @@ export function createPlannerTools(scene, canvas, {
     const room = selectedObjectId ? null : floorRooms().find((r) => r.id === selectedRoomId);
     if (!room) {
       pv.hide('box');
+      const item = updateItemHover();
+      if (item) return item;
       setCursor('');
       hover = null;
       return null;
@@ -311,8 +468,10 @@ export function createPlannerTools(scene, canvas, {
         };
       }
     }
-    // Its floor moves it, unless an item stands there (the floor between a
-    // desk's legs is the desk: a click selects it)
+    // An item in the room: drag it (the floor between a desk's legs is the desk)
+    const item = updateItemHover();
+    if (item) return item;
+    // Its floor moves it
     const floorHit = scene.pick(scene.pointerX, scene.pointerY, (m) =>
       m.isPickable && m.isEnabled() && !pv.owns(m));
     if (floorHit?.hit && floorHit.pickedMesh.metadata?.roomId === room.id &&
@@ -390,7 +549,39 @@ export function createPlannerTools(scene, canvas, {
   function updateOpening() {
     const kind = tool.kind;
     const label = kind === 'door' ? 'Door' : 'Window';
-    const hit = pickAtPointer((m) => onLevel(m) && (m.metadata?.part === 'wall' || m.metadata?.part === kind));
+    const wallItemOf = (m) => {
+      const o = st().objects[objectIdOf(m)];
+      return o?.assetType === 'WALL_SEGMENT' ? o : null;
+    };
+    const openingItemOf = (m) => {
+      const o = st().objects[objectIdOf(m)];
+      return o?.assetType === 'DOOR_SINGLE' || o?.assetType === 'WINDOW_FRAME' ? o : null;
+    };
+    const hit = pickAtPointer((m) => onLevel(m) &&
+      (m.metadata?.part === 'wall' || m.metadata?.part === kind || !!wallItemOf(m) || !!openingItemOf(m)));
+    // A door / window already cut into a free-standing wall
+    const openingItem = hit && openingItemOf(hit.pickedMesh);
+    if (openingItem) {
+      pv.hide('box');
+      setCursor('not-allowed');
+      hover = null;
+      return { title: label, detail: `${nameOf(openingItem)} is here already. Select it to move or remove it.`, bad: true };
+    }
+    // A free-standing wall (drawn with the Wall tool): the door is cut into it
+    const wallItem = hit && wallItemOf(hit.pickedMesh);
+    if (wallItem) {
+      const plan = planWallSegmentOpening(wallItem, hit.pickedPoint, kind);
+      if (plan.problem) {
+        pv.hide('box');
+        setCursor('not-allowed');
+        hover = null;
+        return { title: label, detail: plan.problem, bad: true };
+      }
+      pv.segmentOpening(wallItem, plan.centre, plan.defaults, elev(), true);
+      setCursor('pointer');
+      hover = { type: 'segmentOpening', kind, plan };
+      return { title: label, detail: `In ${nameOf(wallItem)}`, keys: [['Click', `Add ${kind}`], ...VIEW_KEYS] };
+    }
     let meta = hit?.pickedMesh.metadata;
     if (meta?.part === 'wall') meta = { ...meta, ...wallTarget(hit) };
     const room = meta && floorRooms().find((r) => r.id === meta.roomId);
@@ -398,7 +589,7 @@ export function createPlannerTools(scene, canvas, {
       pv.hide('box');
       setCursor('');
       hover = null;
-      return { title: label, detail: 'Point at a room wall', keys: [['Click', `Add ${kind}`], ...VIEW_KEYS] };
+      return { title: label, detail: 'Point at a wall', keys: [['Click', `Add ${kind}`], ...VIEW_KEYS] };
     }
     const rooms = floorRooms();
     const point = hit.pickedPoint;
@@ -419,7 +610,7 @@ export function createPlannerTools(scene, canvas, {
     if (meta.part !== 'wall') {
       pv.hide('box');
       hover = null;
-      return { title: label, detail: 'Point at a room wall' };
+      return { title: label, detail: 'Point at a wall' };
     }
     const plan = planOpening(rooms, room, meta.wallName, point, kind);
     pv.opening(room, meta.wallName, plan.offset ?? 0, plan.defaults, elev(), !plan.problem);
@@ -458,6 +649,8 @@ export function createPlannerTools(scene, canvas, {
   function updateDrag() {
     if (drag.kind === 'opening') return updateOpeningDrag();
     if (drag.kind === 'height') return updateHeightDrag();
+    if (drag.kind === 'slide') return updateSlideDrag();
+    if (drag.kind === 'item') return updateItemDrag();
     const p = snappedGround();
     if (drag.kind === 'stretch') {
       const room = floorRooms().find((r) => r.id === drag.roomId);
@@ -526,6 +719,10 @@ export function createPlannerTools(scene, canvas, {
   function commitDrag() {
     const d = drag;
     endDrag();
+    if (d.kind === 'item') {
+      commitItemDrag(d);
+      return;
+    }
     if (!d.plan) {
       // Say why nothing was built (a plain click, an overlap, too short)
       if (d.hint?.bad) onMessage(d.hint.detail, true);
@@ -539,6 +736,11 @@ export function createPlannerTools(scene, canvas, {
       const plan = actions.setWallHeight(room.id, wallHeight, { label: `Wall height of ${room.name}` });
       if (plan?.problem) onMessage(plan.problem, true);
       else if (plan) onMessage(`${wallHeightText(room, plan, floorName(plan.floorId))}. Ctrl+Z to undo.`);
+    } else if (d.kind === 'slide') {
+      const { target, result } = d.plan;
+      if (Math.abs(result.offset - target.data.offset) < 1e-6) return;
+      actions.resizeOpening(result.list, { label: `Move ${target.kind}` });
+      onMessage(`Moved the ${target.kind}. Ctrl+Z to undo.`);
     } else if (d.kind === 'opening') {
       const { target, result } = d.plan;
       if (Math.abs(result.width - target.data.width) < 1e-6 && Math.abs(result.height - target.data.height) < 1e-6) return;
@@ -565,11 +767,41 @@ export function createPlannerTools(scene, canvas, {
     }
   }
 
+  /** Release after dragging an item: one undo step for it and what stands on it. */
+  function commitItemDrag(d) {
+    const plan = d.plan;
+    if (!plan || (Math.abs(plan.dx) < 1e-6 && Math.abs(plan.dz) < 1e-6 && Math.abs(plan.dy) < 1e-6)) {
+      restoreItemDrag(d);
+      if (d.hint?.bad) onMessage(d.hint.detail, true);
+      return;
+    }
+    const rooms = floorRooms();
+    const r3 = (v) => Math.round(v * 1000) / 1000;
+    const moves = d.items.map((it) => {
+      const x = r3(it.x + plan.dx);
+      const z = r3(it.z + plan.dz);
+      return [it.id, { x, z, y: Math.max(0, r3((it.y ?? 0) + plan.dy)), roomId: findRoomAt(rooms, x, z)?.id ?? null }];
+    });
+    const obj = st().objects[d.objectId];
+    actions.moveObjects(moves, { label: `Move ${nameOf(obj)}` });
+    onMessage(`Moved ${nameOf(obj)}. Ctrl+Z to undo.`);
+  }
+
+  /**
+   * Keep the mouse's moves coming to the view while something is dragged, also over the
+   * floating selection bar or a label on top of it (else the drag froze there).
+   */
+  function capturePointer() {
+    if (pointerId === null) return;
+    try { canvas.setPointerCapture?.(pointerId); } catch { /* not captured: moves over other elements are missed */ }
+  }
+
   function startDrag(d) {
     drag = d;
     pv.hide('box');
     hideHandles();
     getCamera()?.detachControl();
+    capturePointer();
     window.addEventListener('pointerup', onWindowPointerUp);
   }
 
@@ -584,7 +816,9 @@ export function createPlannerTools(scene, canvas, {
   function cancelDrag() {
     if (pendingMove) onPendingUp();
     if (!drag) return;
+    const d = drag;
     endDrag();
+    if (d.kind === 'item') restoreItemDrag(d);
     refresh();
   }
 
@@ -593,6 +827,7 @@ export function createPlannerTools(scene, canvas, {
   function armMove(d) {
     pendingMove = { drag: d, x: scene.pointerX, y: scene.pointerY };
     getCamera()?.detachControl();
+    capturePointer();
     window.addEventListener('pointerup', onPendingUp);
   }
   function disarmMove() {
@@ -637,12 +872,29 @@ export function createPlannerTools(scene, canvas, {
   /** @returns {boolean} true if the tool used the click (no selection / camera drag) */
   function pointerDown(evt) {
     if (!enabled) return false;
+    pointerId = evt.pointerId ?? null;
     if (evt.button !== 0) {
       if (drag) { cancelDrag(); return true; }
       return false;
     }
     refresh(); // make sure `hover` matches where the mouse is now
     if (tool.kind === 'select') {
+      if (hover?.type === 'grabItem') {
+        // A click selects it as usual; it moves once the mouse has really been dragged (CLICK_SLOP)
+        const obj = st().objects[hover.objectId];
+        const p = groundPoint();
+        if (obj && p) {
+          const riders = ridersOf(obj, getObjectMesh(obj.id));
+          const items = [obj, ...riders].map((o) => ({ id: o.id, x: o.x, y: o.y ?? 0, z: o.z }));
+          armMove({ kind: 'item', objectId: obj.id, start: p, items });
+        }
+        return false;
+      }
+      if (hover?.type === 'grabOpening') {
+        const t = selectedOpeningTarget();
+        if (t) armMove({ kind: 'slide', grabAlong: hover.along, startOffset: t.data.offset });
+        return false;
+      }
       if (hover?.type === 'grabHandle') {
         startDrag({ kind: 'opening', handle: hover.handle });
       } else if (hover?.type === 'grabHeight') {
@@ -674,7 +926,14 @@ export function createPlannerTools(scene, canvas, {
     } else {
       if (!hover) return false;
       const { type, kind, room, list, partner } = hover;
-      if (type === 'addOpening') {
+      if (type === 'segmentOpening') {
+        const { plan } = hover;
+        const wall = st().objects[plan.remove];
+        actions.replaceObjects([plan.remove], plan.add.map((o) => ({
+          ...o, category: ASSET_TYPES[o.assetType]?.category ?? o.category,
+        })), { label: `Add ${kind}` });
+        onMessage(`Added ${kind} to ${wall ? nameOf(wall) : 'the wall'}. Ctrl+Z to undo.`);
+      } else if (type === 'addOpening') {
         actions.addOpenings(list);
         onMessage(partner ? `Added ${kind} between ${room.name} and ${partner.room.name}` : `Added ${kind} to ${room.name}`);
       } else {
