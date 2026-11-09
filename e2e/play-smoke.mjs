@@ -157,10 +157,13 @@ const onDeskTop = (id) => p.evaluate((id) => {
   return !!hit?.hit && hit.getNormal(true).y > 0.7;
 }, id);
 // Indoors the camera stays under the ceiling, so search for a stance where the
-// crosshair lands on the desk top (stand 0.85 m left: the camera is over the right shoulder)
-for (const [dz, pitch] of [[-2.2, -0.42], [-1.8, -0.5], [-1.5, -0.6], [-2.6, -0.35], [-1.2, -0.7], [-1.0, -0.85]]) {
-  await pose(d2.x - 0.85, d2.z + dz, 0, pitch);
-  if (await onDeskTop(d2.id)) break;
+// crosshair lands on the desk top (stand 0.85 m left: the camera is over the right shoulder; close to a wall
+// behind you it moves behind the head (v0.15.1), so standing in line with the desk is tried too)
+deskTop: for (const [dz, pitch] of [[-2.2, -0.42], [-1.8, -0.5], [-1.5, -0.6], [-2.6, -0.35], [-1.2, -0.7], [-1.0, -0.85]]) {
+  for (const dx of [-0.85, 0]) {
+    await pose(d2.x + dx, d2.z + dz, 0, pitch);
+    if (await onDeskTop(d2.id)) break deskTop;
+  }
 }
 await click();
 const mon = (await store()).objects.find((o) => o.assetType === 'MONITOR_DUAL');
@@ -180,16 +183,30 @@ const gap = meeting ? (meeting.x - meeting.width / 2) - eastX : NaN;
 log('a room drawn against another snaps back-to-back', !!meeting && Math.abs(gap - 0.15) < 0.01, `gap=${gap.toFixed(3)} m`);
 
 await slot(4);
-// inside the office facing the shared wall, aiming 1.5 m north of centre (away from the window);
-// facing east, the shoulder camera's "right" is -Z, so stand 0.85 m further north
-await pose(eastX - 3, office.z + 1.5 + 0.85, Math.PI / 2, 0);
+// inside the office facing the shared wall, aiming at a spot of the wall both rooms share, away from the office's
+// window (its middle, 1.4 m wide). Facing east the shoulder camera's "right" is -Z, but with the west wall close
+// behind it moves behind the head (v0.15.1): so measure where the crosshair meets the wall and step until it is there
+const sharedFrom = Math.max(office.z - office.depth / 2, meeting.z - meeting.depth / 2) + 0.7;
+const sharedTo = Math.min(office.z + office.depth / 2, meeting.z + meeting.depth / 2) - 0.7;
+const doorZ = [sharedFrom, sharedTo, (sharedFrom + sharedTo) / 2]
+  .find((z) => z <= sharedTo && Math.abs(z - office.z) > 1.45) ?? office.z + 1.5;
+const wallAimZ = () => p.evaluate((X) => {
+  const r = window.__ahdusScene.activeCamera.getForwardRay(1);
+  return r.origin.z + r.direction.z * ((X - r.origin.x) / r.direction.x);
+}, eastX);
+let standZ = doorZ + 0.85;
+for (let i = 0; i < 3; i++) {
+  await pose(eastX - 3, standZ, Math.PI / 2, 0);
+  standZ += doorZ - (await wallAimZ());
+}
+await pose(eastX - 3, standZ, Math.PI / 2, 0);
 await shot('q-shared-door-aim.png');
 await click();
 st = await store();
 const o1 = st.rooms.find((r) => r.id === office.id);
 const m1 = st.rooms.find((r) => r.type === 'MEETING');
 log('one click puts a door through both walls', o1.doors.some((d) => d.wall === 'east') && m1.doors.some((d) => d.wall === 'west'),
-  `office: ${JSON.stringify(o1.doors.map((d) => d.wall))}, meeting: ${JSON.stringify(m1.doors.map((d) => d.wall))}`);
+  `at z ${doorZ.toFixed(2)} (shared ${sharedFrom.toFixed(2)} to ${sharedTo.toFixed(2)}); office: ${JSON.stringify(o1.doors.map((d) => d.wall))}, meeting: ${JSON.stringify(m1.doors.map((d) => d.wall))}`);
 const shared = o1.doors.find((d) => d.wall === 'east');
 await pose(eastX - 2, office.z + shared.offset, Math.PI / 2, 0);   // line up with the doorway
 await walkUntil('KeyW', (q) => q.x > eastX + 1);
