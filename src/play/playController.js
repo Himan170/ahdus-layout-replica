@@ -15,6 +15,8 @@
  *   Use tool      Left-click
  *   Remove        Right-click (cancels a half-drawn room/wall first)
  *   Rotate        R (furniture)
+ *   Pick up       G or middle-click: pick up the item you look at, whatever is in your hand
+ *                 (also a left-click with an empty hand); click puts it down, R turns it
  *   Interact      E on what you look at (other modules decide what happens)
  *   Hotbar        1-9 or mouse wheel, B = open catalog
  *   New floor     N adds a floor above (asks: copy the rooms below, or empty) and takes you there
@@ -28,7 +30,8 @@
  * Tools (the item in your hand):
  *   { kind: 'room', roomType }  click two opposite corners on the ground
  *   { kind: 'wall' }            click start and end of a free-standing wall
- *   { kind: 'door' | 'window' } aim at a room wall and click
+ *   { kind: 'door' | 'window' } aim at a wall and click (a room wall, or a free-standing
+ *                               wall: it is cut around the door / window)
  *   { kind: 'stretch' }         click a room's wall to grab it, aim where it
  *                               should go, click again (grow / shrink the room).
  *                               The TOP edge of a wall (or + / −) changes the
@@ -37,7 +40,8 @@
  *   { kind: 'edit' }            the planner's move / rotate / scale on what you
  *                               look at: click picks an item up (click again to
  *                               put it down), R turns it, + / − resizes it,
- *                               0 = normal size, L locks / unlocks it
+ *                               0 = normal size, L locks / unlocks it. On a door /
+ *                               window: click picks it up to slide it along its wall
  *
  * Build mode and the planner decide WHAT to build with the same pure functions
  * (geometry.js / building.js) and show the same previews (utils/buildPreview.js).
@@ -70,7 +74,7 @@ import {
   snap, wallSegmentTransform, findRoomAt, formatRoomSize,
   planRoom, planOpening, planRemoveOpening, wallSegmentData, resizeItem,
   stretchRoom, openingData, openingPartner, resizeOpening, resetOpeningSize, formatOpeningSize, OPENING_STEP,
-  wallLine, OVERHANG_WARNING,
+  wallLine, OVERHANG_WARNING, planWallSegmentOpening, moveOpening,
 } from './geometry';
 import {
   levelForY, elevationOf, supportHeight, stairHeightAt, floorAbove, floorBelow, placementHeight,
@@ -217,7 +221,8 @@ export function createPlayController(scene, canvas, {
   let ghostRotation = 0;
   let cornerA = null;        // first click of a room / wall
   let grab = null;           // Stretch tool: { roomId, wallName } of the wall being moved
-  let carry = null;          // Edit tool: the item being moved { id, mesh, rotationY, collisions }
+  let carry = null;          // the item being moved { id, mesh, rotationY, collisions } (Edit tool, G, an empty hand)
+  let slide = null;          // Edit tool: a door / window picked up { roomId, kind, index, startOffset, grabAlong }
   let outlined = null;       // Edit tool: { id, meshes } of the item outlined under the crosshair
   let message = null;        // short feedback text (e.g. "Removed Desk")
   let messageUntil = 0;
@@ -315,6 +320,7 @@ export function createPlayController(scene, canvas, {
     pv.hide('box');
     setOutline(null);
     endCarry(true);
+    slide = null;
   }
 
   function clearPreview() {
@@ -443,7 +449,7 @@ export function createPlayController(scene, canvas, {
     ghost.rotation.y = ghostRotation;
 
     aim = { type: 'placeObject', x, y, z };
-    const keys = [['Left-click', 'Place'], ['R', 'Rotate'], ['Right-click', 'Remove']];
+    const keys = [['Left-click', 'Place'], ['R', 'Rotate'], ['G', 'Pick up'], ['Right-click', 'Remove']];
     if (tool.assetType === 'STAIRCASE' &&
         stairNeedsRoomAbove({ x, z, rotationY: ghostRotation, floor: currentLevel }, state().floors, state().rooms)) {
       return { title: tool.label, detail: STAIRS_NEED_ROOM, keys };
@@ -504,11 +510,41 @@ export function createPlayController(scene, canvas, {
   function updateOpeningTool() {
     const kind = tool.kind; // 'door' | 'window'
     const kindLabel = kind === 'door' ? 'Door' : 'Window';
-    const hit = aimPick((m) => m.metadata?.part === 'wall' && onThisLevel(m));
+    const wallItemOf = (m) => {
+      const id = objectIdOf(m);
+      const o = id && state().objects.find((x) => x.id === id);
+      return o?.assetType === 'WALL_SEGMENT' ? o : null;
+    };
+    const openingItemOf = (m) => {
+      const id = objectIdOf(m);
+      const o = id && state().objects.find((x) => x.id === id);
+      return o?.assetType === 'DOOR_SINGLE' || o?.assetType === 'WINDOW_FRAME' ? o : null;
+    };
+    const hit = aimPick((m) => (m.metadata?.part === 'wall' || !!wallItemOf(m) || !!openingItemOf(m)) && onThisLevel(m));
     if (!hit || Vector3.Distance(hit.pickedPoint, feet()) > REACH) {
       pv.hide('box');
       aim = null;
-      return { title: kindLabel, detail: `Aim at a room wall` };
+      return { title: kindLabel, detail: `Aim at a wall` };
+    }
+    // A door / window already cut into a free-standing wall
+    const openingItem = openingItemOf(hit.pickedMesh);
+    if (openingItem) {
+      pv.hide('box');
+      aim = null;
+      return { title: kindLabel, detail: `${itemName(openingItem)} is here already`, bad: true, keys: [['Right-click', 'Remove it']] };
+    }
+    // A free-standing wall (the Wall tool's): the door / window is cut into it
+    const wallItem = wallItemOf(hit.pickedMesh);
+    if (wallItem) {
+      const plan = planWallSegmentOpening(wallItem, hit.pickedPoint, kind);
+      if (plan.problem) {
+        pv.hide('box');
+        aim = null;
+        return { title: kindLabel, detail: plan.problem, bad: true };
+      }
+      pv.segmentOpening(wallItem, plan.centre, plan.defaults, levelElev(), true);
+      aim = { type: 'segmentOpening', kind, plan };
+      return { title: kindLabel, detail: `In ${itemName(wallItem)}`, keys: [['Left-click', `Add ${kind}`], ['Right-click', 'Remove']] };
     }
     const { roomId, wallName } = wallTargetOf(hit, camera.position);
     const room = floorRooms().find((r) => r.id === roomId);
@@ -709,6 +745,48 @@ export function createPlayController(scene, canvas, {
     actions.resizeOpening?.(result.list, { label: `Resize ${kind}`, mergeKey: 'play-opening-size' });
   }
 
+  /** Where the crosshair meets the plane of a room wall: the position along it (world x or z), or null. */
+  function lookAlongWall(line) {
+    const origin = camera.position;
+    const dir = lookDir();
+    const alongX = line.axis === 'z'; // the wall runs along X at z = line.value
+    const dn = alongX ? dir.z : dir.x;
+    if (Math.abs(dn) < 0.05) return null;
+    const t = (line.value - (alongX ? origin.z : origin.x)) / dn;
+    if (t <= 0 || t > REACH + CAM_DISTANCE + 10) return null;
+    return alongX ? origin.x + dir.x * t : origin.z + dir.z * t;
+  }
+
+  /** Edit tool, a door / window picked up: it slides along its wall where you look. */
+  function updateSlide() {
+    const room = state().rooms.find((r) => r.id === slide.roomId);
+    const data = room && openingData(room, slide.kind, slide.index);
+    if (!data) {
+      slide = null;
+      aim = null;
+      pv.hide('box');
+      return { title: 'Edit item' };
+    }
+    const title = `Moving the ${slide.kind}`;
+    const along = lookAlongWall(wallLine(room, data.wall));
+    if (along === null) {
+      aim = null;
+      return { title, detail: 'Look at its wall', keys: [['Right-click', 'Cancel']] };
+    }
+    const wanted = slide.startOffset + Math.round((along - slide.grabAlong) / OPENING_STEP) * OPENING_STEP;
+    const result = moveOpening(state().rooms.filter((r) => r.floor === room.floor), room, slide.kind, slide.index, wanted,
+      { stairs: stairsList() });
+    const shown = result.problem ? wanted : result.offset;
+    pv.opening(room, data.wall, shown, { width: data.width + 0.1, height: data.height + 0.06, sill: data.sill - 0.03 },
+      elevationOf(state().floors, room.floor), !result.problem);
+    if (result.problem) {
+      aim = null;
+      return { title, detail: result.problem, bad: true, keys: [['Right-click', 'Cancel']] };
+    }
+    aim = { type: 'dropOpening', kind: slide.kind, result, moved: Math.abs(result.offset - data.offset) > 1e-6 };
+    return { title, detail: `On ${room.name}`, keys: [['Left-click', 'Put it here'], ['Right-click', 'Cancel']] };
+  }
+
   function updateEditOpening(target) {
     const { room, kind, data } = target;
     const blocked = openingBlocked && openingBlocked.key === openingKey(target) && performance.now() < openingBlocked.until
@@ -717,11 +795,12 @@ export function createPlayController(scene, canvas, {
       { width: data.width + 0.1, height: data.height + 0.06, sill: data.sill - 0.03 },
       elevationOf(state().floors, room.floor), !blocked);
     const partner = openingPartner(state().rooms.filter((r) => r.floor === room.floor), room, kind, target.index);
+    aim = { type: 'grabOpening', target };
     return {
       title: formatOpeningSize(kind, data.width, data.height),
       detail: blocked ?? (partner ? `Between ${room.name} and ${partner.room.name}` : `On ${room.name}`),
       bad: !!blocked,
-      keys: [['+ / −', 'Width'], ['Shift + / −', 'Height'], ['0', 'Standard size']],
+      keys: [['Left-click', 'Move along the wall'], ['+ / −', 'Width'], ['Shift + / −', 'Height'], ['0', 'Standard size']],
     };
   }
 
@@ -744,6 +823,8 @@ export function createPlayController(scene, canvas, {
         keys: [['Left-click', 'Put it here'], ['R', 'Turn'], ['Right-click', 'Cancel']],
       };
     }
+    // ── A door / window picked up: it slides along its wall ──
+    if (slide) return updateSlide();
 
     // ── Looking at an item: outline it and say what the keys do ──
     const obj = editTarget();
@@ -752,9 +833,11 @@ export function createPlayController(scene, canvas, {
       setOutline(null);
       aim = null;
       // ── ...or at a door / window: show its size, + / − changes it ──
-      const opening = editOpeningTarget();
+      const opening = tool?.kind === 'edit' ? editOpeningTarget() : null;
       if (opening) return updateEditOpening(opening);
       pv.hide('box');
+      if (!tool) return { title: 'Empty hand', detail: 'Pick an item with 1–9, or press B for the catalog. Look at an item to pick it up.' };
+      if (tool.kind !== 'edit') return { title: tool.label ?? 'Edit item' };
       return { title: 'Edit item', detail: 'Look at an item, a door or a window to change it' };
     }
     pv.hide('box');
@@ -775,7 +858,8 @@ export function createPlayController(scene, canvas, {
    * Returns true if the key was used.
    */
   function editKey(code, shift = false) {
-    if (tool?.kind !== 'edit') return false;
+    if (readOnly) return false;
+    if (tool && tool.kind !== 'edit' && !carry) return false; // the Edit tool, an empty hand, or an item carried
     const turn = code === 'KeyR';
     const bigger = code === 'Equal' || code === 'NumpadAdd';
     const smaller = code === 'Minus' || code === 'NumpadSubtract';
@@ -788,6 +872,7 @@ export function createPlayController(scene, canvas, {
       return true;
     }
     if (carry && lock) return true; // put it down first
+    if (slide) return true; // put the door / window down first
     const obj = editTarget();
     if (!obj) {
       const opening = editOpeningTarget();
@@ -826,12 +911,40 @@ export function createPlayController(scene, canvas, {
     return true;
   }
 
+  /**
+   * G (or the middle mouse button): pick up the item you look at, whatever is in your hand,
+   * and carry it like the Edit tool does. Pressed again while carrying: put it down there.
+   */
+  function grabKey() {
+    if (readOnly) return;
+    if (carry) {
+      if (aim?.type === 'dropItem') primaryAction();
+      else say('Aim at the floor or a table top to put it down', 1500);
+      return;
+    }
+    if (slide || cornerA || grab) return;
+    const t = aimTarget();
+    const obj = t?.objectId ? state().objects.find((o) => o.id === t.objectId) : null;
+    if (!obj) {
+      say('Look at an item to pick it up', 1500);
+      return;
+    }
+    if (obj.isLocked) {
+      say('This item is locked. Unlock it with the Edit item tool (L).');
+      return;
+    }
+    // the item in your hand waits: its preview hides while you carry this one
+    ghost?.setEnabled(false);
+    pv.hideAll();
+    if (startCarry(obj)) say(`Picked up ${itemName(obj)}. Click to put it down, R turns it, right-click cancels.`, 3000);
+  }
+
   // ─────────────────────────────────────────────────────────────────────
   //  Clicks
   // ─────────────────────────────────────────────────────────────────────
 
   function primaryAction() {
-    if (!tool || !aim) return;
+    if (readOnly || !aim) return;
     const { currentFloor } = state();
 
     switch (aim.type) {
@@ -891,6 +1004,36 @@ export function createPlayController(scene, canvas, {
         actions.addObject({ ...data, category: ASSET_TYPES.WALL_SEGMENT?.category, floor: currentFloor });
         // Chain walls: the end of this one is the start of the next
         cornerA = aim.b;
+        break;
+      }
+      case 'segmentOpening': {
+        // A free-standing wall: replaced by its pieces and the door / window, one undo step
+        const { kind, plan } = aim;
+        const wall = state().objects.find((o) => o.id === plan.remove);
+        actions.replaceObjects?.([plan.remove], plan.add.map((o) => ({
+          ...o, category: ASSET_TYPES[o.assetType]?.category ?? o.category,
+        })), { label: `Add ${kind}` });
+        pv.hide('box');
+        say(`Added ${kind} to ${wall ? itemName(wall) : 'the wall'}. Ctrl+Z to undo.`);
+        break;
+      }
+      case 'grabOpening': {
+        const { room, kind, index, data } = aim.target;
+        const along = lookAlongWall(wallLine(room, data.wall));
+        const line = wallLine(room, data.wall);
+        const centre = (line.axis === 'z' ? room.x : room.z) + data.offset;
+        slide = { roomId: room.id, kind, index, startOffset: data.offset, grabAlong: along ?? centre };
+        say(`Look along the wall to move the ${kind}, click to put it there`, 2500);
+        break;
+      }
+      case 'dropOpening': {
+        const { kind, result, moved } = aim;
+        if (moved) {
+          actions.resizeOpening?.(result.list, { label: `Move ${kind}` });
+          say(`Moved the ${kind}. Ctrl+Z to undo.`, 2000);
+        }
+        slide = null;
+        pv.hide('box');
         break;
       }
       case 'opening': {
@@ -990,9 +1133,11 @@ export function createPlayController(scene, canvas, {
   function secondaryAction() {
     if (readOnly) return;
     // First: cancel a half-drawn room or wall, a grabbed wall, or a carried item
-    if (cornerA || grab || carry) {
+    if (cornerA || grab || carry || slide) {
       clearPreview();
       endCarry(true);
+      slide = null;
+      pv.hide('box');
       say('Cancelled');
       return;
     }
@@ -1116,6 +1261,9 @@ export function createPlayController(scene, canvas, {
         if (locked) document.exitPointerLock?.();
         else lockPointer(canvas);
         break;
+      case 'KeyG':
+        grabKey();
+        break;
       case 'KeyE': {
         const target = eTarget();
         if (target) onInteract(target);
@@ -1152,6 +1300,7 @@ export function createPlayController(scene, canvas, {
       return;
     }
     if (e.button === 0) primaryAction();
+    else if (e.button === 1) { e.preventDefault(); grabKey(); }
     else if (e.button === 2) secondaryAction();
   }
 
@@ -1171,6 +1320,7 @@ export function createPlayController(scene, canvas, {
       keys.clear();
       if (cornerA || grab) clearPreview();
       endCarry(true);
+      slide = null;
     }
   }
 
@@ -1499,12 +1649,12 @@ export function createPlayController(scene, canvas, {
           : 'W A S D walk, mouse looks, E uses, Page Up / Down changes floor',
       };
     }
-    else if (!tool) hint = { title: 'Empty hand', detail: 'Pick an item with 1–9, or press B for the catalog' };
+    // Carrying an item (G, an empty hand or the Edit tool): it follows the crosshair, whatever is in your hand
+    else if (carry || !tool || tool.kind === 'edit') hint = updateEditTool();
     else if (tool.kind === 'object') hint = updateObjectTool();
     else if (tool.kind === 'room') hint = updateRoomTool();
     else if (tool.kind === 'wall') hint = updateWallTool();
     else if (tool.kind === 'stretch') hint = updateStretchTool();
-    else if (tool.kind === 'edit') hint = updateEditTool();
     else hint = updateOpeningTool();
 
     // ── Which room am I in? (events for other modules) ──
