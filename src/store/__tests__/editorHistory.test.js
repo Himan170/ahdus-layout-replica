@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useWorkspaceStore } from '../workspaceStore';
 import { createEditorHistory } from '../editorHistory';
 import { elevationOf } from '../../play/building';
-import { planRoomMove } from '../../play/geometry';
+import { planRoomMove, planRoomTurn } from '../../play/geometry';
 
 const S = () => useWorkspaceStore.getState();
 const objs = () => Object.values(S().objects);
@@ -637,6 +637,43 @@ describe('moving several items, cutting a door into a free-standing wall (v0.15.
     expect(S().objects[wall.id]).toMatchObject({ scaleX: 2, label: 'Wall 6.0 m' });
     editor.redo();
     expect(objs()).toHaveLength(3);
+  });
+});
+
+describe('turning a room with what is in it (v0.15.2)', () => {
+  it('turnRoom: the room, the room inside it and its items as ONE undo step', () => {
+    editor.addRoom({ type: 'OFFICE', x: 0, z: 0, width: 10, depth: 8 });
+    editor.addRoom({ type: 'MEETING', x: 3, z: 2, width: 3, depth: 2 });
+    const rooms = Object.values(S().rooms);
+    const office = rooms.find((r) => r.width === 10);
+    const cabin = rooms.find((r) => r.width === 3);
+    editor.addObject({ assetType: 'DESK_STANDARD', x: -3, z: 2 });
+    editor.addObject({ assetType: 'PLANT', x: 20, z: 0 });
+    const [desk, plant] = objs();
+    const plan = planRoomTurn(office, Object.values(S().rooms), objs());
+    expect(plan.problem).toBe(null);
+    expect(editor.turnRoom(office.id, plan, { label: 'Turn Office' })).toBe(true);
+    expect(S().rooms[office.id]).toMatchObject({ x: 0, z: 0, width: 8, depth: 10 });
+    expect(S().rooms[cabin.id]).toMatchObject({ x: 2, z: -3, width: 2, depth: 3 });
+    expect(S().objects[desk.id]).toMatchObject({ x: 2, z: 3 });
+    expect(S().objects[desk.id].rotationY).toBeCloseTo(Math.PI / 2);
+    expect(S().objects[plant.id]).toMatchObject({ x: 20, z: 0 });
+    expect(editor.history.undoLabel).toBe('Turn Office');
+    editor.undo();
+    expect(S().rooms[office.id]).toMatchObject({ width: 10, depth: 8 });
+    expect(S().rooms[cabin.id]).toMatchObject({ x: 3, z: 2, width: 3, depth: 2 });
+    expect(S().objects[desk.id]).toMatchObject({ x: -3, z: 2 });
+    expect(S().objects[desk.id].rotationY ?? 0).toBeCloseTo(0);
+    editor.redo();
+    expect(S().rooms[cabin.id]).toMatchObject({ x: 2, z: -3 });
+  });
+
+  it('turnRoom refuses a plan with a problem (no undo step)', () => {
+    editor.addRoom({ type: 'OFFICE', x: 0, z: 0, width: 4, depth: 4 });
+    const [room] = Object.values(S().rooms);
+    const before = editor.history.undoLabel;
+    expect(editor.turnRoom(room.id, { problem: 'Turned, it would overlap B' })).toBe(false);
+    expect(editor.history.undoLabel).toBe(before);
   });
 });
 

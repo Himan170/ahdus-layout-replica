@@ -400,6 +400,31 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
       else run(cmds.length === 1 ? cmds[0] : new CompositeCommand(text, cmds));
       return true;
     },
+    /**
+     * Turn a room with what is in it as ONE undo step (v0.15.2): `plan` is geometry.planRoomTurn's
+     * (the room's patch, the rooms inside it, the items in it).
+     * @param {string} id
+     * @param {{ problem: string|null, patch?: object, rooms?: [string, object][], objects?: [string, object][] }} plan
+     * @param {{ label?: string }} [options]
+     * @returns {boolean} whether it turned
+     */
+    turnRoom(id, plan, { label } = {}) {
+      const room = s.getRoom(id);
+      if (!room || !plan || plan.problem || !plan.patch) return false;
+      const text = label ?? `Turn ${room.name ?? 'room'}`;
+      const sub = { label: text };
+      const cmds = [new UpdateRoomCommand(s, id, plan.patch, sub)];
+      for (const [roomId, patch] of plan.rooms ?? []) {
+        if (s.getRoom(roomId)) cmds.push(new UpdateRoomCommand(s, roomId, patch, sub));
+      }
+      for (const [objectId, patch] of plan.objects ?? []) {
+        const obj = s.getObject(objectId);
+        if (!obj) continue;
+        cmds.push(new TransformCommand(s, objectId, obj.assetType === 'STAIRCASE' ? stairPatch(patch) : patch, sub));
+      }
+      run(cmds.length === 1 ? cmds[0] : new CompositeCommand(text, cmds));
+      return true;
+    },
     updateRoom(id, patch, options) {
       const room = s.getRoom(id);
       if (!room) return;

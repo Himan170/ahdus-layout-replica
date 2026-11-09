@@ -392,7 +392,7 @@ describe('planRoomAt (a library room tile on the floor)', () => {
   });
 });
 
-import { planRoomTurn, planRoomCopy } from '../geometry';
+import { planRoomTurn, planRoomCopy, openingCentre, roomContainedBy as containedBy, itemInRoom as inRoom } from '../geometry';
 
 describe('planRoomTurn (Rotate on a room)', () => {
   const room = (id, x, z, width, depth, more = {}) => ({ id, name: id, type: 'OFFICE', floor: 0, x, z, width, depth, doors: [], windows: [], ...more });
@@ -423,10 +423,101 @@ describe('planRoomTurn (Rotate on a room)', () => {
     expect(planRoomTurn(a, [a, b]).problem).toMatch(/overlap B/);
   });
 
-  it('refused with a room inside it', () => {
+  // clockwise from above (north up): an offset (dx, dz) from the centre goes to (dz, −dx)
+  const turned = (c, p) => ({ x: c.x + (p.z - c.z), z: c.z - (p.x - c.x) });
+  const apply = (rooms, plan, id) => rooms.map((r) => {
+    if (r.id === id) return { ...r, ...plan.patch };
+    const hit = plan.rooms.find(([rid]) => rid === r.id);
+    return hit ? { ...r, ...hit[1] } : r;
+  });
+
+  it('a door stays at the same place of the wall it turned with (the room and the rooms inside it)', () => {
+    const a = room('A', 2, -1, 10, 8, { doors: [{ wall: 'north', offset: 2, width: 1, height: 2.1 }], windows: [{ wall: 'west', offset: -1.5, width: 1.4, height: 1.2 }] });
+    const inner = room('Inner', 4, 0, 3, 2, { doors: [{ wall: 'south', offset: 0.5, width: 1, height: 2.1 }, { wall: 'east', offset: -0.3, width: 0.8, height: 2.1 }] });
+    const plan = planRoomTurn(a, [a, inner]);
+    expect(plan.problem).toBe(null);
+    const after = apply([a, inner], plan, 'A');
+    for (const [before, now] of [[a, after[0]], [inner, after[1]]]) {
+      for (const key of ['doors', 'windows']) {
+        before[key].forEach((o, i) => {
+          const was = turned(a, openingCentre(before, o.wall, o.offset));
+          const is = openingCentre(now, now[key][i].wall, now[key][i].offset);
+          expect(is.x).toBeCloseTo(was.x, 6);
+          expect(is.z).toBeCloseTo(was.z, 6);
+        });
+      }
+    }
+  });
+
+  it('the rooms inside it turn with it, around its centre, and stay inside (v0.15.2)', () => {
     const a = room('A', 0, 0, 10, 8);
-    const inner = room('Inner', 0, 0, 3, 3);
-    expect(planRoomTurn(a, [a, inner]).problem).toMatch(/Inner is inside it/);
+    const inner = room('Inner', 3, 2, 3, 2);
+    const deep = room('Deep', 3, 2, 1, 0.5);
+    const plan = planRoomTurn(a, [a, inner, deep]);
+    expect(plan.problem).toBe(null);
+    expect(Object.fromEntries(plan.rooms).Inner).toMatchObject({ x: 2, z: -3, width: 2, depth: 3 });
+    expect(Object.fromEntries(plan.rooms).Deep).toMatchObject({ x: 2, z: -3, width: 0.5, depth: 1 });
+    const after = apply([a, inner, deep], plan, 'A');
+    expect(containedBy(after[0], after[1])).toBe(true);
+    expect(containedBy(after[1], after[2])).toBe(true);
+  });
+
+  it("the items in it turn with it: around the room's centre, each turned 90° (locked ones too); others stay", () => {
+    const a = room('A', 10, 4, 6, 4);
+    const desk = { id: 'd', assetType: 'DESK_STANDARD', floor: 0, x: 12, z: 5, rotationY: 0 };
+    const chair = { id: 'c', assetType: 'CHAIR_OFFICE', floor: 0, x: 12, z: 5.7, rotationY: Math.PI, isLocked: true };
+    const outside = { id: 'o', assetType: 'PLANT_LARGE', floor: 0, x: 20, z: 4 };
+    const upstairs = { id: 'u', assetType: 'PLANT_LARGE', floor: 1, x: 10, z: 4 };
+    const plan = planRoomTurn(a, [a], [desk, chair, outside, upstairs]);
+    const moved = Object.fromEntries(plan.objects);
+    expect(Object.keys(moved).sort()).toEqual(['c', 'd']);
+    expect(moved.d).toMatchObject({ x: 11, z: 2 });
+    expect(moved.d.rotationY).toBeCloseTo(Math.PI / 2);
+    expect(moved.c.x).toBeCloseTo(11.7);
+    expect(moved.c.z).toBeCloseTo(2);
+    expect(moved.c.rotationY).toBeCloseTo(Math.PI * 1.5);
+    // the chair keeps its place at the desk: the same distance, and still in the turned room
+    expect(Math.hypot(moved.c.x - moved.d.x, moved.c.z - moved.d.z)).toBeCloseTo(0.7);
+    const now = { ...a, ...plan.patch };
+    expect(inRoom(now, { ...desk, ...moved.d })).toBe(true);
+    expect(inRoom(now, { ...chair, ...moved.c })).toBe(true);
+  });
+
+  it('four turns bring the room, the room inside it and its items back', () => {
+    let rooms = [
+      room('A', 1, 2, 10, 8, { doors: [{ wall: 'east', offset: 1.2, width: 1, height: 2.1 }] }),
+      room('Inner', 3, 4, 3, 2, { windows: [{ wall: 'north', offset: 0.4, width: 1, height: 1 }] }),
+    ];
+    let items = [{ id: 'd', assetType: 'DESK_STANDARD', floor: 0, x: -2, z: 0.5, rotationY: 0.3 }];
+    for (let i = 0; i < 4; i++) {
+      const plan = planRoomTurn(rooms[0], rooms, items);
+      rooms = apply(rooms, plan, 'A');
+      const moved = Object.fromEntries(plan.objects);
+      items = items.map((o) => ({ ...o, ...moved[o.id] }));
+    }
+    expect(rooms[0]).toMatchObject({ x: 1, z: 2, width: 10, depth: 8 });
+    expect(rooms[0].doors[0]).toMatchObject({ wall: 'east', offset: 1.2 });
+    expect(rooms[1]).toMatchObject({ x: 3, z: 4, width: 3, depth: 2 });
+    expect(rooms[1].windows[0]).toMatchObject({ wall: 'north', offset: 0.4 });
+    expect(items[0]).toMatchObject({ x: -2, z: 0.5 });
+    expect(items[0].rotationY).toBeCloseTo(0.3 + 2 * Math.PI);
+  });
+
+  it('refused when the turned room would stick out of the room it stands in', () => {
+    const outer = room('Hall', 0, 0, 12, 5);
+    const inner = room('Cabin', 0, 0, 8, 2);
+    expect(planRoomTurn(inner, [outer, inner]).problem).toBe('Turned, it would not fit inside Hall');
+  });
+
+  it('a door shared with a neighbour refuses the turn; one shared between the rooms that turn does not', () => {
+    const a = room('A', 0, 0, 6, 4, { doors: [{ wall: 'east', offset: 0, width: 1, height: 2.1 }] });
+    const b = room('B', 6.15, 0, 6, 4, { doors: [{ wall: 'west', offset: 0, width: 1, height: 2.1 }] });
+    expect(planRoomTurn(a, [a, b]).problem).toBe('A door is shared with B. Remove it first.');
+    // two rooms back to back inside a hall share a door: the hall turns with both
+    const hall = room('Hall', 3.075, 0, 20, 20);
+    expect(planRoomTurn(hall, [hall, a, b]).problem).toBe(null);
+    // but one of them alone does not
+    expect(planRoomTurn(a, [hall, a, b]).problem).toBe('A door is shared with B. Remove it first.');
   });
 });
 

@@ -677,10 +677,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     const st = useWorkspaceStore.getState();
     const room = st.rooms[id];
     if (!room) return;
-    const plan = planRoomTurn(room, Object.values(st.rooms).filter((r) => r.floor === room.floor));
+    // the rooms inside it and the items standing in it turn with it, around its centre: one undo step
+    const plan = planRoomTurn(room, Object.values(st.rooms), Object.values(st.objects));
     if (plan.problem) { showStudioMessage(plan.problem, true); return; }
-    editor.updateRoom(id, plan.patch, { label: 'Turn room' });
-    showStudioMessage(`Turned ${room.name}. Its furniture stays where it is. Ctrl+Z to undo.`);
+    editor.turnRoom(id, plan, { label: `Turn ${room.name}` });
+    const n = plan.objects.length;
+    showStudioMessage(`Turned ${room.name}${n ? ` with ${n === 1 ? 'the item' : `the ${n} items`} in it` : ''}. Ctrl+Z to undo.`);
   }, [editor, showStudioMessage]);
 
   /**
