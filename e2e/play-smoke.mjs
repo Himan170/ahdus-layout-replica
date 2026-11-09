@@ -39,7 +39,10 @@ const store = () => p.evaluate(() => {
   const s = window.__ahdusStore.getState();
   return { rooms: Object.values(s.rooms), objects: Object.values(s.objects) };
 });
-const pose = async (x, z, yaw, pitch) => { await p.evaluate((a) => window.__ahdusPlay.setPose(a), { x, z, yaw, pitch }); await frames(3); };
+// (the third-person camera slides between "over the shoulder" and "behind the head" over 0.25 s, v0.15.1: on a
+// fast machine 3 frames are over before it has settled, and the crosshair is up to 0.85 m off. So wait for it.)
+const settle = async () => { await frames(3); await wait(350); await frames(2); };
+const pose = async (x, z, yaw, pitch) => { await p.evaluate((a) => window.__ahdusPlay.setPose(a), { x, z, yaw, pitch }); await settle(); };
 const pos = () => p.evaluate(() => { const v = window.__ahdusPlay.getPosition(); return { x: v.x, z: v.z }; });
 const click = async (button = 'left') => { await p.mouse.down({ button }); await p.mouse.up({ button }); await frames(2); };
 const slot = async (n) => { await p.keyboard.press(`Digit${n}`); await frames(3); };
@@ -61,7 +64,7 @@ const groundAim = () => p.evaluate(() => {
 });
 // Stand so that, looking down at PITCH, the crosshair lands on (tx, tz)
 // The spot it stands on to aim may be in a wall (e.g. stretching one): exact, not moved to a free spot
-const exactPose = async (x, z, yaw, pitch) => { await p.evaluate((a) => window.__ahdusPlay.setPose(a), { x, z, yaw, pitch, exact: true }); await frames(3); };
+const exactPose = async (x, z, yaw, pitch) => { await p.evaluate((a) => window.__ahdusPlay.setPose(a), { x, z, yaw, pitch, exact: true }); await settle(); };
 const aimAtGround = async (yaw, tx, tz, pitch) => {
   let x = tx, z = tz;
   for (let i = 0; i < 3; i++) {
