@@ -1,7 +1,8 @@
 // Tools smoke test: Workplace Studio's Build panel and mouse tools (draw a
 // room, drag a wall to resize it, doors, windows, walls, furniture on a table
 // top, an upper floor, door sizes: Inspector + side handles), and Preview's Edit item
-// tool (resize, turn, move, lock; a door's width and height).
+// tool (resize, turn, move, lock; a door's width and height). v0.15.1: a desk takes its chair along
+// (drag, arrow key, R, typed X), a room what stands in it (drag, typed X), Walk through starts empty-handed.
 // Results are checked in the store; screenshots go to e2e/screens/.
 //
 // One-time setup:   npx playwright install chromium
@@ -250,8 +251,41 @@ await dragWorld([0.5, 0.02, -2], [1.5, 0.02, -2]);
 const r1m = await roomNow();
 log('room selected: dragging its floor moves it (same size)', near(r1m.x, r0.x + 1) && r1m.z === r0.z && r1m.width === r0.width,
   `(${r0.x}, ${r0.z}) → (${r1m.x}, ${r1m.z})`);
+{
+  // v0.15.1: what stands in it goes along by the same amount; the free wall outside it stays
+  const now = await store();
+  const d1 = now.objects.find((o) => o.id === desk.id);
+  const m1 = now.objects.find((o) => o.id === mon.id);
+  const w1 = now.objects.find((o) => o.id === wall.id);
+  const dx = r1m.x - r0.x;
+  const t = await p.locator('[aria-label="Undo"]').first().getAttribute('title');
+  log('v0.15.1 moving the room takes its desk and monitor along (same height); the wall outside stays; one undo step',
+    near(d1.x, desk.x + dx, 0.01) && near(m1.x, mon.x + dx, 0.01) && near(m1.y, mon.y, 0.01) && near(w1.x, wall.x, 0.001) && /^Undo: Move |^Move /.test(t ?? ''),
+    `room +${dx.toFixed(2)}, desk ${desk.x} → ${d1.x}, monitor ${mon.x} → ${m1.x}, wall ${w1.x}, "${t}"`);
+}
 await key('Control+z');
 log('Ctrl+Z moves it back', near((await roomNow()).x, r0.x));
+{
+  const now = await store();
+  const d2 = now.objects.find((o) => o.id === desk.id);
+  const m2 = now.objects.find((o) => o.id === mon.id);
+  log('v0.15.1 the same Ctrl+Z puts the desk and monitor back too', near(d2.x, desk.x, 0.001) && near(m2.x, mon.x, 0.001),
+    `desk ${d2.x}, monitor ${m2.x}`);
+}
+// v0.15.1: typing the room's X in the Inspector moves what stands in it too, one undo step
+await selectRoom(); await frames(2);
+await p.fill('aside[aria-label="Inspector"] input[aria-label="Room X"]', String(r0.x - 0.5));
+await p.evaluate(() => document.activeElement?.blur()); await frames(3);
+{
+  const rt = await roomNow();
+  const dt = await p.evaluate((id) => window.__ahdusStore.getState().objects[id], desk.id);
+  await key('Control+z');
+  const ru = await roomNow();
+  const du = await p.evaluate((id) => window.__ahdusStore.getState().objects[id], desk.id);
+  log('v0.15.1 typing Room X moves the room and its desk; one Ctrl+Z puts both back',
+    near(rt.x, r0.x - 0.5, 0.01) && near(dt.x, desk.x - 0.5, 0.01) && near(ru.x, r0.x, 0.001) && near(du.x, desk.x, 0.001),
+    `room ${r0.x} → ${rt.x} → ${ru.x}, desk ${desk.x} → ${dt.x} → ${du.x}`);
+}
 // v0.14.9: the room's Department (no departments given here: free text), saved as departmentRef, undoable
 await selectRoom(); await frames(2);
 const deptField = p.locator('aside[aria-label="Inspector"] [aria-label="Room department"]');
@@ -280,7 +314,21 @@ const itemBox = (id) => p.evaluate((id) => {
   return { minX: min.x, maxX: max.x, minY: min.y, maxY: max.y, minZ: min.z, maxZ: max.z };
 }, id);
 const undoTitle = () => p.locator('[aria-label="Undo"]').first().getAttribute('title');
-// Dragging the desk (not selected): the monitor on it comes along, one undo step
+// v0.15.1: an Office Chair at the desk's work side (+Z), turned with R twice so it faces the desk
+// (people.deskSeats pairs them: that is the chair the desk takes along)
+await dragTile('Office Chair', desk.x, 0.02, desk.z + 0.9);
+const chairId = (await store()).objects.find((o) => o.assetType === 'CHAIR_OFFICE')?.id;
+await p.evaluate(() => document.activeElement?.blur());
+await key('KeyR');
+const chairR1 = (await objNow(chairId))?.rotationY;
+await key('KeyR');
+const chair = await objNow(chairId);
+log('v0.15.1 R turns the selected chair 90° (twice: it faces the desk)',
+  !!chair && near(chairR1, Math.PI / 2, 0.001) && near(chair.rotationY, Math.PI, 0.001) && near(chair.x, desk.x, 0.3),
+  chair ? `(${chair.x}, ${chair.z}) turned ${chairR1?.toFixed(2)} → ${chair.rotationY.toFixed(2)}` : 'none');
+await tile('Furniture'); await wait(250); await frames(2); // close the library: the view as wide as before
+await key('Escape');
+// Dragging the desk (not selected): the monitor on it and its chair come along, one undo step
 const deskTop0 = (await itemBox(desk.id)).maxY;
 {
   // The press selects the desk and the Inspector slides open: the view narrows under the mouse over a few
@@ -307,11 +355,59 @@ log('v0.15.0 dragging the desk moves it 1 m, and the monitor on it comes along (
   near(deskMoved.x, desk.x + 1) && near(deskMoved.z, desk.z) && near(monMoved.x, mon.x + 1) && near(monMoved.z, mon.z) &&
   near(monMoved.y, mon.y, 0.01) && /Move Standard Desk/.test(deskUndo ?? ''),
   `desk ${desk.x} → ${deskMoved.x}, monitor ${mon.x} → ${monMoved.x} (y ${mon.y.toFixed(2)} → ${monMoved.y.toFixed(2)}), "${deskUndo}"`);
+const chairMoved = await objNow(chairId);
+log('v0.15.1 dragging the desk takes its chair along too (on the floor, same turn)',
+  near(chairMoved.x - chair.x, deskMoved.x - desk.x, 0.01) && near(chairMoved.z, chair.z, 0.01) && near(chairMoved.y ?? 0, chair.y ?? 0, 0.01) &&
+  near(chairMoved.rotationY, chair.rotationY, 0.001), `chair ${chair.x} → ${chairMoved.x}`);
 await key('Control+z');
 const deskBack = await objNow(desk.id);
 const monBack = await objNow(mon.id);
-log('v0.15.0 Ctrl+Z puts the desk and its monitor back together', near(deskBack.x, desk.x) && near(monBack.x, mon.x),
-  `desk ${deskBack.x}, monitor ${monBack.x}`);
+const chairBack = await objNow(chairId);
+log('v0.15.0 Ctrl+Z puts the desk and its monitor back together (v0.15.1: and its chair)',
+  near(deskBack.x, desk.x) && near(monBack.x, mon.x) && near(chairBack.x, chair.x),
+  `desk ${deskBack.x}, monitor ${monBack.x}, chair ${chairBack.x}`);
+// v0.15.1: an arrow key, R and a typed X take the chair along too, each one undo step
+await p.evaluate((id) => { const s = window.__ahdusStore.getState(); s.selectRoom(null); s.selectObject(id); }, desk.id);
+await wait(300); await frames(2);
+await p.evaluate(() => document.activeElement?.blur());
+await key('ArrowRight');
+{
+  const dA = await objNow(desk.id); const cA = await objNow(chairId);
+  const step = dA.x - desk.x;
+  await key('Control+z');
+  const cU = await objNow(chairId);
+  log('v0.15.1 an arrow key moves the desk and its chair by the same step; Ctrl+Z puts both back',
+    step > 0.04 && near(cA.x - chair.x, step, 0.001) && near(cU.x, chair.x, 0.001), `step ${step}, chair ${chair.x} → ${cA.x} → ${cU.x}`);
+}
+await key('KeyR');
+{
+  const dR = await objNow(desk.id); const cR = await objNow(chairId);
+  // a quarter turn: the chair's offset (ox, oz) from the desk swings to (oz, −ox), and it turns with it
+  const ox = chair.x - desk.x; const oz = chair.z - desk.z;
+  const ok = near(dR.rotationY - (desk.rotationY ?? 0), Math.PI / 2, 0.001) &&
+    near(cR.x, desk.x + oz, 0.01) && near(cR.z, desk.z - ox, 0.01) && near(cR.rotationY - chair.rotationY, Math.PI / 2, 0.001);
+  const t = await undoTitle();
+  await key('Control+z');
+  const cU = await objNow(chairId);
+  log('v0.15.1 R turns the desk 90° and its chair goes round with it ("Turn Standard Desk"); one Ctrl+Z puts both back',
+    ok && /Turn Standard Desk/.test(t ?? '') && near(cU.x, chair.x, 0.001) && near(cU.z, chair.z, 0.001) && near(cU.rotationY, chair.rotationY, 0.001),
+    `chair (${chair.x}, ${chair.z}) → (${cR.x}, ${cR.z}) turned ${cR.rotationY.toFixed(2)}, "${t}"`);
+}
+await key('Shift+KeyR');
+{
+  const d15 = await objNow(desk.id);
+  log('v0.15.1 Shift+R turns it 15°', near(d15.rotationY - (desk.rotationY ?? 0), Math.PI / 12, 0.001), d15.rotationY.toFixed(3));
+  await key('Control+z');
+}
+await p.fill('aside[aria-label="Inspector"] input[aria-label="X"]', String(desk.x + 0.5));
+await p.evaluate(() => document.activeElement?.blur()); await frames(3);
+{
+  const cX = await objNow(chairId);
+  await key('Control+z');
+  const dU = await objNow(desk.id); const cU = await objNow(chairId);
+  log('v0.15.1 typing the desk\'s X moves its chair too; one Ctrl+Z puts both back',
+    near(cX.x, chair.x + 0.5, 0.01) && near(dU.x, desk.x, 0.001) && near(cU.x, chair.x, 0.001), `chair ${chair.x} → ${cX.x} → ${cU.x}`);
+}
 await key('Escape');
 
 // The Desk Plant: dropped on the floor, then dragged (still selected, as it is right after placing) onto the desk
@@ -330,6 +426,9 @@ log('v0.15.0 dragging the Desk Plant (selected) onto the desk: it stands on the 
   /Move Desk Plant/.test(plantUndo ?? ''),
   `plant (${plantOn.x}, ${plantOn.y.toFixed(2)}, ${plantOn.z}), desk top ${deskTop.toFixed(2)}, "${plantUndo}"`);
 await shot('t3c-plant-on-desk.png');
+// v0.15.1: the move arrows show only after Move (W)
+await p.evaluate(() => document.activeElement?.blur());
+await key('KeyW');
 // Where the X arrow sticks out past the plant, the arrow still wins: it slides the plant along X only
 const arrowAt = await p.evaluate(([x, y, z]) => {
   const sc = window.__ahdusScene; const eng = sc.getEngine(); const cam = sc.activeCamera;
@@ -427,12 +526,26 @@ await p.keyboard.press('Tab'); await wait(800);
 if (!(await p.evaluate(() => !!document.pointerLockElement))) {
   await p.click('button:has-text("Start preview")'); await wait(400);
 }
+// v0.15.1: Walk through starts with an empty hand (no slot chosen)
+await frames(3);
+const startHand = await p.evaluate(() => ({
+  pressed: document.querySelectorAll('.hud-slot[aria-pressed="true"]').length,
+  slots: document.querySelectorAll('.hud-slot').length,
+  empty: document.body.innerText.includes('Empty hand'),
+}));
+log('v0.15.1 Walk through starts with an empty hand (no slot chosen)', startHand.slots > 0 && startHand.pressed === 0 && startHand.empty,
+  JSON.stringify(startHand));
 await p.keyboard.press('Digit9'); await frames(3);
 const hintText = () => p.locator('[data-hud="hint"]').textContent({ timeout: 2000 }).catch(() => '');
-// stand south of the desk looking at it (the camera is 0.85 m over the right shoulder)
-let aimed = false;
+// stand south of the desk looking at it. The camera is 0.85 m over the right shoulder, but close behind a wall
+// it moves behind the head first (v0.15.1): so try both standing 0.85 m left of the desk and in line with it
+const DESK_AIMS = [];
 for (const [dz, pitch] of [[-2.2, -0.35], [-1.8, -0.45], [-2.6, -0.3], [-1.5, -0.55], [-3, -0.25]]) {
-  await p.evaluate((a) => window.__ahdusPlay.setPose(a), { x: desk.x - 0.85, z: desk.z + dz, yaw: 0, pitch, floor: 0 });
+  for (const dx of [-0.85, 0]) DESK_AIMS.push([dx, dz, pitch]);
+}
+let aimed = false;
+for (const [dx, dz, pitch] of DESK_AIMS) {
+  await p.evaluate((a) => window.__ahdusPlay.setPose(a), { x: desk.x + dx, z: desk.z + dz, yaw: 0, pitch, floor: 0 });
   await frames(3);
   if (/Standard Desk/.test(await hintText())) { aimed = true; break; }
 }
@@ -448,7 +561,7 @@ log('+ makes it bigger, 0 back to normal size', near(bigger.scaleX, 1.1, 0.01) &
   `${bigger.scaleX} → ${normal.scaleX}`);
 await key('KeyR');
 const turned = await deskNow();
-log('R turns it 45°', near(turned.rotationY - (desk.rotationY ?? 0), Math.PI / 4, 0.01), `rotationY ${turned.rotationY.toFixed(2)}`);
+log('R turns it 90° (v0.15.1, as in Studio)', near(turned.rotationY - (desk.rotationY ?? 0), Math.PI / 2, 0.01), `rotationY ${turned.rotationY.toFixed(2)}`);
 await key('Control+z');
 log('Ctrl+Z undoes the turn', near((await deskNow()).rotationY, desk.rotationY ?? 0, 0.01));
 
@@ -469,8 +582,8 @@ log('Ctrl+Z moves it back', near(back.x, desk.x) && near(back.z, desk.z), `(${ba
 
 // lock: can't be removed
 await p.evaluate((a) => window.__ahdusPlay.setPose(a), { x: desk.x - 0.85, z: desk.z - 2.2, yaw: 0, pitch: -0.35, floor: 0 });
-for (const [dz, pitch] of [[-2.2, -0.35], [-1.8, -0.45], [-2.6, -0.3], [-1.5, -0.55], [-3, -0.25]]) {
-  await p.evaluate((a) => window.__ahdusPlay.setPose(a), { x: desk.x - 0.85, z: desk.z + dz, yaw: 0, pitch, floor: 0 });
+for (const [dx, dz, pitch] of DESK_AIMS) {
+  await p.evaluate((a) => window.__ahdusPlay.setPose(a), { x: desk.x + dx, z: desk.z + dz, yaw: 0, pitch, floor: 0 });
   await frames(3);
   if (/Standard Desk/.test(await hintText())) break;
 }
