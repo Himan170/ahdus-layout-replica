@@ -84,7 +84,7 @@ import {
   planRoomResize, planWallThickness, planRoomTurn, planRoomCopy,
 } from '../play/geometry';
 import { FLOOR_BY_ROOM_TYPE } from '../utils/materialLibrary';
-import { DEFAULT_HOTBAR } from '../play/hotbarItems';
+import { DEFAULT_HOTBAR, EMPTY_HAND, catalogSlot } from '../play/hotbarItems';
 
 // Team integration: how other modules connect to the layout (docs/TEAM_INTEGRATION.md)
 import { layoutBridge } from '../integration/layoutBridge';
@@ -144,7 +144,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   const isPlayingRef = useRef(false);
   const [playHud, setPlayHud] = useState(null);
   const [hotbar, setHotbar] = useState(DEFAULT_HOTBAR);
-  const [selectedSlot, setSelectedSlot] = useState(0);
+  const [selectedSlot, setSelectedSlot] = useState(EMPTY_HAND); // walking first: building is a choice (1–9, B)
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [interaction, setInteraction] = useState(null);
   const cardTimerRef = useRef(null);
@@ -410,10 +410,13 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
 
   // Picking an item (or closing the catalog) goes straight back to playing
   const handleAssignToSlot = useCallback((item) => {
-    setHotbar((bar) => bar.map((it, i) => (i === selectedSlot ? item : it)));
+    // an empty hand: the first empty slot (else slot 1) gets it, and you hold it
+    const slot = catalogSlot(hotbar, selectedSlot);
+    setHotbar((bar) => bar.map((it, i) => (i === slot ? item : it)));
+    setSelectedSlot(slot);
     setCatalogOpen(false);
     handleResumePlay();
-  }, [selectedSlot, handleResumePlay]);
+  }, [hotbar, selectedSlot, handleResumePlay]);
 
   const handleCloseCatalog = useCallback(() => {
     setCatalogOpen(false);

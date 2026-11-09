@@ -31,6 +31,7 @@ import { createGizmoController } from '../utils/gizmoController';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { createPerformanceMonitor } from '../utils/performanceOptimiser';
 import { createPlayController } from '../play/playController';
+import { nextSlot } from '../play/hotbarItems';
 import { createPlannerTools } from '../planner/plannerTools';
 import { layoutBridge } from '../integration/layoutBridge';
 import { installStudioPointer } from './studioPointer';
@@ -125,7 +126,7 @@ export function useStudioScene({
       getObjectMesh: (id) => objectSystem.getObjectMesh(id),
       onHud: setPlayHud,
       onSlotKey: (i) => setSelectedSlot(i),
-      onSlotScroll: (d) => setSelectedSlot((cur) => (cur + d + 9) % 9),
+      onSlotScroll: (d) => setSelectedSlot((cur) => nextSlot(cur, d)),
       onCatalog: () => {
         setCatalogOpen((open) => {
           if (!open && document.pointerLockElement) document.exitPointerLock?.();
