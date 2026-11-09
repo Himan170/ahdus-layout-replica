@@ -135,11 +135,11 @@ export function useStudioKeyboard({
           const newX = Math.round(((Number(obj.x) || 0) + dx) * 1000) / 1000;
           const newZ = Math.round(((Number(obj.z) || 0) + dz) * 1000) / 1000;
 
-          editor.updateObject(
-            store.selectedObjectId,
-            { x: newX, z: newZ, roomId: findRoomAt(Object.values(store.rooms), newX, newZ, obj.floor ?? 0)?.id ?? null },
-            { label: 'Move item (keyboard)' }
-          );
+          // with what it takes along (a desk: its chair and its monitor), one undo step
+          const patch = { x: newX, z: newZ, roomId: findRoomAt(Object.values(store.rooms), newX, newZ, obj.floor ?? 0)?.id ?? null };
+          if (!plannerToolsRef.current?.moveItem(store.selectedObjectId, patch, { label: 'Move item (keyboard)' })) {
+            editor.updateObject(store.selectedObjectId, patch, { label: 'Move item (keyboard)' });
+          }
           setAnnounceText(`Moved ${obj.label || obj.assetType} to X ${newX}, Z ${newZ}`);
           break;
         }

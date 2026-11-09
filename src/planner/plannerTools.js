@@ -41,6 +41,7 @@ import {
   elevationOf, floorBelow, planWallHeight, wallHeightText, HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT,
   placementHeight,
 } from '../play/building';
+import { carriedBy, carryMoves } from '../play/carry';
 
 const FLOOR_Y = 0.02;
 const CLICK_SLOP = 5; // px the mouse may move with the button down and still count as a click
@@ -331,17 +332,26 @@ export function createPlannerTools(scene, canvas, {
   const dragMeshes = (d) => d.items.map((it) => getObjectMesh(it.id)).filter(Boolean);
   const isDragged = (d, m) => dragMeshes(d).some((root) => m === root || m.isDescendantOf?.(root));
 
-  /** Items standing on `obj` (a monitor on a desk): their foot is at its top, inside its outline. */
+  /**
+   * Items standing on `obj` (a monitor on a desk): their foot is at its top, inside its outline.
+   * The outline is the mesh's, moved back to where the store has the item (a gizmo drag has already
+   * moved the mesh when it reports).
+   */
   function ridersOf(obj, mesh) {
     if (!mesh?.getHierarchyBoundingVectors) return [];
     const { min, max } = mesh.getHierarchyBoundingVectors(true);
-    const e = elev();
+    const sx = (mesh.position?.x ?? obj.x) - obj.x;
+    const sz = (mesh.position?.z ?? obj.z) - obj.z;
+    const e = elevationOf(st().floors, obj.floor ?? 0);
     const top = max.y - e;
     return Object.values(st().objects).filter((o) => o.id !== obj.id && (o.floor ?? 0) === (obj.floor ?? 0) &&
       !o.isLocked && !KEEP_HEIGHT.has(o.assetType) && o.assetType !== 'STAIRCASE' &&
       (o.y ?? 0) > 0.05 && Math.abs((o.y ?? 0) - top) < 0.2 &&
-      o.x >= min.x && o.x <= max.x && o.z >= min.z && o.z <= max.z);
+      o.x >= min.x - sx && o.x <= max.x - sx && o.z >= min.z - sz && o.z <= max.z - sz);
   }
+
+  /** What `obj` takes along (carry.carriedBy): its chair (a desk) and what stands on it. */
+  const carriedWith = (obj) => carriedBy(obj, st().objects, ridersOf(obj, getObjectMesh(obj.id)));
 
   /** Where the dragged item would stand: { worldY, y, on } (on: the item it stands on) or null. */
   function dragSurface(d, x, z) {
@@ -382,15 +392,17 @@ export function createPlannerTools(scene, canvas, {
     const e = elev();
     for (const it of drag.items) {
       const mesh = getObjectMesh(it.id);
-      mesh?.position.set(it.x + dx, e + (it.y ?? 0) + dy, it.z + dz);
+      mesh?.position.set(it.x + dx, e + (it.y ?? 0) + (it.onTop ? dy : 0), it.z + dz);
     }
     drag.plan = { dx, dz, dy };
-    const riders = drag.items.length - 1;
+    const riders = drag.items.filter((it, i) => i > 0 && it.onTop).length;
+    const chair = drag.items.some((it, i) => i > 0 && !it.onTop);
     const room = findRoomAt(floorRooms(), x, z);
     const where = s.on ? `On ${nameOf(s.on)}` : room ? `In ${room.name}` : 'Outside the rooms';
     return saveDragHint({
       title: `Move ${name}`,
-      detail: riders ? `${where} · with ${riders === 1 ? 'the item' : `the ${riders} items`} on it` : where,
+      detail: [where, chair && 'with its chair', riders && `with ${riders === 1 ? 'the item' : `the ${riders} items`} on it`]
+        .filter(Boolean).join(' · '),
       keys: [['Release', 'Put it here'], ['Esc', 'Cancel']],
     });
   }
@@ -780,7 +792,8 @@ export function createPlannerTools(scene, canvas, {
     const moves = d.items.map((it) => {
       const x = r3(it.x + plan.dx);
       const z = r3(it.z + plan.dz);
-      return [it.id, { x, z, y: Math.max(0, r3((it.y ?? 0) + plan.dy)), roomId: findRoomAt(rooms, x, z)?.id ?? null }];
+      const y = it.onTop ? Math.max(0, r3((it.y ?? 0) + plan.dy)) : it.y ?? 0;
+      return [it.id, { x, z, y, roomId: findRoomAt(rooms, x, z)?.id ?? null }];
     });
     const obj = st().objects[d.objectId];
     actions.moveObjects(moves, { label: `Move ${nameOf(obj)}` });
@@ -884,8 +897,10 @@ export function createPlannerTools(scene, canvas, {
         const obj = st().objects[hover.objectId];
         const p = groundPoint();
         if (obj && p) {
-          const riders = ridersOf(obj, getObjectMesh(obj.id));
-          const items = [obj, ...riders].map((o) => ({ id: o.id, x: o.x, y: o.y ?? 0, z: o.z }));
+          // what it takes along: its chair (a desk) keeps its height, what stands on it rises with it
+          const carried = carriedWith(obj);
+          const items = [{ item: obj, onTop: true }, ...carried].map(({ item: o, onTop }) =>
+            ({ id: o.id, x: o.x, y: o.y ?? 0, z: o.z, onTop }));
           armMove({ kind: 'item', objectId: obj.id, start: p, items });
         }
         return false;
@@ -965,6 +980,40 @@ export function createPlannerTools(scene, canvas, {
     },
     getTool: () => tool,
     isDragging: () => !!drag,
+
+    /**
+     * Move and / or turn an item with what it takes along (its chair, what stands on it), as ONE
+     * undo step (editor.moveObjects): the keyboard arrows, typed X / Z / angle, a gizmo drag, R.
+     * Other fields of `patch` (y, scale) go to the item itself. Locked: nothing moves (false).
+     * @param {string} id
+     * @param {object} patch  x, z, rotationY (+ any other item fields)
+     * @param {{ label?: string }} [options]
+     * @returns {boolean} whether anything was asked to change
+     */
+    moveItem(id, patch, { label } = {}) {
+      const obj = st().objects[id];
+      if (!obj || obj.isLocked) return false;
+      const { x, z, rotationY, roomId: _roomId, ...rest } = patch;
+      const target = {};
+      if (x !== undefined) target.x = x;
+      if (z !== undefined) target.z = z;
+      if (rotationY !== undefined) target.rotationY = rotationY;
+      const moving = Math.abs((target.x ?? obj.x) - obj.x) > 1e-6 || Math.abs((target.z ?? obj.z) - obj.z) > 1e-6 ||
+        Math.abs((target.rotationY ?? obj.rotationY ?? 0) - (obj.rotationY ?? 0)) > 1e-9;
+      const carried = moving ? carriedWith(obj) : [];
+      const rooms = Object.values(st().rooms);
+      const moves = carryMoves(obj, carried, target).map(([mid, p], i) => {
+        const o = st().objects[mid];
+        const out = i === 0 ? { ...rest, ...p } : p;
+        // its room is the one it ends in
+        out.roomId = findRoomAt(rooms, out.x ?? o.x, out.z ?? o.z, o.floor ?? 0)?.id ?? null;
+        return [mid, out];
+      });
+      // a turn about the item itself only: keep the exact x / z it had (no rounding drift)
+      if (target.x === undefined && target.z === undefined) { delete moves[0][1].x; delete moves[0][1].z; }
+      actions.moveObjects(moves, { label: label ?? `Move ${nameOf(obj)}` });
+      return true;
+    },
     cancel: cancelDrag,
 
     /** Off in Build mode (it has its own tools). */

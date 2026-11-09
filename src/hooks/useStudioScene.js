@@ -264,7 +264,11 @@ export function useStudioScene({
       const elev = elevationOf(st.floors, floor);
       // the room it stands in now (moved into another room: that one)
       const room = findRoomAt(Object.values(st.rooms), transform.x, transform.z, floor);
-      editor.updateObject(objectId, { ...transform, y: transform.y - elev, roomId: room?.id ?? null }, { label: 'Move / rotate / scale' });
+      const patch = { ...transform, y: transform.y - elev, roomId: room?.id ?? null };
+      // a desk takes its chair and what stands on it along (one undo step)
+      if (!plannerToolsRef.current?.moveItem(objectId, patch, { label: 'Move / rotate / scale' })) {
+        editor.updateObject(objectId, patch, { label: 'Move / rotate / scale' });
+      }
     });
     gizmoControllerRef.current = gizmoCtrl;
     if (import.meta.env.DEV) window.__ahdusGizmo = gizmoCtrl; // e2e: gizmoScene() (the arrows), isPointerOver()

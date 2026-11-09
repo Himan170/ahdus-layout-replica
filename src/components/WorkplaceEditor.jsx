@@ -841,10 +841,24 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     editor.deleteObject(id);
   }, [editor]);
 
-  // Inspector sliders / typing: a burst of edits on one object = one undo step
-  const handleUpdateObject = useCallback((id, patch) => {
-    editor.updateObject(id, patch, { mergeKey: 'inspector', label: 'Edit properties' });
+  /**
+   * Move / turn an item with what it takes along (a desk: its chair and what stands on it), ONE undo
+   * step (plannerTools.moveItem → editor.moveObjects). Before the scene is up: the item alone.
+   */
+  const moveItemCarrying = useCallback((id, patch, { label } = {}) => {
+    if (plannerToolsRef.current?.moveItem(id, patch, { label })) return;
+    editor.updateObject(id, patch, { label });
   }, [editor]);
+
+  // Inspector sliders / typing: a burst of edits on one object = one undo step.
+  // Typed X / Z or an angle move the item with what it takes along (one step each).
+  const handleUpdateObject = useCallback((id, patch) => {
+    if ('x' in patch || 'z' in patch || 'rotationY' in patch) {
+      moveItemCarrying(id, patch, { label: 'Edit properties' });
+      return;
+    }
+    editor.updateObject(id, patch, { mergeKey: 'inspector', label: 'Edit properties' });
+  }, [editor, moveItemCarrying]);
 
   const handleToggleLock = useCallback((id) => {
     editor.toggleLock(id);
@@ -1270,28 +1284,20 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               snap={{ enabled: snapEnabled, step: snapStep }}
               ground={currentFloor === 0}
               onMoveObject={(id, to) => {
-                // one undo step per drag, like the 3D gizmo
-                editor.updateObject(id, to, { label: 'Move item' });
+                // one undo step per drag, with what it takes along (a desk: its chair, its monitor)
+                moveItemCarrying(id, to, { label: 'Move item' });
                 editor.endBurst();
               }}
               onRotateObject={(id) => {
                 const object = objectsMap[id];
                 if (object && !object.isLocked) {
-                  editor.updateObject(
-                    id,
-                    { rotationY: (Number(object.rotationY) || 0) + Math.PI / 2 },
-                    { label: 'Rotate object' }
-                  );
+                  moveItemCarrying(id, { rotationY: (Number(object.rotationY) || 0) + Math.PI / 2 }, { label: 'Rotate object' });
                 }
               }}
               onRotateByAngle={(id, deltaRad) => {
                 const object = objectsMap[id];
                 if (object && !object.isLocked) {
-                  editor.updateObject(
-                    id,
-                    { rotationY: (Number(object.rotationY) || 0) + deltaRad },
-                    { label: 'Rotate object' }
-                  );
+                  moveItemCarrying(id, { rotationY: (Number(object.rotationY) || 0) + deltaRad }, { label: 'Rotate object' });
                 }
               }}
             />
