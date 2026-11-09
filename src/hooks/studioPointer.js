@@ -21,7 +21,7 @@ import { distanceBetweenPoints } from '../utils/measurements';
 export function installStudioPointer({
   scene, camera, placementMgr, plannerTools,
   isPlayingRef, measureModeRef, measureStartRef, measurementIdRef,
-  setMeasurePreview, setMeasureStart, setMeasurements, placeObject,
+  setMeasurePreview, setMeasureStart, setMeasurements, placeObject, showStudioMessage = () => {},
 }) {
   const pointOnCurrentFloor = () => {
     const ray = scene.createPickingRay(scene.pointerX, scene.pointerY, Matrix.Identity(), camera);
@@ -95,6 +95,8 @@ export function installStudioPointer({
       if (result) {
         placeObject(result);
         store.setPlacementMode(null);
+      } else if (placementMgr.getProblem?.()) {
+        showStudioMessage(placementMgr.getProblem(), true);
       }
       return; // don't fall through to selection
     }

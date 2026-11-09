@@ -39,7 +39,7 @@ import {
 } from '../play/geometry';
 import {
   elevationOf, floorBelow, planWallHeight, wallHeightText, HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT,
-  placementHeight,
+  placementHeight, canStandOn, floorOnlyText,
 } from '../play/building';
 import { carriedBy, carryMoves } from '../play/carry';
 import { isDesk } from '../play/people';
@@ -371,6 +371,8 @@ export function createPlannerTools(scene, canvas, {
     const surface = objectIdOf(hit.pickedMesh) ? 'object' : hit.pickedMesh.name === 'ground' ? 'ground' : 'floor';
     const h = placementHeight({ surface, normalY: hit.getNormal(true)?.y ?? 0, pointY: hit.pickedPoint.y, elevation: elev() });
     if (!h) return null;
+    // a floor-only item (a Large Plant) can't go on a table top
+    if (!canStandOn(obj.assetType, surface)) return { problem: floorOnlyText(nameOf(obj)) };
     return { worldY: h.worldY, y: h.y, on: surface === 'object' ? st().objects[objectIdOf(hit.pickedMesh)] : null };
   }
 
@@ -383,9 +385,9 @@ export function createPlannerTools(scene, canvas, {
     const z = snapV(drag.items[0].z + p.z - drag.start.z);
     const s = dragSurface(drag, x, z);
     const name = nameOf(obj);
-    if (!s) {
+    if (!s || s.problem) {
       drag.plan = null;
-      return saveDragHint({ title: `Move ${name}`, detail: 'Put it on the floor or on a table top', bad: true, keys: [['Esc', 'Cancel']] });
+      return saveDragHint({ title: `Move ${name}`, detail: s?.problem ?? 'Put it on the floor or on a table top', bad: true, keys: [['Esc', 'Cancel']] });
     }
     const dx = x - drag.items[0].x;
     const dz = z - drag.items[0].z;

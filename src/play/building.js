@@ -660,3 +660,26 @@ export function placementHeight({ surface, normalY = 1, pointY = 0, elevation = 
   const worldY = surface === 'ground' ? 0 : elevation + ROOM_FLOOR_OFFSET;
   return { worldY, y: Math.max(0, worldY - elevation), onTop: false };
 }
+
+/**
+ * The items that may stand on top of other furniture (a desk, a sideboard): small things.
+ * Everything else stands on the floor only (v0.15.2: a Large Plant could be dropped on a desk).
+ * Old saves are left alone: an item already on a desk stays there until it is moved.
+ */
+export const TABLE_TOP_TYPES = new Set([
+  'MONITOR_DUAL', 'LAPTOP', 'KEYBOARD', 'COMPUTER_MOUSE', 'PLANT_SMALL',
+  'COFFEE_MACHINE', 'MICROWAVE', 'PRINTER', 'FIRST_AID',
+]);
+
+/**
+ * May an item of this type be put on this surface? The floor and the ground: always.
+ * On top of another item ('object'): only the table-top types.
+ * @param {string} assetType
+ * @param {'ground'|'floor'|'object'} surface
+ */
+export function canStandOn(assetType, surface) {
+  return surface !== 'object' || TABLE_TOP_TYPES.has(assetType);
+}
+
+/** Why a floor-only item can't go on a table top: "Large Plant stands on the floor". */
+export const floorOnlyText = (label) => `${label || 'This item'} stands on the floor`;

@@ -22,7 +22,8 @@ import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { buildAssetMesh } from './assetCatalog';
 import { disposeMaterialIfOwned } from './materialLibrary';
-import { placementHeight } from '../play/building';
+import { placementHeight, canStandOn, floorOnlyText } from '../play/building';
+import { ASSET_TYPES } from './assetCatalog';
 
 // ─── Ghost visual config ───
 const GHOST_ALPHA = 0.48;
@@ -87,6 +88,7 @@ export function createPlacementManager(scene, options = {}) {
   let snapEnabled = options.snapEnabled !== false; // default true
   let snapStep = options.snapStep || SNAP_STEP;
   let _valid = true;
+  let _problem = null;        // why the spot is refused (a floor-only item over a table top)
   let _pendingConfirm = null; // function to call on drop confirm
   let _lastPlacedData = null; // for Ctrl+D duplicate
   let _surfaceY = 0;          // height of the surface under the pointer
@@ -136,6 +138,7 @@ export function createPlacementManager(scene, options = {}) {
     currentYOffset = 0;
     currentRotationY = 0;
     _surfaceY = 0;
+    _problem = null;
 
     // Build ghost mesh
     ghostRoot = buildAssetMesh(assetType, scene, 'ghost_preview');
@@ -172,7 +175,9 @@ export function createPlacementManager(scene, options = {}) {
       ghostRoot.position.set(x, baseY + currentYOffset, z);
       ghostRoot.rotation.y = currentRotationY;
 
-      _valid = !!height && (baseY + currentYOffset) >= -0.05;
+      // a floor-only item (a Large Plant) can't go on a table top
+      _problem = canStandOn(currentAssetType, surface) ? null : floorOnlyText(ASSET_TYPES[currentAssetType]?.label);
+      _valid = !!height && !_problem && (baseY + currentYOffset) >= -0.05;
       applyGhostMaterial(ghostRoot, _valid ? ghostMaterials.valid : ghostMaterials.invalid);
     }
   }
@@ -219,6 +224,9 @@ export function createPlacementManager(scene, options = {}) {
   }
 
   // ── Cancel placement ──
+  /** Why the spot under the pointer is refused ("Large Plant stands on the floor"), or null. */
+  function getProblem() { return ghostRoot ? _problem : null; }
+
   function cancelPlacement() {
     clearGhost();
     currentAssetType = null;
@@ -273,6 +281,7 @@ export function createPlacementManager(scene, options = {}) {
     updatePointer,
     confirmPlacement,
     cancelPlacement,
+    getProblem,
     adjustHeight,
     rotatePreview,
     duplicateLast,

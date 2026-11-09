@@ -77,7 +77,7 @@ import {
   wallLine, OVERHANG_WARNING, planWallSegmentOpening, moveOpening,
 } from './geometry';
 import {
-  levelForY, elevationOf, supportHeight, stairHeightAt, floorAbove, floorBelow, placementHeight,
+  levelForY, elevationOf, supportHeight, stairHeightAt, floorAbove, floorBelow, placementHeight, canStandOn, floorOnlyText,
   floorHeight, floorPosition, stairDimsFor, stairNeedsRoomAbove, arrivalOnFloor, planWallHeight,
   HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, wallHeightText, stairPushOut, STAIRS_KEEP_SIZE,
   STAIRS_LEAD_NOWHERE,
@@ -496,7 +496,7 @@ export function createPlayController(scene, canvas, {
    * top of furniture (a monitor on a desk). Not the ground under an upper
    * floor, not the storey below. Returns {x, z, worldY, y} or {problem, bad}.
    */
-  function aimSurface() {
+  function aimSurface(assetType = null) {
     const hit = aimPick((m) =>
       (m.name === 'ground' && levelElev() === 0) ||
       ((m.metadata?.part === 'floor' || !!objectIdOf(m)) && onThisLevel(m)));
@@ -507,11 +507,15 @@ export function createPlayController(scene, canvas, {
     const surface = objectIdOf(hit.pickedMesh) ? 'object' : hit.pickedMesh.name === 'ground' ? 'ground' : 'floor';
     const h = placementHeight({ surface, normalY: hit.getNormal(true)?.y ?? 0, pointY: p.y, elevation: levelElev() });
     if (!h) return { problem: 'Aim at the floor or the top of a table', bad: true };
+    // a floor-only item (a Large Plant) can't go on a table top
+    if (assetType && !canStandOn(assetType, surface)) {
+      return { problem: floorOnlyText(ASSET_TYPES[assetType]?.label), bad: true };
+    }
     return { x: snap(p.x, 0.25), z: snap(p.z, 0.25), worldY: h.worldY, y: h.y };
   }
 
   function updateObjectTool() {
-    const s = aimSurface();
+    const s = aimSurface(tool.assetType);
     if (s.problem) {
       ghost?.setEnabled(false);
       aim = null;
@@ -890,7 +894,7 @@ export function createPlayController(scene, canvas, {
       setOutline(null);
       const obj = editTarget();
       if (!obj) { endCarry(false); aim = null; return { title: 'Edit item' }; }
-      const s = aimSurface();
+      const s = aimSurface(obj.assetType);
       carry.mesh.rotation.y = carry.rotationY;
       if (s.problem) {
         aim = null;

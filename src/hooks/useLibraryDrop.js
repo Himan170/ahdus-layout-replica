@@ -80,7 +80,8 @@ export function useLibraryDrop({
     mgr.updatePointer(at.x, at.y);
     const ghost = mgr.getGhostPosition();
     if (!ghost) return null;
-    return { rect: footprintAt(ghost, tile.width, tile.depth), valid: true, problem: null };
+    const problem = mgr.getProblem?.() ?? null;
+    return { rect: footprintAt(ghost, tile.width, tile.depth), valid: !problem, problem };
   }, [groundAt, placementManagerRef, snapRef]);
 
   /** The plan's corners and centre in canvas pixels (the dashed footprint). */
@@ -115,9 +116,10 @@ export function useLibraryDrop({
     const mgr = placementManagerRef.current;
     if (!mgr) return false;
     planAt(tile, at, false);
+    const problem = mgr.getProblem?.() ?? null;
     const result = mgr.confirmPlacement();
     st.setPlacementMode(null);
-    if (!result) { mgr.cancelPlacement(); showStudioMessage('Drop it on a floor or a table top', true); return false; }
+    if (!result) { mgr.cancelPlacement(); showStudioMessage(problem ?? 'Drop it on a floor or a table top', true); return false; }
     placeObject(result);
     return true;
   }, [editor, groundAt, planAt, placeObject, placementManagerRef, showStudioMessage, snapRef]);

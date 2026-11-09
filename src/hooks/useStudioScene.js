@@ -279,7 +279,7 @@ export function useStudioScene({
     installStudioPointer({
       scene, camera, placementMgr, plannerTools,
       isPlayingRef, measureModeRef, measureStartRef, measurementIdRef,
-      setMeasurePreview, setMeasureStart, setMeasurements, placeObject,
+      setMeasurePreview, setMeasureStart, setMeasurements, placeObject, showStudioMessage,
     });
 
     // FPS counter (updates DOM directly to avoid React re-renders)

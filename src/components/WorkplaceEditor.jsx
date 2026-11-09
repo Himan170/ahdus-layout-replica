@@ -1372,6 +1372,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               }}
               snap={{ enabled: snapEnabled, step: snapStep }}
               ground={currentFloor === 0}
+              onProblem={(text) => showStudioMessage(text, true)}
               onMoveObject={(id, to) => {
                 // one undo step per drag, with what it takes along (a desk: its chair, its monitor)
                 moveItemCarrying(id, to, { label: 'Move item' });

@@ -147,9 +147,17 @@ describe('planDrop: moving an item in the plan follows Studio\'s rules', () => {
     expect(planDrop(d, { x: 13.5, z: -14.45 }, { objects, rooms: [big] }).y).toBeCloseTo(0.02);
     // someone else's chair there still is (only what moves with it is ignored)
     const other = { id: 'o', assetType: 'CHAIR_OFFICE', x: 13.5, y: 0.02, z: -13.5, rotationY: 0 };
-    expect(planDrop(d, { x: 13.5, z: -13.5 }, { objects: [d, monitor, other], rooms: [big] }).y).toBeGreaterThan(0.5);
+    expect(planDrop(d, { x: 13.5, z: -13.5 }, { objects: [d, monitor, other], rooms: [big] }))
+      .toEqual({ problem: 'Standard Desk stands on the floor' });
     // a list of ids to ignore works too
     expect(planDrop(d, { x: 13.5, z: -13.5 }, { objects: [d, other], rooms: [big], ignore: ['o'] }).y).toBeCloseTo(0.02);
+  });
+
+  it('a floor-only item over a desk does not move, and says why', () => {
+    const plant = { id: 'p', assetType: 'PLANT_LARGE', x: 3, y: 0.02, z: 3 };
+    expect(planDrop(plant, { x: 0.1, z: 0 }, { objects: [desk, plant], rooms: [room] }))
+      .toEqual({ problem: 'Large Plant stands on the floor' });
+    expect(planDrop(plant, { x: 2.5, z: 1.5 }, { objects: [desk, plant], rooms: [room] }).y).toBeCloseTo(0.02);
   });
 
   it('never stacks an item on itself', () => {

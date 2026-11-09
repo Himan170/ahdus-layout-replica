@@ -7,7 +7,7 @@
  */
 
 import { snap, roomOpenings, WALL_ASSET_LENGTH } from '../play/geometry';
-import { placementHeight } from '../play/building';
+import { placementHeight, canStandOn, floorOnlyText } from '../play/building';
 import { carriedBy } from '../play/carry';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 
@@ -191,7 +191,8 @@ export function planCarried(object, objects = []) {
  * @param {{ objects?: object[], rooms?: object[], snap?: { enabled:boolean, step:number }, ground?: boolean, ignore?: string[] }} ctx
  *        objects / rooms of the same floor; ground: this is the ground floor (outside rooms = the ground);
  *        ignore: more item ids that are no surface (what moves with it is left out by itself: planCarried)
- * @returns {{ x:number, y:number, z:number } | null}  null for a locked item (it does not move)
+ * @returns {{ x:number, y:number, z:number } | { problem: string } | null}  null for a locked item (it does not
+ *          move); { problem } for a floor-only item over a table top (it does not move either)
  */
 export function planDrop(object, point, { objects = [], rooms = [], snap: snapping, ground = false, ignore = [] } = {}) {
   if (!object || object.isLocked) return null;
@@ -211,6 +212,10 @@ export function planDrop(object, point, { objects = [], rooms = [], snap: snappi
   }
   const surface = top !== null ? 'object'
     : ground && !rooms.some((r) => roomContainsPoint(r, at)) ? 'ground' : 'floor';
+  // a floor-only item (a Large Plant) can't go on a table top: it does not move, and says why
+  if (!canStandOn(object.assetType, surface)) {
+    return { problem: floorOnlyText(object.label || ASSET_TYPES[object.assetType]?.label) };
+  }
   // y in the store is relative to the floor: work at elevation 0
   const h = placementHeight({ surface, normalY: 1, pointY: top ?? 0, elevation: 0 });
   return { x, y: h.y, z };
