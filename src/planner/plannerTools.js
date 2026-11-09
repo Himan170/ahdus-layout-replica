@@ -43,6 +43,7 @@ import {
 } from '../play/building';
 import { carriedBy, carryMoves } from '../play/carry';
 import { ridersOf as itemRiders, KEEP_HEIGHT } from '../utils/itemRiders';
+import { livePosition } from '../utils/livePosition';
 import { isDesk } from '../play/people';
 
 const FLOOR_Y = 0.02;
@@ -64,6 +65,7 @@ export function createPlannerTools(scene, canvas, {
   onMessage = () => {},  // (text) => void          short feedback after a change
 }) {
   let tool = { kind: 'select' };
+  let livePreview = null; // a move arrow being dragged: { id, carried } (carryPreview)
   let drag = null;   // { kind: 'stretch' | 'room' | 'wall' | 'move' | 'item' | 'slide' | ..., start?, roomId?, wallName?, plan? }
   let pendingMove = null; // { drag, x, y }: a room's floor pressed, not dragged yet (armMove)
   let hover = null;  // what a click would do right now
@@ -389,6 +391,7 @@ export function createPlannerTools(scene, canvas, {
       mesh?.position.set(it.x + dx, e + (it.y ?? 0) + (it.onTop ? dy : 0), it.z + dz);
     }
     drag.plan = { dx, dz, dy };
+    livePosition.set(drag.objectId, x, z); // the Inspector's X / Z follow the drag
     const riders = drag.items.filter((it, i) => i > 0 && it.onTop).length;
     const chair = drag.items.some((it, i) => i > 0 && !it.onTop);
     const room = findRoomAt(floorRooms(), x, z);
@@ -838,6 +841,7 @@ export function createPlannerTools(scene, canvas, {
 
   function endDrag() {
     drag = null;
+    livePosition.clear();
     pv.hideAll();
     window.removeEventListener('pointerup', onWindowPointerUp);
     const camera = getCamera();
@@ -999,6 +1003,35 @@ export function createPlannerTools(scene, canvas, {
     },
     getTool: () => tool,
     isDragging: () => !!drag,
+
+    /**
+     * A move arrow is being dragged (v0.15.2): the item's mesh is at (x, z) now. Its chair and what
+     * stands on it follow at once (meshes only: the layout is written when the arrow is let go, one
+     * undo step), and the Inspector's X / Z show where it is.
+     */
+    carryPreview(id, { x, z }) {
+      const obj = st().objects[id];
+      if (!obj || obj.isLocked) return;
+      if (!livePreview || livePreview.id !== id) livePreview = { id, carried: carriedWith(obj) };
+      const e = elevationOf(st().floors, obj.floor ?? 0);
+      carryMoves(obj, livePreview.carried, { x, z }).slice(1).forEach(([mid, p]) => {
+        const o = st().objects[mid];
+        const mesh = getObjectMesh(mid);
+        if (o && mesh && !mesh.isDisposed?.()) mesh.position.set(p.x, e + (o.y ?? 0), p.z);
+      });
+      livePosition.set(id, x, z);
+    },
+    /** The arrow was let go: the carried meshes back where the layout has them (the move itself follows). */
+    endCarryPreview() {
+      livePosition.clear();
+      if (!livePreview) return;
+      for (const entry of livePreview.carried) {
+        const o = st().objects[entry.item.id];
+        const mesh = o && getObjectMesh(o.id);
+        if (mesh && !mesh.isDisposed?.()) mesh.position.set(o.x, elevationOf(st().floors, o.floor ?? 0) + (o.y ?? 0), o.z);
+      }
+      livePreview = null;
+    },
 
     /**
      * Move and / or turn an item with what it takes along (its chair, what stands on it), as ONE

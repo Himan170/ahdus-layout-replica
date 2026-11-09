@@ -264,6 +264,8 @@ export function useStudioScene({
       const st = useWorkspaceStore.getState();
       const floor = st.objects[objectId]?.floor ?? 0;
       const elev = elevationOf(st.floors, floor);
+      // the chair and the riders followed the arrow as meshes: back first, the move below takes them for real
+      plannerToolsRef.current?.endCarryPreview();
       // the room it stands in now (moved into another room: that one)
       const room = findRoomAt(Object.values(st.rooms), transform.x, transform.z, floor);
       const patch = { ...transform, y: transform.y - elev, roomId: room?.id ?? null };
@@ -271,6 +273,9 @@ export function useStudioScene({
       if (!plannerToolsRef.current?.moveItem(objectId, patch, { label: 'Move / rotate / scale' })) {
         editor.updateObject(objectId, patch, { label: 'Move / rotate / scale' });
       }
+    }, (objectId, at) => {
+      // v0.15.2: while an arrow is dragged the chair follows live, and the Inspector's X / Z
+      plannerToolsRef.current?.carryPreview(objectId, at);
     });
     gizmoControllerRef.current = gizmoCtrl;
     if (import.meta.env.DEV) window.__ahdusGizmo = gizmoCtrl; // e2e: gizmoScene() (the arrows), isPointerOver()
