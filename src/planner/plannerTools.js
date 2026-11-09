@@ -365,7 +365,8 @@ export function createPlannerTools(scene, canvas, {
     const h = placementHeight({ surface, normalY: hit.getNormal(true)?.y ?? 0, pointY: hit.pickedPoint.y, elevation: elev() });
     if (!h) return null;
     // a floor-only item (a Large Plant) can't go on a table top
-    if (!canStandOn(obj.assetType, surface)) return { problem: floorOnlyText(nameOf(obj)) };
+    const under = surface === 'object' ? st().objects[objectIdOf(hit.pickedMesh)] : null;
+    if (!canStandOn(obj.assetType, surface, under?.assetType)) return { problem: floorOnlyText(nameOf(obj)) };
     return { worldY: h.worldY, y: h.y, on: surface === 'object' ? st().objects[objectIdOf(hit.pickedMesh)] : null };
   }
 

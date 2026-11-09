@@ -671,14 +671,19 @@ export const TABLE_TOP_TYPES = new Set([
   'COFFEE_MACHINE', 'MICROWAVE', 'PRINTER', 'FIRST_AID',
 ]);
 
+/** Flat things that lie on the floor: standing on one is standing on the floor (a desk on a rug). */
+export const FLOOR_LIKE_TYPES = new Set(['RUG', 'SPAWN_POINT', 'ZONE_MARKER']);
+
 /**
  * May an item of this type be put on this surface? The floor and the ground: always.
- * On top of another item ('object'): only the table-top types.
+ * On top of another item ('object'): only the table-top types, unless that item is flat on the
+ * floor (`onType`: a rug, a marker), which anything may stand on.
  * @param {string} assetType
  * @param {'ground'|'floor'|'object'} surface
+ * @param {string | null} [onType]  the type of the item it would stand on
  */
-export function canStandOn(assetType, surface) {
-  return surface !== 'object' || TABLE_TOP_TYPES.has(assetType);
+export function canStandOn(assetType, surface, onType = null) {
+  return surface !== 'object' || TABLE_TOP_TYPES.has(assetType) || FLOOR_LIKE_TYPES.has(onType);
 }
 
 /** Why a floor-only item can't go on a table top: "Large Plant stands on the floor". */

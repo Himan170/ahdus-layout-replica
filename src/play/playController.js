@@ -569,7 +569,8 @@ export function createPlayController(scene, canvas, {
     const h = placementHeight({ surface, normalY: hit.getNormal(true)?.y ?? 0, pointY: p.y, elevation: levelElev() });
     if (!h) return { problem: 'Aim at the floor or the top of a table', bad: true };
     // a floor-only item (a Large Plant) can't go on a table top
-    if (assetType && !canStandOn(assetType, surface)) {
+    const under = surface === 'object' ? state().objects.find((o) => o.id === objectIdOf(hit.pickedMesh)) : null;
+    if (assetType && !canStandOn(assetType, surface, under?.assetType)) {
       return { problem: floorOnlyText(ASSET_TYPES[assetType]?.label), bad: true };
     }
     return { x: snap(p.x, 0.25), z: snap(p.z, 0.25), worldY: h.worldY, y: h.y };

@@ -160,6 +160,15 @@ describe('planDrop: moving an item in the plan follows Studio\'s rules', () => {
     expect(planDrop(plant, { x: 2.5, z: 1.5 }, { objects: [desk, plant], rooms: [room] }).y).toBeCloseTo(0.02);
   });
 
+  it('a desk dragged over a rug or the spawn point goes there (they lie on the floor)', () => {
+    const rug = { id: 'rug', assetType: 'RUG', x: 2, y: 0.02, z: 1 };
+    const spawn = { id: 's', assetType: 'SPAWN_POINT', x: -2, y: 0.02, z: 1 };
+    const to = planDrop(desk, { x: 2, z: 1 }, { objects: [desk, rug, spawn], rooms: [room] });
+    expect(to).toMatchObject({ x: 2, z: 1 });
+    expect(to.y).toBeCloseTo(0.02); // on the floor, not on top of the rug
+    expect(planDrop(desk, { x: -2, z: 1 }, { objects: [desk, rug, spawn], rooms: [room] }).y).toBeCloseTo(0.02);
+  });
+
   it('never stacks an item on itself', () => {
     expect(planDrop(desk, { x: 0, z: 0 }, { objects: [desk], rooms: [room] }).y).toBeCloseTo(0.02);
   });

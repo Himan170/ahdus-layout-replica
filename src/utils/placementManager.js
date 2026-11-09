@@ -176,7 +176,8 @@ export function createPlacementManager(scene, options = {}) {
       ghostRoot.rotation.y = currentRotationY;
 
       // a floor-only item (a Large Plant) can't go on a table top
-      _problem = canStandOn(currentAssetType, surface) ? null : floorOnlyText(ASSET_TYPES[currentAssetType]?.label);
+      const under = pick.pickedMesh.metadata?.assetType ?? pick.pickedMesh.parent?.metadata?.assetType ?? null;
+      _problem = canStandOn(currentAssetType, surface, under) ? null : floorOnlyText(ASSET_TYPES[currentAssetType]?.label);
       _valid = !!height && !_problem && (baseY + currentYOffset) >= -0.05;
       applyGhostMaterial(ghostRoot, _valid ? ghostMaterials.valid : ghostMaterials.invalid);
     }

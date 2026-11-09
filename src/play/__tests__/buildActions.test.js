@@ -217,6 +217,15 @@ describe('canStandOn: only small things go on a table top (v0.15.2)', () => {
     }
   });
 
+  it('a rug and the floor markers are the floor: anything may stand on them', () => {
+    for (const on of ['RUG', 'SPAWN_POINT', 'ZONE_MARKER']) {
+      expect(canStandOn('DESK_STANDARD', 'object', on)).toBe(true);
+      expect(canStandOn('PLANT_LARGE', 'object', on)).toBe(true);
+    }
+    expect(canStandOn('PLANT_LARGE', 'object', 'DESK_STANDARD')).toBe(false);
+    expect(canStandOn('PLANT_LARGE', 'object', null)).toBe(false);
+  });
+
   it('says why in plain words', () => {
     expect(floorOnlyText('Large Plant')).toBe('Large Plant stands on the floor');
   });
