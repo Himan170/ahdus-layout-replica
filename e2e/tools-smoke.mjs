@@ -279,6 +279,41 @@ const itemBox = (id) => p.evaluate((id) => {
   const { min, max } = root.getHierarchyBoundingVectors(true);
   return { minX: min.x, maxX: max.x, minY: min.y, maxY: max.y, minZ: min.z, maxZ: max.z };
 }, id);
+const undoTitle = () => p.locator('[aria-label="Undo"]').first().getAttribute('title');
+// Dragging the desk (not selected): the monitor on it comes along, one undo step
+const deskTop0 = (await itemBox(desk.id)).maxY;
+{
+  // The press selects the desk and the Inspector slides open: the view narrows under the mouse over a few
+  // frames (the desk stays under the cursor). Aim at the target only once the canvas has its new size.
+  await hover(desk.x + 0.6, deskTop0, desk.z + 0.25);
+  await p.mouse.down();
+  await p.mouse.move((await toScreen(desk.x + 0.6, deskTop0, desk.z + 0.25)).x + 8, (await toScreen(desk.x + 0.6, deskTop0, desk.z + 0.25)).y);
+  for (let i = 0, last = -1; i < 40; i++) {
+    await wait(100); await frames(1);
+    const w = await p.evaluate(() => { const e = window.__ahdusScene.getEngine(); const c = e.getRenderingCanvas();
+      return Math.abs(e.getRenderWidth() * e.getHardwareScalingLevel() - c.clientWidth * devicePixelRatio) <= 2 ? c.clientWidth : -1; });
+    if (w > 0 && w === last) break;
+    last = w;
+  }
+  const to = await toScreen(desk.x + 1.6, deskTop0, desk.z + 0.25);
+  await p.mouse.move(to.x, to.y, { steps: 10 });
+  await frames(2);
+  await p.mouse.up(); await frames(3);
+}
+const deskMoved = await objNow(desk.id);
+const monMoved = await objNow(mon.id);
+const deskUndo = await undoTitle();
+log('v0.15.0 dragging the desk moves it 1 m, and the monitor on it comes along (same height), one undo step "Move Standard Desk"',
+  near(deskMoved.x, desk.x + 1) && near(deskMoved.z, desk.z) && near(monMoved.x, mon.x + 1) && near(monMoved.z, mon.z) &&
+  near(monMoved.y, mon.y, 0.01) && /Move Standard Desk/.test(deskUndo ?? ''),
+  `desk ${desk.x} → ${deskMoved.x}, monitor ${mon.x} → ${monMoved.x} (y ${mon.y.toFixed(2)} → ${monMoved.y.toFixed(2)}), "${deskUndo}"`);
+await key('Control+z');
+const deskBack = await objNow(desk.id);
+const monBack = await objNow(mon.id);
+log('v0.15.0 Ctrl+Z puts the desk and its monitor back together', near(deskBack.x, desk.x) && near(monBack.x, mon.x),
+  `desk ${deskBack.x}, monitor ${monBack.x}`);
+await key('Escape');
+
 // The Desk Plant: dropped on the floor, then dragged (still selected, as it is right after placing) onto the desk
 await dragTile('Desk Plant', 0.5, 0.02, 0);
 const plant = (await store()).objects.find((o) => o.assetType === 'PLANT_SMALL');
@@ -324,6 +359,44 @@ log('v0.15.0 the move arrow, where it sticks out past the plant, still slides it
   /Move \/ rotate \/ scale/.test(arrowUndo ?? ''),
   `arrow to ${arrowAt?.toFixed(2)} m, (${plantOn.x}, ${plantOn.z}) → (${plantArrow.x.toFixed(2)}, ${plantArrow.z}), "${arrowUndo}"`);
 await key('Control+z');
+await key('Escape');
+
+// A door in the free-standing wall (drawn with the Wall tool above: x = 6, z −3 to 1): the wall is cut around it
+await pick('Doors & Windows', 'Door');
+await clickAt(wall.x, 2.8, wall.z);
+const afterCut = await store();
+const pieces = afterCut.objects.filter((o) => o.assetType === 'WALL_SEGMENT' && o.floor === 0);
+const wallDoor = afterCut.objects.find((o) => o.assetType === 'DOOR_SINGLE');
+const cutUndo = await undoTitle();
+log('v0.15.0 the Door tool on a wall drawn with the Wall tool: a door there, the wall cut into 3 pieces around it (one undo step "Add door")',
+  !afterCut.objects.some((o) => o.id === wall.id) && pieces.length === 3 && !!wallDoor &&
+  near(wallDoor.x, wall.x, 0.05) && near(wallDoor.z, wall.z, 0.3) && /Add door/.test(cutUndo ?? ''),
+  `${pieces.length} pieces, door ${wallDoor ? `(${wallDoor.x}, ${wallDoor.z})` : 'none'}, "${cutUndo}"`);
+await shot('t3d-door-in-wall.png');
+await key('Control+z');
+const uncut = (await store()).objects.filter((o) => o.assetType === 'WALL_SEGMENT' || o.assetType === 'DOOR_SINGLE');
+log('v0.15.0 Ctrl+Z gives the whole wall back (same id), no door', uncut.length === 1 && uncut[0].id === wall.id && near(uncut[0].scaleX, wall.scaleX, 0.001),
+  uncut.map((o) => o.assetType).join(', '));
+await key('Control+y');
+await key('Escape');
+
+// Sliding the room's door along its wall: select it, drag it (not a blue handle), one undo step
+await tile('Select');
+const dSlide = (await store()).rooms[0].doors[0];
+const slideX = room.x + dSlide.offset;
+await clickAt(slideX, 2.6, -3); // 2D: the wall over the door selects it
+const slideSel = await p.evaluate(() => window.__ahdusStore.getState().selectedOpening);
+await dragWorld([slideX + 0.35, 1.0, -3], [slideX + 0.35 - 1.0, 1.0, -3]);
+const slid = (await store()).rooms[0].doors[0];
+const slideUndo = await undoTitle();
+log('v0.15.0 a selected door dragged 1 m along its wall moves 1 m (same size), one undo step "Move door"',
+  slideSel?.kind === 'door' && near(slid.offset, dSlide.offset - 1, 0.06) && near(slid.width, dSlide.width, 0.001) && slid.wall === dSlide.wall &&
+  /Move door/.test(slideUndo ?? ''),
+  `offset ${dSlide.offset} → ${slid.offset}, width ${dSlide.width} → ${slid.width}, "${slideUndo}"`);
+await shot('t3e-door-slid.png');
+await key('Control+z');
+log('v0.15.0 Ctrl+Z slides the door back', near((await store()).rooms[0].doors[0].offset, dSlide.offset, 0.001),
+  `offset ${(await store()).rooms[0].doors[0].offset}`);
 await key('Escape');
 
 // ── Upper floor: the tools draw on the floor being edited ──
@@ -407,6 +480,25 @@ const locked = await deskNow();
 log('L locks it, and a locked item is not removed', !!locked && locked.isLocked === true);
 await key('KeyL');
 log('L again unlocks it', (await deskNow()).isLocked === false);
+
+// v0.15.0: G picks up what you look at, whatever is in your hand (here the Desk of slot 6); a click puts it down
+await key('Digit6');
+await key('KeyG');
+const gHint = await hintText();
+log('v0.15.0 G with the Desk in hand picks up the desk you look at', /Moving Standard Desk/.test(gHint), gHint.slice(0, 70));
+const poseG = await p.evaluate(() => { const v = window.__ahdusPlay.getPosition(); return { x: v.x, z: v.z }; });
+await p.evaluate((a) => window.__ahdusPlay.setPose(a), { x: poseG.x + 1.5, z: poseG.z, floor: 0 });
+await frames(4);
+await p.mouse.down(); await p.mouse.up(); await frames(3);
+const gMoved = await deskNow();
+const gCount = (await store()).objects.filter((o) => o.assetType === 'DESK_STANDARD').length;
+log('v0.15.0 a click puts it down somewhere else (no new desk built)',
+  Math.hypot(gMoved.x - desk.x, gMoved.z - desk.z) > 0.5 && gMoved.roomId === room.id && gCount === 1,
+  `(${desk.x}, ${desk.z}) → (${gMoved.x}, ${gMoved.z}), ${gCount} desk(s)`);
+await key('Control+z');
+const gBack = await deskNow();
+log('v0.15.0 Ctrl+Z moves it back', near(gBack.x, desk.x) && near(gBack.z, desk.z), `(${gBack.x}, ${gBack.z})`);
+await key('Digit9');
 
 // ── Edit item on a door: + / − width, Shift + / − height, 0 standard size ──
 const doorNow = async () => (await store()).rooms.find((r) => r.id === room.id).doors[0];
