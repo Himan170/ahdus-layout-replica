@@ -2,7 +2,7 @@
  * useStudioKeyboard.js
  *
  * Workplace Studio's keyboard shortcuts, moved as one piece out of WorkplaceEditor.jsx:
- * the keydown listener (Tab, Esc, 1–6, Delete, arrow keys, W / E / R, L, Ctrl+Z / Y / D;
+ * the keydown listener (Tab, Esc, 1–6, Delete, arrow keys, W / R / S, L, Ctrl+Z / Y / D;
  * in Preview only undo / redo; the AHDUS look's camera keys through cameraKeyRef) and the wheel
  * listener (height of the placement ghost).
  *
@@ -16,9 +16,10 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { STUDIO_TOOLS } from '../ui/tools';
 import { STAIRS_KEEP_SIZE } from '../play/building';
 import { findRoomAt } from '../play/geometry';
+import { turnStep } from '../play/carry';
 
 export function useStudioKeyboard({
-  editor, handleCancelPlacement, handleSetGizmoMode, handleEnterPlay, handleSetPlannerTool,
+  editor, handleCancelPlacement, handleToggleGizmo, handleTurnItem, handleTurnRoom, handleEnterPlay, handleSetPlannerTool,
   handleDeleteOpening, showStudioMessage, isPlayingRef, plannerToolsRef, measureModeRef, measureStartRef,
   placementManagerRef, snapRef, setMeasureMode, setMeasureStart, setMeasurePreview, setLayersOpen,
   setOpenTray, setAnnounceText,
@@ -146,24 +147,33 @@ export function useStudioKeyboard({
 
         case 'w':
         case 'W':
-          handleSetGizmoMode('position');
-          break;
-
-        case 'e':
-        case 'E':
-          handleSetGizmoMode('rotation');
+          // Move: show (or hide) the move arrows. Dragging an item moves it anyway.
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
+          if (store.selectedObjectId) handleToggleGizmo('position');
           break;
 
         case 'r':
-        case 'R':
-          // During placement: rotate preview 45°. Otherwise: scale gizmo.
+        case 'R': {
+          // v0.15.1, one way to turn (as in Walk through): R = 90°, Shift+R = 15°
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
           if (placementManagerRef.current?.isActive()) {
-            placementManagerRef.current.rotatePreview();
-          } else if (store.objects[store.selectedObjectId]?.assetType === 'STAIRCASE') {
-            showStudioMessage(STAIRS_KEEP_SIZE);
-          } else {
-            handleSetGizmoMode('scale');
+            placementManagerRef.current.rotatePreview(turnStep(e.shiftKey));
+          } else if (store.selectedObjectId && !store.selectedOpening) {
+            handleTurnItem(store.selectedObjectId, e.shiftKey);
+          } else if (store.selectedRoomId && !store.selectedOpening) {
+            if (e.shiftKey) showStudioMessage('Rooms turn in quarter turns: press R');
+            else handleTurnRoom(store.selectedRoomId);
           }
+          break;
+        }
+
+        case 's':
+        case 'S':
+          // Resize: show (or hide) the size handles (was R before v0.15.1)
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
+          if (!store.selectedObjectId) break;
+          if (store.objects[store.selectedObjectId]?.assetType === 'STAIRCASE') showStudioMessage(STAIRS_KEEP_SIZE);
+          else handleToggleGizmo('scale');
           break;
 
         case 'l':
@@ -224,5 +234,5 @@ export function useStudioKeyboard({
       window.removeEventListener('wheel', handleWheel);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the refs and state setters passed in are stable
-  }, [editor, handleCancelPlacement, handleSetGizmoMode, handleEnterPlay, handleSetPlannerTool, handleDeleteOpening, showStudioMessage]);
+  }, [editor, handleCancelPlacement, handleToggleGizmo, handleTurnItem, handleTurnRoom, handleEnterPlay, handleSetPlannerTool, handleDeleteOpening, showStudioMessage]);
 }

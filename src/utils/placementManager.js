@@ -185,9 +185,10 @@ export function createPlacementManager(scene, options = {}) {
   }
 
   // ── R key: rotate 45° ──
-  function rotatePreview() {
+  /** R turns what you are placing (90°, Shift+R 15°: carry.turnStep). */
+  function rotatePreview(step = Math.PI / 2) {
     if (!ghostRoot) return;
-    currentRotationY += Math.PI / 4; // 45 degrees
+    currentRotationY += step;
     ghostRoot.rotation.y = currentRotationY;
   }
 

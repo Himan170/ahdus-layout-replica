@@ -66,3 +66,11 @@ export function carryMoves(main, carried, target) {
   }
   return moves;
 }
+
+/** R turns an item a quarter turn (Studio and Walk through, v0.15.1); Shift+R a fine 15° step. */
+export const TURN_STEP = Math.PI / 2;
+export const FINE_TURN_STEP = Math.PI / 12;
+/** The turn of one R press: Shift (fine) = 15°, else 90°. */
+export const turnStep = (fine = false) => (fine ? FINE_TURN_STEP : TURN_STEP);
+/** "90°" / "15°" for messages. */
+export const turnText = (fine = false) => `${Math.round((turnStep(fine) * 180) / Math.PI)}°`;

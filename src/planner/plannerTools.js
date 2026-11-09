@@ -42,6 +42,7 @@ import {
   placementHeight,
 } from '../play/building';
 import { carriedBy, carryMoves } from '../play/carry';
+import { isDesk } from '../play/people';
 
 const FLOOR_Y = 0.02;
 const CLICK_SLOP = 5; // px the mouse may move with the button down and still count as a click
@@ -455,8 +456,8 @@ export function createPlannerTools(scene, canvas, {
     hover = { type: 'grabItem', objectId: obj.id };
     return {
       title: nameOf(obj),
-      detail: 'Drag to move it',
-      keys: [['Drag', 'Move'], ['Click', 'Select'], ['Delete', 'Remove']],
+      detail: isDesk(obj.assetType) ? 'Drag to move it with its chair' : 'Drag to move it',
+      keys: [['Drag', 'Move'], ['Click', 'Select'], ['R', 'Turn 90°'], ['Delete', 'Remove']],
     };
   }
 
@@ -509,8 +510,8 @@ export function createPlannerTools(scene, canvas, {
       hover = { type: 'grabRoom', roomId: room.id };
       return {
         title: room.name,
-        detail: `${formatRoomSize(room.width, room.depth)} · drag the floor to move`,
-        keys: [['Drag', 'Move the room']],
+        detail: `${formatRoomSize(room.width, room.depth)} · drag the floor to move it with its furniture`,
+        keys: [['Drag', 'Move the room'], ['R', 'Turn 90°']],
       };
     }
     // Doors and windows are not grab points: clicking one selects it. In 2D

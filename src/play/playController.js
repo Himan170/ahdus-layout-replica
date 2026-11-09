@@ -14,7 +14,7 @@
  *   Camera        V switches third-person / first-person
  *   Use tool      Left-click
  *   Remove        Right-click (cancels a half-drawn room/wall first)
- *   Rotate        R (furniture)
+ *   Rotate        R turns furniture 90°, Shift+R 15° (as in Studio)
  *   Pick up       G or middle-click: pick up the item you look at, whatever is in your hand
  *                 (also a left-click with an empty hand); click puts it down, R turns it
  *   Interact      E on what you look at (other modules decide what happens)
@@ -83,6 +83,7 @@ import {
   STAIRS_LEAD_NOWHERE,
 } from './building';
 import { WALK_SPEED as WALK, RUN_SPEED as RUN, FLY_SPEED as FLY } from './speeds';
+import { turnStep } from './carry';
 
 // ── Feel ──
 const JUMP_SPEED = 5.2;
@@ -498,7 +499,7 @@ export function createPlayController(scene, canvas, {
     ghost.rotation.y = ghostRotation;
 
     aim = { type: 'placeObject', x, y, z };
-    const keys = [['Left-click', 'Place'], ['R', 'Rotate'], ['G', 'Pick up'], ['Right-click', 'Remove']];
+    const keys = [['Left-click', 'Place'], ['R', 'Turn 90°'], ['G', 'Pick up'], ['Right-click', 'Remove']];
     if (tool.assetType === 'STAIRCASE' &&
         stairNeedsRoomAbove({ x, z, rotationY: ghostRotation, floor: currentLevel }, state().floors, state().rooms)) {
       return { title: tool.label, detail: STAIRS_NEED_ROOM, keys };
@@ -863,13 +864,13 @@ export function createPlayController(scene, canvas, {
       carry.mesh.rotation.y = carry.rotationY;
       if (s.problem) {
         aim = null;
-        return { title: `Moving ${itemName(obj)}`, detail: s.problem, bad: s.bad, keys: [['R', 'Turn'], ['Right-click', 'Cancel']] };
+        return { title: `Moving ${itemName(obj)}`, detail: s.problem, bad: s.bad, keys: [['R', 'Turn 90°'], ['Right-click', 'Cancel']] };
       }
       carry.mesh.position.set(s.x, s.worldY, s.z);
       aim = { type: 'dropItem', id: obj.id, x: s.x, y: s.y, z: s.z };
       return {
         title: `Moving ${itemName(obj)}`,
-        keys: [['Left-click', 'Put it here'], ['R', 'Turn'], ['Right-click', 'Cancel']],
+        keys: [['Left-click', 'Put it here'], ['R', 'Turn 90°'], ['Right-click', 'Cancel']],
       };
     }
     // ── A door / window picked up: it slides along its wall ──
@@ -898,7 +899,7 @@ export function createPlayController(scene, canvas, {
     return {
       title: itemName(obj),
       detail: itemSize(mesh),
-      keys: [['Left-click', 'Move'], ['R', 'Turn'], ['+ / −', 'Resize'], ['0', 'Normal size'], ['L', 'Lock']],
+      keys: [['Left-click', 'Move'], ['R', 'Turn 90°'], ['+ / −', 'Resize'], ['0', 'Normal size'], ['L', 'Lock']],
     };
   }
 
@@ -917,7 +918,7 @@ export function createPlayController(scene, canvas, {
     if (!(turn || bigger || smaller || reset || lock)) return false;
 
     if (carry && turn) {
-      carry.rotationY += Math.PI / 4;
+      carry.rotationY += turnStep(shift); // R = 90°, Shift+R = 15° (as in Studio)
       return true;
     }
     if (carry && lock) return true; // put it down first
@@ -949,7 +950,7 @@ export function createPlayController(scene, canvas, {
     }
     // Several presses in a row on one item are one undo step
     if (turn) {
-      actions.updateObject?.(obj.id, { rotationY: (obj.rotationY ?? 0) + Math.PI / 4 }, { label: `Turn ${itemName(obj)}`, mergeKey: 'play-turn' });
+      actions.updateObject?.(obj.id, { rotationY: (obj.rotationY ?? 0) + turnStep(shift) }, { label: `Turn ${itemName(obj)}`, mergeKey: 'play-turn' });
     } else if (reset) {
       actions.updateObject?.(obj.id, { scaleX: 1, scaleY: 1, scaleZ: 1 }, { label: `Resize ${itemName(obj)}` });
     } else {
@@ -985,7 +986,7 @@ export function createPlayController(scene, canvas, {
     // the item in your hand waits: its preview hides while you carry this one
     ghost?.setEnabled(false);
     pv.hideAll();
-    if (startCarry(obj)) say(`Picked up ${itemName(obj)}. Click to put it down, R turns it, right-click cancels.`, 3000);
+    if (startCarry(obj)) say(`Picked up ${itemName(obj)}. Click to put it down, R turns it 90° (Shift+R 15°), right-click cancels.`, 3000);
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -1281,7 +1282,7 @@ export function createPlayController(scene, canvas, {
         firstPerson = !firstPerson;
         break;
       case 'KeyR':
-        ghostRotation += Math.PI / 4;
+        ghostRotation += turnStep(e.shiftKey); // R = 90°, Shift+R = 15°
         break;
       case 'KeyB':
         onCatalog();

@@ -150,12 +150,6 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
 
       <Section title="Rotation">
         <div className="insp-rotation">
-          <input
-            type="range" min={-180} max={180} step={5}
-            aria-label="Rotation slider"
-            value={deg}
-            onChange={(e) => commit({ rotationY: toRad(parseFloat(e.target.value)) })}
-          />
           <NumberField label="Angle" value={deg} step={5} digits={0} suffix="°"
             onCommit={(v) => commit({ rotationY: toRad(v) })} />
         </div>

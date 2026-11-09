@@ -41,6 +41,7 @@ export default function SelectionToolbar({
   object,            // selected object (kind 'object')
   gizmoMode,
   onGizmoMode,
+  onTurn,            // an item: R's 90° turn (with its chair)
   onDuplicate,
   onDelete,
   onMoveRoom,        // says how to move a room
@@ -89,13 +90,13 @@ export default function SelectionToolbar({
     <div className="selection-toolbar is-labelled" ref={ref} data-hidden="true" role="toolbar"
       aria-label={isRoom ? 'Room actions' : 'Item actions'}>
       <ToolButton label="Move" text="Move" icon={Move}
-        title={isRoom ? "Move: drag the room's floor" : (locked ? 'Unlock it first to move it' : 'Move (W)')}
+        title={isRoom ? "Move: drag the room's floor" : (locked ? 'Unlock it first to move it' : 'Move: drag it, or show the arrows (W)')}
         pressed={!isRoom && gizmoMode === 'position'} disabled={!isRoom && locked}
-        onClick={() => (isRoom ? onMoveRoom() : onGizmoMode('position'))} />
+        onClick={() => (isRoom ? onMoveRoom() : onGizmoMode(gizmoMode === 'position' ? null : 'position'))} />
       <ToolButton label="Rotate" text="Rotate" icon={RotateCw}
-        title={isRoom ? 'Turn the room a quarter turn' : (locked ? 'Unlock it first to turn it' : 'Rotate (E)')}
-        pressed={!isRoom && gizmoMode === 'rotation'} disabled={!isRoom && locked}
-        onClick={() => (isRoom ? onTurnRoom() : onGizmoMode('rotation'))} />
+        title={isRoom ? 'Turn the room a quarter turn (R)' : (locked ? 'Unlock it first to turn it' : 'Turn 90° (R; Shift+R: 15°)')}
+        disabled={!isRoom && locked}
+        onClick={() => (isRoom ? onTurnRoom() : onTurn())} />
       <ToolButton label="Duplicate" text="Duplicate" icon={Copy}
         title={isRoom ? 'A copy of this room next to it' : 'Duplicate (Ctrl+D)'}
         onClick={isRoom ? onDuplicateRoom : onDuplicate} />

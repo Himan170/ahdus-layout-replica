@@ -26,7 +26,7 @@ const CONTROLS = [
   ['V', 'First / third person'],
   ['Left-click', 'Build with the item in your hand'],
   ['Right-click', 'Remove what you look at'],
-  ['R', 'Rotate furniture'],
+  ['R', 'Turn furniture 90° (Shift+R: 15°)'],
   ['G or middle-click', 'Pick up what you look at, then click to put it down'],
   ['9', 'Edit item: move, turn (R), resize (+ / −), lock (L), slide a door along its wall'],
   ['E', 'Use what you look at'],

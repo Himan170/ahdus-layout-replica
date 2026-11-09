@@ -71,3 +71,12 @@ describe('carryMoves', () => {
     expect(moves.every(([, p]) => !('rotationY' in p))).toBe(true);
   });
 });
+
+describe('R turns (v0.15.1)', () => {
+  it('R = 90°, Shift+R = 15°', async () => {
+    const { turnStep, turnText } = await import('../carry');
+    expect(turnStep()).toBeCloseTo(Math.PI / 2);
+    expect(turnStep(true)).toBeCloseTo(Math.PI / 12);
+    expect([turnText(), turnText(true)]).toEqual(['90°', '15°']);
+  });
+});

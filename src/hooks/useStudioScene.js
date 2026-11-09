@@ -273,7 +273,7 @@ export function useStudioScene({
     });
     gizmoControllerRef.current = gizmoCtrl;
     if (import.meta.env.DEV) window.__ahdusGizmo = gizmoCtrl; // e2e: gizmoScene() (the arrows), isPointerOver()
-    gizmoCtrl.setMode('position'); // default to position gizmo
+    gizmoCtrl.setMode(null); // v0.15.1: the arrows show only after Move (W); dragging moves an item
 
     // ── Pointer handlers (hooks/studioPointer.js) ──
     installStudioPointer({

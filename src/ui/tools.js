@@ -160,7 +160,7 @@ export const STUDIO_TOOLS = [
     label: 'Stairs',
     icon: Footprints,
     shortcut: '5',
-    hint: 'Click the floor to place the staircase. R turns it.',
+    hint: 'Click the floor to place the staircase. R turns it 90°.',
     options: [
       { id: 'staircase', label: 'Straight staircase', icon: Footprints, detail: '1.2 × 4 m, up one floor', place: 'STAIRCASE' },
       { id: 'lift', label: 'Lift', icon: ArrowUpDown, detail: 'Coming soon', disabled: true },
@@ -171,7 +171,7 @@ export const STUDIO_TOOLS = [
     label: 'Furniture',
     icon: Armchair,
     shortcut: '6',
-    hint: 'Click the floor or a table top to place it. R turns it, the wheel changes its height.',
+    hint: 'Click the floor or a table top to place it. R turns it 90° (Shift+R: 15°), the wheel changes its height.',
     // options: the Furniture library lists FURNITURE_ITEMS with search and categories
   },
 ];
@@ -193,7 +193,9 @@ export const SHORTCUT_GROUPS = [
   {
     title: 'Selected item',
     keys: [
-      [['W'], 'Move'], [['E'], 'Rotate'], [['R'], 'Resize'], [['L'], 'Lock or unlock'],
+      [['Drag'], 'Move it (a desk takes its chair)'], [['W'], 'Show the move arrows'],
+      [['R'], 'Turn 90°'], [['Shift', 'R'], 'Turn 15°'], [['S'], 'Resize handles'],
+      [['F'], 'Focus on it'], [['Double-click'], 'Focus on it'], [['L'], 'Lock or unlock'],
       [['Ctrl', 'D'], 'Duplicate'], [['Delete'], 'Delete'],
     ],
   },
@@ -201,14 +203,14 @@ export const SHORTCUT_GROUPS = [
     title: 'General',
     keys: [
       [['Ctrl', 'Z'], 'Undo'], [['Ctrl', 'Y'], 'Redo'], [['Esc'], 'Cancel, then deselect'],
-      [['Tab'], 'Walk through'], [['R'], 'Turn what you are placing'],
+      [['Tab'], 'Walk through'], [['R'], 'Turn what you are placing 90° (Shift+R: 15°)'],
     ],
   },
   {
     title: 'Camera',
     keys: [
       [[CAMERA_KEYS.top], 'Top view'], [[CAMERA_KEYS.front], 'Front view'], [[CAMERA_KEYS.side], 'Side view'],
-      [[CAMERA_KEYS.reset], 'Reset view'], [[CAMERA_KEYS.fit], 'Fit building'],
+      [[CAMERA_KEYS.reset], 'Reset view'], [[CAMERA_KEYS.fit], 'Fit building (with a selection: focus on it)'],
       [[CAMERA_KEYS.zoomIn], 'Zoom in'], [[CAMERA_KEYS.zoomOut], 'Zoom out'],
       [[CAMERA_KEYS.orbit], 'Orbit: drag turns the view'], [[CAMERA_KEYS.pan], 'Pan: drag slides the view'],
     ],
