@@ -427,17 +427,34 @@ await p.evaluate(() => document.activeElement?.blur()); await frames(3);
     saved.mode !== 'scale' && saved.mode === modeBefore && saved.prevented === true && saved.hint === 'Saved', JSON.stringify(saved));
 }
 await key('Escape');
-// v0.15.1: R on a room with furniture in it does nothing yet, and says why
+// v0.15.2: R on a room turns it WITH its furniture, around the room's centre; one Ctrl+Z puts it all back
 {
   await selectRoom(); await frames(2);
   await p.evaluate(() => document.activeElement?.blur());
   const before = await roomNow();
+  const inRoom = (o) => (o.floor ?? 0) === (before.floor ?? 0) &&
+    Math.abs(o.x - before.x) < before.width / 2 - 0.01 && Math.abs(o.z - before.z) < before.depth / 2 - 0.01;
+  const itemsBefore = (await store()).objects.filter(inRoom);
   await key('KeyR');
   const after = await roomNow();
+  const byId = Object.fromEntries((await store()).objects.map((o) => [o.id, o]));
   const text = await p.evaluate(() => document.body.innerText);
-  log('v0.15.1 R on a room with furniture leaves it as it is: "Turning a room with its furniture comes later"',
-    after.width === before.width && after.depth === before.depth && after.x === before.x && /Turning a room with its furniture comes later/.test(text),
-    `${before.width} × ${before.depth} → ${after.width} × ${after.depth}`);
+  // clockwise from above: an offset (dx, dz) from the centre goes to (dz, −dx), and the item turns 90°
+  const turnedRight = itemsBefore.every((o) => {
+    const now = byId[o.id];
+    return !!now && Math.abs(now.x - (before.x + (o.z - before.z))) < 0.002 && Math.abs(now.z - (before.z - (o.x - before.x))) < 0.002 &&
+      Math.abs((now.rotationY ?? 0) - ((o.rotationY ?? 0) + Math.PI / 2)) < 1e-6;
+  });
+  log('v0.15.2 R turns a room with its furniture: width and depth swap, every item goes round the centre and turns 90°',
+    itemsBefore.length >= 2 && after.width === before.depth && after.depth === before.width && after.x === before.x && after.z === before.z &&
+    turnedRight && !/comes later|furniture stays/.test(text),
+    `${before.width} × ${before.depth} → ${after.width} × ${after.depth}, ${itemsBefore.length} items in it, turned right: ${turnedRight}`);
+  await p.keyboard.press('Control+z'); await frames(3);
+  const back = await roomNow();
+  const backItems = Object.fromEntries((await store()).objects.map((o) => [o.id, o]));
+  log('v0.15.2 one Ctrl+Z puts the room and all its furniture back',
+    back.width === before.width && back.depth === before.depth &&
+    itemsBefore.every((o) => backItems[o.id]?.x === o.x && backItems[o.id]?.z === o.z && (backItems[o.id]?.rotationY ?? 0) === (o.rotationY ?? 0)));
   await key('Escape');
 }
 
@@ -554,15 +571,18 @@ await p.evaluate(() => window.__ahdusStore.getState().selectFloor(0)); await fra
 // ── Preview: Edit item tool on what you look at ──
 await tile('3D view'); await frames(3);
 await p.keyboard.press('Tab'); await wait(800);
+// v0.15.2: Walk through no longer captures the mouse by itself. These checks aim with the crosshair in
+// the middle of the view, so they turn mouse look on (M), which works as Preview did before
 if (!(await p.evaluate(() => !!document.pointerLockElement))) {
-  await p.click('button:has-text("Start preview")'); await wait(400);
+  await p.keyboard.press('KeyM');
+  await p.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 10000 }).catch(() => {});
 }
 // v0.15.1: Walk through starts with an empty hand (no slot chosen)
 await frames(3);
 const startHand = await p.evaluate(() => ({
   pressed: document.querySelectorAll('.hud-slot[aria-pressed="true"]').length,
   slots: document.querySelectorAll('.hud-slot').length,
-  empty: document.body.innerText.includes('Empty hand'),
+  empty: document.body.innerText.includes('Click the floor to walk there') // v0.15.2: the empty hand's hint (was "Empty hand"),
 }));
 log('v0.15.1 Walk through starts with an empty hand (no slot chosen)', startHand.slots > 0 && startHand.pressed === 0 && startHand.empty,
   JSON.stringify(startHand));

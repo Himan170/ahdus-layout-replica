@@ -1329,32 +1329,64 @@ export function resetOpeningSize(rooms, room, kind, index, context) {
 /** A quarter turn clockwise on the plan (north up, east right): where each wall goes, and the offset's sign. */
 const QUARTER_TURN = { north: ['east', -1], east: ['south', 1], south: ['west', -1], west: ['north', 1] };
 
+/** A room's doors or windows after a quarter turn clockwise (each goes round with its wall). */
+const turnOpenings = (list = []) => list.map((o) => {
+  const [wall, sign] = QUARTER_TURN[o.wall] ?? [o.wall, 1];
+  return { ...o, wall, offset: (o.offset ?? 0) * sign };
+});
+
 /**
- * Turn a room a quarter turn about its centre: width and depth swap, its doors and windows go
- * round with their walls. Refused when rooms stand inside it, when a door or window is shared
- * with another room, or when the turned room would overlap one. Its items stay where they are
- * (as when a room is moved).
- * @returns {{ problem: string } | { problem: null, patch: { width, depth, doors, windows } }}
+ * Turn a room a quarter turn clockwise (seen from above, north up) about its centre: width and
+ * depth swap, its doors and windows go round with their walls. What is in it turns with it, around
+ * the room's centre (v0.15.2): the rooms inside it (any depth; their doors and windows too) and
+ * every item whose centre is in it (locked ones too, as when a room moves), each item turned 90°.
+ * Refused when a door or window of the room or of a room inside it is shared with a room that
+ * does not turn, or when the turned room would overlap a room or stick out of the room it stands in.
+ * @param {object}   room
+ * @param {object[]} rooms     rooms (any floors)
+ * @param {object[]} [objects] items (any floors)
+ * @returns {{ problem: string } | { problem: null,
+ *   patch: { width, depth, doors, windows },
+ *   rooms: [string, { x, z, width, depth, doors, windows }][],
+ *   objects: [string, { x: number, z: number, rotationY: number }][] }}
  */
-export function planRoomTurn(room, rooms) {
-  const others = rooms.filter((r) => r.id !== room.id && floorOf(r) === floorOf(room));
-  const inside = others.find((r) => roomContainedBy(room, r));
-  if (inside) return { problem: `${inside.name} is inside it: it can't turn with it` };
-  for (const kind of ['door', 'window']) {
-    const list = (kind === 'door' ? room.doors : room.windows) ?? [];
-    for (let i = 0; i < list.length; i++) {
-      const partner = openingPartner(rooms, room, kind, i);
-      if (partner) return { problem: `A ${kind} is shared with ${partner.room.name}. Remove it first.` };
+export function planRoomTurn(room, rooms, objects = []) {
+  const inside = roomsInside(room, rooms);
+  const turning = new Set([room.id, ...inside.map((r) => r.id)]);
+  for (const r of [room, ...inside]) {
+    for (const kind of ['door', 'window']) {
+      const list = (kind === 'door' ? r.doors : r.windows) ?? [];
+      for (let i = 0; i < list.length; i++) {
+        const partner = openingPartner(rooms, r, kind, i);
+        if (partner && !turning.has(partner.room.id)) {
+          return { problem: `A ${kind} is shared with ${partner.room.name}. Remove it first.` };
+        }
+      }
     }
   }
   const rect = { x: room.x, z: room.z, width: room.depth, depth: room.width };
-  const blocker = roomRectBlocker(room, rect, rooms);
-  if (blocker) return { problem: `Turned, it would overlap ${blocker.name}` };
-  const turn = (list = []) => list.map((o) => {
-    const [wall, sign] = QUARTER_TURN[o.wall] ?? [o.wall, 1];
-    return { ...o, wall, offset: (o.offset ?? 0) * sign };
-  });
-  return { problem: null, patch: { width: rect.width, depth: rect.depth, doors: turn(room.doors), windows: turn(room.windows) } };
+  // the rooms inside turn with it: they neither block the turn nor need to fit the old shape
+  const others = rooms.filter((r) => !inside.includes(r));
+  const blocker = roomRectBlocker(room, rect, others);
+  if (blocker) {
+    return {
+      problem: roomContainedBy(blocker, room)
+        ? `Turned, it would not fit inside ${blocker.name}`
+        : `Turned, it would overlap ${blocker.name}`,
+    };
+  }
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+  // clockwise from above: north → east, so an offset (dx, dz) from the centre goes to (dz, −dx)
+  const about = (x, z) => ({ x: r3(room.x + (z - room.z)), z: r3(room.z - (x - room.x)) });
+  return {
+    problem: null,
+    patch: { width: rect.width, depth: rect.depth, doors: turnOpenings(room.doors), windows: turnOpenings(room.windows) },
+    rooms: inside.map((r) => [r.id, {
+      ...about(r.x, r.z), width: r.depth, depth: r.width, doors: turnOpenings(r.doors), windows: turnOpenings(r.windows),
+    }]),
+    objects: objects.filter((o) => itemInRoom(room, o))
+      .map((o) => [o.id, { ...about(o.x ?? 0, o.z ?? 0), rotationY: (o.rotationY ?? 0) + Math.PI / 2 }]),
+  };
 }
 
 /**

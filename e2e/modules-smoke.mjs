@@ -77,8 +77,11 @@ await p.evaluate(() => window.__ahdusScene.getEngine().setHardwareScalingLevel(2
 await p.mouse.move(640, 360);
 // The editor opens in Workplace Studio; this test covers Preview
 await p.click('[aria-label="Walk through"]'); await wait(800);
+// v0.15.2: Walk through no longer captures the mouse by itself. These checks aim with the crosshair in
+// the middle of the view, so they turn mouse look on (M), which works as Preview did before
 if (!(await p.evaluate(() => !!document.pointerLockElement))) {
-  await p.click('button:has-text("Start preview")'); await wait(400);
+  await p.keyboard.press('KeyM');
+  await p.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 10000 }).catch(() => {});
 }
 log('demo modules are loaded', await p.locator('text=Demo modules on').isVisible());
 
@@ -175,8 +178,11 @@ log('Ctrl+Z / Ctrl+Y undo and redo the link', Object.keys(afterUndo).length === 
 // ── Back to Preview: E on the linked desk → Yashashwi demo ──
 await p.keyboard.press('Tab'); await wait(1500);
 await p.mouse.move(640, 360);
+// v0.15.2: Walk through no longer captures the mouse by itself. These checks aim with the crosshair in
+// the middle of the view, so they turn mouse look on (M), which works as Preview did before
 if (!(await p.evaluate(() => !!document.pointerLockElement))) {
-  await p.click('button:has-text("Start preview")').catch(() => {}); await wait(400);
+  await p.keyboard.press('KeyM');
+  await p.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 10000 }).catch(() => {});
 }
 prompt = await lookAt(9.5, 1.2, /See handover notes/);
 log('the linked desk now offers "E See handover notes"', /See handover notes/.test(prompt), prompt);

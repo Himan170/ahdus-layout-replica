@@ -24,9 +24,10 @@ import '@babylonjs/core/Gizmos/boundingBoxGizmo';
  *
  * @param {BABYLON.Scene} scene
  * @param {Function} onTransformEnd — (meshId, { x, y, z, rotationX, ... }) called after drag
+ * @param {Function} [onMoveLive] — (meshId, { x, y, z }) while a move arrow is dragged (v0.15.2)
  * @returns {{ setMode, attachToMesh, detach, isAttached, isPointerOver, getMode, gizmoScene, dispose }}
  */
-export function createGizmoController(scene, onTransformEnd) {
+export function createGizmoController(scene, onTransformEnd, onMoveLive = null) {
   const gizmoManager = new GizmoManager(scene);
 
   // Start with all gizmos off
@@ -42,6 +43,7 @@ export function createGizmoController(scene, onTransformEnd) {
   let attachedMesh = null;
   let attachedObjectId = null;
   let fixedShape = false;      // a staircase: it moves on its floor and turns about Y only, no scale
+  let liveObservers = [];      // [observable, observer] of the move arrows' drags (onMoveLive)
 
   /**
    * A staircase is drawn as it is walked on (building.stairDrawn): no scale gizmo, no tilting.
@@ -100,6 +102,21 @@ export function createGizmoController(scene, onTransformEnd) {
         gizmo.zGizmo.dragBehavior?.onDragEndObservable?.add(syncTransform);
       }
     };
+
+    // While a move arrow is dragged: tell where the item is now (its chair follows, the Inspector's X / Z)
+    const live = () => {
+      if (!attachedMesh || !attachedObjectId || !onMoveLive) return;
+      const p = attachedMesh.position;
+      onMoveLive(attachedObjectId, { x: p.x, y: p.y, z: p.z });
+    };
+    // (never clear() this observable: the arrow's own observer on it is what moves the item)
+    liveObservers.forEach(([observable, observer]) => observable.remove(observer));
+    liveObservers = [];
+    const move = gizmoManager.gizmos?.positionGizmo;
+    for (const axis of [move?.xGizmo, move?.zGizmo]) {
+      const observable = axis?.dragBehavior?.onDragObservable;
+      if (observable) liveObservers.push([observable, observable.add(live)]);
+    }
 
     if (gizmoManager.gizmos) {
       attachDragEnd(gizmoManager.gizmos.positionGizmo);

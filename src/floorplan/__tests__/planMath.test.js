@@ -6,6 +6,7 @@ import {
 } from '../planMath';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 import { wallSegmentData } from '../../play/geometry';
+import { deskSeat } from '../../play/people';
 
 const len = (s) => Math.hypot(s.b.x - s.a.x, s.b.z - s.a.z);
 
@@ -131,6 +132,41 @@ describe('planDrop: moving an item in the plan follows Studio\'s rules', () => {
     const chair = { id: 'c', assetType: 'CHAIR_OFFICE', x: 0, y: 0, z: 0 };
     expect(planDrop(chair, { x: 20, z: 20 }, { rooms: [room], ground: true }).y).toBe(0);
     expect(planDrop(chair, { x: 20, z: 20 }, { rooms: [room], ground: false }).y).toBeCloseTo(0.02);
+  });
+
+  it('a desk dragged onto its own chair\'s old spot stays on the floor (the chair moves with it)', () => {
+    // Found on a real layout (v0.15.1): a desk dragged 0.95 m north ended at Height 1.10 m, on its own chair
+    const d = { id: 'd', assetType: 'DESK_STANDARD', x: 13.45, y: 0.02, z: -14.45, rotationY: 0 };
+    const chair = { id: 'c', assetType: 'CHAIR_OFFICE', x: 13.45, y: 0.02, z: -13.75, rotationY: Math.PI };
+    const monitor = { id: 'm', assetType: 'MONITOR_DUAL', x: 13.45, y: 0.02 + deskTop, z: -14.45 };
+    const objects = [d, chair, monitor];
+    expect(deskSeat(d, objects)?.id).toBe('c');
+    const big = { id: 'r', x: 13, z: -14, width: 10, depth: 10 };
+    expect(planDrop(d, { x: 13.5, z: -13.5 }, { objects, rooms: [big] }).y).toBeCloseTo(0.02);
+    // what stands on it is no surface for it either
+    expect(planDrop(d, { x: 13.5, z: -14.45 }, { objects, rooms: [big] }).y).toBeCloseTo(0.02);
+    // someone else's chair there still is (only what moves with it is ignored)
+    const other = { id: 'o', assetType: 'CHAIR_OFFICE', x: 13.5, y: 0.02, z: -13.5, rotationY: 0 };
+    expect(planDrop(d, { x: 13.5, z: -13.5 }, { objects: [d, monitor, other], rooms: [big] }))
+      .toEqual({ problem: 'Standard Desk stands on the floor' });
+    // a list of ids to ignore works too
+    expect(planDrop(d, { x: 13.5, z: -13.5 }, { objects: [d, other], rooms: [big], ignore: ['o'] }).y).toBeCloseTo(0.02);
+  });
+
+  it('a floor-only item over a desk does not move, and says why', () => {
+    const plant = { id: 'p', assetType: 'PLANT_LARGE', x: 3, y: 0.02, z: 3 };
+    expect(planDrop(plant, { x: 0.1, z: 0 }, { objects: [desk, plant], rooms: [room] }))
+      .toEqual({ problem: 'Large Plant stands on the floor' });
+    expect(planDrop(plant, { x: 2.5, z: 1.5 }, { objects: [desk, plant], rooms: [room] }).y).toBeCloseTo(0.02);
+  });
+
+  it('a desk dragged over a rug or the spawn point goes there (they lie on the floor)', () => {
+    const rug = { id: 'rug', assetType: 'RUG', x: 2, y: 0.02, z: 1 };
+    const spawn = { id: 's', assetType: 'SPAWN_POINT', x: -2, y: 0.02, z: 1 };
+    const to = planDrop(desk, { x: 2, z: 1 }, { objects: [desk, rug, spawn], rooms: [room] });
+    expect(to).toMatchObject({ x: 2, z: 1 });
+    expect(to.y).toBeCloseTo(0.02); // on the floor, not on top of the rug
+    expect(planDrop(desk, { x: -2, z: 1 }, { objects: [desk, rug, spawn], rooms: [room] }).y).toBeCloseTo(0.02);
   });
 
   it('never stacks an item on itself', () => {

@@ -339,7 +339,8 @@ await inspectorSettled();
 box = await deskShape.boundingBox();
 await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 await page.mouse.down();
-await page.mouse.move(box.x + box.width / 2 + 120, box.y + box.height / 2, { steps: 8 });
+// (up and to the right: straight to the right its chair stands, and since v0.15.2 a desk can't be put on a chair)
+await page.mouse.move(box.x + box.width / 2 + 120, box.y + box.height / 2 - 70, { steps: 8 });
 await page.mouse.up();
 await page.waitForTimeout(300);
 const deskAt = () => page.evaluate((id) => { const o = window.__ahdusStore.getState().objects[id]; return { x: o.x, z: o.z }; }, planDesk.id);
@@ -352,6 +353,42 @@ log('Plan view: Enter selects a room, click selects the desk, dragging moves it 
   planShown && !!roomByKey && deskPicked === planDesk.id && moved.x > planDesk.x && moved.x % 0.5 === 0 &&
   undone.x === planDesk.x && undone.z === planDesk.z,
   `room=${!!roomByKey} x ${planDesk.x} → ${moved.x} → ${undone.x}`);
+// v0.15.2 (found on a real layout): a desk dragged in Plan view onto the spot where its OWN chair stood
+// landed on that chair (Height 1.10 m). The chair moves with it, so it is no surface for it
+{
+  const chairId = await page.evaluate((d) => {
+    const st = window.__ahdusStore.getState();
+    // its chair: 0.7 m in front of its work side (+Z), facing it
+    return st.addObject({ assetType: 'CHAIR_OFFICE', x: d.x, y: d.y ?? 0.02, z: d.z + 0.7, rotationY: Math.PI, floor: d.floor ?? 0, roomId: d.roomId ?? null }).id;
+  }, planDesk);
+  await page.waitForTimeout(300);
+  await inspectorSettled();
+  const chairShape = page.locator(`[data-object-id="${chairId}"] .floor-plan-shape`);
+  const from = await deskShape.boundingBox();
+  const onto = await chairShape.boundingBox();
+  // drag the desk (grabbed off its centre, clear of the chair) north by the distance to its chair
+  const dy = (onto.y + onto.height / 2) - (from.y + from.height / 2);
+  const gx = from.x + from.width * 0.2;
+  const gy = from.y + from.height * 0.75;
+  await page.mouse.move(gx, gy);
+  await page.mouse.down();
+  await page.mouse.move(gx, gy + dy, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const after = await page.evaluate(([d, c]) => {
+    const o = window.__ahdusStore.getState().objects;
+    return { desk: { x: o[d].x, y: o[d].y, z: o[d].z }, chair: { x: o[c].x, y: o[c].y, z: o[c].z } };
+  }, [planDesk.id, chairId]);
+  const movedZ = after.desk.z - planDesk.z;
+  log('v0.15.2 Plan view: a desk dragged onto the old spot of its own chair stays on the floor, and the chair goes along',
+    Math.abs(movedZ) > 0.4 && Math.abs(after.desk.y - (planDesk.y ?? 0.02)) < 0.01 &&
+    Math.abs((after.chair.z - after.desk.z) - 0.7) < 0.01 && Math.abs(after.chair.x - after.desk.x) < 0.01,
+    `desk z ${planDesk.z} → ${after.desk.z}, height ${after.desk.y}; chair z ${after.chair.z}`);
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(300);
+  await page.evaluate((id) => window.__ahdusStore.getState().removeObject?.(id) ?? window.__ahdusStore.getState().deleteObject?.(id), chairId);
+  await page.waitForTimeout(200);
+}
 await click(was3D ? '[aria-label="3D view"]' : '[aria-label="2D view"]');
 await page.keyboard.press('Escape'); await frames(2);
 

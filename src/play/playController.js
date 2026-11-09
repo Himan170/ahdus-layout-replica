@@ -77,13 +77,15 @@ import {
   wallLine, OVERHANG_WARNING, planWallSegmentOpening, moveOpening,
 } from './geometry';
 import {
-  levelForY, elevationOf, supportHeight, stairHeightAt, floorAbove, floorBelow, placementHeight,
+  levelForY, elevationOf, supportHeight, stairHeightAt, floorAbove, floorBelow, placementHeight, canStandOn, floorOnlyText,
   floorHeight, floorPosition, stairDimsFor, stairNeedsRoomAbove, arrivalOnFloor, planWallHeight,
   HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, wallHeightText, stairPushOut, STAIRS_KEEP_SIZE,
   STAIRS_LEAD_NOWHERE,
 } from './building';
 import { WALK_SPEED as WALK, RUN_SPEED as RUN, FLY_SPEED as FLY } from './speeds';
-import { turnStep } from './carry';
+import { turnStep, carriedBy, carryDrop } from './carry';
+import { roomItemLabel } from './hotbarItems';
+import { ridersOf } from '../utils/itemRiders';
 
 // ── Feel ──
 const JUMP_SPEED = 5.2;
@@ -253,11 +255,22 @@ export function createPlayController(scene, canvas, {
   onPointClick = () => {},  // look 'drag': (clickTarget(x, y)) => void   a plain left click on the view
   onDoubleClick = () => {}, // look 'drag': () => void   a double-click (the mouse is being captured)
   onLockChange = () => {},  // (locked) => void   the mouse was captured / released
+  // Studio's Walk through with look 'drag' (v0.15.2):
+  onEmptyHand = () => {},   // () => void   Esc with an item in your hand: put it away
+  onDeactivate = () => {},  // () => void   walking ends (a click's walk is stopped by the caller)
 }) {
   const onPage = typeof isEngaged === 'function';
   const dragMode = look === 'drag';
-  /** Do the keys move the character now? (Preview: while the mouse is captured.) */
-  const keysLive = () => (onPage ? isEngaged() : locked);
+  /**
+   * Studio's Walk through with the easy controls (v0.15.2: look 'drag', not on someone's page): drag
+   * to look, and everything is aimed at the MOUSE, not at the middle of the view. An empty hand: a
+   * click walks there (onPointClick). An item or a tool in your hand: a click uses it there. M (or
+   * lockMouse) = the old mouse look with its crosshair, until Esc.
+   */
+  const mouseAim = dragMode && !onPage;
+  let keysPaused = false; // a dialog over the view (the catalog, "New floor above"): setKeysPaused
+  /** Do the keys move the character now? (Preview with mouse capture: while the mouse is captured.) */
+  const keysLive = () => (onPage ? isEngaged() : mouseAim ? !keysPaused : locked);
   // ── Camera ──
   const camera = new FreeCamera('playCamera', new Vector3(0, 3, -10), scene);
   camera.minZ = 0.05;
@@ -339,6 +352,18 @@ export function createPlayController(scene, canvas, {
     Math.sin(pitch),
     Math.cos(yaw) * Math.cos(pitch),
   );
+  // Where the mouse is on the view (CSS px; mouseAim). null = not known yet: the middle of the view.
+  let pointer = null;
+  /** Aiming at the mouse now? (Not in mouse look: there the crosshair in the middle is the aim.) */
+  const aimsAtMouse = () => mouseAim && !locked && !!pointer;
+  /** What you aim along: from the camera through the mouse (mouseAim), else through the crosshair. */
+  function aimLine() {
+    if (aimsAtMouse()) {
+      const ray = scene.createPickingRay(pointer.x, pointer.y, null, camera);
+      return { origin: ray.origin, dir: ray.direction };
+    }
+    return { origin: camera.position, dir: lookDir() };
+  }
   const state = () => getState();
   // Rooms on the floor the character is on (not the planner's floor)
   const floorRooms = () => state().rooms.filter((r) => r.floor === currentLevel);
@@ -378,7 +403,7 @@ export function createPlayController(scene, canvas, {
   const isPlayerMesh = (m) => m === collider || m.isDescendantOf?.(character.root);
   const isGhostMesh = (m) =>
     (ghost && (m === ghost || m.isDescendantOf?.(ghost))) ||
-    (carry && (m === carry.mesh || m.isDescendantOf?.(carry.mesh))) ||
+    (carry && carry.meshes.some((c) => m === c || m.isDescendantOf?.(c))) ||
     pv.owns(m);
   const itemName = (o) => o?.label || ASSET_TYPES[o?.assetType]?.label || 'Item';
 
@@ -435,34 +460,69 @@ export function createPlayController(scene, canvas, {
     const mesh = getObjectMesh(obj.id);
     if (!mesh) return false;
     setOutline(null);
-    const meshes = [mesh, ...mesh.getChildMeshes(false)];
+    // v0.15.2: a desk takes its chair and what stands on it, as in Studio (carry.carriedBy)
+    const objects = state().objects;
+    const items = carriedBy(obj, objects, ridersOf(obj, mesh, objects, elevationOf(state().floors, obj.floor ?? 0)))
+      .map(({ item, onTop }) => ({ item, onTop, mesh: getObjectMesh(item.id) }))
+      .filter((c) => c.mesh);
+    const roots = [mesh, ...items.map((c) => c.mesh)];
+    const meshes = roots.flatMap((r) => [r, ...r.getChildMeshes(false)]);
     carry = {
       id: obj.id,
       mesh,
+      from: { ...obj },          // where it was picked up (the carried items keep their place relative to this)
+      items,                     // [{ item, onTop, mesh }]: its chair, what stands on it
+      meshes: roots,             // never aimed at, never a surface for it
       rotationY: obj.rotationY ?? 0,
-      // don't bump into the item you are carrying
+      // don't bump into what you are carrying
       collisions: meshes.map((m) => [m, m.checkCollisions]),
     };
     meshes.forEach((m) => { m.checkCollisions = false; });
     return true;
   }
 
+  /** Where the carried item and what it takes along would go, put down at `s` (aimSurface's spot). */
+  const carryPlan = (s) => carryDrop(carry.from, carry.items, { x: s.x, y: s.y, z: s.z, rotationY: carry.rotationY });
+
+  /** While carrying: the chair and what stands on the item follow it (meshes only, nothing saved). */
+  function moveCarried(s) {
+    if (!carry.items.length) return;
+    const elev = levelElev();
+    carryPlan(s).slice(1).forEach(([, p], i) => {
+      const c = carry.items[i];
+      if (c.mesh.isDisposed?.()) return;
+      c.mesh.position.set(p.x, elev + p.y, p.z);
+      c.mesh.rotation.y = p.rotationY ?? c.item.rotationY ?? 0;
+    });
+  }
+
+  /** "with its chair · with the 2 items on it": what goes along, for the hint. */
+  function carriedText() {
+    if (!carry?.items.length) return undefined;
+    const riders = carry.items.filter((c) => c.onTop).length;
+    const chair = carry.items.some((c) => !c.onTop);
+    return [chair && 'with its chair', riders && `with ${riders === 1 ? 'the item' : `the ${riders} items`} on it`]
+      .filter(Boolean).join(' · ');
+  }
+
   /** Stop carrying; `restore` puts the mesh back where the store says it is. */
   function endCarry(restore) {
     if (!carry) return;
     carry.collisions.forEach(([m, c]) => { m.checkCollisions = c; });
-    const o = state().objects.find((x) => x.id === carry.id);
-    if (restore && o && !carry.mesh.isDisposed()) {
-      carry.mesh.position.set(o.x, elevationOf(state().floors, o.floor ?? 0) + (o.y ?? 0), o.z);
-      carry.mesh.rotation.y = o.rotationY ?? 0;
+    if (restore) {
+      for (const [id, mesh] of [[carry.id, carry.mesh], ...carry.items.map((c) => [c.item.id, c.mesh])]) {
+        const o = state().objects.find((x) => x.id === id);
+        if (!o || mesh.isDisposed?.()) continue;
+        mesh.position.set(o.x, elevationOf(state().floors, o.floor ?? 0) + (o.y ?? 0), o.z);
+        mesh.rotation.y = o.rotationY ?? 0;
+      }
     }
     carry = null;
   }
 
   /** Point on the ground plane the crosshair is aiming at */
   function aimGround(maxDist) {
-    const origin = camera.position;
-    const dir = lookDir();
+    const { origin, dir } = aimLine();
     if (dir.y > -0.01) return null;
     const t = (levelElev() + ROOM_FLOOR_Y - origin.y) / dir.y;
     if (t < 0) return null;
@@ -477,7 +537,8 @@ export function createPlayController(scene, canvas, {
    * aiming through a door at a desk targets the desk.
    */
   function aimPick(predicate, maxDist = REACH + CAM_DISTANCE, { panes = false } = {}) {
-    const ray = new Ray(camera.position, lookDir(), maxDist);
+    const { origin, dir } = aimLine();
+    const ray = new Ray(origin, dir, maxDist);
     const hit = scene.pickWithRay(ray, (m) =>
       m.isPickable && m.isEnabled() && m.isVisible !== false && !isPlayerMesh(m) && !isGhostMesh(m) &&
       (panes || !m.metadata?.pickPane) && predicate(m));
@@ -496,7 +557,7 @@ export function createPlayController(scene, canvas, {
    * top of furniture (a monitor on a desk). Not the ground under an upper
    * floor, not the storey below. Returns {x, z, worldY, y} or {problem, bad}.
    */
-  function aimSurface() {
+  function aimSurface(assetType = null) {
     const hit = aimPick((m) =>
       (m.name === 'ground' && levelElev() === 0) ||
       ((m.metadata?.part === 'floor' || !!objectIdOf(m)) && onThisLevel(m)));
@@ -507,11 +568,16 @@ export function createPlayController(scene, canvas, {
     const surface = objectIdOf(hit.pickedMesh) ? 'object' : hit.pickedMesh.name === 'ground' ? 'ground' : 'floor';
     const h = placementHeight({ surface, normalY: hit.getNormal(true)?.y ?? 0, pointY: p.y, elevation: levelElev() });
     if (!h) return { problem: 'Aim at the floor or the top of a table', bad: true };
+    // a floor-only item (a Large Plant) can't go on a table top
+    const under = surface === 'object' ? state().objects.find((o) => o.id === objectIdOf(hit.pickedMesh)) : null;
+    if (assetType && !canStandOn(assetType, surface, under?.assetType)) {
+      return { problem: floorOnlyText(ASSET_TYPES[assetType]?.label), bad: true };
+    }
     return { x: snap(p.x, 0.25), z: snap(p.z, 0.25), worldY: h.worldY, y: h.y };
   }
 
   function updateObjectTool() {
-    const s = aimSurface();
+    const s = aimSurface(tool.assetType);
     if (s.problem) {
       ghost?.setEnabled(false);
       aim = null;
@@ -537,21 +603,23 @@ export function createPlayController(scene, canvas, {
     return { title: tool.label, keys };
   }
 
+  /** "Office room", "Meeting Room" (never "Meeting Room room"): the room tool's name in the hint. */
+  const roomTitle = () => roomItemLabel(ROOM_TYPES[tool.roomType]?.label ?? 'New');
+
   function updateRoomTool() {
     const p = aimGround(FLOOR_REACH);
     if (!p) {
       pv.hide('room');
       aim = null;
-      return { title: `${ROOM_TYPES[tool.roomType]?.label ?? 'New'} room`, detail: cornerA ? 'Look down at the ground for the opposite corner' : 'Look at the ground to start the room' };
+      return { title: roomTitle(), detail: cornerA ? 'Look down at the ground for the opposite corner' : 'Look at the ground to start the room' };
     }
     const point = { x: snap(p.x, 0.5), z: snap(p.z, 0.5) };
-    const label = ROOM_TYPES[tool.roomType]?.label ?? 'room';
 
     if (!cornerA) {
       // show a small marker at the first-corner position
       pv.room({ x: point.x, z: point.z, width: 0.3, depth: 0.3 }, levelElev(), 0.3, true);
       aim = { type: 'roomCorner', point };
-      return { title: `${label} room`, detail: 'Click where the first corner goes', keys: [['Left-click', 'First corner'], ['Right-click', 'Remove']] };
+      return { title: roomTitle(), detail: 'Click where the first corner goes', keys: [['Left-click', 'First corner'], ['Right-click', 'Remove']] };
     }
 
     const { rect, blocker, overhang } = planRoom(cornerA, point, floorRooms(), belowRooms());
@@ -560,8 +628,8 @@ export function createPlayController(scene, canvas, {
     aim = ok ? { type: 'roomFinish', rect } : null;
     const size = formatRoomSize(rect.width, rect.depth);
     return ok
-      ? { title: `${label} room`, detail: overhang ? `${size} · ${OVERHANG_WARNING}` : size, keys: [['Left-click', 'Opposite corner'], ['Right-click', 'Cancel']] }
-      : { title: `${label} room`, detail: `Overlaps ${blocker.name}. Move the corner.`, bad: true, keys: [['Right-click', 'Cancel']] };
+      ? { title: roomTitle(), detail: overhang ? `${size} · ${OVERHANG_WARNING}` : size, keys: [['Left-click', 'Opposite corner'], ['Right-click', 'Cancel']] }
+      : { title: roomTitle(), detail: `Overlaps ${blocker.name}. Move the corner.`, bad: true, keys: [['Right-click', 'Cancel']] };
   }
 
   function updateWallTool() {
@@ -656,8 +724,7 @@ export function createPlayController(scene, canvas, {
   function updateWallTopDrag(room) {
     const line = wallLine(room, grab.wallName);
     const alongX = line.axis === 'z';
-    const origin = camera.position;
-    const dir = lookDir();
+    const { origin, dir } = aimLine();
     const dn = alongX ? dir.z : dir.x;
     const t = Math.abs(dn) > 0.02 ? (line.value - (alongX ? origin.z : origin.x)) / dn : -1;
     if (t <= 0) {
@@ -827,8 +894,7 @@ export function createPlayController(scene, canvas, {
 
   /** Where the crosshair meets the plane of a room wall: the position along it (world x or z), or null. */
   function lookAlongWall(line) {
-    const origin = camera.position;
-    const dir = lookDir();
+    const { origin, dir } = aimLine();
     const alongX = line.axis === 'z'; // the wall runs along X at z = line.value
     const dn = alongX ? dir.z : dir.x;
     if (Math.abs(dn) < 0.05) return null;
@@ -890,16 +956,18 @@ export function createPlayController(scene, canvas, {
       setOutline(null);
       const obj = editTarget();
       if (!obj) { endCarry(false); aim = null; return { title: 'Edit item' }; }
-      const s = aimSurface();
+      const s = aimSurface(obj.assetType);
       carry.mesh.rotation.y = carry.rotationY;
       if (s.problem) {
         aim = null;
         return { title: `Moving ${itemName(obj)}`, detail: s.problem, bad: s.bad, keys: [['R', 'Turn 90°'], ['Right-click', 'Cancel']] };
       }
       carry.mesh.position.set(s.x, s.worldY, s.z);
+      moveCarried(s);
       aim = { type: 'dropItem', id: obj.id, x: s.x, y: s.y, z: s.z };
       return {
         title: `Moving ${itemName(obj)}`,
+        detail: carriedText(),
         keys: [['Left-click', 'Put it here'], ['R', 'Turn 90°'], ['Right-click', 'Cancel']],
       };
     }
@@ -916,12 +984,28 @@ export function createPlayController(scene, canvas, {
       const opening = tool?.kind === 'edit' ? editOpeningTarget() : null;
       if (opening) return updateEditOpening(opening);
       pv.hide('box');
+      if (!tool && mouseAim) {
+        return {
+          title: 'Walking',
+          detail: 'Click the floor to walk there, drag to look around. To build, pick an item with 1–9 or B.',
+          keys: [['Click', 'Walk there'], ['G', 'Pick up an item'], ['M', 'Mouse look']],
+        };
+      }
       if (!tool) return { title: 'Empty hand', detail: 'Pick an item with 1–9, or press B for the catalog. Look at an item to pick it up.' };
       if (tool.kind !== 'edit') return { title: tool.label ?? 'Edit item' };
       return { title: 'Edit item', detail: 'Look at an item, a door or a window to change it' };
     }
     pv.hide('box');
     setOutline(obj.id, obj.isLocked ? OUTLINE_LOCKED : OUTLINE_OK);
+    if (!tool && mouseAim) {
+      // an empty hand never moves anything by a click (v0.15.2): a click walks up to it, G picks it up
+      aim = null;
+      return {
+        title: itemName(obj),
+        detail: obj.isLocked ? 'Locked' : itemSize(mesh),
+        keys: obj.isLocked ? [['Click', 'Walk to it']] : [['Click', 'Walk to it'], ['G', 'Pick up']],
+      };
+    }
     aim = { type: 'pickUp', id: obj.id };
     if (obj.isLocked) {
       return { title: itemName(obj), detail: 'Locked', bad: true, keys: [['L', 'Unlock']] };
@@ -940,6 +1024,7 @@ export function createPlayController(scene, canvas, {
   function editKey(code, shift = false) {
     if (readOnly) return false;
     if (tool && tool.kind !== 'edit' && !carry) return false; // the Edit tool, an empty hand, or an item carried
+    if (!tool && mouseAim && !carry) return false; // the easy controls: an empty hand changes nothing
     const turn = code === 'KeyR';
     const bigger = code === 'Equal' || code === 'NumpadAdd';
     const smaller = code === 'Minus' || code === 'NumpadSubtract';
@@ -1072,7 +1157,7 @@ export function createPlayController(scene, canvas, {
       }
       case 'roomFinish': {
         actions.addRoom({ type: tool.roomType, ...aim.rect, floor: currentFloor });
-        say(`Built ${ROOM_TYPES[tool.roomType]?.label ?? 'new'} room, ${formatRoomSize(aim.rect.width, aim.rect.depth)}`);
+        say(`Built ${roomTitle()}, ${formatRoomSize(aim.rect.width, aim.rect.depth)}`);
         clearPreview();
         break;
       }
@@ -1133,13 +1218,17 @@ export function createPlayController(scene, canvas, {
       case 'dropItem': {
         const obj = state().objects.find((o) => o.id === aim.id);
         if (!obj) { endCarry(false); break; }
-        const room = findRoomAt(floorRooms(), aim.x, aim.z);
-        const rotationY = carry.rotationY;
-        endCarry(false);
-        actions.updateObject?.(obj.id, {
-          x: aim.x, y: aim.y, z: aim.z, rotationY, floor: currentFloor, roomId: room?.id ?? null,
-        }, { label: `Move ${itemName(obj)}` });
-        say(`Moved ${itemName(obj)}. Ctrl+Z to undo.`, 2000);
+        // the item, its chair and what stands on it: ONE undo step (as Studio's drag)
+        const rooms = floorRooms();
+        const moves = carryPlan(aim).map(([id, p]) => [id, {
+          ...p, floor: currentFloor, roomId: findRoomAt(rooms, p.x, p.z)?.id ?? null,
+        }]);
+        const along = moves.length - 1;
+        // put back what the store still has (a failed or partial move must not leave meshes astray)
+        endCarry(true);
+        if (actions.moveObjects) actions.moveObjects(moves, { label: `Move ${itemName(obj)}` });
+        else actions.updateObject?.(obj.id, moves[0][1], { label: `Move ${itemName(obj)}` });
+        say(`Moved ${itemName(obj)}${along ? ` with ${along === 1 ? 'the item' : `the ${along} items`} that go with it` : ''}. Ctrl+Z to undo.`, 2000);
         break;
       }
       default:
@@ -1210,15 +1299,25 @@ export function createPlayController(scene, canvas, {
     return findRoomAt(rooms, x, z);
   }
 
+  /** Cancel a half-drawn room or wall, a grabbed wall, a carried item or a door being slid. */
+  function cancelBuild() {
+    clearPreview();
+    endCarry(true);
+    slide = null;
+    pv.hide('box');
+    say('Cancelled');
+  }
+
   function secondaryAction() {
     if (readOnly) return;
     // First: cancel a half-drawn room or wall, a grabbed wall, or a carried item
     if (cornerA || grab || carry || slide) {
-      clearPreview();
-      endCarry(true);
-      slide = null;
-      pv.hide('box');
-      say('Cancelled');
+      cancelBuild();
+      return;
+    }
+    if (!tool && mouseAim) {
+      // an empty hand removes nothing (a right-drag looks around: a slip must not delete a desk)
+      if (aimTarget()) say('To remove things, hold an item or the Edit item tool (1–9, B), then right-click', 3000);
       return;
     }
     const target = aimTarget();
@@ -1270,6 +1369,7 @@ export function createPlayController(scene, canvas, {
   function onKeyDown(e) {
     if (!active || typing(e)) return;
     if (onPage && !isEngaged()) return; // the page's keys
+    if (keysPaused) return; // a dialog over the view has the keys
     if (e.ctrlKey || e.metaKey) return; // Ctrl+Z / Ctrl+Y handled by the editor
     if (keyHandler && !e.repeat && keyHandler(e.code)) {
       e.preventDefault();
@@ -1282,7 +1382,8 @@ export function createPlayController(scene, canvas, {
     }
 
     // A route is being followed: G continues it, Esc ends it (free walking: neither does anything)
-    if (pilot && (e.code === 'KeyG' || e.code === 'Escape') && pilot.key?.(e.code)) {
+    // (Walk through: G picks an item up, also while a click's walk is on its way)
+    if (pilot && (e.code === 'KeyG' || e.code === 'Escape') && !(mouseAim && e.code === 'KeyG') && pilot.key?.(e.code)) {
       // taken: G walks on; Esc only ended the route (the view keeps the keys)
       e.preventDefault();
       return;
@@ -1336,10 +1437,23 @@ export function createPlayController(scene, canvas, {
         backToEntrance();
         break;
       case 'KeyL':
-        // look 'drag': mouse-look mode on / off (Esc also releases the mouse)
-        if (!dragMode) break;
+        // look 'drag' on a page: mouse-look mode on / off (Esc also releases the mouse).
+        // Walk through uses M: L locks an item there (Edit item)
+        if (!dragMode || mouseAim) break;
         if (locked) document.exitPointerLock?.();
         else lockPointer(canvas);
+        break;
+      case 'KeyM':
+        if (!mouseAim) break;
+        if (locked) document.exitPointerLock?.();
+        else lockPointer(canvas);
+        break;
+      case 'Escape':
+        // Walk through, the mouse free: cancel what is half done, else put the item away (an empty hand).
+        // (In mouse look the browser's own Esc gives the mouse back.)
+        if (!mouseAim || locked) break;
+        if (cornerA || grab || carry || slide) cancelBuild();
+        else if (tool) onEmptyHand();
         break;
       case 'KeyG':
         grabKey();
@@ -1385,7 +1499,7 @@ export function createPlayController(scene, canvas, {
   }
 
   function onWheel(e) {
-    if (!active || !locked) return;
+    if (!active || !(locked || (mouseAim && !keysPaused))) return;
     e.preventDefault();
     onSlotScroll(e.deltaY > 0 ? 1 : -1);
   }
@@ -1398,6 +1512,8 @@ export function createPlayController(scene, canvas, {
     if (was !== locked) onLockChange(locked);
     if (!locked) {
       keys.clear();
+      // Walk through's easy controls: leaving mouse look keeps what you are doing (the mouse aims on)
+      if (mouseAim) return;
       if (cornerA || grab) clearPreview();
       endCarry(true);
       slide = null;
@@ -1422,28 +1538,64 @@ export function createPlayController(scene, canvas, {
     },
     // a tap (touch) is a click: the floor walks there, a person shows their card, a machine its action
     click: ({ x, y, button }) => {
+      if (mouseAim) { previewClick(x, y, button); return; }
       if (button !== 0 || !active) return;
       // mouse-look mode: the crosshair (the middle of the view) is what you click
       const at = locked ? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 } : { x, y };
       onPointClick(clickTarget(at.x, at.y));
     },
-    doubleClick: ({ button }) => {
+    doubleClick: ({ x, y, button }) => {
+      // Walk through: two quick clicks are two clicks (two chairs placed), never mouse look (that is M)
+      if (mouseAim) { previewClick(x, y, button); return; }
       if (button !== 0 || !active || locked) return;
       onDoubleClick();
       lockPointer(canvas);
     },
   });
 
+  /**
+   * Walk through's easy controls (v0.15.2): a click at (x, y) on the view. With an item or a tool in
+   * your hand (or an item carried) the left button uses it THERE and the right button removes /
+   * cancels there; an empty hand walks there (onPointClick, as a viewer) and removes nothing.
+   */
+  function previewClick(x, y, button) {
+    if (!active || keysPaused) return;
+    if (!locked) pointer = { x, y };
+    // what the click would do, for exactly this spot (a tap has no mouse move before it)
+    toolHint();
+    if (button === 2) { secondaryAction(); return; }
+    if (button !== 0) return;
+    if (carry || tool) { primaryAction(); return; }
+    const at = locked ? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 } : { x, y };
+    onPointClick(clickTarget(at.x, at.y));
+  }
+
   function onPointerDown(e) {
     if (!active) return;
     const touch = e.pointerType === 'touch'; // v0.14.1: a finger drags to look, a tap is a click
-    if (!touch && e.button !== 0 && e.button !== 2) return;
     const at = canvasPoint(e);
-    drag.down({ id: e.pointerId, x: at.x, y: at.y, t: performance.now(), button: touch ? 0 : e.button, touch });
+    if (mouseAim && !touch && e.button === 1) {
+      // the middle button picks up what the mouse is on (as G)
+      e.preventDefault();
+      if (!locked) pointer = at;
+      grabKey();
+      return;
+    }
+    if (!touch && e.button !== 0 && e.button !== 2) return;
+    // Walk through: a button pressed while an earlier press never ended (its release was lost outside
+    // the window) starts afresh, or every later click would be ignored
+    if (mouseAim && !touch && drag.pressed) drag.cancel();
+    drag.down({
+      id: e.pointerId, x: at.x, y: at.y, t: performance.now(), button: touch ? 0 : e.button, touch,
+      // with something in your hand a slow, careful click still counts
+      patient: mouseAim && (!!tool || !!carry),
+    });
     try { canvas.setPointerCapture?.(e.pointerId); } catch { /* not captured: moves outside the view are missed */ }
   }
 
   function onPointerMove(e) {
+    // Walk through: the mouse is what you aim with (a finger aims where it taps)
+    if (active && mouseAim && !locked && e.pointerType !== 'touch') pointer = canvasPoint(e);
     if (!active || locked || !drag.pressed) return; // locked: onMouseMove looks
     const at = canvasPoint(e);
     drag.move({ id: e.pointerId, x: at.x, y: at.y });
@@ -1564,6 +1716,30 @@ export function createPlayController(scene, canvas, {
     }
     const arrival = goToFloor(target.id);
     say(arrival?.fly ? `${target.name}: no room here, so you are flying (F lands)` : target.name, 2000);
+  }
+
+  /**
+   * The tool's preview for where you aim now, and what a click would do (`aim`): every frame, and
+   * again right before a click in Walk through (previewClick).
+   */
+  function toolHint() {
+    if (readOnly) {
+      return {
+        title: 'Walking through',
+        detail: dragMode && touchWords
+          ? 'Joystick to walk, drag to look, tap the floor to go there, tap a person for their card'
+          : dragMode
+          ? 'W A S D walk, drag to look, click the floor to go there, E uses, Page Up / Down changes floor'
+          : 'W A S D walk, mouse looks, E uses, Page Up / Down changes floor',
+      };
+    }
+    // Carrying an item (G, an empty hand or the Edit tool): it follows the crosshair, whatever is in your hand
+    if (carry || !tool || tool.kind === 'edit') return updateEditTool();
+    if (tool.kind === 'object') return updateObjectTool();
+    if (tool.kind === 'room') return updateRoomTool();
+    if (tool.kind === 'wall') return updateWallTool();
+    if (tool.kind === 'stretch') return updateStretchTool();
+    return updateOpeningTool();
   }
 
   function update() {
@@ -1724,24 +1900,7 @@ export function createPlayController(scene, canvas, {
     character.setVisible(showCharacter);
 
     // ── Tool preview ──
-    let hint;
-    if (readOnly) {
-      hint = {
-        title: 'Walking through',
-        detail: dragMode && touchWords
-          ? 'Joystick to walk, drag to look, tap the floor to go there, tap a person for their card'
-          : dragMode
-          ? 'W A S D walk, drag to look, click the floor to go there, E uses, Page Up / Down changes floor'
-          : 'W A S D walk, mouse looks, E uses, Page Up / Down changes floor',
-      };
-    }
-    // Carrying an item (G, an empty hand or the Edit tool): it follows the crosshair, whatever is in your hand
-    else if (carry || !tool || tool.kind === 'edit') hint = updateEditTool();
-    else if (tool.kind === 'object') hint = updateObjectTool();
-    else if (tool.kind === 'room') hint = updateRoomTool();
-    else if (tool.kind === 'wall') hint = updateWallTool();
-    else if (tool.kind === 'stretch') hint = updateStretchTool();
-    else hint = updateOpeningTool();
+    const hint = toolHint();
 
     // ── Which room am I in? (events for other modules) ──
     const here = roomHere();
@@ -1768,7 +1927,8 @@ export function createPlayController(scene, canvas, {
     const now = performance.now();
     const info = {
       locked,
-      engaged: live, // the keys are the view's (Preview: = locked)
+      mouseAim, // Walk through's easy controls: no "click to start", the mouse aims
+      engaged: live, // the keys are the view's (Preview with mouse capture: = locked)
       flying,
       firstPerson,
       hint,
@@ -1868,12 +2028,16 @@ export function createPlayController(scene, canvas, {
       }
       canvas.addEventListener('wheel', onWheel, { passive: false });
       canvas.addEventListener('contextmenu', onContextMenu);
-      if (!onPage) lockPointer(canvas); // on a page the view never captures the mouse by itself
+      // on a page the view never captures the mouse by itself; nor does Walk through's drag-to-look (M does)
+      if (!onPage && !dragMode) lockPointer(canvas);
+      pointer = null;
+      keysPaused = false;
       lastHud = '';
     },
 
     deactivate() {
       if (!active) return;
+      onDeactivate();
       active = false;
       if (document.pointerLockElement === canvas) document.exitPointerLock?.();
       locked = false;
@@ -1966,6 +2130,24 @@ export function createPlayController(scene, canvas, {
 
     /** A short message in the HUD (e.g. "No walking route to …"). */
     say(text, ms = 3000) { say(text, ms); },
+
+    /**
+     * Walk through's easy controls: a dialog over the view (the catalog, "New floor above") has the
+     * keys, the wheel and the clicks; nothing is held meanwhile.
+     */
+    setKeysPaused(on) {
+      keysPaused = !!on;
+      if (keysPaused) { keys.clear(); drag.cancel(); }
+    },
+    /** Aimed at the mouse (Walk through's easy controls)? And where it is on the view (CSS px), or null. */
+    aimsAtMouse,
+    getPointer: () => (pointer ? { ...pointer } : null),
+    /** The mouse is at (x, y) on the view (tests; the app follows pointermove). */
+    setPointer(x, y) { pointer = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null; },
+    /** A click at (x, y) on the view, as the mouse would make it (tests): button 0 left, 2 right. */
+    clickAt(x, y, button = 0) { if (mouseAim) previewClick(x, y, button); },
+    /** What a click would do now: { type, … } or null (tests). */
+    getAim: () => (aim ? { ...aim } : null),
 
     /** Mouse-look mode (look 'drag'): capture the mouse / give it back. */
     lockMouse: () => (active ? lockPointer(canvas) : Promise.resolve(false)),

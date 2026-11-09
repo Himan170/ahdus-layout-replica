@@ -363,8 +363,11 @@ try {
   // ── Preview, next to the corner room where its walls meet the office's ──
   await page.mouse.move(640, 380);
   await page.click('[aria-label="Walk through"]'); await page.waitForTimeout(800);
+  // v0.15.2: Walk through no longer captures the mouse by itself. These checks aim with the crosshair in
+  // the middle of the view, so they turn mouse look on (M), which works as Preview did before
   if (!(await page.evaluate(() => !!document.pointerLockElement))) {
-    await page.click('button:has-text("Start preview")'); await page.waitForTimeout(400);
+    await page.keyboard.press('KeyM');
+    await page.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 10000 }).catch(() => {});
   }
   // first person, standing in the office south-east of the corner room, looking at where
   // its south-west corner meets the office's west wall (-5.9, 2.85)

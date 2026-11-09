@@ -12,7 +12,8 @@
  *   layers: outline of rooms and items on this floor
  */
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useSyncExternalStore } from 'react';
+import { livePosition } from '../utils/livePosition';
 import {
   X, Copy, Lock, LockOpen, Trash2, Link2, Unlink2, LayoutGrid, DoorOpen, AppWindow, RotateCcw, Volume2, VolumeX, Plus,
 } from 'lucide-react';
@@ -109,6 +110,9 @@ function Section({ title, children }) {
 function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetPositionRef, stairWarnings = [] }) {
   const [keepProportions, setKeepProportions] = useState(true);
   const commit = (patch) => onUpdate(object.id, patch);
+  // while it is dragged (or a move arrow is): where it is now, not where the layout still has it
+  const dragged = useSyncExternalStore(livePosition.subscribe, livePosition.get, livePosition.get);
+  const live = dragged?.id === object.id ? dragged : null;
   const deg = toDeg(object.rotationY ?? 0);
   const isStairs = object.assetType === 'STAIRCASE'; // on its floor, one size: what you walk on is what you see
 
@@ -138,8 +142,8 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
       )}
       <Section title="Position">
         <div className="insp-grid">
-          <NumberField label="X" value={object.x} suffix="m" onCommit={(v) => commit({ x: v })} />
-          <NumberField label="Z" value={object.z} suffix="m" onCommit={(v) => commit({ z: v })} />
+          <NumberField label="X" value={live?.x ?? object.x} suffix="m" onCommit={(v) => commit({ x: v })} />
+          <NumberField label="Z" value={live?.z ?? object.z} suffix="m" onCommit={(v) => commit({ z: v })} />
           {!isStairs && (
             <NumberField label="Height" value={object.y} step={0.05} min={0} max={10} suffix="m" onCommit={(v) => commit({ y: v })} />
           )}

@@ -14,6 +14,7 @@ const ALL = '__all__';
  *   sections: Array<{ title: string, items: object[] }>,
  *   itemKey: (item) => string,
  *   iconFor: (item) => React.ComponentType,
+ *   pictureFor?: (item) => React.ReactNode | null,   // a picture instead of the icon (v0.15.2: as Studio's library)
  *   isActive?: (item) => boolean,
  *   onPick: (item) => void,
  *   onDragStart?: (item, event) => void,   // set → items can be dragged onto the canvas
@@ -22,7 +23,7 @@ const ALL = '__all__';
  * }} props
  */
 export default function CatalogPicker({
-  sections, itemKey, iconFor, isActive = () => false, onPick, onDragStart, autoFocus = false, compact = false,
+  sections, itemKey, iconFor, pictureFor = null, isActive = () => false, onPick, onDragStart, autoFocus = false, compact = false,
 }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState(ALL);
@@ -86,17 +87,20 @@ export default function CatalogPicker({
             <div className="catalog__grid">
               {section.items.map((item) => {
                 const Icon = iconFor(item);
+                const picture = pictureFor?.(item) ?? null;
                 return (
                   <button
                     key={itemKey(item)}
-                    className="catalog__item"
+                    className={`catalog__item${picture ? ' has-picture' : ''}`}
                     title={item.label}
                     aria-pressed={isActive(item)}
                     draggable={!!onDragStart}
                     onDragStart={onDragStart ? (e) => onDragStart(item, e) : undefined}
                     onClick={() => onPick(item)}
                   >
-                    {Icon && <Icon size={20} strokeWidth={1.75} aria-hidden />}
+                    {picture
+                      ? <span className="catalog__pic" aria-hidden>{picture}</span>
+                      : Icon && <Icon size={20} strokeWidth={1.75} aria-hidden />}
                     <span>{item.label}</span>
                     {item.color && <span className="catalog__stripe" style={{ background: item.color }} />}
                   </button>

@@ -37,6 +37,7 @@ export default function FloorPlanView({
   onSelectRoom = () => {},
   onSelectObject = () => {},
   onMoveObject = () => {},
+  onProblem = () => {},   // (text) => void   a drop that was refused (a floor-only item over a table top)
   onRotateObject = () => {},
   onRotateByAngle = null,
   snap = null,        // { enabled, step }: Studio's snap setting
@@ -207,7 +208,8 @@ export default function FloorPlanView({
       const to = d.moved ? dropOf(d) : null;
       const object = objects.find((o) => o.id === d.id);
       const same = to && object && to.x === object.x && to.z === object.z && to.y === (object.y ?? 0);
-      if (to && !same) onMoveObject(d.id, to);
+      if (to?.problem) onProblem(to.problem);
+      else if (to && !same) onMoveObject(d.id, to);
       startDrag(null);
     }
 
@@ -571,7 +573,8 @@ export default function FloorPlanView({
           const { width: w, depth: d } = itemSize(object);
           const activeDrag = drag?.id === object.id;
           const dropAt = activeDrag && drag.moved ? dropOf(drag) : null;
-          const pos = dropAt ?? { x: Number(object.x) || 0, z: Number(object.z) || 0 };
+          // a refused spot (a floor-only item over a table top): it shows where it stands
+          const pos = (dropAt?.problem ? null : dropAt) ?? { x: Number(object.x) || 0, z: Number(object.z) || 0 };
           const c = at(pos);
           const selected = object.id === selectedObjectId;
           const label = object.label || type.label || object.assetType || 'Item';

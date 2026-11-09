@@ -21,8 +21,8 @@ import {
 } from './library';
 import { LAYOUT_TEMPLATES } from '../templates';
 import RoomPicture from './RoomPicture';
+import ItemPicture from './ItemPicture';
 
-const ASSETS = `${import.meta.env?.BASE_URL ?? '/'}assets/`;
 
 const PAGES = {
   rooms: { title: 'Rooms', text: 'Drag a room onto the floor, or click it to place it in the middle.', touch: 'Tap one, then tap the floor' },
@@ -67,14 +67,6 @@ function Tile({ tile, picture, pressed, dragging, onPointerDown, onPlace }) {
   );
 }
 
-function ItemPicture({ tile }) {
-  const [failed, setFailed] = useState(false);
-  const Icon = assetIcon(tile.assetType);
-  if (tile.thumb && !failed) {
-    return <img src={`${ASSETS}${tile.thumb}`} alt="" loading="lazy" draggable={false} onError={() => setFailed(true)} />;
-  }
-  return <Icon size={28} strokeWidth={1.5} />;
-}
 
 /** Walls, doors and windows: a tile arms the tool. */
 function ToolTiles({ tool, activeOption, onPickOption }) {
@@ -181,7 +173,7 @@ export default function LibraryPanel({
             </div>
             <div className="lib-grid">
               {filterFurniture(query, chip).map((t) => (
-                <Tile key={t.id} {...tileProps(t)} picture={<ItemPicture tile={t} />} />
+                <Tile key={t.id} {...tileProps(t)} picture={<ItemPicture assetType={t.assetType} thumb={t.thumb} />} />
               ))}
             </div>
             {filterFurniture(query, chip).length === 0 && <p className="lib__empty">Nothing matches “{query}”.</p>}
@@ -192,7 +184,7 @@ export default function LibraryPanel({
         {toolId === 'stairs' && (
           <div className="lib-grid">
             <Tile {...tileProps({ kind: 'object', id: 'STAIRCASE', assetType: 'STAIRCASE', label: 'Staircase', width: 1.2, depth: 4, sizeText: '1.2 × 4 m · up one floor' })}
-              picture={<ItemPicture tile={{ assetType: 'STAIRCASE', thumb: null }} />} />
+              picture={<ItemPicture assetType="STAIRCASE" thumb={null} />} />
             {tool.options.filter((o) => o.disabled).map((o) => {
               const Icon = o.icon;
               return (

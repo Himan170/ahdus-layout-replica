@@ -3,7 +3,8 @@ import {
   planRoom, planRoomMove, planRoomResize, planOpening, planRemoveOpening, wallSegmentData, resizeItem,
   WALL_THICKNESS, DOOR_DEFAULTS, WINDOW_DEFAULTS, MAX_ITEM_SCALE,
 } from '../geometry';
-import { placementHeight, STOREY_HEIGHT } from '../building';
+import { placementHeight, STOREY_HEIGHT, canStandOn, floorOnlyText, TABLE_TOP_TYPES } from '../building';
+import { ASSET_TYPES } from '../../utils/assetCatalog';
 
 // Office: x -3..3, z -2.5..2.5
 const office = (extra = {}) => ({
@@ -189,6 +190,44 @@ describe('resizeItem (Edit item tool, + / −)', () => {
   it('stops at the size limits', () => {
     expect(resizeItem({ scaleX: MAX_ITEM_SCALE }, 1.1)).toBeNull();
     expect(resizeItem({ scaleY: 0.2 }, 0.9)).toBeNull();
+  });
+});
+
+describe('canStandOn: only small things go on a table top (v0.15.2)', () => {
+  it('every item may stand on the floor and on the ground', () => {
+    for (const type of Object.keys(ASSET_TYPES)) {
+      expect(canStandOn(type, 'floor')).toBe(true);
+      expect(canStandOn(type, 'ground')).toBe(true);
+    }
+  });
+
+  it('a monitor, a laptop and a Desk Plant go on a desk; a Large Plant, a chair and a desk do not', () => {
+    for (const type of ['MONITOR_DUAL', 'LAPTOP', 'KEYBOARD', 'COMPUTER_MOUSE', 'PLANT_SMALL', 'COFFEE_MACHINE', 'MICROWAVE', 'PRINTER', 'FIRST_AID']) {
+      expect(canStandOn(type, 'object')).toBe(true);
+    }
+    for (const type of ['PLANT_LARGE', 'CHAIR_OFFICE', 'DESK_STANDARD', 'SOFA_3SEAT', 'STAIRCASE', 'WHITEBOARD', 'TV_DISPLAY', 'CNC_MACHINE']) {
+      expect(canStandOn(type, 'object')).toBe(false);
+    }
+  });
+
+  it('every table-top type is a catalogue item, and none is taller than 0.6 m', () => {
+    for (const type of TABLE_TOP_TYPES) {
+      expect(ASSET_TYPES[type], type).toBeTruthy();
+      expect(ASSET_TYPES[type].defaultHeight, type).toBeLessThanOrEqual(0.6);
+    }
+  });
+
+  it('a rug and the floor markers are the floor: anything may stand on them', () => {
+    for (const on of ['RUG', 'SPAWN_POINT', 'ZONE_MARKER']) {
+      expect(canStandOn('DESK_STANDARD', 'object', on)).toBe(true);
+      expect(canStandOn('PLANT_LARGE', 'object', on)).toBe(true);
+    }
+    expect(canStandOn('PLANT_LARGE', 'object', 'DESK_STANDARD')).toBe(false);
+    expect(canStandOn('PLANT_LARGE', 'object', null)).toBe(false);
+  });
+
+  it('says why in plain words', () => {
+    expect(floorOnlyText('Large Plant')).toBe('Large Plant stands on the floor');
   });
 });
 

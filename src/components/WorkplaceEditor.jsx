@@ -406,9 +406,23 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     siteEnvRef.current?.setBuildGrid(showGrid || plannerTool.kind !== 'select' || !!placementMode);
   }, [isPlaying, showGrid, plannerTool, placementMode, sceneReady]);
 
+  // Back to the view after the catalog (v0.15.2: the mouse is never captured by itself; M is mouse look)
   const handleResumePlay = useCallback(() => {
-    lockPointer(sceneRef.current?.getEngine().getRenderingCanvas());
+    sceneRef.current?.getEngine().getRenderingCanvas()?.focus?.();
   }, []);
+
+  /** The HUD's "Mouse look" button (M): the mouse is captured, a crosshair aims; Esc gives it back. */
+  const handleMouseLook = useCallback(() => {
+    const play = playRef.current;
+    if (!play) return;
+    if (play.isLocked()) play.releaseMouse();
+    else play.lockMouse();
+  }, []);
+
+  // A dialog over Walk through (the catalog, "New floor above") has the keys and the clicks
+  useEffect(() => {
+    playRef.current?.setKeysPaused(isPlaying && (catalogOpen || newFloorAsk));
+  }, [isPlaying, catalogOpen, newFloorAsk]);
 
   // Picking an item (or closing the catalog) goes straight back to playing
   const handleAssignToSlot = useCallback((item) => {
@@ -677,10 +691,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     const st = useWorkspaceStore.getState();
     const room = st.rooms[id];
     if (!room) return;
-    const plan = planRoomTurn(room, Object.values(st.rooms).filter((r) => r.floor === room.floor));
+    // the rooms inside it and the items standing in it turn with it, around its centre: one undo step
+    const plan = planRoomTurn(room, Object.values(st.rooms), Object.values(st.objects));
     if (plan.problem) { showStudioMessage(plan.problem, true); return; }
-    editor.updateRoom(id, plan.patch, { label: 'Turn room' });
-    showStudioMessage(`Turned ${room.name}. Its furniture stays where it is. Ctrl+Z to undo.`);
+    editor.turnRoom(id, plan, { label: `Turn ${room.name}` });
+    const n = plan.objects.length;
+    showStudioMessage(`Turned ${room.name}${n ? ` with ${n === 1 ? 'the item' : `the ${n} items`} in it` : ''}. Ctrl+Z to undo.`);
   }, [editor, showStudioMessage]);
 
   /**
@@ -1372,6 +1388,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               }}
               snap={{ enabled: snapEnabled, step: snapStep }}
               ground={currentFloor === 0}
+              onProblem={(text) => showStudioMessage(text, true)}
               onMoveObject={(id, to) => {
                 // one undo step per drag, with what it takes along (a desk: its chair, its monitor)
                 moveItemCarrying(id, to, { label: 'Move item' });
@@ -1476,7 +1493,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               onNewFloorChoice={handleNewFloorChoice}
               hotbar={hotbar}
               selectedSlot={selectedSlot}
-              onSelectSlot={setSelectedSlot}
+              onSelectSlot={(i) => setSelectedSlot((cur) => (cur === i ? EMPTY_HAND : i))}
+              onMouseLook={handleMouseLook}
               catalogOpen={catalogOpen}
               onOpenCatalog={() => {
                 document.exitPointerLock?.();

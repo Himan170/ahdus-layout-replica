@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1175, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1269, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -32,25 +32,31 @@ npm run characters:placeholder  # public/assets/characters/: the self-made rigge
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
 # One-time: npx playwright install chromium
-npm run e2e:planner  # 44 checks   e2e/editor-smoke.mjs    (Workplace Studio + its screenshots, the AHDUS look in local
+npm run e2e:planner  # 45 checks   e2e/editor-smoke.mjs    (Workplace Studio + its screenshots, the AHDUS look in local
                      #                                       mode, the library, the Realistic look switch, no missing
                      #                                       asset files, floor plan PNG / PDF export, room names + hover
                      #                                       card, Settings → Room labels, Plan view: select, drag,
-                     #                                       Ctrl+Z, a phone's hint at 390 px)
-npm run e2e:play     # 19 checks   e2e/play-smoke.mjs
+                     #                                       Ctrl+Z, a desk onto its own chair's old spot (v0.15.2),
+                     #                                       a phone's hint at 390 px)
+npm run e2e:play     # 28 checks   e2e/play-smoke.mjs      (v0.15.2: no mouse capture, W with no click, drag looks, an
+                     #                                       empty hand's click walks, M = mouse look, then the old
+                     #                                       checks by crosshair; the catalog's pictures + hotbar names;
+                     #                                       an item placed at the mouse, Esc, G on a desk with its chair
+                     #                                       and monitor + one undo)
 npm run e2e:modules  # 17 checks   e2e/modules-smoke.mjs   (uses ?demoModules=1)
 npm run e2e:stairs   # 24 checks   e2e/stairs-smoke.mjs    (viewer.html: W climbs flights turned 0 / 90 / 180 / 270°, with an old y,
                      #                                       an old scale, on Floor 1: every frame on the tread DRAWN there (a ray), and
                      #                                       back down; first person; from the side it stops you; Take me there; Studio:
                      #                                       no Height / size for stairs, R says why, "lead nowhere"; SHOTS=<dir>: shots)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
-npm run e2e:tools    # 70 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
+npm run e2e:tools    # 71 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
                      #                                       room's floor + Preview's Edit item; v0.15.0: a desk
                      #                                       dragged with its monitor, a Desk Plant dragged onto a
                      #                                       desk, the move arrow still works past it, a door in a
                      #                                       Wall-tool wall, sliding a door, G in Preview; v0.15.1:
                      #                                       the desk's chair by drag / arrow / R / typed X, a room
-                     #                                       with its furniture by drag / Room X, an empty hand)
+                     #                                       with its furniture by drag / Room X, an empty hand;
+                     #                                       v0.15.2: R turns a room with its furniture + one undo)
 npm run e2e:measurements # 23   e2e/measurements-smoke.mjs (off at start, the Measurements panel, measure distance
                      #                                       in 2D, wall lengths, room areas, toggles, Esc, per floor,
                      #                                       Clear Measurements keeps the room)
@@ -203,9 +209,14 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   or ring sticks out in front of it, the gizmo's. **v0.15.1:** a desk also takes its chair (`play/carry.js` `carriedBy`: the
   chair `people.deskSeat` pairs with it) on every move of one item: the drag, the arrow keys, R, the Inspector's X / Z / angle,
   the gizmo and Plan view all go through `plannerTools.moveItem(id, patch, { label, mergeKey })` → one `moveObjects`
-  (`carryMoves`: the chair turns round the desk). **Keys (v0.15.1):** R turns the selected item 90° (Shift+R 15°,
+  (`carryMoves`: the chair turns round the desk). **v0.15.2:** while a move arrow is dragged the chair and the riders
+  follow as meshes (`gizmoController` `onMoveLive` → `plannerTools.carryPreview` / `endCarryPreview`), and
+  `utils/livePosition` tells the Inspector's X / Z where a dragged item is now (never saved, cleared when the drag ends).
+  Plan view's `planDrop` ignores what moves with the item (`planMath.planCarried`: its chair, its riders). **Keys (v0.15.1):** R turns the selected item 90° (Shift+R 15°,
   `carry.turnStep`; a room: a quarter turn, but not a room with items in it yet: "Turning a room with its furniture
-  comes later"; the selection bar's Rotate still turns the room alone), W shows / hides the move arrows (hidden until then; the selection bar's Move
+  comes later" until v0.15.2: now R and the selection bar's Rotate turn it with its furniture and the rooms inside it,
+  `geometry.planRoomTurn(room, rooms, objects)` → `editor.turnRoom`, one undo step; refused when the turned room would
+  overlap a room, not fit the room it stands in, or a door / window is shared with a room that stays), W shows / hides the move arrows (hidden until then; the selection bar's Move
   too), S the resize handles (was R; stairs say why), no E (rotation rings gone; the Inspector's Rotation = 4 buttons +
   the angle box), Ctrl+S saves now (`saveNow`, also in Preview; never the browser's "Save page as"), F or a double-click flies to the selection (`focusSelection`; nothing selected: F fits the building).
   The Inspector's sizes are in metres (`ui/itemSize.js`: Width / Depth / Height ↔ scale, 0.1 to 5); the hook-point note
@@ -251,7 +262,19 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   and top (`store.selectedOpening` = { roomId, kind, index }; one undo step per drag).
   Furniture stacks on table tops. Clicking the floor under a desk selects the desk.
   Code: `WorkplaceEditor.jsx` (wiring) + `src/ui/*`, `src/utils/gizmoController.js`, `src/utils/placementManager.js`.
-- **Preview**: Minecraft-style. Third-person character (over the shoulder; centred on a portrait phone: `shoulderOffset(aspect)`), hotbar 1–9, B = catalog, left-click builds, right-click
+- **Preview**: Third-person character (over the shoulder; centred on a portrait phone: `shoulderOffset(aspect)`), hotbar 1–9, B = catalog.
+  **The viewer's easy controls (v0.15.2):** Studio runs the controller with `look: 'drag'` and no `isEngaged` = **mouse aim**
+  (`mouseAim`): the mouse is never captured by itself, a drag (left or right) looks, the keys work with no click (no
+  "Start preview" screen; the HUD's "?" `data-hud="help"` lists the keys), and everything is aimed at the MOUSE
+  (`aimLine()`; before the mouse has moved: the middle of the view). An **empty hand**: a click walks there
+  (`onPointClick` → Studio's own `NavigationSystem` + `RouteLineSystem` in `useStudioScene`, `routeTo(…, { walk: 'auto',
+  source: 'click' })`; a machine in reach with a module's action runs it, as E); it moves and removes nothing (G /
+  middle-click pick up). **An item or tool in your hand**: a click uses it at the mouse and never walks (a press is
+  `patient`: no time limit), right-click removes / cancels there. Esc cancels what is half done, then empties the hand
+  (`onEmptyHand`); the held slot's number again does too. **M** / the HUD's "Mouse look" (`data-hud="mouse-look"`,
+  aria-label `Mouse look`, aria-pressed) = the old capture with a crosshair, Esc ends it. A dialog over the view (the
+  catalog, New floor) takes the keys: `play.setKeysPaused`. Tests: `play/__tests__/previewControls.test.js` (the real
+  controller; `setPointer`, `clickAt`, `getAim`). Left-click builds, right-click
   removes, R turns 90° (Shift+R 15°), E interacts, N adds a floor above, F fly (Space up / C down), V first/third person, Shift runs, Tab or
   "Back to Studio" returns. Code: `src/play/playController.js` + `src/components/PlayHUD.jsx` (+ `src/ui/preview.css`).
   Default hotbar (`src/play/hotbarItems.js`): Office room, Meeting room, Stretch, Door, Window, Desk, Chair, Staircase, Edit item.
@@ -268,6 +291,16 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   your hand (an empty hand: a left-click too) and carries it like Edit item (click puts it down, R turns it, right-click
   cancels; the item in your hand waits). The **Door / Window** slots also cut a door into a wall drawn with the Wall
   tool (`planWallSegmentOpening`, `actions.replaceObjects`).
+  **v0.15.2:** carrying a desk (G, Edit item) takes its chair and what stands on it (`carry.carriedBy` +
+  `utils/itemRiders.ridersOf`, the rule Studio's drag uses): they follow live, R turns the group, nothing carried is a
+  surface for it, and putting down is ONE `actions.moveObjects` (`carry.carryDrop`). The hotbar shows a short name under
+  each icon (`hotbarItems.shortLabel`), every room type has its own icon (`tools.ROOM_ICONS`), the catalog is "Add to
+  hotbar" with the library's pictures (`ui/ItemPicture.jsx`, `RoomPicture`).
+  **Table tops (v0.15.2, both modes):** `building.canStandOn(type, surface, onType)`: only `TABLE_TOP_TYPES` (monitor,
+  laptop, keyboard, mouse, Desk Plant, coffee machine, microwave, printer, first aid kit) go on top of another item;
+  the rest is refused with `floorOnlyText` ("Large Plant stands on the floor") in Studio's drag, the library drop, Plan
+  view (`planDrop` → `{ problem }`) and Walk through. A rug and the floor markers (`FLOOR_LIKE_TYPES`) are the floor.
+  Old layouts are not changed.
 - **Both modes share the decisions and the look:** `planRoom`, `planOpening`, `planRemoveOpening`, `wallSegmentData`,
   `stretchRoom`, `resizeItem`, `resizeOpening` (`geometry.js`), `placementHeight` (`building.js`), previews in `utils/buildPreview.js`,
   forgiving picks in `utils/pickHelpers.js`, tokens in `src/ui/theme.css`.
@@ -342,7 +375,9 @@ src/engine/systems/PlayerCharacter.ts  Walking as yourself: your character (copy
                                    its bones (retargeted by name, rest-pose corrected), playController's character
 src/embed/characterManifest.js     PURE: the character manifest (assetReference → { url, rig, height }), setPeople's list
 src/play/carry.js                  PURE (v0.15.1): what an item takes along (carriedBy: a desk's chair + riders), carryMoves,
-                                   turnStep (R 90°, Shift+R 15°)
+                                   turnStep (R 90°, Shift+R 15°), carryDrop (v0.15.2: putting it down in Walk through)
+src/utils/itemRiders.js            ridersOf: what stands on an item, from its mesh (Studio's drag + Walk through's carry)
+src/utils/livePosition.js          Where the dragged item is now (the Inspector's X / Z during a drag); not saved
 src/play/geometry.js               PURE maths: room corners, wall splitting, doors, neighbours, stretchRoom, resizeOpening,
                                    shared walls (roomWallSegments, wallPickTarget), nesting (roomContainedBy, containerOf,
                                    planRoomMove, roomRectBlocker), snapping (snapRoomRect),
@@ -393,7 +428,7 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 ## Rules (follow these)
 
 1. **Every layout change goes through `editorHistory`** (`createEditorHistory()`: addObject, updateObject,
-   deleteObject, duplicateObject, moveObjects, replaceObjects, toggleLock, addRoom, updateRoom, moveRoom, deleteRoom, toggleDoor, addOpenings,
+   deleteObject, duplicateObject, moveObjects, replaceObjects, toggleLock, addRoom, updateRoom, moveRoom, turnRoom, deleteRoom, toggleDoor, addOpenings,
    removeOpenings, resizeOpening, setWallHeight, setFloorHeight, setAnchorData, addFloor({ copyRooms }), removeFloor,
    renameFloor, restoreVersion). Never call store mutators directly from
    UI or tools, or undo breaks. Continuous edits (slider drag, typing, + / − bursts) pass `{ mergeKey }` so they are
@@ -1128,7 +1163,14 @@ site on the server (local mode renames the layout), the leave check. Saving, und
 - Without a GPU, Playwright runs on SwiftShader at ~1 fps; e2e scripts allow long timeouts. A long run can use ~2 GB.
 - **Preview aims (v0.15.1):** the third-person camera is 0.85 m over the right shoulder only while nothing is close
   behind you; with a wall there it moves behind the head first (`thirdPersonCamera`), so the crosshair moves 0.85 m.
-  e2e aims indoors try both places (tools, modules) or measure where the crosshair lands (play-smoke).
+  e2e aims indoors try both places (tools, modules) or measure where the crosshair lands (play-smoke). The slide takes
+  0.25 s: on a fast machine wait for it after `setPose` before a click (play-smoke's `settle`).
+- **Walk through's mouse (v0.15.2):** it is not captured by itself and there is no "Start preview" button. e2e checks
+  that aim with the crosshair press **M** first (mouse look) and wait for `document.pointerLockElement`; the catalog
+  (B) gives the mouse back, so press M again after it. Checks of the easy controls put the mouse where a world point
+  is on the page (play-smoke's `screenOf`) and use real `page.mouse` moves and clicks. A plain click with an empty
+  hand WALKS there. Item fixtures for a real-controller unit test need every store field (scaleX / Y / Z,
+  rotationX / Z): a missing scale makes the mesh's matrix NaN and nothing is picked.
 - **Don't edit app files while an e2e test runs**: Vite HMR reloads the page and the test fails.
 - When killing dev servers, don't use a `pkill -f` pattern that also matches your own shell command.
 
@@ -1254,7 +1296,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
   and the wall highlight use the room's own thickness, not the shared wall's. Free-standing walls (Walls tool) are
   still 0.15 m.
 - Nested rooms: the outer room's slab and roof are not cut; resizing the outer room doesn't take the rooms
-  inside along (it is blocked if they would stick out of it); turning a room (R) doesn't turn its furniture; rooms can be
+  inside along (it is blocked if they would stick out of it); rooms can be
   moved by their floor only in Studio. A nested room's own walls are drawn 1 cm thinner on the outside than the data says.
 - Rooms saved before 22 Oct with a gap (0.15 m or more from the outer wall, or apart from a sibling) keep their own
   walls; stretching or moving the edge to within 0.35 m snaps it. With the 0.5 m grid on, drawing to a grid line
@@ -1273,8 +1315,12 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - The layout name is saved at once but is not part of undo.
 - Doors and windows slide along their own wall (v0.15.0) but can't move to another wall (remove and add again);
   window sills are fixed (0.9 m).
-- Easy building (v0.15.0): Preview's carry (G, Edit item) moves only the item itself, not what stands on it nor a desk's
-  chair (Studio takes them along). A gizmo arrow drag moves the chair only when it is let go. A door cut into a free-standing wall is an item with wall pieces around it: removing
+- Walk through (v0.15.2): no joystick or phone layout in Studio's Walk through (a finger drag looks, a tap is a click);
+  with an empty hand right-click removes nothing; a click's walk has no "Paused" strip (a movement key ends it); the
+  Inspector's X / Z do not follow a drag in Plan view (3D / 2D drags and the move arrows do); a move arrow shows the
+  chair live, but what the carried chair overlaps is not checked. Turning a room: quarter turns only; a staircase in it
+  turns too (check where it arrives); a door shared with a neighbour must be removed first.
+- Easy building (v0.15.0): A door cut into a free-standing wall is an item with wall pieces around it: removing
   the door leaves the gap (Ctrl+Z puts the whole wall back), and it can't slide or be resized like a room door. From
   above, the move arrows can be grabbed only where they stick out past the item. Dragging an item that isn't selected
   opens the Inspector, so the view narrows under the mouse while you drag (the item stays under the cursor).
@@ -1381,6 +1427,15 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: easy Walk through (v0.15.2, 10 Nov 2026, branch `feature/easy-walkthrough`)
+
+private-docs/EASY_BUILDING_REVIEW.md items 8, 10, 11, 13: Walk through with the viewer's easy controls (drag to look,
+the mouse aims, an empty hand's click walks, M = mouse look), G / Edit item takes a desk's chair and riders, turning a
+room turns what is in it (`planRoomTurn` + `editor.turnRoom`), the chair follows the move arrows live + live X / Z,
+hotbar names / room icons / "Add to hotbar" / catalog pictures, floor-only items off table tops (see "Preview" and
+"Easy building"; CHANGELOG.md). Fixed first: a desk dragged in Plan view onto its own chair's old spot landed on the
+chair. e2e:play 28, e2e:tools 71, e2e:planner 45 checks.
 
 ## DONE: easy building, part 2 (v0.15.1, 9 Nov 2026, branch `fix/easy-building-2`)
 

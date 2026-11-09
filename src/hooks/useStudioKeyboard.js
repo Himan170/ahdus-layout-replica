@@ -15,7 +15,7 @@ import { useEffect } from 'react';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { STUDIO_TOOLS } from '../ui/tools';
 import { STAIRS_KEEP_SIZE } from '../play/building';
-import { findRoomAt, itemInRoom } from '../play/geometry';
+import { findRoomAt } from '../play/geometry';
 import { saveNow } from '../services/apiService';
 import { turnStep } from '../play/carry';
 
@@ -171,12 +171,8 @@ export function useStudioKeyboard({
           } else if (store.selectedObjectId && !store.selectedOpening) {
             handleTurnItem(store.selectedObjectId, e.shiftKey);
           } else if (store.selectedRoomId && !store.selectedOpening) {
-            const room = store.rooms[store.selectedRoomId];
-            // v0.15.1: R on a room with furniture waits until the furniture turns with it (the selection bar's
-            // Rotate still turns the room alone, as before)
-            if (room && Object.values(store.objects).some((o) => itemInRoom(room, o))) {
-              showStudioMessage('Turning a room with its furniture comes later');
-            } else if (e.shiftKey) showStudioMessage('Rooms turn in quarter turns: press R');
+            // v0.15.2: a room turns with its furniture and the rooms inside it (as the selection bar's Rotate)
+            if (e.shiftKey) showStudioMessage('Rooms turn in quarter turns: press R');
             else handleTurnRoom(store.selectedRoomId);
           }
           break;
