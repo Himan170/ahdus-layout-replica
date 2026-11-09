@@ -40,3 +40,40 @@ describe('the empty hand', () => {
     expect(catalogSlot(bar, EMPTY_HAND)).toBe(5);
   });
 });
+
+// v0.15.2: a short name under each hotbar icon, and every room type its own icon
+describe('shortLabel (the name under a hotbar icon)', () => {
+  it('the default hotbar reads Office, Meeting, Stretch, Door, Window, Desk, Chair, Stairs, Edit', async () => {
+    const { shortLabel } = await import('../hotbarItems');
+    expect(DEFAULT_HOTBAR.map(shortLabel)).toEqual(
+      ['Office', 'Meeting', 'Stretch', 'Door', 'Window', 'Desk', 'Chair', 'Stairs', 'Edit']);
+  });
+
+  it('every item of the catalog has a name of at most 10 characters; an empty slot has none', async () => {
+    const { shortLabel, SHORT_NAME_MAX, catalogSections } = await import('../hotbarItems');
+    for (const section of catalogSections()) {
+      for (const item of section.items) {
+        const name = shortLabel(item);
+        expect(name.length, `${item.label} → ${name}`).toBeGreaterThan(0);
+        expect(name.length, `${item.label} → ${name}`).toBeLessThanOrEqual(SHORT_NAME_MAX);
+      }
+    }
+    expect(shortLabel(null)).toBe('');
+  });
+
+  it('rooms lose "Room" and "Area": Server, Production, Restroom', async () => {
+    const { shortLabel } = await import('../hotbarItems');
+    const name = (roomType) => shortLabel(ROOM_ITEMS.find((i) => i.roomType === roomType));
+    expect([name('SERVER_ROOM'), name('PRODUCTION'), name('RESTROOM'), name('RECEPTION')])
+      .toEqual(['Server', 'Production', 'Restroom', 'Reception']);
+  });
+});
+
+describe('room icons', () => {
+  it('every room type has its own icon in the hotbar and the catalog', async () => {
+    const { itemIcon } = await import('../../ui/tools');
+    const icons = ROOM_ITEMS.map((item) => itemIcon(item));
+    expect(icons.every(Boolean)).toBe(true);
+    expect(new Set(icons).size).toBe(ROOM_ITEMS.length);
+  });
+});

@@ -84,6 +84,7 @@ import {
 } from './building';
 import { WALK_SPEED as WALK, RUN_SPEED as RUN, FLY_SPEED as FLY } from './speeds';
 import { turnStep, carriedBy, carryDrop } from './carry';
+import { roomItemLabel } from './hotbarItems';
 import { ridersOf } from '../utils/itemRiders';
 
 // ── Feel ──
@@ -601,21 +602,23 @@ export function createPlayController(scene, canvas, {
     return { title: tool.label, keys };
   }
 
+  /** "Office room", "Meeting Room" (never "Meeting Room room"): the room tool's name in the hint. */
+  const roomTitle = () => roomItemLabel(ROOM_TYPES[tool.roomType]?.label ?? 'New');
+
   function updateRoomTool() {
     const p = aimGround(FLOOR_REACH);
     if (!p) {
       pv.hide('room');
       aim = null;
-      return { title: `${ROOM_TYPES[tool.roomType]?.label ?? 'New'} room`, detail: cornerA ? 'Look down at the ground for the opposite corner' : 'Look at the ground to start the room' };
+      return { title: roomTitle(), detail: cornerA ? 'Look down at the ground for the opposite corner' : 'Look at the ground to start the room' };
     }
     const point = { x: snap(p.x, 0.5), z: snap(p.z, 0.5) };
-    const label = ROOM_TYPES[tool.roomType]?.label ?? 'room';
 
     if (!cornerA) {
       // show a small marker at the first-corner position
       pv.room({ x: point.x, z: point.z, width: 0.3, depth: 0.3 }, levelElev(), 0.3, true);
       aim = { type: 'roomCorner', point };
-      return { title: `${label} room`, detail: 'Click where the first corner goes', keys: [['Left-click', 'First corner'], ['Right-click', 'Remove']] };
+      return { title: roomTitle(), detail: 'Click where the first corner goes', keys: [['Left-click', 'First corner'], ['Right-click', 'Remove']] };
     }
 
     const { rect, blocker, overhang } = planRoom(cornerA, point, floorRooms(), belowRooms());
@@ -624,8 +627,8 @@ export function createPlayController(scene, canvas, {
     aim = ok ? { type: 'roomFinish', rect } : null;
     const size = formatRoomSize(rect.width, rect.depth);
     return ok
-      ? { title: `${label} room`, detail: overhang ? `${size} · ${OVERHANG_WARNING}` : size, keys: [['Left-click', 'Opposite corner'], ['Right-click', 'Cancel']] }
-      : { title: `${label} room`, detail: `Overlaps ${blocker.name}. Move the corner.`, bad: true, keys: [['Right-click', 'Cancel']] };
+      ? { title: roomTitle(), detail: overhang ? `${size} · ${OVERHANG_WARNING}` : size, keys: [['Left-click', 'Opposite corner'], ['Right-click', 'Cancel']] }
+      : { title: roomTitle(), detail: `Overlaps ${blocker.name}. Move the corner.`, bad: true, keys: [['Right-click', 'Cancel']] };
   }
 
   function updateWallTool() {
@@ -1153,7 +1156,7 @@ export function createPlayController(scene, canvas, {
       }
       case 'roomFinish': {
         actions.addRoom({ type: tool.roomType, ...aim.rect, floor: currentFloor });
-        say(`Built ${ROOM_TYPES[tool.roomType]?.label ?? 'new'} room, ${formatRoomSize(aim.rect.width, aim.rect.depth)}`);
+        say(`Built ${roomTitle()}, ${formatRoomSize(aim.rect.width, aim.rect.depth)}`);
         clearPreview();
         break;
       }
@@ -1578,6 +1581,9 @@ export function createPlayController(scene, canvas, {
       return;
     }
     if (!touch && e.button !== 0 && e.button !== 2) return;
+    // Walk through: a button pressed while an earlier press never ended (its release was lost outside
+    // the window) starts afresh, or every later click would be ignored
+    if (mouseAim && !touch && drag.pressed) drag.cancel();
     drag.down({
       id: e.pointerId, x: at.x, y: at.y, t: performance.now(), button: touch ? 0 : e.button, touch,
       // with something in your hand a slow, careful click still counts

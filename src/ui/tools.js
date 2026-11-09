@@ -8,7 +8,7 @@
 
 import {
   MousePointer2, LayoutGrid, BrickWall, DoorOpen, AppWindow, Footprints, Armchair,
-  ArrowUpDown, MoveHorizontal, Hand, Box,
+  ArrowUpDown, MoveHorizontal, Hand, Box, Briefcase, Route, Factory,
   Table2, LampDesk, Sofa, Coffee, ConciergeBell, Presentation, BookOpen, Archive,
   Lock, Warehouse, Monitor, Server, Projector, Printer, Tv, Leaf, Sprout, CupSoda,
   Droplets, FireExtinguisher, Siren, Cross, MapPin, Square, Cog, Wrench, Columns3,
@@ -77,11 +77,23 @@ export function assetIcon(assetType) {
   return Box;
 }
 
+/** A room type's icon in Walk through's hotbar and catalog (v0.15.2): every type its own. */
+export const ROOM_ICONS = {
+  OFFICE: Briefcase,
+  MEETING: Users,
+  RECEPTION: ConciergeBell,
+  CORRIDOR: Route,
+  PRODUCTION: Factory,
+  STAIRCASE: ArrowUpDown,
+  SERVER_ROOM: Server,
+  RESTROOM: Toilet,
+};
+
 /** Icon for anything you can hold in Preview (hotbarItems.js items). */
 export function itemIcon(item) {
   if (!item) return null;
   switch (item.kind) {
-    case 'room': return LayoutGrid;
+    case 'room': return ROOM_ICONS[item.roomType] ?? LayoutGrid; // v0.15.2: each room type its own
     case 'wall': return BrickWall;
     case 'door': return DoorOpen;
     case 'window': return AppWindow;

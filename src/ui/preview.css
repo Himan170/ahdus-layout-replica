@@ -197,12 +197,44 @@
   transform: translateY(-4px);
 }
 .hud-slot__number { position: absolute; top: 3px; left: 6px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
+/* v0.15.2: a short name under each icon ("Office", "Door", "Desk") */
+.hud-slot { width: 64px; height: 64px; align-content: center; gap: 2px; padding-top: 8px; }
+.hud-slot__name {
+  max-width: 60px;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-catalog__sub { margin: 2px 0 0; font-size: 13px; }
+/* The catalog's pictures (the same files as Studio's library) */
+.catalog__item.has-picture { min-height: 104px; }
+.catalog__pic {
+  width: 100%;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.catalog__pic img { max-width: 82%; max-height: 50px; object-fit: contain; }
+.catalog__pic .room-pic { width: 58px; height: 40px; }
+@media (max-width: 640px) {
+  .hud-slot { width: 36px; height: 44px; padding-top: 4px; }
+  .hud-slot__name { display: none; }
+}
 .hud-slot__stripe { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; }
 
 .hud-scrim {
   position: absolute;
   inset: 0;
   display: grid;
+  /* one cell as big as the view: a tall panel (the catalog) is centred and scrolls inside,
+     instead of making the cell as tall as its content and sliding off the bottom */
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   background: color-mix(in srgb, var(--bg-canvas) 50%, transparent);
   backdrop-filter: blur(3px);

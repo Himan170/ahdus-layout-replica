@@ -89,6 +89,7 @@ const mouseLook = async () => {
   await p.keyboard.press('KeyM');
   await p.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 10000 }).catch(() => {});
   await frames(2);
+  if (!(await locked())) console.error('  (mouse look did not start)');
 };
 const shot = (name) => p.screenshot({ path: `e2e/screens/${name}`, timeout: 120000 });
 
@@ -203,6 +204,23 @@ log('Ctrl+Z brings it back', st.objects.some((o) => o.assetType === 'DESK_STANDA
 
 // Monitor on top of the desk (stacking on surfaces)
 await p.keyboard.press('KeyB'); await wait(300);
+// v0.15.2: "Add to hotbar", pictures as in Studio's library, a short name under each hotbar icon
+await p.waitForFunction(() => [...document.querySelectorAll('.catalog__pic img')].filter((i) => i.complete && i.naturalWidth > 0).length >= 10,
+  null, { timeout: 20000 }).catch(() => {});
+await shot('q-catalog.png');
+{
+  const cat = await p.evaluate(() => ({
+    title: document.querySelector('[role="dialog"][aria-label="Catalog"] h2')?.textContent ?? '',
+    pictures: [...document.querySelectorAll('.catalog__pic img')].filter((i) => i.complete && i.naturalWidth > 0).length,
+    rooms: document.querySelectorAll('.catalog__pic .room-pic').length,
+    names: [...document.querySelectorAll('[data-slot-name]')].map((n) => n.textContent),
+    roomIcons: [...document.querySelectorAll('.hud-slot')].slice(0, 2).map((s) => s.querySelector('svg')?.getAttribute('class') ?? ''),
+  }));
+  log('the catalog says "Add to hotbar" and shows the library pictures; the hotbar has names; Office and Meeting have different icons',
+    cat.title === 'Add to hotbar' && cat.pictures >= 10 && cat.rooms >= 8 &&
+    cat.names.join(',') === 'Office,Meeting,Stretch,Door,Window,Desk,Chair,Stairs,Edit' && cat.roomIcons[0] !== cat.roomIcons[1],
+    `"${cat.title}", ${cat.pictures} item pictures, ${cat.rooms} room pictures, names: ${cat.names.join(' ')}; icons: ${cat.roomIcons.join(' | ')}`);
+}
 await p.locator('button:has-text("Dual Monitor")').click(); await wait(500);
 log('picking from the catalog goes straight back to walking, holding it',
   (await p.locator('[role="dialog"][aria-label="Catalog"]').count()) === 0 &&
@@ -240,7 +258,8 @@ await click();
 st = await store();
 const meeting = st.rooms.find((r) => r.type === 'MEETING');
 const gap = meeting ? (meeting.x - meeting.width / 2) - eastX : NaN;
-log('a room drawn against another snaps back-to-back', !!meeting && Math.abs(gap - 0.15) < 0.01, `gap=${gap.toFixed(3)} m`);
+log('a room drawn against another snaps back-to-back', !!meeting && Math.abs(gap - 0.15) < 0.01,
+  `gap=${gap.toFixed(3)} m; rooms: ${st.rooms.map((r) => `${r.type} ${r.width}×${r.depth} at ${r.x},${r.z}`).join(' | ')}; mouse look: ${await locked()}; hint: ${await p.locator('[data-hud="hint"]').textContent()}`);
 
 await slot(4);
 // inside the office facing the shared wall, aiming at a spot of the wall both rooms share, away from the office's

@@ -82,6 +82,42 @@ export const DEFAULT_HOTBAR = [
   structure('edit'),
 ].map((item) => item ?? null);
 
+// The short name under a hotbar icon (v0.15.2): one or two short words that fit a slot.
+const SHORT_NAMES = {
+  DESK_STANDARD: 'Desk', DESK_CORNER: 'L-desk', CHAIR_OFFICE: 'Chair', SOFA_3SEAT: 'Sofa',
+  TABLE_MEETING: 'Table', TABLE_COFFEE: 'Coffee tbl', TABLE_ROUND: 'Round tbl', RECEPTION_DESK: 'Reception',
+  MONITOR_DUAL: 'Monitor', PROJECTOR_SCREEN: 'Screen', TV_DISPLAY: 'TV', PRINTER: 'Printer',
+  PLANT_LARGE: 'Plant', PLANT_SMALL: 'Desk plant', STAIRCASE: 'Stairs', COLUMN: 'Column',
+  LOCKER_BANK: 'Lockers', FILING_CABINET: 'Cabinet', STORAGE_RACK: 'Rack', SERVER_RACK: 'Server',
+  GLASS_PARTITION: 'Glass wall', VENDING_MACHINE: 'Vending', COFFEE_MACHINE: 'Coffee', WATER_COOLER: 'Water',
+  FIRE_EXTINGUISHER: 'Fire ext.', EMERGENCY_EXIT: 'Exit sign', FIRST_AID: 'First aid', COMPUTER_MOUSE: 'Mouse',
+  SPAWN_POINT: 'Start', ZONE_MARKER: 'Zone', CNC_MACHINE: 'CNC', LOUNGE_CHAIR: 'Armchair',
+};
+const STRUCTURE_SHORT = { edit: 'Edit', stretch: 'Stretch', wall: 'Wall', door: 'Door', window: 'Window' };
+/** At most this many characters under a slot (longer names are cut with …). */
+export const SHORT_NAME_MAX = 10;
+
+/**
+ * The short name under a hotbar icon: "Office", "Meeting", "Stretch", "Door", "Desk", "Chair".
+ * A room: its type without "Room" / "Area"; an item: its short name, else its own name when it
+ * is short enough, else the last word of it. Never longer than SHORT_NAME_MAX.
+ */
+export function shortLabel(item) {
+  if (!item) return '';
+  let name;
+  if (item.kind === 'room') {
+    const full = String(ROOM_TYPES[item.roomType]?.label ?? item.label ?? 'Room').trim();
+    name = full.replace(/\s+(room|area)$/i, '') || full;
+  } else if (item.kind === 'object') {
+    const full = String(item.label ?? '').trim();
+    name = SHORT_NAMES[item.assetType] ?? (full.length <= SHORT_NAME_MAX ? full : full.split(/\s+/).pop());
+  } else {
+    name = STRUCTURE_SHORT[item.kind] ?? String(item.label ?? '');
+  }
+  name = name || 'Item';
+  return name.length > SHORT_NAME_MAX ? `${name.slice(0, SHORT_NAME_MAX - 1)}…` : name;
+}
+
 /** No slot chosen: Preview starts with an empty hand (walking first, building is a choice). */
 export const EMPTY_HAND = -1;
 

@@ -12,7 +12,9 @@
 
 import { useEffect, useState } from 'react';
 import { ArrowLeft, LayoutGrid as CatalogIcon, ChevronUp, ChevronDown, Copy, Square, DoorOpen, HelpCircle, Crosshair } from 'lucide-react';
-import { catalogSections, itemKey } from '../play/hotbarItems';
+import { catalogSections, itemKey, shortLabel } from '../play/hotbarItems';
+import RoomPicture from '../ui/RoomPicture';
+import ItemPicture from '../ui/ItemPicture';
 import { itemIcon } from '../ui/tools';
 import CatalogPicker from '../ui/CatalogPicker';
 import '../ui/studio.css';
@@ -74,6 +76,13 @@ export function ToolHint({ hint, style }) {
   );
 }
 
+/** The catalog's pictures, the same as Studio's library: a room's plan, an item's thumbnail. */
+function catalogPicture(item) {
+  if (item.kind === 'room') return <RoomPicture roomType={item.roomType} />;
+  if (item.kind === 'object') return <ItemPicture assetType={item.assetType} iconSize={24} />;
+  return null; // the build tools keep their icons
+}
+
 function Slot({ item, index, selected, onClick }) {
   const Icon = itemIcon(item);
   return (
@@ -85,7 +94,8 @@ function Slot({ item, index, selected, onClick }) {
       aria-pressed={selected}
     >
       <span className="hud-slot__number">{index + 1}</span>
-      {Icon && <Icon size={24} strokeWidth={1.75} aria-hidden />}
+      {Icon && <Icon size={22} strokeWidth={1.75} aria-hidden />}
+      {item && <span className="hud-slot__name" data-slot-name>{shortLabel(item)}</span>}
       {item?.kind === 'room' && <span className="hud-slot__stripe" style={{ background: item.color }} />}
     </button>
   );
@@ -301,7 +311,14 @@ export default function PlayHUD({
             aria-label="Catalog"
           >
             <div className="hud-catalog__head">
-              <h2 className="hud-panel__title">{selectedSlot >= 0 ? `Choose an item for slot ${selectedSlot + 1}` : 'Choose an item to hold'}</h2>
+              <div>
+                <h2 className="hud-panel__title">Add to hotbar</h2>
+                <p className="hud-catalog__sub ui-muted" data-catalog-sub>
+                  {selectedSlot >= 0
+                    ? `Pick an item: it goes into slot ${selectedSlot + 1}, and into your hand.`
+                    : 'Pick an item: it goes into the first free slot, and into your hand.'}
+                </p>
+              </div>
               <button className="ui-btn" onClick={onCloseCatalog}>Close</button>
             </div>
             <CatalogPicker
@@ -309,6 +326,7 @@ export default function PlayHUD({
               sections={catalogSections()}
               itemKey={itemKey}
               iconFor={itemIcon}
+              pictureFor={catalogPicture}
               isActive={(item) => itemKey(item) === itemKey(selectedItem)}
               onPick={onAssign}
             />
