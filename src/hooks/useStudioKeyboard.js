@@ -15,6 +15,7 @@ import { useEffect } from 'react';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { STUDIO_TOOLS } from '../ui/tools';
 import { STAIRS_KEEP_SIZE } from '../play/building';
+import { findRoomAt } from '../play/geometry';
 
 export function useStudioKeyboard({
   editor, handleCancelPlacement, handleSetGizmoMode, handleEnterPlay, handleSetPlannerTool,
@@ -136,7 +137,7 @@ export function useStudioKeyboard({
 
           editor.updateObject(
             store.selectedObjectId,
-            { x: newX, z: newZ },
+            { x: newX, z: newZ, roomId: findRoomAt(Object.values(store.rooms), newX, newZ, obj.floor ?? 0)?.id ?? null },
             { label: 'Move item (keyboard)' }
           );
           setAnnounceText(`Moved ${obj.label || obj.assetType} to X ${newX}, Z ${newZ}`);

@@ -100,12 +100,29 @@ export function createBuildPreview(scene, name = 'build') {
     wallBox.rotation.y = Math.atan2(-dz, dx);
   }
 
-  function box({ x, y, z, sx, sy, sz }, ok = true) {
+  function box({ x, y, z, sx, sy, sz, ry = 0 }, ok = true) {
     if (!boxMesh) boxMesh = track(MeshBuilder.CreateBox(`${name}_pv_box`, { size: 1 }, scene));
     boxMesh.setEnabled(true);
     boxMesh.position.set(x, y, z);
     boxMesh.scaling.set(sx, sy, sz);
+    boxMesh.rotation.y = ry;
     boxMesh.material = mat(ok);
+  }
+
+  /**
+   * A door/window about to be cut into a free-standing wall (a WALL_SEGMENT item):
+   * `centre` {x, z} on the wall, `defaults` {width, height, sill}.
+   */
+  function segmentOpening(wallItem, centre, defaults, elevation, ok = true) {
+    box({
+      x: centre.x,
+      y: elevation + (wallItem.y ?? 0) + defaults.sill + defaults.height / 2,
+      z: centre.z,
+      sx: defaults.width,
+      sy: defaults.height,
+      sz: 0.2 * (wallItem.scaleZ ?? 1) + 0.12,
+      ry: wallItem.rotationY ?? 0,
+    }, ok);
   }
 
   function wallHighlight(roomData, wallName, elevation, ok = true) {
@@ -172,6 +189,7 @@ export function createBuildPreview(scene, name = 'build') {
     wallHighlight,
     wallTop,
     opening,
+    segmentOpening,
     hide,
     hideAll: () => hide('room', 'wall', 'box'),
     owns: (mesh) => all.includes(mesh),

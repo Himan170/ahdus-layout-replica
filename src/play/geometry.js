@@ -1341,3 +1341,150 @@ export function planRoomCopy(room, rooms, below = null) {
   }
   return null;
 }
+
+// ── Doors and windows in a free-standing wall (v0.15.0) ──────────────────
+// A wall drawn with the Wall tool is an item (WALL_SEGMENT), not a room wall,
+// so it has no openings list. A door or window there cuts the wall where you
+// aimed: the wall becomes the pieces on each side (plus the part above a door,
+// and below and above a window) and a door or window item fills the gap.
+// One undo step (editorHistory.replaceObjects).
+
+/** Height of the WALL_SEGMENT asset at scale 1 (see assetCatalog). */
+export const WALL_ASSET_HEIGHT = 2.8;
+/** The door and window items at scale 1 (assetCatalog DOOR_SINGLE, WINDOW_FRAME): gap width, height. */
+const OPENING_ITEMS = {
+  door: { assetType: 'DOOR_SINGLE', width: 1.0, height: 2.2 },
+  window: { assetType: 'WINDOW_FRAME', width: 1.5, height: 1.28 },
+};
+/** An opening in a free-standing wall stays this far from its ends. */
+const SEGMENT_END_GAP = 0.15;
+/** Wall pieces shorter than this are left out (nothing to see). */
+const MIN_PIECE = 0.05;
+const round3 = (v) => Math.round(v * 1000) / 1000;
+const AUTO_WALL_LABEL = /^Wall \d+(\.\d+)? m$/;
+
+/** Where a free-standing wall is: its centre, direction (unit, local +X), length and height. */
+export function wallSegmentLine(wall) {
+  const theta = wall.rotationY ?? 0;
+  return {
+    x: wall.x ?? 0,
+    z: wall.z ?? 0,
+    ux: Math.cos(theta),
+    uz: -Math.sin(theta),
+    length: WALL_ASSET_LENGTH * (wall.scaleX ?? 1),
+    height: WALL_ASSET_HEIGHT * (wall.scaleY ?? 1),
+  };
+}
+
+/**
+ * A door or window in a free-standing wall, aimed at `point` (world x, z).
+ *
+ * @param {object} wall   a WALL_SEGMENT item from the store
+ * @param {{x:number, z:number}} point
+ * @param {'door'|'window'} kind
+ * @returns {{ problem: string, defaults } |
+ *           { problem: null, defaults, along: number, centre: {x, z}, remove: string, add: object[] }}
+ *   add: the wall pieces and the door / window item (without `category`), ready for
+ *   editorHistory.replaceObjects([remove], add)
+ */
+export function planWallSegmentOpening(wall, point, kind) {
+  const defaults = kind === 'door' ? DOOR_DEFAULTS : WINDOW_DEFAULTS;
+  const label = kind === 'door' ? 'door' : 'window';
+  if (wall?.assetType !== 'WALL_SEGMENT') return { problem: 'Point at a wall', defaults };
+  if (wall.isLocked) return { problem: 'This wall is locked. Unlock it first.', defaults };
+  const line = wallSegmentLine(wall);
+  const width = defaults.width;
+  const item = OPENING_ITEMS[kind];
+  const max = line.length / 2 - width / 2 - SEGMENT_END_GAP;
+  if (max < 0) return { problem: `This wall is too short for a ${label}`, defaults };
+  const needs = kind === 'door' ? defaults.height + 0.1 : defaults.sill + defaults.height + 0.1;
+  if (line.height < needs - 1e-6) return { problem: `This wall is too low for a ${label}`, defaults };
+
+  const raw = (point.x - line.x) * line.ux + (point.z - line.z) * line.uz;
+  const along = round3(Math.max(-max, Math.min(max, raw)));
+  const baseY = wall.y ?? 0;
+  const { id: _id, name: _name, isSelected: _sel, ...base } = wall;
+  const pieceLabel = (len) => (!wall.label || AUTO_WALL_LABEL.test(wall.label) ? `Wall ${len.toFixed(1)} m` : wall.label);
+  const pieces = [];
+  /** A piece of the wall from `from` to `to` along it, from height y0 to y1 above its foot. */
+  const piece = (from, to, y0, y1) => {
+    const len = to - from;
+    const h = y1 - y0;
+    if (len < MIN_PIECE || h < MIN_PIECE) return;
+    const mid = (from + to) / 2;
+    pieces.push({
+      ...base,
+      x: round3(line.x + line.ux * mid),
+      z: round3(line.z + line.uz * mid),
+      y: round3(baseY + y0),
+      scaleX: round3(len / WALL_ASSET_LENGTH),
+      scaleY: round3(h / WALL_ASSET_HEIGHT),
+      label: pieceLabel(len),
+    });
+  };
+  const a = along - width / 2;
+  const b = along + width / 2;
+  piece(-line.length / 2, a, 0, line.height);
+  piece(b, line.length / 2, 0, line.height);
+  if (kind === 'door') {
+    piece(a, b, item.height, line.height);
+  } else {
+    piece(a, b, 0, defaults.sill);
+    piece(a, b, defaults.sill + defaults.height, line.height);
+  }
+
+  const centre = { x: round3(line.x + line.ux * along), z: round3(line.z + line.uz * along) };
+  const opening = {
+    assetType: item.assetType,
+    x: centre.x,
+    y: round3(baseY + (kind === 'door' ? 0 : defaults.sill)),
+    z: centre.z,
+    rotationY: wall.rotationY ?? 0,
+    scaleX: round3(width / item.width),
+    scaleY: kind === 'door' ? 1 : round3(defaults.height / item.height),
+    scaleZ: 1,
+    floor: wall.floor,
+    roomId: wall.roomId ?? null,
+  };
+  return { problem: null, defaults, along, centre, remove: wall.id, add: [...pieces, opening] };
+}
+
+/**
+ * Slide a door/window along its wall to `offset` (as stored: from the room's
+ * centre along that wall), with the same opening in a back-to-back neighbour.
+ * It stops at the ends of the wall instead of refusing; it is refused only
+ * where it can't be (next to another opening, the stairs in the way).
+ *
+ * @returns {{ problem: string|null, offset: number, list: {roomId, kind, index, patch: {offset}}[] }}
+ *          list is ready for editorHistory.resizeOpening. On a problem, offset is the current one.
+ */
+export function moveOpening(rooms, room, kind, index, offset, { stairs = [] } = {}) {
+  const o = openingData(room, kind, index);
+  if (!o) return { problem: `This ${kind} is gone`, offset: 0, list: [] };
+  const targets = [{ room, index }];
+  const partner = openingPartner(rooms, room, kind, index);
+  if (partner) targets.push(partner);
+
+  // Keep it on its wall (on both walls when it is shared)
+  let shift = offset - o.offset;
+  for (const t of targets) {
+    const mine = openingData(t.room, kind, t.index);
+    const half = innerWallLength(t.room, mine.wall) / 2 - OPENING_CORNER_GAP - mine.width / 2;
+    if (half < 0) continue;
+    shift = Math.max(-half - mine.offset, Math.min(half - mine.offset, shift));
+  }
+  shift = round2(shift);
+
+  const stairRects = stairs
+    .filter((s) => (s.floor ?? 0) === (room.floor ?? 0))
+    .map((s) => stairOpening(s, undefined, 0));
+  const list = [];
+  for (const t of targets) {
+    const mine = openingData(t.room, kind, t.index);
+    const newOffset = round2(mine.offset + shift);
+    const problem = openingProblem(t.room, kind, t.index, mine.wall, newOffset, mine.width, mine.height, mine.sill, stairRects);
+    if (problem) return { problem: t.room === room ? problem : `${problem} (in ${t.room.name})`, offset: o.offset, list: [] };
+    list.push({ roomId: t.room.id, kind, index: t.index, patch: { offset: newOffset } });
+  }
+  return { problem: null, offset: round2(o.offset + shift), list };
+}

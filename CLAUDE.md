@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1162, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1175, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -44,8 +44,11 @@ npm run e2e:stairs   # 24 checks   e2e/stairs-smoke.mjs    (viewer.html: W climb
                      #                                       back down; first person; from the side it stops you; Take me there; Studio:
                      #                                       no Height / size for stairs, R says why, "lead nowhere"; SHOTS=<dir>: shots)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
-npm run e2e:tools    # 46 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
-                     #                                       room's floor + Preview's Edit item)
+npm run e2e:tools    # 58 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
+                     #                                       room's floor + Preview's Edit item; v0.15.0: a desk
+                     #                                       dragged with its monitor, a Desk Plant dragged onto a
+                     #                                       desk, the move arrow still works past it, a door in a
+                     #                                       Wall-tool wall, sliding a door, G in Preview)
 npm run e2e:measurements # 23   e2e/measurements-smoke.mjs (off at start, the Measurements panel, measure distance
                      #                                       in 2D, wall lengths, room areas, toggles, Esc, per floor,
                      #                                       Clear Measurements keeps the room)
@@ -187,6 +190,21 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   **Build tools** (`src/planner/plannerTools.js`): Select (drag a wall of the selected room to resize it, drag its
   floor to move it), room (drag corner to corner; also inside another room), wall (drag), door / window (click a
   wall; click one to remove).
+  **Easy building (v0.15.0):** with Select, **drag any item** (selected or not; after a 5 px drag, a click still
+  selects): its real mesh follows the mouse onto the floor or a table top (`dragSurface`: `placementHeight` from what is
+  under the mouse; building parts and stairs keep their height), and what stands on it comes along (`ridersOf`: unlocked
+  items whose foot is at its top, inside its outline: the monitor and the plant on a desk). One undo step for all of them
+  (`editor.moveObjects`; each item's `roomId` = the room it ends in). Locked items say "Locked. Select it and press L".
+  The move gizmo has no up arrow any more (the Inspector's Height lifts an item on purpose), and **the nearest thing
+  under the mouse wins** (`gizmoController`, a top-priority pre-pointer observer): where the item itself is nearer than
+  the gizmo (from above, always over the item: the arrows lie at its foot) the press is the item's drag; where an arrow
+  or ring sticks out in front of it, the gizmo's. **Door / window tool on a wall drawn with the Wall tool** (a
+  WALL_SEGMENT item): the wall is cut there (`geometry.planWallSegmentOpening`: the side pieces, the part above a door /
+  below and above a window, plus a DOOR_SINGLE / WINDOW_FRAME item), one undo step (`editor.replaceObjects`); too
+  short / too low / locked walls say why. **Slide a door / window:** select it, drag it (not a blue handle) along its
+  wall in 0.1 m steps (`geometry.moveOpening`: it stops at the corners, refused next to another opening or the stairs;
+  a shared door moves on both rooms), one `editor.resizeOpening` step "Move door". The keyboard arrows and every gizmo
+  drag also set the item's `roomId`. Dev hook `window.__ahdusGizmo` (`gizmoScene()`: the arrows' scene, `isPointerOver()`).
   **Export floor plan** (Anish, S2; button left of 2D | 3D, `ui/ExportMenu.jsx`): the current floor as a PNG
   (`floor-plan-<floor>.png`) or an A4 PDF (jsPDF, loaded on first use), drawn on an offscreen 2D canvas from the store
   by `utils/floorPlanExporter.js` (rooms, walls, doors, windows, items, dimensions; no Babylon). Disabled with no rooms.
@@ -228,6 +246,11 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   **Edit item** (slot 9) = Studio's gizmo actions on what you look at: click picks it up / puts it down,
   R turns, + / − resizes (keeps proportions), 0 normal size, L lock/unlock. On a **door/window**: + / − width,
   Shift + / − height (0.1 m), 0 standard size; the hint shows "Door 0.9 × 2.1 m" or why it is blocked.
+  **v0.15.0:** a click on a door / window picks it up: look along its wall to slide it (`moveOpening`, the same rule as
+  Studio), click puts it there, right-click cancels. **G or middle-click** picks up the item you look at whatever is in
+  your hand (an empty hand: a left-click too) and carries it like Edit item (click puts it down, R turns it, right-click
+  cancels; the item in your hand waits). The **Door / Window** slots also cut a door into a wall drawn with the Wall
+  tool (`planWallSegmentOpening`, `actions.replaceObjects`).
 - **Both modes share the decisions and the look:** `planRoom`, `planOpening`, `planRemoveOpening`, `wallSegmentData`,
   `stretchRoom`, `resizeItem`, `resizeOpening` (`geometry.js`), `placementHeight` (`building.js`), previews in `utils/buildPreview.js`,
   forgiving picks in `utils/pickHelpers.js`, tokens in `src/ui/theme.css`.
@@ -351,7 +374,7 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 ## Rules (follow these)
 
 1. **Every layout change goes through `editorHistory`** (`createEditorHistory()`: addObject, updateObject,
-   deleteObject, duplicateObject, toggleLock, addRoom, updateRoom, deleteRoom, toggleDoor, addOpenings,
+   deleteObject, duplicateObject, moveObjects, replaceObjects, toggleLock, addRoom, updateRoom, deleteRoom, toggleDoor, addOpenings,
    removeOpenings, resizeOpening, setWallHeight, setFloorHeight, setAnchorData, addFloor({ copyRooms }), removeFloor,
    renameFloor, restoreVersion). Never call store mutators directly from
    UI or tools, or undo breaks. Continuous edits (slider drag, typing, + / − bursts) pass `{ mergeKey }` so they are
@@ -1224,7 +1247,13 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
   room names can sit under items; rotation in 90° steps only).
 - Room labels and the selection toolbar are HTML over the canvas (always on top, even behind a wall).
 - The layout name is saved at once but is not part of undo.
-- Doors and windows can be resized but not moved along the wall (remove and add again); window sills are fixed (0.9 m).
+- Doors and windows slide along their own wall (v0.15.0) but can't move to another wall (remove and add again);
+  window sills are fixed (0.9 m).
+- Easy building (v0.15.0): Preview's carry (G, Edit item) moves only the item itself, not what stands on it (Studio's
+  drag takes the monitor along). A door cut into a free-standing wall is an item with wall pieces around it: removing
+  the door leaves the gap (Ctrl+Z puts the whole wall back), and it can't slide or be resized like a room door. From
+  above, the move arrows can be grabbed only where they stick out past the item. Dragging an item that isn't selected
+  opens the Inspector, so the view narrows under the mouse while you drag (the item stays under the cursor).
 - Door/window limits: min width 0.6 m (door) / 0.4 m (window), min height 1.8 m / 0.4 m, 0.1 m from corners and
   below the top of the wall, 0.2 m from other openings, and a door keeps 0.5 m clear of stairs on both sides.
 - Preview: + / − is the = / − key (or numpad); on a US keyboard "+" needs Shift, which changes the height.
@@ -1328,6 +1357,15 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: easy building (v0.15.0, 9 Nov 2026, branch `feature/easy-building`)
+
+Studio: drag any item onto the floor or a table top with what stands on it (`editor.moveObjects`), doors and windows
+in walls drawn with the Wall tool (`editor.replaceObjects`), sliding a door / window along its wall; Preview: G /
+middle-click picks up an item, Edit item slides a door (see "Easy building" under Two editing modes). Fixed with it: a
+selected Desk Plant dragged onto a desk stayed on the floor: the move gizmo's arrows covered the small plant and took
+the press (Babylon gives the gizmo layer every press), so it slid along one arrow at its old height; now the nearest
+thing under the mouse wins. CHANGELOG.md starts here. e2e:tools 58 checks.
 
 ## DONE: departments for Studio's layouts (v0.14.9, 8 Nov 2026, branch `fix/room-departments`)
 

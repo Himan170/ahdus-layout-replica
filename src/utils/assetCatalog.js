@@ -155,8 +155,8 @@ export const ASSET_TYPES = {
       const handle = cyl(scene, 'dh', 0.04, 0.1, 0.35, 1.0, 0);
       handle.rotation.z = Math.PI / 2;
       handle.material = metalMat(scene, '#d4af37');
-      // Frame
-      const fTop = box(scene, 'dft', 1, 0.1, 0.12, 0, 2.2, 0);
+      // Frame: its top sits right on the door leaf (no gap to see through)
+      const fTop = box(scene, 'dft', 1, 0.1, 0.12, 0, 2.1, 0);
       const fL = box(scene, 'dfl', 0.1, 2.2, 0.12, -0.5, 0, 0);
       const fR = box(scene, 'dfr', 0.1, 2.2, 0.12, 0.5, 0, 0);
       const fMat = mat(scene, '#5c4a2a');

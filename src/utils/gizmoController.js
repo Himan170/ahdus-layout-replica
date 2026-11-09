@@ -24,7 +24,7 @@ import '@babylonjs/core/Gizmos/boundingBoxGizmo';
  *
  * @param {BABYLON.Scene} scene
  * @param {Function} onTransformEnd — (meshId, { x, y, z, rotationX, ... }) called after drag
- * @returns {{ setMode, attachToMesh, detach, isAttached, getMode, dispose }}
+ * @returns {{ setMode, attachToMesh, detach, isAttached, isPointerOver, getMode, gizmoScene, dispose }}
  */
 export function createGizmoController(scene, onTransformEnd) {
   const gizmoManager = new GizmoManager(scene);
@@ -44,13 +44,15 @@ export function createGizmoController(scene, onTransformEnd) {
   let fixedShape = false;      // a staircase: it moves on its floor and turns about Y only, no scale
 
   /**
-   * A staircase is drawn as it is walked on (building.stairDrawn): no scale gizmo, no moving it up
-   * or down, no tilting. Everything else keeps all three axes.
+   * A staircase is drawn as it is walked on (building.stairDrawn): no scale gizmo, no tilting.
+   * Nothing is moved up or down with the arrows (v0.15.0: items ended up floating or sunk in the
+   * floor): an item stands on the floor or on a table top when it is dragged, and the
+   * Inspector's Height field lifts it on purpose (a screen on a wall).
    */
   function applyLimits() {
     gizmoManager.scaleGizmoEnabled = currentMode === 'scale' && !fixedShape;
     const { positionGizmo, rotationGizmo } = gizmoManager.gizmos ?? {};
-    if (positionGizmo) positionGizmo.yGizmo.isEnabled = !fixedShape;
+    if (positionGizmo) positionGizmo.yGizmo.isEnabled = false;
     if (rotationGizmo) {
       rotationGizmo.xGizmo.isEnabled = !fixedShape;
       rotationGizmo.zGizmo.isEnabled = !fixedShape;
@@ -164,6 +166,42 @@ export function createGizmoController(scene, onTransformEnd) {
     return attachedMesh !== null;
   }
 
+  // ── The nearest thing under the mouse wins (v0.15.0) ──
+  // The gizmo is drawn on top of everything and Babylon gives it every press on its arrows,
+  // even where they lie behind the item: the arrows start at the item's foot, so a small item
+  // (a 0.2 m Desk Plant) is covered by them, and dragging it slid it along one arrow at its old
+  // height instead of onto the desk. Now, where the item's own surface is nearer than the gizmo,
+  // the gizmo ignores the mouse and the Select tool drags the item (onto the floor or a table
+  // top); where an arrow or ring sticks out in front of the item, the gizmo still takes it.
+  const layer = gizmoManager.utilityLayer;
+  const isPartOfItem = (m) => !!attachedMesh && (m === attachedMesh || !!m.isDescendantOf?.(attachedMesh));
+
+  /** The mouse is on the attached item, and the item is nearer than the gizmo there. */
+  function itemInFront() {
+    if (!attachedMesh || !currentMode || !layer) return false;
+    const gizmoHit = layer.utilityLayerScene.pick(scene.pointerX, scene.pointerY);
+    if (!gizmoHit?.hit) return false;
+    const hit = scene.pick(scene.pointerX, scene.pointerY, (m) => m.isPickable && m.isEnabled());
+    return !!hit?.hit && isPartOfItem(hit.pickedMesh) && hit.distance < gizmoHit.distance;
+  }
+
+  // Runs before the gizmo's own layer sees the event (top priority): a press there is the item's
+  const preObserver = scene.onPrePointerObservable.add(() => {
+    if (!layer || gizmoManager.isDragging) return; // a gizmo drag runs: leave it alone
+    layer.pickingEnabled = !itemInFront();
+  });
+  scene.onPrePointerObservable.makeObserverTopPriority(preObserver);
+
+  /**
+   * Whether the mouse is on one of the gizmo's arrows / rings (or dragging one), in front of
+   * the item: the Select tool's own item drag waits for it.
+   */
+  function isPointerOver() {
+    if (!attachedMesh || !currentMode) return false;
+    if (gizmoManager.isDragging) return true;
+    return !!gizmoManager.isHovered && !itemInFront();
+  }
+
   /**
    * Current gizmo mode.
    */
@@ -176,6 +214,8 @@ export function createGizmoController(scene, onTransformEnd) {
    */
   function dispose() {
     detach();
+    scene.onPrePointerObservable.remove(preObserver);
+    if (layer) layer.pickingEnabled = true;
     gizmoManager.dispose();
   }
 
@@ -184,7 +224,10 @@ export function createGizmoController(scene, onTransformEnd) {
     attachToMesh,
     detach,
     isAttached,
+    isPointerOver,
     getMode,
+    /** The scene the arrows / rings are drawn in (tests pick it to find an arrow). */
+    gizmoScene: () => layer?.utilityLayerScene ?? null,
     dispose,
   };
 }

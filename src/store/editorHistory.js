@@ -286,6 +286,39 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
         label: obj.label ? `${obj.label} (copy)` : '',
       }));
     },
+    /**
+     * Move several items as ONE undo step: an item dragged in Studio with what
+     * stands on it (the monitor and keyboard on a desk). Locked items stay.
+     * @param {[string, object][]} moves  [objectId, patch]
+     * @param {{label?: string}} [options]
+     */
+    moveObjects(moves, { label = 'Move items' } = {}) {
+      const cmds = [];
+      for (const [id, patch] of moves) {
+        const obj = s.getObject(id);
+        if (!obj || obj.isLocked) continue;
+        const allowed = obj.assetType === 'STAIRCASE' ? stairPatch(patch) : patch;
+        if (!Object.keys(allowed).some((k) => obj[k] !== allowed[k])) continue;
+        cmds.push(new TransformCommand(s, id, allowed, { label }));
+      }
+      if (cmds.length === 0) return;
+      run(cmds.length === 1 ? cmds[0] : new CompositeCommand(label, cmds));
+    },
+    /**
+     * Remove some items and add others as ONE undo step: a door or window cut
+     * into a free-standing wall (geometry.planWallSegmentOpening) is the wall
+     * replaced by its pieces plus the door.
+     * @param {string[]} removeIds
+     * @param {object[]} addList  object data, as for addObject
+     * @param {{label?: string}} [options]
+     */
+    replaceObjects(removeIds, addList, { label = 'Change items' } = {}) {
+      const removes = removeIds.filter((id) => s.getObject(id)).map((id) => new DeleteObjectCommand(s, id));
+      const adds = addList.map((data) => new AddObjectCommand(s, data));
+      if (removes.length + adds.length === 0) return;
+      const cmd = new CompositeCommand(label, [...removes, ...adds]);
+      run(cmd);
+    },
     toggleLock(id) {
       const obj = s.getObject(id);
       if (!obj) return;

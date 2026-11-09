@@ -428,6 +428,8 @@ const EDITS: Record<string, unknown[]> = {
   updateObject: ['obj_desk', { x: 2 }],
   deleteObject: ['obj_desk'],
   duplicateObject: ['obj_desk'],
+  moveObjects: [[['obj_desk', { x: 2 }]]],
+  replaceObjects: [['obj_desk'], [{ assetType: 'DESK_STANDARD', x: 4, z: 4 }]],
   toggleLock: ['obj_desk'],
   addRoom: [{ type: 'OFFICE', x: 20, z: 0, width: 4, depth: 4 }],
   deleteRoom: ['room_b'],
