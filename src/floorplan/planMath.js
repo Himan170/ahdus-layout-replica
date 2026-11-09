@@ -8,6 +8,7 @@
 
 import { snap, roomOpenings, WALL_ASSET_LENGTH } from '../play/geometry';
 import { placementHeight } from '../play/building';
+import { carriedBy } from '../play/carry';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 
 // ── World ↔ plan ↔ screen ─────────────────────────────────────────────────
@@ -170,25 +171,41 @@ export function roomContainsPoint(room, point) {
 }
 
 /**
+ * The items that move with `object` (from the data alone: the plan has no meshes): its chair
+ * (a desk; carry.carriedBy) and what stands on it (its foot at the item's top, inside its outline).
+ * @returns {object[]}
+ */
+export function planCarried(object, objects = []) {
+  const top = (Number(object.y) || 0) + itemSize(object).height;
+  const riders = objects.filter((o) => o.id !== object.id && (o.floor ?? 0) === (object.floor ?? 0) &&
+    Math.abs((Number(o.y) || 0) - top) < 0.2 && itemContains(object, { x: Number(o.x) || 0, z: Number(o.z) || 0 }));
+  return carriedBy(object, objects, riders).map((c) => c.item);
+}
+
+/**
  * Where an item dragged in the plan ends up, by Studio's rules: the same snap
  * step as the 3D tools, and the height from placementHeight: on top of the
  * highest other item under it (a monitor on a desk), else on the floor.
  * @param {object} object   the item being moved (store data: y relative to its floor)
  * @param {{x:number,z:number}} point  where it was dropped (world metres)
- * @param {{ objects?: object[], rooms?: object[], snap?: { enabled:boolean, step:number }, ground?: boolean }} ctx
- *        objects / rooms of the same floor; ground: this is the ground floor (outside rooms = the ground)
+ * @param {{ objects?: object[], rooms?: object[], snap?: { enabled:boolean, step:number }, ground?: boolean, ignore?: string[] }} ctx
+ *        objects / rooms of the same floor; ground: this is the ground floor (outside rooms = the ground);
+ *        ignore: more item ids that are no surface (what moves with it is left out by itself: planCarried)
  * @returns {{ x:number, y:number, z:number } | null}  null for a locked item (it does not move)
  */
-export function planDrop(object, point, { objects = [], rooms = [], snap: snapping, ground = false } = {}) {
+export function planDrop(object, point, { objects = [], rooms = [], snap: snapping, ground = false, ignore = [] } = {}) {
   if (!object || object.isLocked) return null;
   const s = snapping?.enabled && snapping.step > 0 ? snapping.step : 0;
   const x = s ? snap(point.x, s) : point.x;
   const z = s ? snap(point.z, s) : point.z;
   const at = { x, z };
 
+  // What moves with it is no surface for it: a desk dragged onto the spot where its own chair
+  // stood ended up on that chair (1.10 m up)
+  const moving = new Set([object.id, ...ignore, ...planCarried(object, objects).map((o) => o.id)]);
   let top = null;
   for (const other of objects) {
-    if (other.id === object.id || !itemContains(other, at)) continue;
+    if (moving.has(other.id) || !itemContains(other, at)) continue;
     const t = (Number(other.y) || 0) + itemSize(other).height;
     if (top === null || t > top) top = t;
   }
