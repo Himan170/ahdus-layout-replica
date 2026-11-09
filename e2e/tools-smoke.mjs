@@ -176,7 +176,8 @@ log('clicking a door selects it; the Inspector shows Door with its size',
 await p.fill(`${insp} input[aria-label="Width"]`, '1.4');
 await frames(2);
 let dS = (await store()).rooms[0].doors[0];
-log('typing a width in the Inspector resizes the door (its centre stays)', near(dS.width, 1.4, 0.001) && near(dS.offset, d0.offset, 0.001),
+// (the centre is rounded to the cm: geometry.resizeOpening's round2)
+log('typing a width in the Inspector resizes the door (its centre stays)', near(dS.width, 1.4, 0.001) && near(dS.offset, d0.offset, 0.0051),
   `width ${d0.width} → ${dS.width}, offset ${d0.offset} → ${dS.offset}`);
 await p.fill(`${insp} input[aria-label="Height"]`, '3.4');   // new rooms have 3.2 m walls
 await frames(2);
