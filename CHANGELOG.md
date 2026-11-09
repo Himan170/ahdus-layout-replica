@@ -3,6 +3,44 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.15.1 (9 Nov 2026): easy building, part 2
+
+### Workplace Studio
+- **A desk takes its chair along:** dragging a desk, the arrow keys, R, typing its X / Z in the Inspector and Plan
+  view move or turn its chair with it (the chair that faces it, as for the people at desks) and what stands on it. The
+  chair turns round the desk. One undo step.
+- **Moving a room takes what is in it:** dragging a room by its floor, or typing its position (Inspector "Room X" /
+  "Room Z"), moves its furniture and the rooms inside it too. One undo step.
+- **One way to move and turn:** R turns the selected item 90° (Shift+R: 15°), in Studio and in Walk through. The move
+  arrows show only after Move (the selection bar's Move, or W). Resize handles: S (was R). E (rotation rings) is gone.
+  The Inspector's Rotation keeps its four buttons and the angle box (no slider).
+- **Focus on the selection:** double-click an item, room, door or window, or press F, and the camera flies to it.
+  F with nothing selected still fits the whole building.
+- **Inspector sizes in metres:** Width, Depth and Height in m (the saved data is unchanged); "Keep proportions" works
+  on them. The hook-point note and "Linked position" are in a closed **Advanced** section.
+- The selection bar sits above the item, clear of it and of the room labels, and hides while you drag.
+
+### Walk through (Preview)
+- **Starts with an empty hand:** walking first, building is a choice (1–9 or B picks an item). An item chosen in the
+  catalog goes to a slot and is held at once.
+- **The camera near walls:** it stays under the ceiling before looking for walls, slides behind your head before it
+  pulls in, and the character hides when the camera is closer than 0.5 m (no more looking through your own head or
+  the wall). First person (V) is unchanged.
+- Catalog names: "Meeting Room", "Restroom", "Production Area" (no "Meeting Room room").
+
+### Fixed
+- The Small Office template: two workstation chairs faced away from their desks.
+
+### For developers
+- `editorHistory`: `moveRoom(id, plan, { label, mergeKey })` (the room, the rooms inside it and its items, one undo
+  step); `moveObjects(moves, { label, mergeKey })` merges a burst (typing, arrow keys) into one step.
+- `play/carry.js` (pure): `carriedBy`, `carryMoves`, `turnStep`, `turnText`. `geometry.planRoomMove(room, x, z, rooms,
+  objects)` also returns the rooms and items that go along; `roomsInside`, `itemInRoom`.
+- `plannerTools.moveItem(id, patch, { label, mergeKey })`: every move of one item (keys, Inspector, gizmo, Plan view)
+  takes its chair and riders along.
+- `playController.thirdPersonCamera` (pure), `HIDE_CHARACTER_BELOW`; `hotbarItems.EMPTY_HAND`, `nextSlot`,
+  `catalogSlot`, `roomItemLabel`; `ui/selectionSpot.js`, `ui/itemSize.js` (pure, tested).
+
 ## 0.15.0 (9 Nov 2026): easy building
 
 ### Workplace Studio
