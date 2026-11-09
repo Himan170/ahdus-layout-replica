@@ -149,6 +149,8 @@ await p.evaluate((id) => {
   st.selectObject(id);
 }, ids.desk);
 await wait(800);
+// v0.15.1: the hook points and the linked position are in the closed Advanced section
+await p.locator('[data-inspector-advanced] summary').click();
 const select = p.locator('select[aria-label="Linked position"]');
 const hasDropdown = await select.isVisible().catch(() => false);
 log('the Inspector shows a "Linked position" dropdown with Yashashwi\'s positions', hasDropdown &&
