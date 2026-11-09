@@ -1,6 +1,7 @@
 // What an item takes along when it moves or turns (v0.15.1): a desk its chair and what stands on it.
 import { describe, expect, it } from 'vitest';
-import { carriedBy, carryMoves } from '../carry';
+import { carriedBy, carryMoves, carryDrop } from '../carry';
+import { ridersOf } from '../../utils/itemRiders';
 import { deskSeat } from '../people';
 
 const desk = { id: 'desk', assetType: 'DESK_STANDARD', x: 2, z: 3, rotationY: 0, floor: 0 };
@@ -69,6 +70,70 @@ describe('carryMoves', () => {
   it('no turn: no rotationY in the patches (only what changed)', () => {
     const moves = carryMoves(desk, [chair], { x: 3 });
     expect(moves.every(([, p]) => !('rotationY' in p))).toBe(true);
+  });
+});
+
+describe('carryDrop: putting a desk down in Walk through with what goes with it (v0.15.2)', () => {
+  const d = { ...desk, y: 0.02 };
+  const c = { ...chair, y: 0.02 };
+  const carried = carriedBy(d, [d, c, monitor], [monitor]);
+
+  it('the desk, its chair and its monitor in one list: the chair keeps its place and its height', () => {
+    const moves = carryDrop(d, carried, { x: 6, y: 0.02, z: -1, rotationY: 0 }, { floor: 0 });
+    expect(moves.map(([id]) => id)).toEqual(['desk', 'mon', 'chair']);
+    const after = apply([d, c, monitor], moves);
+    expect(after.desk).toMatchObject({ x: 6, y: 0.02, z: -1, rotationY: 0, floor: 0 });
+    expect(after.chair).toMatchObject({ x: 6, z: -0.3, y: 0.02, floor: 0 });
+    expect(after.mon).toMatchObject({ x: 6.2, z: -1.1, y: 0.75 });
+    expect(deskSeat(after.desk, Object.values(after))?.id).toBe('chair');
+  });
+
+  it('turned while carried (R): the chair swings round the desk and still belongs to it', () => {
+    const after = apply([d, c, monitor], carryDrop(d, carried, { x: 6, y: 0.02, z: -1, rotationY: Math.PI / 2 }));
+    expect(after.desk.rotationY).toBeCloseTo(Math.PI / 2);
+    expect(after.chair.x).toBeCloseTo(6.7);
+    expect(after.chair.z).toBeCloseTo(-1);
+    expect(deskSeat(after.desk, Object.values(after))?.id).toBe('chair');
+  });
+
+  it('what stands on it rises and sinks with it; its chair does not', () => {
+    // from the room's floor (0.02) onto the ground outside (0)
+    const after = apply([d, c, monitor], carryDrop(d, carried, { x: 30, y: 0, z: 0 }));
+    expect(after.desk.y).toBe(0);
+    expect(after.mon.y).toBeCloseTo(0.73);
+    expect(after.chair.y).toBe(0.02);
+  });
+
+  it('an item alone: just itself, with its height and angle', () => {
+    expect(carryDrop(far, [], { x: 1, y: 0.02, z: 2, rotationY: 1 })).toEqual([['far', { x: 1, z: 2, y: 0.02, rotationY: 1 }]]);
+  });
+});
+
+describe('ridersOf: what stands on an item, from its mesh (Studio and Walk through)', () => {
+  // a desk 1.6 × 0.8 m, 0.75 m high, on a floor whose elevation is 3.5 m
+  const box = (x, z) => ({
+    position: { x, z },
+    getHierarchyBoundingVectors: () => ({ min: { x: x - 0.8, y: 3.5, z: z - 0.4 }, max: { x: x + 0.8, y: 4.25, z: z + 0.4 } }),
+  });
+  const up = { id: 'desk', assetType: 'DESK_STANDARD', x: 2, z: 3, y: 0, floor: 1 };
+  const on = (more) => ({ id: 'm', assetType: 'MONITOR_DUAL', x: 2.2, z: 2.9, y: 0.75, floor: 1, ...more });
+
+  it('an item with its foot at the top, inside the outline', () => {
+    expect(ridersOf(up, box(2, 3), [up, on()], 3.5).map((o) => o.id)).toEqual(['m']);
+  });
+
+  it('not: beside it, on the floor, on another floor, locked, a wall, the stairs', () => {
+    const none = [on({ x: 4 }), on({ y: 0.02 }), on({ floor: 0 }), on({ isLocked: true }),
+      on({ assetType: 'WALL_SEGMENT' }), on({ assetType: 'STAIRCASE' })];
+    for (const o of none) expect(ridersOf(up, box(2, 3), [up, o], 3.5)).toEqual([]);
+  });
+
+  it('a mesh already dragged away still finds what stood on it (the outline is moved back)', () => {
+    expect(ridersOf(up, box(7, 9), [up, on()], 3.5).map((o) => o.id)).toEqual(['m']);
+  });
+
+  it('no mesh: nothing', () => {
+    expect(ridersOf(up, null, [up, on()], 3.5)).toEqual([]);
   });
 });
 

@@ -111,6 +111,7 @@ export function useStudioScene({
       actions: {
         addObject: (d) => editor.addObject(d),
         updateObject: (id, patch, opts) => editor.updateObject(id, patch, opts),
+        moveObjects: (moves, opts) => editor.moveObjects(moves, opts),
         deleteObject: (id) => editor.deleteObject(id),
         toggleLock: (id) => editor.toggleLock(id),
         addRoom: (d) => editor.addRoom(d),

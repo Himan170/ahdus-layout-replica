@@ -42,6 +42,7 @@ import {
   placementHeight, canStandOn, floorOnlyText,
 } from '../play/building';
 import { carriedBy, carryMoves } from '../play/carry';
+import { ridersOf as itemRiders, KEEP_HEIGHT } from '../utils/itemRiders';
 import { isDesk } from '../play/people';
 
 const FLOOR_Y = 0.02;
@@ -49,7 +50,6 @@ const CLICK_SLOP = 5; // px the mouse may move with the button down and still co
 const WALL_LABEL = { north: 'north', south: 'south', east: 'east', west: 'west' };
 const VIEW_KEYS = [['Right-drag', 'Move the view'], ['Wheel', 'Zoom'], ['Esc', 'Stop']];
 /** Building parts keep their height when dragged (never stacked on a table); stairs stand on their floor. */
-const KEEP_HEIGHT = new Set(['WALL_SEGMENT', 'DOOR_SINGLE', 'WINDOW_FRAME', 'GLASS_PARTITION']);
 const objectIdOf = (m) => m?.metadata?.objectId ?? m?.parent?.metadata?.objectId ?? null;
 
 export function createPlannerTools(scene, canvas, {
@@ -339,16 +339,7 @@ export function createPlannerTools(scene, canvas, {
    * moved the mesh when it reports).
    */
   function ridersOf(obj, mesh) {
-    if (!mesh?.getHierarchyBoundingVectors) return [];
-    const { min, max } = mesh.getHierarchyBoundingVectors(true);
-    const sx = (mesh.position?.x ?? obj.x) - obj.x;
-    const sz = (mesh.position?.z ?? obj.z) - obj.z;
-    const e = elevationOf(st().floors, obj.floor ?? 0);
-    const top = max.y - e;
-    return Object.values(st().objects).filter((o) => o.id !== obj.id && (o.floor ?? 0) === (obj.floor ?? 0) &&
-      !o.isLocked && !KEEP_HEIGHT.has(o.assetType) && o.assetType !== 'STAIRCASE' &&
-      (o.y ?? 0) > 0.05 && Math.abs((o.y ?? 0) - top) < 0.2 &&
-      o.x >= min.x - sx && o.x <= max.x - sx && o.z >= min.z - sz && o.z <= max.z - sz);
+    return itemRiders(obj, mesh, Object.values(st().objects), elevationOf(st().floors, obj.floor ?? 0));
   }
 
   /** What `obj` takes along (carry.carriedBy): its chair (a desk) and what stands on it. */

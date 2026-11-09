@@ -83,7 +83,8 @@ import {
   STAIRS_LEAD_NOWHERE,
 } from './building';
 import { WALK_SPEED as WALK, RUN_SPEED as RUN, FLY_SPEED as FLY } from './speeds';
-import { turnStep } from './carry';
+import { turnStep, carriedBy, carryDrop } from './carry';
+import { ridersOf } from '../utils/itemRiders';
 
 // ── Feel ──
 const JUMP_SPEED = 5.2;
@@ -378,7 +379,7 @@ export function createPlayController(scene, canvas, {
   const isPlayerMesh = (m) => m === collider || m.isDescendantOf?.(character.root);
   const isGhostMesh = (m) =>
     (ghost && (m === ghost || m.isDescendantOf?.(ghost))) ||
-    (carry && (m === carry.mesh || m.isDescendantOf?.(carry.mesh))) ||
+    (carry && carry.meshes.some((c) => m === c || m.isDescendantOf?.(c))) ||
     pv.owns(m);
   const itemName = (o) => o?.label || ASSET_TYPES[o?.assetType]?.label || 'Item';
 
@@ -435,26 +436,62 @@ export function createPlayController(scene, canvas, {
     const mesh = getObjectMesh(obj.id);
     if (!mesh) return false;
     setOutline(null);
-    const meshes = [mesh, ...mesh.getChildMeshes(false)];
+    // v0.15.2: a desk takes its chair and what stands on it, as in Studio (carry.carriedBy)
+    const objects = state().objects;
+    const items = carriedBy(obj, objects, ridersOf(obj, mesh, objects, elevationOf(state().floors, obj.floor ?? 0)))
+      .map(({ item, onTop }) => ({ item, onTop, mesh: getObjectMesh(item.id) }))
+      .filter((c) => c.mesh);
+    const roots = [mesh, ...items.map((c) => c.mesh)];
+    const meshes = roots.flatMap((r) => [r, ...r.getChildMeshes(false)]);
     carry = {
       id: obj.id,
       mesh,
+      from: { ...obj },          // where it was picked up (the carried items keep their place relative to this)
+      items,                     // [{ item, onTop, mesh }]: its chair, what stands on it
+      meshes: roots,             // never aimed at, never a surface for it
       rotationY: obj.rotationY ?? 0,
-      // don't bump into the item you are carrying
+      // don't bump into what you are carrying
       collisions: meshes.map((m) => [m, m.checkCollisions]),
     };
     meshes.forEach((m) => { m.checkCollisions = false; });
     return true;
   }
 
+  /** Where the carried item and what it takes along would go, put down at `s` (aimSurface's spot). */
+  const carryPlan = (s) => carryDrop(carry.from, carry.items, { x: s.x, y: s.y, z: s.z, rotationY: carry.rotationY });
+
+  /** While carrying: the chair and what stands on the item follow it (meshes only, nothing saved). */
+  function moveCarried(s) {
+    if (!carry.items.length) return;
+    const elev = levelElev();
+    carryPlan(s).slice(1).forEach(([, p], i) => {
+      const c = carry.items[i];
+      if (c.mesh.isDisposed?.()) return;
+      c.mesh.position.set(p.x, elev + p.y, p.z);
+      c.mesh.rotation.y = p.rotationY ?? c.item.rotationY ?? 0;
+    });
+  }
+
+  /** "with its chair · with the 2 items on it": what goes along, for the hint. */
+  function carriedText() {
+    if (!carry?.items.length) return undefined;
+    const riders = carry.items.filter((c) => c.onTop).length;
+    const chair = carry.items.some((c) => !c.onTop);
+    return [chair && 'with its chair', riders && `with ${riders === 1 ? 'the item' : `the ${riders} items`} on it`]
+      .filter(Boolean).join(' · ');
+  }
+
   /** Stop carrying; `restore` puts the mesh back where the store says it is. */
   function endCarry(restore) {
     if (!carry) return;
     carry.collisions.forEach(([m, c]) => { m.checkCollisions = c; });
-    const o = state().objects.find((x) => x.id === carry.id);
-    if (restore && o && !carry.mesh.isDisposed()) {
-      carry.mesh.position.set(o.x, elevationOf(state().floors, o.floor ?? 0) + (o.y ?? 0), o.z);
-      carry.mesh.rotation.y = o.rotationY ?? 0;
+    if (restore) {
+      for (const [id, mesh] of [[carry.id, carry.mesh], ...carry.items.map((c) => [c.item.id, c.mesh])]) {
+        const o = state().objects.find((x) => x.id === id);
+        if (!o || mesh.isDisposed?.()) continue;
+        mesh.position.set(o.x, elevationOf(state().floors, o.floor ?? 0) + (o.y ?? 0), o.z);
+        mesh.rotation.y = o.rotationY ?? 0;
+      }
     }
     carry = null;
   }
@@ -901,9 +938,11 @@ export function createPlayController(scene, canvas, {
         return { title: `Moving ${itemName(obj)}`, detail: s.problem, bad: s.bad, keys: [['R', 'Turn 90°'], ['Right-click', 'Cancel']] };
       }
       carry.mesh.position.set(s.x, s.worldY, s.z);
+      moveCarried(s);
       aim = { type: 'dropItem', id: obj.id, x: s.x, y: s.y, z: s.z };
       return {
         title: `Moving ${itemName(obj)}`,
+        detail: carriedText(),
         keys: [['Left-click', 'Put it here'], ['R', 'Turn 90°'], ['Right-click', 'Cancel']],
       };
     }
@@ -1137,13 +1176,17 @@ export function createPlayController(scene, canvas, {
       case 'dropItem': {
         const obj = state().objects.find((o) => o.id === aim.id);
         if (!obj) { endCarry(false); break; }
-        const room = findRoomAt(floorRooms(), aim.x, aim.z);
-        const rotationY = carry.rotationY;
-        endCarry(false);
-        actions.updateObject?.(obj.id, {
-          x: aim.x, y: aim.y, z: aim.z, rotationY, floor: currentFloor, roomId: room?.id ?? null,
-        }, { label: `Move ${itemName(obj)}` });
-        say(`Moved ${itemName(obj)}. Ctrl+Z to undo.`, 2000);
+        // the item, its chair and what stands on it: ONE undo step (as Studio's drag)
+        const rooms = floorRooms();
+        const moves = carryPlan(aim).map(([id, p]) => [id, {
+          ...p, floor: currentFloor, roomId: findRoomAt(rooms, p.x, p.z)?.id ?? null,
+        }]);
+        const along = moves.length - 1;
+        // put back what the store still has (a failed or partial move must not leave meshes astray)
+        endCarry(true);
+        if (actions.moveObjects) actions.moveObjects(moves, { label: `Move ${itemName(obj)}` });
+        else actions.updateObject?.(obj.id, moves[0][1], { label: `Move ${itemName(obj)}` });
+        say(`Moved ${itemName(obj)}${along ? ` with ${along === 1 ? 'the item' : `the ${along} items`} that go with it` : ''}. Ctrl+Z to undo.`, 2000);
         break;
       }
       default:

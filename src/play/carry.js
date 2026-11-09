@@ -67,6 +67,28 @@ export function carryMoves(main, carried, target) {
   return moves;
 }
 
+/**
+ * Putting `main` down at `target` with what it carries (Walk through's G / Edit item, v0.15.2):
+ * carryMoves plus the heights. What stands on it rises or sinks by as much as it does; its chair
+ * keeps its own height. `extra` (its new floor, …) goes into every patch.
+ * @param {object} main
+ * @param {{ item: object, onTop?: boolean }[]} carried  carriedBy's list
+ * @param {{ x: number, y?: number, z: number, rotationY?: number }} target
+ * @param {object} [extra]
+ * @returns {[string, object][]}  main first
+ */
+export function carryDrop(main, carried, target, extra = {}) {
+  const y0 = main.y ?? 0;
+  const y1 = Number.isFinite(target.y) ? target.y : y0;
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+  return carryMoves(main, carried, target).map(([id, patch], i) => {
+    if (i === 0) return [id, { ...patch, y: y1, rotationY: target.rotationY ?? main.rotationY ?? 0, ...extra }];
+    const entry = carried[i - 1];
+    const it = entry.item ?? entry;
+    return [id, { ...patch, y: entry.onTop ? Math.max(0, r3((it.y ?? 0) + (y1 - y0))) : it.y ?? 0, ...extra }];
+  });
+}
+
 /** R turns an item a quarter turn (Studio and Walk through, v0.15.1); Shift+R a fine 15° step. */
 export const TURN_STEP = Math.PI / 2;
 export const FINE_TURN_STEP = Math.PI / 12;
