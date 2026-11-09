@@ -15,6 +15,10 @@ describe('Studio shortcuts', () => {
     expect(item.E).toBeUndefined();
   });
 
+  it('Ctrl+S saves (General)', () => {
+    expect(Object.fromEntries(keysOf('General'))['Ctrl+S']).toMatch(/Save/);
+  });
+
   it('no key means two things in one group', () => {
     for (const g of SHORTCUT_GROUPS) {
       const keys = g.keys.map(([k]) => k.join('+'));

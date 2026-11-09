@@ -202,7 +202,7 @@ export const SHORTCUT_GROUPS = [
   {
     title: 'General',
     keys: [
-      [['Ctrl', 'Z'], 'Undo'], [['Ctrl', 'Y'], 'Redo'], [['Esc'], 'Cancel, then deselect'],
+      [['Ctrl', 'Z'], 'Undo'], [['Ctrl', 'Y'], 'Redo'], [['Ctrl', 'S'], 'Save now'], [['Esc'], 'Cancel, then deselect'],
       [['Tab'], 'Walk through'], [['R'], 'Turn what you are placing 90° (Shift+R: 15°)'],
     ],
   },

@@ -408,7 +408,38 @@ await p.evaluate(() => document.activeElement?.blur()); await frames(3);
   log('v0.15.1 typing the desk\'s X moves its chair too; one Ctrl+Z puts both back',
     near(cX.x, chair.x + 0.5, 0.01) && near(dU.x, desk.x, 0.001) && near(cU.x, chair.x, 0.001), `chair ${chair.x} → ${cX.x} → ${cU.x}`);
 }
+// v0.15.1: Ctrl+S with an item selected saves now (not the resize handles, not the browser's "Save page as")
+{
+  await p.evaluate(() => document.activeElement?.blur());
+  const modeBefore = await p.evaluate(() => {
+    // (registered after Studio's listener: sees whether the browser's own Ctrl+S was stopped)
+    window.__ctrlS = null;
+    window.addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 's' && e.ctrlKey) window.__ctrlS = e.defaultPrevented; });
+    return window.__ahdusGizmo.getMode();
+  });
+  await key('Control+s');
+  await wait(500);
+  const saved = await p.evaluate(() => ({
+    mode: window.__ahdusGizmo.getMode(), prevented: window.__ctrlS,
+    hint: document.querySelector('[data-studio="hint"]')?.textContent ?? '',
+  }));
+  log('v0.15.1 Ctrl+S with the desk selected saves ("Saved" in the hint, not the browser\'s dialog), no resize handles',
+    saved.mode !== 'scale' && saved.mode === modeBefore && saved.prevented === true && saved.hint === 'Saved', JSON.stringify(saved));
+}
 await key('Escape');
+// v0.15.1: R on a room with furniture in it does nothing yet, and says why
+{
+  await selectRoom(); await frames(2);
+  await p.evaluate(() => document.activeElement?.blur());
+  const before = await roomNow();
+  await key('KeyR');
+  const after = await roomNow();
+  const text = await p.evaluate(() => document.body.innerText);
+  log('v0.15.1 R on a room with furniture leaves it as it is: "Turning a room with its furniture comes later"',
+    after.width === before.width && after.depth === before.depth && after.x === before.x && /Turning a room with its furniture comes later/.test(text),
+    `${before.width} × ${before.depth} → ${after.width} × ${after.depth}`);
+  await key('Escape');
+}
 
 // The Desk Plant: dropped on the floor, then dragged (still selected, as it is right after placing) onto the desk
 await dragTile('Desk Plant', 0.5, 0.02, 0);
