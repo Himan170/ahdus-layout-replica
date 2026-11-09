@@ -31,10 +31,12 @@ import { createGizmoController } from '../utils/gizmoController';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { createPerformanceMonitor } from '../utils/performanceOptimiser';
 import { createPlayController } from '../play/playController';
-import { nextSlot } from '../play/hotbarItems';
+import { nextSlot, EMPTY_HAND } from '../play/hotbarItems';
 import { createPlannerTools } from '../planner/plannerTools';
 import { layoutBridge } from '../integration/layoutBridge';
 import { installStudioPointer } from './studioPointer';
+import { NavigationSystem } from '../engine/systems/NavigationSystem';
+import { RouteLineSystem } from '../engine/systems/RouteLineSystem';
 
 export function useStudioScene({
   canvasRef, sceneRef, cameraRef, lightsRef, siteEnvRef, roomSystemRef, objectSystemRef, floorSystemRef, characterSystemRef,
@@ -98,7 +100,46 @@ export function useStudioScene({
     const perfMonitor = createPerformanceMonitor(engine);
     perfMonitorRef.current = perfMonitor;
 
-    const play = createPlayController(scene, canvas, {
+    // ── Walk through: a click on the floor walks there (v0.15.2), with the viewer's own route code ──
+    // (the walk maps, the route, the follower and the line of engine/systems/NavigationSystem)
+    let routeLine = null;
+    let play = null;
+    const navigation = new NavigationSystem({
+      getLayout: () => useWorkspaceStore.getState(),
+      getWalker: () => {
+        if (!play?.isActive()) return null;
+        const p = play.getPosition();
+        return { x: p.x, z: p.z, floor: play.getLevel() };
+      },
+      // Studio has no search: nothing is flown to or outlined by a walk
+      focusOn: () => false,
+      highlight: () => {},
+      clearHighlights: () => {},
+      startWalking: () => (play?.isActive() ? play : null),
+      routeLine: () => (routeLine ??= new RouteLineSystem(scene)),
+      emit: (event) => {
+        // no route ("No walking route to …: it has no door"), or stuck on the way ("Can't get past here")
+        if (event.state === 'failed') play?.say(event.message ?? 'No way to walk there', 2500);
+      },
+    });
+    /** A click with an empty hand: a machine's action when it is in reach (as E), else walk there. */
+    const walkClick = (click) => {
+      if (click.target && layoutBridge._prompt(click.target, bridgeContext)?.handled) {
+        layoutBridge._interact(click.target, bridgeContext);
+        return;
+      }
+      if (!click.walkTo) return;
+      const to = click.walkTo;
+      navigation.routeTo({ x: to.x, z: to.z, floor: to.floor }, { walk: 'auto', source: 'click' });
+    };
+
+    play = createPlayController(scene, canvas, {
+      // v0.15.2: the viewer's easy controls. Drag to look (the mouse stays), everything aimed at the mouse
+      look: 'drag',
+      walkMaps: navigation.walkMaps,
+      onPointClick: walkClick,
+      onEmptyHand: () => setSelectedSlot(EMPTY_HAND),
+      onDeactivate: () => { navigation.stop(); },
       getState: () => {
         const st = useWorkspaceStore.getState();
         return {
@@ -126,7 +167,8 @@ export function useStudioScene({
       },
       getObjectMesh: (id) => objectSystem.getObjectMesh(id),
       onHud: setPlayHud,
-      onSlotKey: (i) => setSelectedSlot(i),
+      // the number of the item you hold puts it away again (an empty hand: clicks walk)
+      onSlotKey: (i) => setSelectedSlot((cur) => (cur === i ? EMPTY_HAND : i)),
       onSlotScroll: (d) => setSelectedSlot((cur) => nextSlot(cur, d)),
       onCatalog: () => {
         setCatalogOpen((open) => {
@@ -306,7 +348,9 @@ export function useStudioScene({
       clearTimeout(cardTimerRef.current);
       clearInterval(fpsInterval);
       perfMonitor.dispose();
+      navigation.stop();
       play.dispose();
+      routeLine?.dispose();
       placementMgr.dispose();
       plannerTools.dispose();
       floorOutline.dispose();

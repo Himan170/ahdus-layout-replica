@@ -72,6 +72,24 @@ const aimAtGround = async (yaw, tx, tz, pitch) => {
   await exactPose(x, z, yaw, pitch);
 };
 const hudRoom = () => p.locator('[data-hud="room"] strong').first().textContent();
+// v0.15.2: where a world point is on the page (the pixels the mouse must be at to point at it)
+const screenOf = (x, y, z) => p.evaluate(([x, y, z]) => {
+  const sc = window.__ahdusScene;
+  const m = sc.getTransformMatrix().m;
+  const w = x * m[3] + y * m[7] + z * m[11] + m[15];
+  const nx = (x * m[0] + y * m[4] + z * m[8] + m[12]) / w;
+  const ny = (x * m[1] + y * m[5] + z * m[9] + m[13]) / w;
+  const r = sc.getEngine().getRenderingCanvas().getBoundingClientRect();
+  return { x: r.left + ((nx + 1) / 2) * r.width, y: r.top + ((1 - ny) / 2) * r.height, w };
+}, [x, y, z]);
+const locked = () => p.evaluate(() => !!document.pointerLockElement);
+// Mouse look (M): the mouse is captured and a crosshair in the middle aims, as before v0.15.2
+const mouseLook = async () => {
+  if (await locked()) return;
+  await p.keyboard.press('KeyM');
+  await p.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 10000 }).catch(() => {});
+  await frames(2);
+};
 const shot = (name) => p.screenshot({ path: `e2e/screens/${name}`, timeout: 120000 });
 
 await p.goto(url);
@@ -84,10 +102,49 @@ await p.evaluate(() => window.__ahdusScene.getEngine().setHardwareScalingLevel(2
 await p.mouse.move(640, 360);
 // The editor opens in Workplace Studio; this test covers Preview
 await p.click('[aria-label="Walk through"]'); await wait(800);
-if (!(await p.evaluate(() => !!document.pointerLockElement))) {
-  await p.click('button:has-text("Start preview")'); await wait(400);
+await frames(3);
+// v0.15.2: walking starts at once: no "Start preview" screen, the mouse is never captured by itself
+log('Walk through starts at once: the mouse stays, no "Start preview" screen',
+  !(await locked()) && (await p.locator('button:has-text("Start preview")').count()) === 0 &&
+  (await p.locator('[data-hud="mouse-look"]').getAttribute('aria-pressed')) === 'false');
+{
+  // W walks with no click first
+  const from = await pos();
+  await walk('KeyW', 1500);
+  const to = await pos();
+  log('the keys walk with no click first', Math.hypot(to.x - from.x, to.z - from.z) > 0.3,
+    `moved ${Math.hypot(to.x - from.x, to.z - from.z).toFixed(2)} m`);
+  // dragging turns the view, and the mouse is still free afterwards
+  const yaw0 = await p.evaluate(() => window.__ahdusPlay.getYaw());
+  await p.mouse.move(640, 300);
+  await p.mouse.down();
+  for (let i = 1; i <= 8; i++) await p.mouse.move(640 + i * 25, 300);
+  await p.mouse.up();
+  await frames(2);
+  const yaw1 = await p.evaluate(() => window.__ahdusPlay.getYaw());
+  log('dragging looks around, the mouse stays free', Math.abs(yaw1 - yaw0) > 0.3 && !(await locked()) && (await store()).rooms.length === 0,
+    `yaw ${yaw0.toFixed(2)} → ${yaw1.toFixed(2)}`);
+  // an empty hand: a click on the ground walks there, and builds nothing
+  await pose(0, -14, 0, -0.3);
+  const goal = { x: 2, z: -9 };
+  const s = await screenOf(goal.x, 0, goal.z);
+  await p.mouse.click(s.x, s.y);
+  const t0 = Date.now();
+  let at = await pos();
+  while (Date.now() - t0 < 90000 && Math.hypot(at.x - goal.x, at.z - goal.z) > 1.2) { await wait(300); at = await pos(); }
+  {
+    const st = await store();
+    log('an empty hand: a click on the ground walks there and builds nothing',
+      Math.hypot(at.x - goal.x, at.z - goal.z) <= 1.2 && st.rooms.length === 0 && st.objects.length === 0,
+      `at (${at.x.toFixed(1)}, ${at.z.toFixed(1)}), goal (${goal.x}, ${goal.z})`);
+  }
 }
-log('Walk through opens Preview with the mouse captured', await p.evaluate(() => !!document.pointerLockElement));
+await shot('q0-easy-controls.png');
+// The checks below aim with the crosshair in the middle of the view: mouse look (M), kept as an option
+await p.mouse.move(640, 360);
+await mouseLook();
+log('M turns mouse look on: the mouse is captured, the button shows it',
+  (await locked()) && (await p.locator('[data-hud="mouse-look"]').getAttribute('aria-pressed')) === 'true');
 
 // ── 1. Room: two clicks. Same view angle → the aim point moves exactly with the player.
 const PITCH = -0.45;
@@ -147,7 +204,10 @@ log('Ctrl+Z brings it back', st.objects.some((o) => o.assetType === 'DESK_STANDA
 // Monitor on top of the desk (stacking on surfaces)
 await p.keyboard.press('KeyB'); await wait(300);
 await p.locator('button:has-text("Dual Monitor")').click(); await wait(500);
-log('picking from the catalog goes straight back to playing', await p.evaluate(() => !!document.pointerLockElement));
+log('picking from the catalog goes straight back to walking, holding it',
+  (await p.locator('[role="dialog"][aria-label="Catalog"]').count()) === 0 &&
+  /Dual Monitor/.test(await p.locator('[data-hud="hint"]').textContent()));
+await mouseLook(); // the catalog gave the mouse back: the crosshair again for the checks below
 const d2 = (await store()).objects.find((o) => o.assetType === 'DESK_STANDARD');
 // Is the crosshair on the desk's top surface right now?
 const onDeskTop = (id) => p.evaluate((id) => {
@@ -244,6 +304,60 @@ await click('right');                                    // cancel
 const r1 = (await store()).rooms.find((r) => r.id === office.id);
 log('Stretch refuses to overlap the next room', r1.width === r0.width && r1.x === r0.x, `width ${r0.width} → ${r1.width}`);
 
+// ── 6c. v0.15.2, the mouse free again: an item is placed where the MOUSE points, G takes a desk with its
+// chair and its monitor, one undo step, and Esc empties the hand
+await p.evaluate(() => window.__ahdusPlay.releaseMouse());
+await p.waitForFunction(() => !document.pointerLockElement, null, { timeout: 10000 }).catch(() => {});
+{
+  const room = (await store()).rooms.find((r) => r.id === office.id);
+  const theDesk = (await store()).objects.find((o) => o.assetType === 'DESK_STANDARD');
+  // stand north of the desk, looking south and down: its work side (where the chair goes) is nearest
+  // (from the south the desk would be in front of that spot, and a chair can't stand on a desk)
+  await pose(theDesk.x + 0.4, Math.min(theDesk.z + 3.4, room.z + room.depth / 2 - 0.6), Math.PI, -0.55);
+  await slot(7); // Chair
+  // its chair: on the desk's work side (+Z), turned to face it (R twice = 180°)
+  await p.keyboard.press('KeyR'); await p.keyboard.press('KeyR'); await frames(2);
+  const seat = { x: theDesk.x, z: theDesk.z + 0.75 };
+  let s = await screenOf(seat.x, 0.02, seat.z);
+  await p.mouse.move(s.x, s.y); await frames(3);
+  const middle = await groundAim();
+  await p.mouse.click(s.x, s.y); await frames(3);
+  let now = await store();
+  const chair = now.objects.find((o) => o.assetType === 'CHAIR_OFFICE');
+  log('an item in your hand is placed where the mouse points, not in the middle of the view',
+    !!chair && Math.hypot(chair.x - seat.x, chair.z - seat.z) < 0.3 && Math.hypot(middle.x - seat.x, middle.z - seat.z) > 0.5,
+    chair ? `chair at (${chair.x.toFixed(2)}, ${chair.z.toFixed(2)}), mouse at (${seat.x.toFixed(2)}, ${seat.z.toFixed(2)}), middle of the view (${middle.x.toFixed(2)}, ${middle.z.toFixed(2)})` : 'no chair');
+  // Esc: an empty hand
+  await p.keyboard.press('Escape'); await frames(3);
+  log('Esc puts the item away: an empty hand', (await p.locator('.hud-slot[aria-pressed="true"]').count()) === 0 &&
+    /Walking|Standard Desk|Office Chair/.test(await p.locator('[data-hud="hint"]').textContent()));
+  // G on the desk (the mouse on its top), then a click on the floor to the west: all three move together
+  const before = Object.fromEntries((await store()).objects.map((o) => [o.assetType, o]));
+  // (seen from the desk's east end: its chair, on the north side, is not in the way of the mouse)
+  await pose(theDesk.x + 2.6, theDesk.z, -Math.PI / 2, -0.55);
+  s = await screenOf(theDesk.x + 0.55, (before.MONITOR_DUAL?.y ?? 0.8) + 0.01, theDesk.z - 0.15);
+  await p.mouse.move(s.x, s.y); await frames(3);
+  await p.keyboard.press('KeyG'); await frames(3);
+  const drop = { x: theDesk.x - 0.75, z: theDesk.z - 1.25 };
+  s = await screenOf(drop.x, 0.02, drop.z);
+  await p.mouse.move(s.x, s.y); await frames(3);
+  const hintText = await p.locator('[data-hud="hint"]').textContent();
+  await shot('q-carry-desk.png');
+  await p.mouse.click(s.x, s.y); await frames(3);
+  const after = Object.fromEntries((await store()).objects.map((o) => [o.assetType, o]));
+  const d = (k) => ({ x: (after[k]?.x ?? NaN) - (before[k]?.x ?? NaN), z: (after[k]?.z ?? NaN) - (before[k]?.z ?? NaN) });
+  const same = (a, b2) => Math.abs(a.x - b2.x) < 0.01 && Math.abs(a.z - b2.z) < 0.01;
+  const moved = Math.hypot(d('DESK_STANDARD').x, d('DESK_STANDARD').z) > 0.5;
+  log('G on a desk takes its chair and its monitor: put down, all three moved by the same amount',
+    moved && same(d('DESK_STANDARD'), d('CHAIR_OFFICE')) && same(d('DESK_STANDARD'), d('MONITOR_DUAL')) &&
+    Math.abs((after.MONITOR_DUAL?.y ?? NaN) - (before.MONITOR_DUAL?.y ?? NaN)) < 0.01 && /with its chair/.test(hintText),
+    `desk moved (${d('DESK_STANDARD').x.toFixed(2)}, ${d('DESK_STANDARD').z.toFixed(2)}), chair (${d('CHAIR_OFFICE').x.toFixed(2)}, ${d('CHAIR_OFFICE').z.toFixed(2)}), monitor (${d('MONITOR_DUAL').x.toFixed(2)}, ${d('MONITOR_DUAL').z.toFixed(2)}); hint: ${hintText}`);
+  await p.keyboard.press('Control+z'); await frames(3);
+  const undone = Object.fromEntries((await store()).objects.map((o) => [o.assetType, o]));
+  log('one Ctrl+Z puts the desk, its chair and its monitor back',
+    ['DESK_STANDARD', 'CHAIR_OFFICE', 'MONITOR_DUAL'].every((k) => Math.abs((undone[k]?.x ?? NaN) - (before[k]?.x ?? NaN)) < 0.01 && Math.abs((undone[k]?.z ?? NaN) - (before[k]?.z ?? NaN)) < 0.01));
+}
+
 // ── 7. Outside view of what we built
 await pose(office.x - 6, office.z - 14, 0.35, -0.2);
 await frames(4);
@@ -256,7 +370,7 @@ await shot('q5-inside.png');
 await p.keyboard.press('Tab'); await wait(1200);
 st = await store();
 const floorText = await p.locator('[aria-label="Floor switcher"]').textContent().catch(() => '');
-log('Tab opens Workplace Studio with what was built', st.rooms.length === 2 && st.objects.length === 2 && /2 rooms/.test(floorText),
+log('Tab opens Workplace Studio with what was built', st.rooms.length === 2 && st.objects.length === 3 && /2 rooms/.test(floorText),
   `${st.rooms.length} rooms, ${st.objects.length} items; footer: ${floorText}`);
 await shot('q6-planner.png');
 

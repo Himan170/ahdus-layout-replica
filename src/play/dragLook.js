@@ -10,6 +10,7 @@
  *   press → moved more than CLICK_PX                             = a drag: every move turns the view
  *   press held longer than CLICK_MS without moving               = nothing (not a click)
  *   two clicks within DOUBLE_CLICK_MS and DOUBLE_CLICK_PX        = a double click (the second is not a click)
+ *   a press with `patient` (v0.15.2)                             = a click however long it is held, if it did not move
  *
  * Touch (v0.14.1): a finger is a press too (`touch: true` on down). A tap may wander a little
  * further and last a little longer than a mouse click (TAP_PX, TAP_MS: fingers are never quite
@@ -35,7 +36,8 @@ export function isClick(down, up) {
   if (!down || !up) return false;
   const px = down.touch ? TAP_PX : CLICK_PX;
   const ms = down.touch ? TAP_MS : CLICK_MS;
-  return Math.hypot(up.x - down.x, up.y - down.y) <= px && up.t - down.t <= ms;
+  // patient (v0.15.2, Walk through with an item in your hand): a slow, careful click still places it
+  return Math.hypot(up.x - down.x, up.y - down.y) <= px && (down.patient || up.t - down.t <= ms);
 }
 
 /**
@@ -50,9 +52,9 @@ export function createDragLook({ look, click = () => {}, doubleClick = () => {} 
 
   return {
     /** A button (or a finger: touch) went down at (x, y). */
-    down({ id = 0, x, y, t, button = 0, touch = false }) {
+    down({ id = 0, x, y, t, button = 0, touch = false, patient = false }) {
       if (press) return; // another button or pointer: the first one leads
-      press = { id, x, y, t, button, touch: !!touch, lastX: x, lastY: y, dragging: false };
+      press = { id, x, y, t, button, touch: !!touch, patient: !!patient, lastX: x, lastY: y, dragging: false };
     },
 
     /** The pointer moved; true while it is a drag (the view turned). */

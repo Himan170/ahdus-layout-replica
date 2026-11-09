@@ -254,11 +254,22 @@ export function createPlayController(scene, canvas, {
   onPointClick = () => {},  // look 'drag': (clickTarget(x, y)) => void   a plain left click on the view
   onDoubleClick = () => {}, // look 'drag': () => void   a double-click (the mouse is being captured)
   onLockChange = () => {},  // (locked) => void   the mouse was captured / released
+  // Studio's Walk through with look 'drag' (v0.15.2):
+  onEmptyHand = () => {},   // () => void   Esc with an item in your hand: put it away
+  onDeactivate = () => {},  // () => void   walking ends (a click's walk is stopped by the caller)
 }) {
   const onPage = typeof isEngaged === 'function';
   const dragMode = look === 'drag';
-  /** Do the keys move the character now? (Preview: while the mouse is captured.) */
-  const keysLive = () => (onPage ? isEngaged() : locked);
+  /**
+   * Studio's Walk through with the easy controls (v0.15.2: look 'drag', not on someone's page): drag
+   * to look, and everything is aimed at the MOUSE, not at the middle of the view. An empty hand: a
+   * click walks there (onPointClick). An item or a tool in your hand: a click uses it there. M (or
+   * lockMouse) = the old mouse look with its crosshair, until Esc.
+   */
+  const mouseAim = dragMode && !onPage;
+  let keysPaused = false; // a dialog over the view (the catalog, "New floor above"): setKeysPaused
+  /** Do the keys move the character now? (Preview with mouse capture: while the mouse is captured.) */
+  const keysLive = () => (onPage ? isEngaged() : mouseAim ? !keysPaused : locked);
   // ── Camera ──
   const camera = new FreeCamera('playCamera', new Vector3(0, 3, -10), scene);
   camera.minZ = 0.05;
@@ -340,6 +351,18 @@ export function createPlayController(scene, canvas, {
     Math.sin(pitch),
     Math.cos(yaw) * Math.cos(pitch),
   );
+  // Where the mouse is on the view (CSS px; mouseAim). null = not known yet: the middle of the view.
+  let pointer = null;
+  /** Aiming at the mouse now? (Not in mouse look: there the crosshair in the middle is the aim.) */
+  const aimsAtMouse = () => mouseAim && !locked && !!pointer;
+  /** What you aim along: from the camera through the mouse (mouseAim), else through the crosshair. */
+  function aimLine() {
+    if (aimsAtMouse()) {
+      const ray = scene.createPickingRay(pointer.x, pointer.y, null, camera);
+      return { origin: ray.origin, dir: ray.direction };
+    }
+    return { origin: camera.position, dir: lookDir() };
+  }
   const state = () => getState();
   // Rooms on the floor the character is on (not the planner's floor)
   const floorRooms = () => state().rooms.filter((r) => r.floor === currentLevel);
@@ -498,8 +521,7 @@ export function createPlayController(scene, canvas, {
 
   /** Point on the ground plane the crosshair is aiming at */
   function aimGround(maxDist) {
-    const origin = camera.position;
-    const dir = lookDir();
+    const { origin, dir } = aimLine();
     if (dir.y > -0.01) return null;
     const t = (levelElev() + ROOM_FLOOR_Y - origin.y) / dir.y;
     if (t < 0) return null;
@@ -514,7 +536,8 @@ export function createPlayController(scene, canvas, {
    * aiming through a door at a desk targets the desk.
    */
   function aimPick(predicate, maxDist = REACH + CAM_DISTANCE, { panes = false } = {}) {
-    const ray = new Ray(camera.position, lookDir(), maxDist);
+    const { origin, dir } = aimLine();
+    const ray = new Ray(origin, dir, maxDist);
     const hit = scene.pickWithRay(ray, (m) =>
       m.isPickable && m.isEnabled() && m.isVisible !== false && !isPlayerMesh(m) && !isGhostMesh(m) &&
       (panes || !m.metadata?.pickPane) && predicate(m));
@@ -697,8 +720,7 @@ export function createPlayController(scene, canvas, {
   function updateWallTopDrag(room) {
     const line = wallLine(room, grab.wallName);
     const alongX = line.axis === 'z';
-    const origin = camera.position;
-    const dir = lookDir();
+    const { origin, dir } = aimLine();
     const dn = alongX ? dir.z : dir.x;
     const t = Math.abs(dn) > 0.02 ? (line.value - (alongX ? origin.z : origin.x)) / dn : -1;
     if (t <= 0) {
@@ -868,8 +890,7 @@ export function createPlayController(scene, canvas, {
 
   /** Where the crosshair meets the plane of a room wall: the position along it (world x or z), or null. */
   function lookAlongWall(line) {
-    const origin = camera.position;
-    const dir = lookDir();
+    const { origin, dir } = aimLine();
     const alongX = line.axis === 'z'; // the wall runs along X at z = line.value
     const dn = alongX ? dir.z : dir.x;
     if (Math.abs(dn) < 0.05) return null;
@@ -959,12 +980,28 @@ export function createPlayController(scene, canvas, {
       const opening = tool?.kind === 'edit' ? editOpeningTarget() : null;
       if (opening) return updateEditOpening(opening);
       pv.hide('box');
+      if (!tool && mouseAim) {
+        return {
+          title: 'Walking',
+          detail: 'Click the floor to walk there, drag to look around. To build, pick an item with 1–9 or B.',
+          keys: [['Click', 'Walk there'], ['G', 'Pick up an item'], ['M', 'Mouse look']],
+        };
+      }
       if (!tool) return { title: 'Empty hand', detail: 'Pick an item with 1–9, or press B for the catalog. Look at an item to pick it up.' };
       if (tool.kind !== 'edit') return { title: tool.label ?? 'Edit item' };
       return { title: 'Edit item', detail: 'Look at an item, a door or a window to change it' };
     }
     pv.hide('box');
     setOutline(obj.id, obj.isLocked ? OUTLINE_LOCKED : OUTLINE_OK);
+    if (!tool && mouseAim) {
+      // an empty hand never moves anything by a click (v0.15.2): a click walks up to it, G picks it up
+      aim = null;
+      return {
+        title: itemName(obj),
+        detail: obj.isLocked ? 'Locked' : itemSize(mesh),
+        keys: obj.isLocked ? [['Click', 'Walk to it']] : [['Click', 'Walk to it'], ['G', 'Pick up']],
+      };
+    }
     aim = { type: 'pickUp', id: obj.id };
     if (obj.isLocked) {
       return { title: itemName(obj), detail: 'Locked', bad: true, keys: [['L', 'Unlock']] };
@@ -983,6 +1020,7 @@ export function createPlayController(scene, canvas, {
   function editKey(code, shift = false) {
     if (readOnly) return false;
     if (tool && tool.kind !== 'edit' && !carry) return false; // the Edit tool, an empty hand, or an item carried
+    if (!tool && mouseAim && !carry) return false; // the easy controls: an empty hand changes nothing
     const turn = code === 'KeyR';
     const bigger = code === 'Equal' || code === 'NumpadAdd';
     const smaller = code === 'Minus' || code === 'NumpadSubtract';
@@ -1257,15 +1295,25 @@ export function createPlayController(scene, canvas, {
     return findRoomAt(rooms, x, z);
   }
 
+  /** Cancel a half-drawn room or wall, a grabbed wall, a carried item or a door being slid. */
+  function cancelBuild() {
+    clearPreview();
+    endCarry(true);
+    slide = null;
+    pv.hide('box');
+    say('Cancelled');
+  }
+
   function secondaryAction() {
     if (readOnly) return;
     // First: cancel a half-drawn room or wall, a grabbed wall, or a carried item
     if (cornerA || grab || carry || slide) {
-      clearPreview();
-      endCarry(true);
-      slide = null;
-      pv.hide('box');
-      say('Cancelled');
+      cancelBuild();
+      return;
+    }
+    if (!tool && mouseAim) {
+      // an empty hand removes nothing (a right-drag looks around: a slip must not delete a desk)
+      if (aimTarget()) say('To remove things, hold an item or the Edit item tool (1–9, B), then right-click', 3000);
       return;
     }
     const target = aimTarget();
@@ -1317,6 +1365,7 @@ export function createPlayController(scene, canvas, {
   function onKeyDown(e) {
     if (!active || typing(e)) return;
     if (onPage && !isEngaged()) return; // the page's keys
+    if (keysPaused) return; // a dialog over the view has the keys
     if (e.ctrlKey || e.metaKey) return; // Ctrl+Z / Ctrl+Y handled by the editor
     if (keyHandler && !e.repeat && keyHandler(e.code)) {
       e.preventDefault();
@@ -1329,7 +1378,8 @@ export function createPlayController(scene, canvas, {
     }
 
     // A route is being followed: G continues it, Esc ends it (free walking: neither does anything)
-    if (pilot && (e.code === 'KeyG' || e.code === 'Escape') && pilot.key?.(e.code)) {
+    // (Walk through: G picks an item up, also while a click's walk is on its way)
+    if (pilot && (e.code === 'KeyG' || e.code === 'Escape') && !(mouseAim && e.code === 'KeyG') && pilot.key?.(e.code)) {
       // taken: G walks on; Esc only ended the route (the view keeps the keys)
       e.preventDefault();
       return;
@@ -1383,10 +1433,23 @@ export function createPlayController(scene, canvas, {
         backToEntrance();
         break;
       case 'KeyL':
-        // look 'drag': mouse-look mode on / off (Esc also releases the mouse)
-        if (!dragMode) break;
+        // look 'drag' on a page: mouse-look mode on / off (Esc also releases the mouse).
+        // Walk through uses M: L locks an item there (Edit item)
+        if (!dragMode || mouseAim) break;
         if (locked) document.exitPointerLock?.();
         else lockPointer(canvas);
+        break;
+      case 'KeyM':
+        if (!mouseAim) break;
+        if (locked) document.exitPointerLock?.();
+        else lockPointer(canvas);
+        break;
+      case 'Escape':
+        // Walk through, the mouse free: cancel what is half done, else put the item away (an empty hand).
+        // (In mouse look the browser's own Esc gives the mouse back.)
+        if (!mouseAim || locked) break;
+        if (cornerA || grab || carry || slide) cancelBuild();
+        else if (tool) onEmptyHand();
         break;
       case 'KeyG':
         grabKey();
@@ -1432,7 +1495,7 @@ export function createPlayController(scene, canvas, {
   }
 
   function onWheel(e) {
-    if (!active || !locked) return;
+    if (!active || !(locked || (mouseAim && !keysPaused))) return;
     e.preventDefault();
     onSlotScroll(e.deltaY > 0 ? 1 : -1);
   }
@@ -1445,6 +1508,8 @@ export function createPlayController(scene, canvas, {
     if (was !== locked) onLockChange(locked);
     if (!locked) {
       keys.clear();
+      // Walk through's easy controls: leaving mouse look keeps what you are doing (the mouse aims on)
+      if (mouseAim) return;
       if (cornerA || grab) clearPreview();
       endCarry(true);
       slide = null;
@@ -1469,28 +1534,61 @@ export function createPlayController(scene, canvas, {
     },
     // a tap (touch) is a click: the floor walks there, a person shows their card, a machine its action
     click: ({ x, y, button }) => {
+      if (mouseAim) { previewClick(x, y, button); return; }
       if (button !== 0 || !active) return;
       // mouse-look mode: the crosshair (the middle of the view) is what you click
       const at = locked ? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 } : { x, y };
       onPointClick(clickTarget(at.x, at.y));
     },
-    doubleClick: ({ button }) => {
+    doubleClick: ({ x, y, button }) => {
+      // Walk through: two quick clicks are two clicks (two chairs placed), never mouse look (that is M)
+      if (mouseAim) { previewClick(x, y, button); return; }
       if (button !== 0 || !active || locked) return;
       onDoubleClick();
       lockPointer(canvas);
     },
   });
 
+  /**
+   * Walk through's easy controls (v0.15.2): a click at (x, y) on the view. With an item or a tool in
+   * your hand (or an item carried) the left button uses it THERE and the right button removes /
+   * cancels there; an empty hand walks there (onPointClick, as a viewer) and removes nothing.
+   */
+  function previewClick(x, y, button) {
+    if (!active || keysPaused) return;
+    if (!locked) pointer = { x, y };
+    // what the click would do, for exactly this spot (a tap has no mouse move before it)
+    toolHint();
+    if (button === 2) { secondaryAction(); return; }
+    if (button !== 0) return;
+    if (carry || tool) { primaryAction(); return; }
+    const at = locked ? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 } : { x, y };
+    onPointClick(clickTarget(at.x, at.y));
+  }
+
   function onPointerDown(e) {
     if (!active) return;
     const touch = e.pointerType === 'touch'; // v0.14.1: a finger drags to look, a tap is a click
-    if (!touch && e.button !== 0 && e.button !== 2) return;
     const at = canvasPoint(e);
-    drag.down({ id: e.pointerId, x: at.x, y: at.y, t: performance.now(), button: touch ? 0 : e.button, touch });
+    if (mouseAim && !touch && e.button === 1) {
+      // the middle button picks up what the mouse is on (as G)
+      e.preventDefault();
+      if (!locked) pointer = at;
+      grabKey();
+      return;
+    }
+    if (!touch && e.button !== 0 && e.button !== 2) return;
+    drag.down({
+      id: e.pointerId, x: at.x, y: at.y, t: performance.now(), button: touch ? 0 : e.button, touch,
+      // with something in your hand a slow, careful click still counts
+      patient: mouseAim && (!!tool || !!carry),
+    });
     try { canvas.setPointerCapture?.(e.pointerId); } catch { /* not captured: moves outside the view are missed */ }
   }
 
   function onPointerMove(e) {
+    // Walk through: the mouse is what you aim with (a finger aims where it taps)
+    if (active && mouseAim && !locked && e.pointerType !== 'touch') pointer = canvasPoint(e);
     if (!active || locked || !drag.pressed) return; // locked: onMouseMove looks
     const at = canvasPoint(e);
     drag.move({ id: e.pointerId, x: at.x, y: at.y });
@@ -1611,6 +1709,30 @@ export function createPlayController(scene, canvas, {
     }
     const arrival = goToFloor(target.id);
     say(arrival?.fly ? `${target.name}: no room here, so you are flying (F lands)` : target.name, 2000);
+  }
+
+  /**
+   * The tool's preview for where you aim now, and what a click would do (`aim`): every frame, and
+   * again right before a click in Walk through (previewClick).
+   */
+  function toolHint() {
+    if (readOnly) {
+      return {
+        title: 'Walking through',
+        detail: dragMode && touchWords
+          ? 'Joystick to walk, drag to look, tap the floor to go there, tap a person for their card'
+          : dragMode
+          ? 'W A S D walk, drag to look, click the floor to go there, E uses, Page Up / Down changes floor'
+          : 'W A S D walk, mouse looks, E uses, Page Up / Down changes floor',
+      };
+    }
+    // Carrying an item (G, an empty hand or the Edit tool): it follows the crosshair, whatever is in your hand
+    if (carry || !tool || tool.kind === 'edit') return updateEditTool();
+    if (tool.kind === 'object') return updateObjectTool();
+    if (tool.kind === 'room') return updateRoomTool();
+    if (tool.kind === 'wall') return updateWallTool();
+    if (tool.kind === 'stretch') return updateStretchTool();
+    return updateOpeningTool();
   }
 
   function update() {
@@ -1771,24 +1893,7 @@ export function createPlayController(scene, canvas, {
     character.setVisible(showCharacter);
 
     // ── Tool preview ──
-    let hint;
-    if (readOnly) {
-      hint = {
-        title: 'Walking through',
-        detail: dragMode && touchWords
-          ? 'Joystick to walk, drag to look, tap the floor to go there, tap a person for their card'
-          : dragMode
-          ? 'W A S D walk, drag to look, click the floor to go there, E uses, Page Up / Down changes floor'
-          : 'W A S D walk, mouse looks, E uses, Page Up / Down changes floor',
-      };
-    }
-    // Carrying an item (G, an empty hand or the Edit tool): it follows the crosshair, whatever is in your hand
-    else if (carry || !tool || tool.kind === 'edit') hint = updateEditTool();
-    else if (tool.kind === 'object') hint = updateObjectTool();
-    else if (tool.kind === 'room') hint = updateRoomTool();
-    else if (tool.kind === 'wall') hint = updateWallTool();
-    else if (tool.kind === 'stretch') hint = updateStretchTool();
-    else hint = updateOpeningTool();
+    const hint = toolHint();
 
     // ── Which room am I in? (events for other modules) ──
     const here = roomHere();
@@ -1815,7 +1920,8 @@ export function createPlayController(scene, canvas, {
     const now = performance.now();
     const info = {
       locked,
-      engaged: live, // the keys are the view's (Preview: = locked)
+      mouseAim, // Walk through's easy controls: no "click to start", the mouse aims
+      engaged: live, // the keys are the view's (Preview with mouse capture: = locked)
       flying,
       firstPerson,
       hint,
@@ -1915,12 +2021,16 @@ export function createPlayController(scene, canvas, {
       }
       canvas.addEventListener('wheel', onWheel, { passive: false });
       canvas.addEventListener('contextmenu', onContextMenu);
-      if (!onPage) lockPointer(canvas); // on a page the view never captures the mouse by itself
+      // on a page the view never captures the mouse by itself; nor does Walk through's drag-to-look (M does)
+      if (!onPage && !dragMode) lockPointer(canvas);
+      pointer = null;
+      keysPaused = false;
       lastHud = '';
     },
 
     deactivate() {
       if (!active) return;
+      onDeactivate();
       active = false;
       if (document.pointerLockElement === canvas) document.exitPointerLock?.();
       locked = false;
@@ -2013,6 +2123,24 @@ export function createPlayController(scene, canvas, {
 
     /** A short message in the HUD (e.g. "No walking route to …"). */
     say(text, ms = 3000) { say(text, ms); },
+
+    /**
+     * Walk through's easy controls: a dialog over the view (the catalog, "New floor above") has the
+     * keys, the wheel and the clicks; nothing is held meanwhile.
+     */
+    setKeysPaused(on) {
+      keysPaused = !!on;
+      if (keysPaused) { keys.clear(); drag.cancel(); }
+    },
+    /** Aimed at the mouse (Walk through's easy controls)? And where it is on the view (CSS px), or null. */
+    aimsAtMouse,
+    getPointer: () => (pointer ? { ...pointer } : null),
+    /** The mouse is at (x, y) on the view (tests; the app follows pointermove). */
+    setPointer(x, y) { pointer = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null; },
+    /** A click at (x, y) on the view, as the mouse would make it (tests): button 0 left, 2 right. */
+    clickAt(x, y, button = 0) { if (mouseAim) previewClick(x, y, button); },
+    /** What a click would do now: { type, … } or null (tests). */
+    getAim: () => (aim ? { ...aim } : null),
 
     /** Mouse-look mode (look 'drag'): capture the mouse / give it back. */
     lockMouse: () => (active ? lockPointer(canvas) : Promise.resolve(false)),

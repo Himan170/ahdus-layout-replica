@@ -57,8 +57,11 @@ const shot = (name) => p.screenshot({ path: `e2e/screens/${name}`, timeout: 1200
 const hudText = (sel) => p.evaluate((sel) => document.querySelector(sel)?.textContent ?? '', sel);
 const ensureLocked = async () => {
   await frames(2);
+  // v0.15.2: Walk through no longer captures the mouse by itself. These checks aim with the crosshair in
+  // the middle of the view, so they turn mouse look on (M), which works as Preview did before
   if (!(await p.evaluate(() => !!document.pointerLockElement))) {
-    await p.click('button:has-text("Start preview")').catch(() => {}); await wait(400);
+    await p.keyboard.press('KeyM');
+    await p.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 10000 }).catch(() => {});
   }
 };
 const walkUntil = async (key, done, maxMs = 40000) => {

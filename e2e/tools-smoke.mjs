@@ -554,8 +554,11 @@ await p.evaluate(() => window.__ahdusStore.getState().selectFloor(0)); await fra
 // ── Preview: Edit item tool on what you look at ──
 await tile('3D view'); await frames(3);
 await p.keyboard.press('Tab'); await wait(800);
+// v0.15.2: Walk through no longer captures the mouse by itself. These checks aim with the crosshair in
+// the middle of the view, so they turn mouse look on (M), which works as Preview did before
 if (!(await p.evaluate(() => !!document.pointerLockElement))) {
-  await p.click('button:has-text("Start preview")'); await wait(400);
+  await p.keyboard.press('KeyM');
+  await p.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 10000 }).catch(() => {});
 }
 // v0.15.1: Walk through starts with an empty hand (no slot chosen)
 await frames(3);

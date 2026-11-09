@@ -406,9 +406,23 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     siteEnvRef.current?.setBuildGrid(showGrid || plannerTool.kind !== 'select' || !!placementMode);
   }, [isPlaying, showGrid, plannerTool, placementMode, sceneReady]);
 
+  // Back to the view after the catalog (v0.15.2: the mouse is never captured by itself; M is mouse look)
   const handleResumePlay = useCallback(() => {
-    lockPointer(sceneRef.current?.getEngine().getRenderingCanvas());
+    sceneRef.current?.getEngine().getRenderingCanvas()?.focus?.();
   }, []);
+
+  /** The HUD's "Mouse look" button (M): the mouse is captured, a crosshair aims; Esc gives it back. */
+  const handleMouseLook = useCallback(() => {
+    const play = playRef.current;
+    if (!play) return;
+    if (play.isLocked()) play.releaseMouse();
+    else play.lockMouse();
+  }, []);
+
+  // A dialog over Walk through (the catalog, "New floor above") has the keys and the clicks
+  useEffect(() => {
+    playRef.current?.setKeysPaused(isPlaying && (catalogOpen || newFloorAsk));
+  }, [isPlaying, catalogOpen, newFloorAsk]);
 
   // Picking an item (or closing the catalog) goes straight back to playing
   const handleAssignToSlot = useCallback((item) => {
@@ -1479,7 +1493,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               onNewFloorChoice={handleNewFloorChoice}
               hotbar={hotbar}
               selectedSlot={selectedSlot}
-              onSelectSlot={setSelectedSlot}
+              onSelectSlot={(i) => setSelectedSlot((cur) => (cur === i ? EMPTY_HAND : i))}
+              onMouseLook={handleMouseLook}
               catalogOpen={catalogOpen}
               onOpenCatalog={() => {
                 document.exitPointerLock?.();

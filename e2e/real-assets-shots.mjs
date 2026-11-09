@@ -99,8 +99,11 @@ await shot('studio');
 
 // Preview: stand in the office doorway, looking at the desks
 await p.click('[aria-label="Walk through"]'); await wait(1000);
+// v0.15.2: Walk through no longer captures the mouse by itself. These checks aim with the crosshair in
+// the middle of the view, so they turn mouse look on (M), which works as Preview did before
 if (!(await p.evaluate(() => !!document.pointerLockElement))) {
-  await p.click('button:has-text("Start preview")').catch(() => {}); await wait(400);
+  await p.keyboard.press('KeyM');
+  await p.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 10000 }).catch(() => {});
 }
 await p.evaluate(() => window.__ahdusPlay.setPose({ x: -1.4, z: -1.8, yaw: -0.75, pitch: -0.12 }));
 await frames(6);

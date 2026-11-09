@@ -10,8 +10,8 @@
  * Colour meaning matches the 3D preview: blue = can build here, red = can't.
  */
 
-import { useEffect } from 'react';
-import { ArrowLeft, LayoutGrid as CatalogIcon, ChevronUp, ChevronDown, Copy, Square, DoorOpen } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowLeft, LayoutGrid as CatalogIcon, ChevronUp, ChevronDown, Copy, Square, DoorOpen, HelpCircle, Crosshair } from 'lucide-react';
 import { catalogSections, itemKey } from '../play/hotbarItems';
 import { itemIcon } from '../ui/tools';
 import CatalogPicker from '../ui/CatalogPicker';
@@ -20,17 +20,20 @@ import '../ui/preview.css';
 
 const CONTROLS = [
   ['W A S D', 'Move'],
+  ['Drag', 'Look around (the mouse stays)'],
+  ['Click', 'Empty hand: walk there. Holding an item: build where the mouse points'],
+  ['Right-click', 'Holding an item: remove what the mouse points at'],
   ['Shift', 'Run'],
   ['Space', 'Jump'],
   ['F', 'Fly (Space up, C down)'],
   ['V', 'First / third person'],
-  ['Left-click', 'Build with the item in your hand'],
-  ['Right-click', 'Remove what you look at'],
   ['R', 'Turn furniture 90° (Shift+R: 15°)'],
-  ['G or middle-click', 'Pick up what you look at, then click to put it down'],
+  ['G or middle-click', 'Pick up what the mouse points at, then click to put it down'],
   ['9', 'Edit item: move, turn (R), resize (+ / −), lock (L), slide a door along its wall'],
-  ['E', 'Use what you look at'],
-  ['1–9 or wheel', 'Choose hotbar slot'],
+  ['E', 'Use what the mouse points at'],
+  ['1–9 or wheel', 'Choose hotbar slot (the same number again: empty hand)'],
+  ['Esc', 'Cancel, then put the item away'],
+  ['M', 'Mouse look: the mouse turns the view, a crosshair aims (Esc ends it)'],
   ['B', 'Catalog of all items'],
   ['N', 'New floor above (copy the rooms below, or empty)'],
   ['Page Up / Down', 'Go to the floor above / below'],
@@ -108,24 +111,32 @@ export default function PlayHUD({
   newFloorAsk = false, // N was pressed: ask "copy rooms or empty?"
   copyFromName = '',   // name of the floor the rooms would be copied from
   onNewFloorChoice,    // (copyRooms: boolean | null) => void   null = cancel
+  onMouseLook,         // () => void   mouse look on / off (M)
 }) {
+  const [helpOpen, setHelpOpen] = useState(false);
   const hint = hud?.hint;
   const selectedItem = hotbar[selectedSlot];
   const floor = hud?.floor;
 
   // Esc closes the catalog (B toggles it via the play controller), or cancels the new floor
   useEffect(() => {
-    if (!catalogOpen && !newFloorAsk) return undefined;
+    if (!catalogOpen && !newFloorAsk && !helpOpen) return undefined;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
       if (catalogOpen) onCloseCatalog();
-      else onNewFloorChoice?.(null);
+      else if (newFloorAsk) onNewFloorChoice?.(null);
+      else setHelpOpen(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [catalogOpen, onCloseCatalog, newFloorAsk, onNewFloorChoice]);
+  }, [catalogOpen, onCloseCatalog, newFloorAsk, onNewFloorChoice, helpOpen]);
 
-  const paused = !hud?.locked && !catalogOpen && !newFloorAsk;
+  // v0.15.2: walking starts at once (drag to look, the mouse stays), so there is no "click to start"
+  // screen any more; the same list of keys opens from the "?" button. (A controller that still
+  // captures the mouse, hud.mouseAim false, keeps the old screen.)
+  const easy = !!hud?.mouseAim;
+  const paused = !catalogOpen && !newFloorAsk && (easy ? helpOpen : hud ? !hud.locked : false);
+  const closePaused = easy ? () => setHelpOpen(false) : onResume;
 
   return (
     <div className="hud">
@@ -176,6 +187,20 @@ export default function PlayHUD({
           Catalog
           <Key>B</Key>
         </button>
+        {easy && onMouseLook && (
+          <button className="hud-card hud-btn" aria-label="Mouse look" aria-pressed={!!hud?.locked} data-hud="mouse-look"
+            title="Mouse look: the mouse turns the view, a crosshair aims (M). Esc ends it." onClick={onMouseLook}>
+            <Crosshair size={18} strokeWidth={1.75} aria-hidden />
+            Mouse look
+            <Key>M</Key>
+          </button>
+        )}
+        {easy && (
+          <button className="hud-card hud-btn" aria-label="Keys and mouse" aria-expanded={helpOpen} data-hud="help"
+            title="Keys and mouse" onClick={() => setHelpOpen((open) => !open)}>
+            <HelpCircle size={18} strokeWidth={1.75} aria-hidden />
+          </button>
+        )}
       </div>
 
       {/* ── Feedback ── */}
@@ -195,8 +220,8 @@ export default function PlayHUD({
         </div>
       )}
 
-      {/* ── "Press E" prompt for what you look at ── */}
-      {hud?.locked && hud?.prompt && (
+      {/* ── "Press E" prompt for what you look at (the easy controls: what the mouse points at) ── */}
+      {(hud?.locked || easy) && hud?.prompt && (
         <div className="hud-card hud-prompt" data-hud="prompt" aria-live="polite">
           <Key tone={hud.prompt.handled ? 'ok' : undefined}>E</Key>
           <span>{hud.prompt.label}</span>
@@ -216,12 +241,13 @@ export default function PlayHUD({
 
       {/* ── Paused: click to start ── */}
       {paused && (
-        <div className="hud-scrim" onClick={onResume}>
-          <div className="ui-pop hud-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="hud-scrim" onClick={closePaused}>
+          <div className="ui-pop hud-panel" role={easy ? 'dialog' : undefined} aria-label={easy ? 'Keys and mouse' : undefined}
+            data-hud={easy ? 'help-panel' : undefined} onClick={(e) => e.stopPropagation()}>
             <h2 className="hud-panel__title">Walk through your workplace</h2>
             <p className="hud-panel__text">
               Walk around as your character. You can still build with the item in your hand.
-              {selectedItem ? ` You're holding: ${selectedItem.label}.` : ' Your hands are empty: press 1–9 or B to pick something to build.'}
+              {selectedItem ? ` You're holding: ${selectedItem.label}.` : ' Your hands are empty: a click walks there. Press 1–9 or B to pick something to build.'}
             </p>
             <dl className="hud-controls">
               {CONTROLS.map(([k, v]) => (
@@ -232,10 +258,10 @@ export default function PlayHUD({
               ))}
             </dl>
             <div className="hud-panel__actions">
-              <button className="ui-btn is-primary" onClick={onResume} autoFocus>Start preview</button>
+              <button className="ui-btn is-primary" onClick={closePaused} autoFocus>{easy ? 'Close' : 'Start preview'}</button>
               <button className="ui-btn" onClick={onExitToStudio}>Back to Studio</button>
             </div>
-            <p className="hud-panel__foot ui-muted">Press Esc any time to get your mouse back.</p>
+            {!easy && <p className="hud-panel__foot ui-muted">Press Esc any time to get your mouse back.</p>}
           </div>
         </div>
       )}
