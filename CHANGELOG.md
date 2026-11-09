@@ -3,6 +3,50 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.15.2 (10 Nov 2026): easy Walk through
+
+### Walk through (Preview)
+- **The viewer's easy controls:** the mouse no longer disappears. Drag (left or right button) to look around; W A S D
+  walk at once, with no "Start preview" screen (the list of keys opens from the "?" button).
+- **Everything is aimed at the mouse**, not at the middle of the view: placing, G / middle-click, right-click, E, Edit
+  item, Stretch, doors and windows.
+- **An empty hand walks:** a click on the floor walks there (the same routes and line as the 3D Company viewer); a
+  click on an item walks up to it. An empty hand moves and removes nothing (G still picks an item up).
+- **An item or a tool in your hand builds:** a click uses it where the mouse points and never walks; a slow, careful
+  click counts too. Esc cancels what is half done, then puts the item away; the number of the slot you hold does too.
+- **Mouse look is an option:** M, or the "Mouse look" button, captures the mouse with a crosshair in the middle, as
+  before; Esc gives it back.
+- **G / Edit item on a desk takes its chair and what stands on it**, and puts them down together. R turns the group.
+  One undo step.
+- **Hotbar and catalog:** a short name under each hotbar icon, a different icon for each room type, "Add to hotbar"
+  (was "Choose an item for slot N"), and the catalog shows the same pictures as Studio's library.
+
+### Workplace Studio
+- **Turning a room turns what is in it:** R and the selection bar's Rotate turn the furniture and the rooms inside it
+  with the room, around its centre. One undo step. Refused with a reason when the turned room would overlap another
+  room, not fit the room it stands in, or share a door or window with a room that stays.
+- **The chair follows the move arrows live**, not only when the arrow is let go, and the Inspector's X / Z follow
+  every drag.
+- **Floor-only items stay on the floor:** only small things (monitor, laptop, keyboard, mouse, Desk Plant, coffee
+  machine, microwave, printer, first aid kit) go on a table top. A Large Plant over a desk turns red: "Large Plant
+  stands on the floor". A rug and the floor markers count as the floor. Layouts saved before are not changed.
+
+### Fixed
+- Plan view: a desk dragged onto the spot where its own chair stood landed on that chair (Height 1.10 m).
+- The catalog panel slid off the bottom of the view when its list was taller than the view.
+- The room tool's hint said "Meeting Room room".
+
+### For developers
+- `playController`: with `look: 'drag'` and no `isEngaged` (Studio's Walk through) it is in **mouse aim**: `aimLine()`
+  goes through the mouse; options `onEmptyHand`, `onDeactivate`; `setKeysPaused`, `setPointer`, `clickAt`, `getAim`,
+  `aimsAtMouse` (tests). A viewer's walkthrough (on a page) and `look: 'lock'` are unchanged.
+- Studio makes its own `NavigationSystem` + `RouteLineSystem` for a click's walk (`hooks/useStudioScene.js`).
+- `geometry.planRoomTurn(room, rooms, objects)` also returns the rooms and items that turn; `editor.turnRoom(id, plan)`.
+- `carry.carryDrop` (pure); `utils/itemRiders.js` (`ridersOf`, shared by both modes); `utils/livePosition.js`;
+  `building.canStandOn`, `TABLE_TOP_TYPES`, `FLOOR_LIKE_TYPES`; `planMath.planCarried`; `planDrop` may return
+  `{ problem }`; `hotbarItems.shortLabel`; `tools.ROOM_ICONS`; `ui/ItemPicture.jsx`; `dragLook` presses can be `patient`.
+- e2e scripts that aim with the crosshair turn mouse look on with M (there is no "Start preview" button any more).
+
 ## 0.15.1 (9 Nov 2026): easy building, part 2
 
 ### Workplace Studio
