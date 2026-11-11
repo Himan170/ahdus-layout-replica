@@ -4,17 +4,19 @@
  * Plan view's "All floors": every floor's plan side by side, at ONE scale and place (the whole
  * building's bounds), each with its name, to compare them. Only for looking and choosing: a click (or
  * Enter) on a floor opens it for editing. Drawn plainly (rooms, walls with their openings, items as
- * boxes, stairs) and memoised per floor, so a big building (2 floors × 300+ items) stays quick.
+ * boxes, stairs on BOTH floors they join: up from the floor they start on, a dashed outline + "Down"
+ * on the floor they arrive at) and memoised per floor, so a big building (2 floors × 300+ items) stays quick.
  */
 
 import { memo, useMemo } from 'react';
 import { roomWallPieces, itemSize, planAngle, toPlan, wallSegmentEnds } from './planMath';
 import { wallThicknessOf, WALL_THICKNESS } from '../play/geometry';
 import { ASSET_TYPES } from '../utils/assetCatalog';
+import { planStairs } from './planFloors';
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-const FloorTile = memo(function FloorTile({ floor, rooms, objects, viewBox, current, onOpen }) {
+const FloorTile = memo(function FloorTile({ floor, rooms, objects, stairs = [], viewBox, current, onOpen }) {
   const label = `${floor.name}: ${plural(rooms.length, 'room')}, ${plural(objects.length, 'item')}`;
   const open = () => onOpen(floor.id);
   return (
@@ -66,6 +68,26 @@ const FloorTile = memo(function FloorTile({ floor, rooms, objects, viewBox, curr
               transform={`rotate(${planAngle(o.rotationY)} ${c.x} ${c.y})`} />
           );
         })}
+        {stairs.map((st) => {
+          const c = toPlan(st);
+          const up = st.dir === 'up';
+          // the tile is small: the word as big as the flight's width allows (it runs along the flight)
+          const font = Math.max(0.3, Math.min(st.width * 0.75, st.length * 0.3));
+          return (
+            <g key={`stairs-${st.id}`} data-tile-stairs={st.dir} transform={`rotate(${planAngle(st.rotationY)} ${c.x} ${c.y})`}>
+              <rect x={c.x - st.width / 2} y={c.y - st.length / 2} width={st.width} height={st.length}
+                fill={up ? '#dbeafe' : '#f1f5f9'} fillOpacity={0.9}
+                stroke={up ? '#2563eb' : '#64748b'} strokeWidth={0.06} strokeDasharray={up ? undefined : '0.2 0.12'} />
+              <line x1={c.x} x2={c.x} y1={c.y + st.length / 2 - 0.25} y2={c.y - st.length / 2 + 0.3}
+                stroke={up ? '#2563eb' : '#64748b'} strokeWidth={0.08} />
+              <text x={c.x} y={c.y} textAnchor="middle" dominantBaseline="middle" fontSize={font} fontWeight="700"
+                fill={up ? '#1e3a8a' : '#334155'} stroke="#ffffff" strokeWidth={font * 0.25} paintOrder="stroke"
+                transform={`rotate(-90 ${c.x} ${c.y})`}>
+                {up ? 'Up' : st.dir === 'down' ? 'Down' : 'Stairs'}
+              </text>
+            </g>
+          );
+        })}
       </svg>
       {rooms.length === 0 && objects.length === 0 && <p className="all-floors__empty">Nothing on this floor yet</p>}
     </div>
@@ -81,6 +103,12 @@ export default function AllFloorsView({ floors = [], rooms = [], objects = [], c
     return groups;
   }, [floors, rooms, objects]);
 
+  // the stairs of each floor: its own flights and the ones arriving from the floor below
+  const stairsByFloor = useMemo(() => {
+    const flights = objects.filter((o) => o.assetType === 'STAIRCASE');
+    return new Map(floors.map((f) => [f.id, flights.length ? planStairs(flights, floors, f.id) : []]));
+  }, [floors, objects]);
+
   const viewBox = baseView ? `${baseView.x} ${baseView.y} ${baseView.width} ${baseView.height}` : '0 0 100 100';
   // read like a page: the ground floor first, then up
   const ordered = [...floors].sort((a, b) => a.id - b.id);
@@ -93,6 +121,7 @@ export default function AllFloorsView({ floors = [], rooms = [], objects = [], c
             floor={f}
             rooms={byFloor.get(f.id)?.rooms ?? []}
             objects={byFloor.get(f.id)?.objects ?? []}
+            stairs={stairsByFloor.get(f.id)}
             viewBox={viewBox}
             current={f.id === currentFloor}
             onOpen={onOpen}
