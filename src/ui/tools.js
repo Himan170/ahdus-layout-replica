@@ -212,9 +212,25 @@ export const SHORTCUT_GROUPS = [
     ],
   },
   {
+    title: 'Several items',
+    keys: [
+      [['Shift', 'Click'], 'Add or remove an item'], [['Shift', 'Drag'], 'Select the items in a box'],
+      [['Drag'], 'Move them all'], [['Arrows'], 'Move them'], [['R'], 'Turn them 90° (Shift+R: 15°)'],
+      [['L'], 'Lock or unlock them'], [['Delete'], 'Delete them (locked ones stay)'],
+    ],
+  },
+  {
+    title: 'Copy and paste',
+    keys: [
+      [['Ctrl', 'C'], 'Copy (a desk with its chair)'], [['Ctrl', 'V'], 'Paste at the mouse'],
+      [['Ctrl', 'Shift', 'V'], 'Paste at the same place'],
+    ],
+  },
+  {
     title: 'General',
     keys: [
       [['Ctrl', 'Z'], 'Undo'], [['Ctrl', 'Y'], 'Redo'], [['Ctrl', 'S'], 'Save now'], [['Esc'], 'Cancel, then deselect'],
+      [['Page Up'], 'Floor above'], [['Page Down'], 'Floor below'],
       [['Tab'], 'Walk through'], [['R'], 'Turn what you are placing 90° (Shift+R: 15°)'],
     ],
   },
