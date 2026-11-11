@@ -120,6 +120,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   }
   const canvasRef = useRef(null);
   const sceneRef = useRef(null);
+  const pauseRenderingRef = useRef(null); // layoutScene.pauseRendering: no 3D frames under the Plan view
   const cameraRef = useRef(null);
   const lightsRef = useRef(null);
 
@@ -346,7 +347,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     isPlayingRef, measureModeRef, measureStartRef, measurementIdRef, fpsRef, fpsDisplayRef,
     plannerMessageTimer, setBuildProgress, setPlayHud, setSelectedSlot, setCatalogOpen, setNewFloorAsk,
     setInteraction, setPositionsVersion, setPlannerHint, setMeasurePreview, setMeasureStart, setMeasurements,
-    setSceneReady, editor, showStudioMessage, placeObject, DEMO_MODULES,
+    setSceneReady, editor, showStudioMessage, placeObject, DEMO_MODULES, pauseRenderingRef,
   });
 
   // ─── Store → scene: meshes, the floor being edited, the gizmo (hooks/useStoreMeshSync.js) ───
@@ -1066,6 +1067,13 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     () => selectedObjectIds.map((id) => objectsMap[id]).filter(Boolean),
     [selectedObjectIds, objectsMap],
   );
+  // Plan view covers the 3D view: draw no 3D frames meanwhile (a big layout's plan stays fast)
+  useEffect(() => {
+    const pause = pauseRenderingRef.current;
+    pause?.(planView && !isPlaying);
+    return () => pause?.(false);
+  }, [planView, isPlaying, sceneReady]);
+
   // The group outlined in the 3D / 2D view (the engine's HighlightSystem, as search results in the viewer)
   const groupHighlightRef = useRef(null);
   useEffect(() => {
