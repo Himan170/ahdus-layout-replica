@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { checkLayout } from '../play/navigation/checkLayout';
 import { ASSET_TYPES } from '../utils/assetCatalog';
@@ -13,8 +13,20 @@ export function useLayoutCheck({ playing, plannerToolsRef, gizmoControllerRef })
   const ignored = useWorkspaceStore((s) => s.ignoredChecks);
   const [open, setOpen] = useState(false);
   const [result, setResult] = useState({ problems: [], ms: 0 });
+  const pointerDown = useRef(false);
+  useEffect(() => {
+    // Includes SVG Plan view drags, which do not go through plannerTools or the gizmo.
+    const down = () => { pointerDown.current = true; };
+    const up = () => { pointerDown.current = false; };
+    window.addEventListener('pointerdown', down, true);
+    for (const event of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(event, up, true);
+    return () => {
+      window.removeEventListener('pointerdown', down, true);
+      for (const event of ['pointerup', 'pointercancel', 'blur']) window.removeEventListener(event, up, true);
+    };
+  }, []);
   const run = useCallback(() => {
-    if (playing || plannerToolsRef.current?.isDragging() || livePosition.get() || gizmoControllerRef.current?.isDragging?.()) return false;
+    if (playing || pointerDown.current || plannerToolsRef.current?.isDragging() || livePosition.get() || gizmoControllerRef.current?.isDragging?.()) return false;
     setResult(checkLayout(useWorkspaceStore.getState(), { catalog: ASSET_TYPES, maps: studioWalkMaps }));
     return true;
   }, [playing, plannerToolsRef, gizmoControllerRef]);

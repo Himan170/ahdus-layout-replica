@@ -19,6 +19,7 @@ try {
   const panel = page.getByRole('dialog', { name: 'Check my layout', exact: true });
   await panel.waitFor();
   check('the template starts clean', await panel.getByText('No problems found', { exact: true }).count() === 1);
+  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown')));
   const saved = await page.evaluate(() => {
     const s = window.__ahdusStore.getState();
     const room = Object.values(s.rooms).find((r) => r.name === 'Meeting Room');
@@ -26,6 +27,9 @@ try {
     return { id: room.id, doors: room.doors };
   });
   const problem = panel.getByRole('button', { name: 'Meeting Room has no door', exact: true });
+  await page.waitForTimeout(2100);
+  check('background checks wait while a pointer is held', await problem.count() === 0);
+  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup')));
   await problem.waitFor({ timeout: 15000 });
   check('removing a door shows a delayed warning', await problem.count() === 1);
   await problem.click();
