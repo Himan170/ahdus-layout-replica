@@ -16,7 +16,7 @@ import { useEffect, useState, useMemo, useCallback, useSyncExternalStore } from 
 import { livePosition } from '../utils/livePosition';
 import {
   X, Copy, Lock, LockOpen, Trash2, Link2, Unlink2, LayoutGrid, DoorOpen, AppWindow, RotateCcw, Volume2, VolumeX, Plus,
-  RotateCw, Boxes, ClipboardCopy,
+  RotateCw, Boxes, ClipboardCopy, Search,
 } from 'lucide-react';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { ROOM_TYPES } from '../utils/roomStore';
@@ -434,21 +434,63 @@ function OpeningBody({ opening, floorName, onResize }) {
 
 // ── Layers ──────────────────────────────────────────────────────────────
 
+/**
+ * Layers search (v0.15.5): every word of the query starts a word of the text (3+ letters: anywhere
+ * in a word), case-insensitive. An empty query matches everything.
+ */
+export function matchesLayerQuery(text, query) {
+  const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const own = String(text ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return words.every((w) => own.some((o) => o.startsWith(w) || (w.length >= 3 && o.includes(w))));
+}
+
+let lastLayersQuery = ''; // kept while the panel closes for a selection and opens again
+
 function LayersBody({ rooms = [], objects = [], floors = [], routes = [], onPick }) {
+  const [query, setQuery] = useState(lastLayersQuery);
   const roomName = (id) => rooms.find((r) => r.id === id)?.name;
   const routeSummary = describeAccessibilityRoutes(floors, rooms, objects, routes);
+  const itemLabel = (o) => o.label || ASSET_TYPES[o.assetType]?.label || o.assetType;
+  const shownRooms = rooms.filter((r) => matchesLayerQuery(`${r.name} ${ROOM_TYPES[r.type]?.label ?? ''}`, query));
+  const shownObjects = objects.filter((o) => matchesLayerQuery(
+    `${itemLabel(o)} ${ASSET_TYPES[o.assetType]?.label ?? ''} ${roomName(o.roomId) ?? ''}`, query));
+  const searching = query.trim().length > 0;
+  const count = (shown, all) => (searching ? `${shown.length} of ${all.length}` : `${all.length}`);
+  const setSearch = (v) => { lastLayersQuery = v; setQuery(v); };
 
   return (
     <>
-      <Section title="Accessibility & Routes">
-        <p className="insp-note" role="status">
-          {routeSummary}
+      <div className="layers-search">
+        <Search {...ICON} aria-hidden />
+        <input
+          type="search"
+          className="ui-input"
+          placeholder="Search rooms and items"
+          aria-label="Search layers"
+          value={query}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.stopPropagation(); setSearch(''); } }}
+        />
+      </div>
+      {searching && (
+        <p className="insp-note" role="status" data-layers-found>
+          {shownRooms.length + shownObjects.length === 0
+            ? `Nothing on this floor matches "${query.trim()}"`
+            : `${shownRooms.length + shownObjects.length} found`}
         </p>
-      </Section>
-      <Section title={`Rooms (${rooms.length})`}>
+      )}
+      {!searching && (
+        <Section title="Accessibility & Routes">
+          <p className="insp-note" role="status">
+            {routeSummary}
+          </p>
+        </Section>
+      )}
+      <Section title={`Rooms (${count(shownRooms, rooms)})`}>
         {rooms.length === 0 && <p className="insp-note">No rooms on this floor yet.</p>}
         <ul className="layers-list" role="list" aria-label="Rooms and spaces">
-          {rooms.map((r) => (
+          {shownRooms.map((r) => (
             <li key={r.id}>
               <button
                 className="layers-list__item"
@@ -463,12 +505,12 @@ function LayersBody({ rooms = [], objects = [], floors = [], routes = [], onPick
           ))}
         </ul>
       </Section>
-      <Section title={`Items (${objects.length})`}>
+      <Section title={`Items (${count(shownObjects, objects)})`}>
         {objects.length === 0 && <p className="insp-note">No items on this floor yet.</p>}
         <ul className="layers-list" role="list" aria-label="Furniture and equipment items">
-          {objects.map((o) => {
+          {shownObjects.map((o) => {
             const Icon = assetIcon(o.assetType);
-            const label = o.label || ASSET_TYPES[o.assetType]?.label || o.assetType;
+            const label = itemLabel(o);
             return (
               <li key={o.id}>
                 <button
