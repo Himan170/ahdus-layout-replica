@@ -7,7 +7,7 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 const check = (name, ok) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}`); if (!ok) errors.push(name); };
 try {
-  await page.goto(process.argv[2] ?? 'http://127.0.0.1:3000/');
+  await page.goto(process.argv[2] ?? 'http://localhost:3000/');
   await page.locator('input[placeholder="Company name…"]').fill('Check test');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('radio', { name: 'Small Office', exact: true }).click();

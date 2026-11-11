@@ -2,7 +2,10 @@
 // 1920 × 1080 with the Inspector open, Page Up / Down keeping the view, the floor below, stairs on both
 // floors, All floors), multi-select (Shift+click, Shift+drag box, group drag / arrows / Delete in one
 // undo step, locked items stay), copy and paste (a desk with its chair, Ctrl+Shift+V on the floor above,
-// Ctrl+V at the mouse, one Ctrl+Z), the Layers search, and keys that do nothing while typing.
+// Ctrl+V at the mouse, one Ctrl+Z), the Layers search, and keys that do nothing while typing; review fixes:
+// Ctrl+L left to the browser, room names over the furniture and inside their rooms, the item's name in the
+// Plan's bar, the floor below visible (Floor 1's pantry deleted) with a filled Floor below chip, stairs on
+// both All floors cards, the group's icons, and 3D frames again after Plan (3D, 2D, Walk through).
 // Results are checked in the store. SHOTS=<dir>: the screenshots go there (else e2e/screens/fb-*.png).
 //
 // Run:   npm run dev                (in one terminal)
@@ -39,11 +42,18 @@ const frames = (n = 3) => p.evaluate((n) => new Promise((res) => {
   function done() { sc.onAfterRenderObservable.remove(o); clearTimeout(t); res(); }
   t = setTimeout(done, 3000); // Plan view draws no 3D frames: don't wait long for them
 }), n);
+// how many 3D frames are drawn in `ms` (0 under Plan view: it pauses them)
+const rendered = (ms = 1500) => p.evaluate((ms) => new Promise((res) => {
+  const sc = window.__ahdusScene; let c = 0;
+  const o = sc.onAfterRenderObservable.add(() => { c += 1; });
+  setTimeout(() => { sc.onAfterRenderObservable.remove(o); res(c); }, ms);
+}), ms);
 const store = () => p.evaluate(() => {
   const s = window.__ahdusStore.getState();
   return {
     objects: Object.values(s.objects), currentFloor: s.currentFloor,
     selected: s.selectedObjectId, group: s.selectedObjectIds,
+    rooms: Object.values(s.rooms),
   };
 });
 const shot = (name) => p.screenshot({ path: join(SHOTS, name), timeout: 120000 });
@@ -159,6 +169,8 @@ log('Shift+click adds a desk: 2 items selected', st.group.length === 2 && st.gro
 const count = await p.locator('[data-group-count]').innerText().catch(() => '');
 log('the Inspector says "2 items selected" with the group actions', /2 items selected/.test(count) &&
   (await p.locator('[data-group-actions] button').count()) >= 4, count);
+const iconSizes = await p.locator('[data-group-actions] button svg').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)));
+log('the group actions\' icons keep their size (Duplicate was a dot)', iconSizes.length >= 5 && iconSizes.every((w) => w >= 14), iconSizes.join(' '));
 await clickAt(...deskTop(dB), { shift: true });
 st = await store();
 log('Shift+click again takes it out', st.group.length === 0 && st.selected === dA.id);
@@ -226,6 +238,18 @@ await key('Escape');
 
 // ── Copy a desk (with its chair), paste on the floor above at the same place ──
 await clickAt(...deskTop(dB));
+// Ctrl+L is the browser's (the address bar): L alone locks, Ctrl / Cmd + L does nothing here
+await p.evaluate(() => {
+  window.__ctrlL = null;
+  // not 'once': Control's own keydown comes first
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && (e.key === 'l' || e.key === 'L')) setTimeout(() => { window.__ctrlL = e.defaultPrevented; }, 0);
+  }, { capture: true });
+});
+await key('Control+l');
+const ctrlL = await p.evaluate(() => window.__ctrlL);
+log('Ctrl+L leaves the desk unlocked and the key to the browser (not prevented)',
+  (await store()).objects.find((o) => o.id === dB.id).isLocked !== true && ctrlL === false, `defaultPrevented: ${ctrlL}`);
 await key('Control+c');
 log('Ctrl+C copies the desk with its chair', /Copied .*1 item with it/.test(await hint()), await hint());
 await key('PageUp');
@@ -266,7 +290,26 @@ const switcherFree = () => p.evaluate(() => {
   };
   return ok('Floor switcher') && ok('Add floor');
 });
-await p.locator('[data-object-id]').first().click(); await wait(500);
+log('Plan view draws no 3D frames', (await rendered(1200)) === 0);
+// room names: drawn over the furniture (after it), each inside its room's width
+const labels = await p.evaluate(() => {
+  const layer = document.querySelector('.floor-plan-labels');
+  const items = [...document.querySelectorAll('[data-object-id]')];
+  const after = !!layer && items.length > 0 && items.every((el) => el.compareDocumentPosition(layer) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const rows = [...document.querySelectorAll('[data-plan-label]')].map((g) => {
+    const room = document.querySelector(`[data-room-id="${g.dataset.planLabel}"] rect`);
+    const name = g.querySelector('text');
+    return { text: name.textContent, w: name.getBBox().width, room: Number(room.getAttribute('width')) };
+  });
+  return { after, rows };
+});
+const tooWide = labels.rows.filter((r) => r.w > r.room * 0.95);
+log('Plan room names sit over the furniture and fit their rooms', labels.after && labels.rows.length >= 7 && tooWide.length === 0,
+  tooWide.map((r) => `${r.text} ${r.w.toFixed(2)} > ${r.room}`).join(', ') || labels.rows.map((r) => r.text).join(' | '));
+const reception = (await store()).objects.find((o) => o.assetType === 'RECEPTION_DESK' && (o.floor ?? 0) === 0);
+await p.locator(`[data-object-id="${reception.id}"]`).click(); await wait(500);
+const barName = await p.locator('[data-plan-selection] .floor-plan-toolbar__item-name').innerText().catch(() => '');
+log('the Plan\'s selection bar names the item ("Reception Desk", not RECEPTION_DESK)', barName && !/_/.test(barName), barName);
 const inspOpen = await p.locator('aside[aria-label="Inspector"]').isVisible();
 log('Plan view, 1366 × 768, Inspector open: the floor switcher and Add floor are clickable', inspOpen && await switcherFree());
 await shot('v0.15.5-plan-floor-switcher-1366x768.png');
@@ -283,12 +326,34 @@ await key('PageUp');
 log('Page Up in Plan: Floor 1, the view stays where it was', (await store()).currentFloor === 1 && (await viewBox()) === vb0, vb0);
 log('Floor 1 shows the floor below (faint outline) and the stairs coming up ("down")',
   (await p.locator('[data-plan-below]').count()) === 1 && (await p.locator('[data-plan-stairs="down"]').count()) === 1);
+// a copied floor hides the outline under its own walls: delete Floor 1's pantry to see it
+// (copied rooms have no names of their own: the one above the ground floor's pantry)
+const roomsNow = (await store()).rooms;
+const groundPantry = roomsNow.find((r) => (r.floor ?? 0) === 0 && /Pantry/.test(r.name ?? ''));
+const pantry = roomsNow.find((r) => r.floor === 1 && near(r.x, groundPantry.x, 0.01) && near(r.z, groundPantry.z, 0.01));
+await p.locator(`[data-room-id="${pantry.id}"] rect`).click(); await wait(300); // its middle: the name lets clicks through
+const roomPicked = await p.evaluate(() => window.__ahdusStore.getState().selectedRoomId);
+await key('Delete');
+const afterDelete = await store();
+const chipBg = (pressed) => p.evaluate((pressed) => {
+  const btn = document.querySelector('[aria-label="Floor below"]');
+  return btn.getAttribute('aria-pressed') === String(pressed) ? getComputedStyle(btn).backgroundColor : 'wrong state';
+}, pressed);
+const onBg = await chipBg(true);
+log('without Floor 1\'s pantry, the ground floor\'s shows as a dashed outline; Floor below is filled (on)',
+  !afterDelete.rooms.some((r) => r.id === pantry.id) && (await p.locator('[data-plan-below] rect').count()) >= 7 &&
+  onBg === 'rgb(40, 102, 79)', `picked ${roomPicked === pantry.id ? 'the room' : roomPicked} · ${onBg}`);
+await p.mouse.move(5, 300); await wait(200);
 await shot('v0.15.5-plan-floor-below.png');
 await p.click('[aria-label="Floor below"]'); await wait(300);
+const offBg = await chipBg(false);
+log('Floor below off: not filled', offBg !== 'rgb(40, 102, 79)' && offBg !== 'wrong state', offBg);
 const hidden = (await p.locator('[data-plan-below]').count()) === 0;
 const saved = await p.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('ahdus.planView') ?? '{}')));
 log('the Floor below button hides it, remembered for this workplace', hidden && /"below":false/.test(saved), saved.slice(0, 120));
 await p.click('[aria-label="Floor below"]'); await wait(300);
+await key('Control+z');
+log('one Ctrl+Z brings Floor 1\'s pantry back', (await store()).rooms.some((r) => r.id === pantry.id));
 await key('PageDown');
 log('Page Down in Plan: the ground floor, stairs going "up"', (await store()).currentFloor === 0 && (await p.locator('[data-plan-stairs="up"]').count()) === 1);
 
@@ -297,9 +362,23 @@ await p.click('[aria-label="All floors"]'); await wait(500);
 const tiles = await p.locator('[data-floor-tile]').count();
 const names = await p.locator('[data-floor-tile]').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')));
 log('All floors shows each floor, labelled', tiles === 2 && /Ground Floor/.test(names[0]) && /Floor 1/.test(names[1]), names.join(' | '));
+log('All floors: the stairs on both floors ("Up" on the ground floor, "Down" on Floor 1)',
+  (await p.locator('[data-floor-tile="0"] [data-tile-stairs="up"]').count()) === 1 &&
+  (await p.locator('[data-floor-tile="1"] [data-tile-stairs="down"]').count()) === 1);
 await shot('v0.15.5-plan-all-floors.png');
 await p.locator('[data-floor-tile="1"]').click(); await wait(500);
 log('a click on Floor 1 opens its plan', (await store()).currentFloor === 1 && (await p.locator('[data-floor-tile]').count()) === 0);
+
+// ── Leaving Plan view: the 3D view draws again (3D, 2D, Walk through) ──
+await p.click('[aria-label="3D view"]'); await wait(300);
+log('Plan → 3D: frames are drawn again', (await rendered()) > 0);
+await p.click('[aria-label="Plan view"]'); await wait(500);
+await p.click('[aria-label="2D view"]'); await wait(300);
+log('Plan → 2D: frames are drawn again', (await rendered()) > 0);
+await p.click('[aria-label="Plan view"]'); await wait(500);
+await p.click('[aria-label="Walk through"]'); await wait(800);
+log('Plan → Walk through: frames are drawn', (await rendered()) > 0);
+await p.click('[aria-label="Back to Studio"]'); await wait(800);
 
 log('no page errors', errs.length === 0, errs.slice(0, 3).join(' | '));
 await b.close();
