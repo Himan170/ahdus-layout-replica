@@ -148,21 +148,13 @@ export const ASSET_TYPES = {
     solid: false, // a door item never stops you (in a doorway it would close the room); the wall around it does
     buildMesh(scene, id) {
       const root = new TransformNode('arch_door_' + id, scene);
-      // Door panel
-      const panel = box(scene, 'dp', 0.9, 2.1, 0.07, 0, 0, 0);
-      panel.material = mat(scene, '#8b6f47');
-      // Handle
-      const handle = cyl(scene, 'dh', 0.04, 0.1, 0.35, 1.0, 0);
-      handle.rotation.z = Math.PI / 2;
-      handle.material = metalMat(scene, '#d4af37');
-      // Frame: its top sits right on the door leaf (no gap to see through)
+      // A passable doorway, just like a room's door: its frame is visible and its centre is open.
+      // A closed-looking leaf here made walking through it look like walking through a solid door.
       const fTop = box(scene, 'dft', 1, 0.1, 0.12, 0, 2.1, 0);
       const fL = box(scene, 'dfl', 0.1, 2.2, 0.12, -0.5, 0, 0);
       const fR = box(scene, 'dfr', 0.1, 2.2, 0.12, 0.5, 0, 0);
       const fMat = mat(scene, '#5c4a2a');
       [fTop, fL, fR].forEach(f => { f.material = fMat; f.parent = root; f.isPickable = true; });
-      panel.parent = root; panel.isPickable = true;
-      handle.parent = root; handle.isPickable = false;
       root.metadata = { assetType: 'DOOR_SINGLE', objectId: id };
       return root;
     },

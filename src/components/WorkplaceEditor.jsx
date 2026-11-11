@@ -56,6 +56,8 @@ import PlayHUD from './PlayHUD';
 // Workplace Studio UI
 import StudioShell from '../ui/StudioShell';
 import StudioHeader from '../ui/StudioHeader';
+import LayoutCheckPanel from '../ui/LayoutCheckPanel';
+import { useLayoutCheck } from '../hooks/useLayoutCheck';
 import BuildPanel from '../ui/BuildPanel';
 import CanvasCard from '../ui/CanvasCard';
 import RoomLabels, { storedRoomLabels, storeRoomLabels } from '../ui/RoomLabels';
@@ -854,6 +856,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
    * Fly the camera smoothly to what is selected (an item, a room, a door / window): F and a
    * double-click (v0.15.1). Small things get at least a 4 m frame. Returns false with nothing selected.
    */
+  const checks = useLayoutCheck({ playing: isPlaying, plannerToolsRef, gizmoControllerRef });
   const focusSelection = useCallback(() => {
     const st = useWorkspaceStore.getState();
     let box = null;
@@ -883,6 +886,20 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     }
     return true;
   }, [boundsOf]);
+
+  const selectCheck = (problem) => {
+    const st = useWorkspaceStore.getState();
+    st.selectFloor(problem.floorId);
+    if (problem.objectId && st.objects[problem.objectId]) st.selectObject(problem.objectId);
+    else if (problem.roomId && st.rooms[problem.roomId]) st.selectRoom(problem.roomId);
+    if (!planView) requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!focusSelection()) cameraActions.fit();
+    }));
+  };
+  const ignoreCheck = (key, ignore) => {
+    const keys = useWorkspaceStore.getState().ignoredChecks;
+    editor.setIgnoredChecks(ignore ? [...keys, key] : keys.filter((k) => k !== key), { label: ignore ? 'Ignore layout problem' : 'Show layout problem again' });
+  };
 
   // Double-click an item or a room (Select tool) = focus on it
   useEffect(() => {
@@ -1168,12 +1185,16 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
         {announceText}
       </div>
       {inAhdus && <Toast toast={ahdus.toast} onClose={ahdus.closeToast} />}
+      {checks.open && !isPlaying && <LayoutCheckPanel checks={checks} floors={floorsMap} inspectorOpen={!!inspectorMode} onSelect={selectCheck}
+        onIgnore={ignoreCheck} onClose={() => checks.setOpen(false)} />}
       {ahdus.dialog === 'publish' && (
         <PublishDialog
           siteName={layoutName}
           state={ahdus.state}
           busy={ahdus.publishing}
           loadVersions={loadVersions}
+          checkCount={checks.count}
+          onShowChecks={() => { ahdus.cancelDialog(); checks.run(); checks.setOpen(true); }}
           seatWarning={losingDeskText(seats.losing)}
           onCancel={ahdus.cancelDialog}
           onConfirm={ahdus.confirmPublish}
@@ -1246,12 +1267,14 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
         )}
       header={(
         <StudioHeader
+          checks={checks}
+          onCheck={() => { checks.run(); checks.setOpen(!checks.open); }}
           layoutName={layoutName}
           onRenameLayout={inAhdus ? ahdus.renameSite : (name) => renameLayout(name)}
           siteName={inAhdus}
           onAllLayouts={onExit ? (inAhdus ? ahdus.requestLeave : handleAllLayouts) : null}
           allLayoutsLabel={inAhdus ? 'Back to AHDUS' : 'All layouts'}
-          onPublish={inAhdus && hasBackend ? ahdus.openPublish : null}
+          onPublish={inAhdus && hasBackend ? () => { checks.run(); ahdus.openPublish(); } : null}
           publishState={ahdus.state}
           publishing={ahdus.publishing}
           saveStatus={saveStatus}

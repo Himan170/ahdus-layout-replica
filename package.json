@@ -1,7 +1,7 @@
 {
   "name": "company-digital-twin",
   "private": true,
-  "version": "0.15.2",
+  "version": "0.15.3",
   "type": "module",
   "engines": {
     "node": ">=20.19"
@@ -41,7 +41,8 @@
     "e2e:welcome": "node e2e/welcome-smoke.mjs",
     "schema:json": "node scripts/schema-json.mjs",
     "build:ahdus": "node scripts/build-ahdus.mjs",
-    "characters:placeholder": "node scripts/make-placeholder-character.mjs"
+    "characters:placeholder": "node scripts/make-placeholder-character.mjs",
+    "e2e:check": "node e2e/check-smoke.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^7.0.0",

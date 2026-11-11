@@ -3,6 +3,24 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.15.3 (11 Nov 2026): Check my layout
+
+- Walk through: right-click removes aimed items with an empty hand again; right-drag still looks around.
+- Doors placed in drawn walls now look open, matching their passable doorway and room doors. Solid walls
+  and windows still stop walking from either side. Floor controls are unchanged.
+
+- **Check** in Studio's top bar lists problems by floor: rooms with no door, no entrance, places nobody can
+  walk to, furniture overlapping or in walls, blocked doors/windows, items outside rooms upstairs, and stair problems.
+- Click a problem to switch floors, select it and focus the camera. The floating panel stays open beside the
+  Inspector; on a phone, Check is in More and opens a bottom sheet.
+- **Ignore / Show again** are saved with this layout, with one undo step per action. Saving and publishing
+  always remain available. AHDUS's Publish dialog links to the check when problems are present.
+- Checks run on demand and after 1.5 seconds without changes, in idle time; they wait during drags and Preview.
+- **Data:** optional `ignoredChecks: string[]` in v1/v2 layouts and the generated JSON Schema. Old layouts start
+  with no ignored problems. Export/import and version restore preserve the list.
+- On the 72-room / 864-item performance layout: 132 ms cold, 112 ms with cached maps.
+- Pure rules in `play/navigation/checkLayout.js`; Studio shares walking's map cache. The viewer's controls stay as before.
+
 ## 0.15.2 (10 Nov 2026): easy Walk through
 
 ### Walk through (Preview)

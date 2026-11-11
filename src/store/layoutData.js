@@ -163,7 +163,7 @@ function normaliseFloors(saved, rooms, objects) {
 /**
  * @param {object} data  a saved layout (any version) or null
  * @returns {{ layoutName: string, layoutVersion: number, floors: object,
- *             rooms: object[], objects: object[], anchorData: object }}
+ *             rooms: object[], objects: object[], anchorData: object, ignoredChecks: string[] }}
  */
 export function normaliseLayout(data) {
   const src = data && typeof data === 'object' ? data : {};
@@ -182,7 +182,23 @@ export function normaliseLayout(data) {
     rooms,
     objects,
     anchorData,
+    ignoredChecks: normaliseIgnoredChecks(src.ignoredChecks),
   };
+}
+
+/** At most this many ignored problems are kept with a layout. */
+export const MAX_IGNORED_CHECKS = 500;
+
+/**
+ * The problems of "Check my layout" marked "Ignore" (v0.15.3): a list of problem keys
+ * (navigation/checkLayout.js). Saves from before have none: an empty list. Anything that is
+ * not a short string is dropped, no key twice.
+ * @returns {string[]}
+ */
+export function normaliseIgnoredChecks(value) {
+  if (!Array.isArray(value)) return [];
+  const keys = value.filter((k) => typeof k === 'string' && k.length > 0 && k.length <= 300);
+  return [...new Set(keys)].slice(0, MAX_IGNORED_CHECKS);
 }
 
 /**

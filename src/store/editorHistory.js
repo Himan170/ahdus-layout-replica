@@ -82,8 +82,8 @@ class SnapshotCommand {
     this.after = null;
   }
   capture() {
-    const { floors, rooms, objects, currentFloor, anchorData } = this.store();
-    return { floors, rooms, objects, currentFloor, anchorData };
+    const { floors, rooms, objects, currentFloor, anchorData, ignoredChecks } = this.store();
+    return { floors, rooms, objects, currentFloor, anchorData, ignoredChecks };
   }
   execute() {
     if (!this.after) {
@@ -227,6 +227,23 @@ class AnchorDataCommand {
         next.mergeKey !== this.mergeKey || next.anchorId !== this.anchorId) return false;
     this.patch = { ...this.patch, ...next.patch };
     return true;
+  }
+}
+
+/** "Ignore" / "Show again" on a problem of Check my layout: the list of ignored keys, before and after. */
+class IgnoredChecksCommand {
+  constructor(keys, { label = 'Ignore problem' } = {}, store) {
+    this.store = store;
+    this.after = [...keys];
+    this.label = label;
+    this.before = undefined;
+  }
+  execute() {
+    if (this.before === undefined) this.before = [...(this.store().ignoredChecks ?? [])];
+    this.store().setIgnoredChecks(this.after);
+  }
+  undo() {
+    this.store().setIgnoredChecks(this.before ?? []);
   }
 }
 
@@ -556,6 +573,18 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
      * @param {{positionRef?: string|null, label?: string|null}} patch  null clears a value
      * @param {{label?: string, mergeKey?: string}} [options]
      */
+    /**
+     * Check my layout (v0.15.3): the problems marked "Ignore" for this layout, as a list of problem
+     * keys (navigation/checkLayout.js). Saved with the layout; one undo step.
+     * @param {string[]} keys  the whole new list
+     * @param {{label?: string}} [options]
+     */
+    setIgnoredChecks(keys, options) {
+      const next = [...new Set((keys ?? []).filter((k) => typeof k === 'string' && k))];
+      const current = store().ignoredChecks ?? [];
+      if (next.length === current.length && next.every((k, i) => k === current[i])) return;
+      run(new IgnoredChecksCommand(next, options, store));
+    },
     setAnchorData(anchorId, patch, options) {
       const current = store().anchorData[anchorId] ?? {};
       const changed = Object.entries(patch).some(([k, v]) => (current[k] ?? null) !== (v || null));
@@ -642,6 +671,7 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
           objects: normalised.objects,
           currentFloor: Object.keys(normalised.floors || {})[0] ? Number(Object.keys(normalised.floors)[0]) : 0,
           anchorData: normalised.anchorData,
+          ignoredChecks: normalised.ignoredChecks,
         });
       }, store));
     },

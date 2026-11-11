@@ -179,6 +179,9 @@ export const LayoutSchema = z.object({
   anchors: z.array(AnchorSchema).default([]),
   routes: z.array(RouteSchema).default([]),
   floorLinks: z.array(FloorLinkSchema).default([]),
+  // v0.15.3 "Check my layout": the keys of the problems marked "Ignore" in Studio
+  // (play/navigation/checkLayout.js). Optional: layouts saved before have none.
+  ignoredChecks: z.array(z.string().max(300)).max(500).optional(),
 });
 export type Layout = z.infer<typeof LayoutSchema>;
 

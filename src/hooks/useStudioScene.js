@@ -35,6 +35,7 @@ import { nextSlot, EMPTY_HAND } from '../play/hotbarItems';
 import { createPlannerTools } from '../planner/plannerTools';
 import { layoutBridge } from '../integration/layoutBridge';
 import { installStudioPointer } from './studioPointer';
+import { studioWalkMaps } from './studioWalkMaps';
 import { NavigationSystem } from '../engine/systems/NavigationSystem';
 import { RouteLineSystem } from '../engine/systems/RouteLineSystem';
 
@@ -105,6 +106,7 @@ export function useStudioScene({
     let routeLine = null;
     let play = null;
     const navigation = new NavigationSystem({
+      walkMaps: studioWalkMaps,
       getLayout: () => useWorkspaceStore.getState(),
       getWalker: () => {
         if (!play?.isActive()) return null;

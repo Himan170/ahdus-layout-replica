@@ -113,7 +113,7 @@ describe('Walk through, easy controls: the mouse aims (look "drag")', () => {
     for (const fn of Object.values(actions)) expect(fn).not.toHaveBeenCalled();
   });
 
-  it('an empty hand: a click on a desk moves nothing (it walks up to it); a right-click removes nothing', () => {
+  it('an empty hand: left-click walks up to a desk; right-click removes the aimed desk', () => {
     const { play, actions, calls, pointAt } = world();
     const s = pointAt(0, deskTop + 0.02, 1.4);
     expect(calls.hud.hint.title).toBe('Standard Desk');
@@ -121,8 +121,9 @@ describe('Walk through, easy controls: the mouse aims (look "drag")', () => {
     play.clickAt(s.x, s.y, 0);
     expect(calls.click).toHaveBeenCalledTimes(1);
     expect(calls.click.mock.calls[0][0].kind).toBe('item');
-    play.clickAt(s.x, s.y, 2);
     for (const fn of Object.values(actions)) expect(fn).not.toHaveBeenCalled();
+    play.clickAt(s.x, s.y, 2);
+    expect(actions.deleteObject).toHaveBeenCalledWith('desk');
   });
 
   it('an item in your hand: a click places it where the mouse points, not in the middle of the view', () => {

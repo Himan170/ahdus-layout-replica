@@ -380,6 +380,24 @@ await p.waitForFunction(() => !document.pointerLockElement, null, { timeout: 100
     ['DESK_STANDARD', 'CHAIR_OFFICE', 'MONITOR_DUAL'].every((k) => Math.abs((undone[k]?.x ?? NaN) - (before[k]?.x ?? NaN)) < 0.01 && Math.abs((undone[k]?.z ?? NaN) - (before[k]?.z ?? NaN)) < 0.01));
 }
 
+// Empty hand: right-click still removes an aimed item; dragging the right button only looks.
+{
+  const desk = (await store()).objects.find((o) => o.assetType === 'DESK_STANDARD');
+  await pose(desk.x + 2.6, desk.z, -Math.PI / 2, -0.55);
+  const s = await screenOf(desk.x + 0.55, 0.82, desk.z - 0.15);
+  await p.mouse.move(s.x, s.y); await frames(3);
+  await p.mouse.down({ button: 'right' });
+  await p.mouse.move(s.x + 60, s.y, { steps: 8 });
+  await p.mouse.up({ button: 'right' }); await frames(3);
+  log('empty hand: a right-drag looks without deleting', (await store()).objects.some((o) => o.id === desk.id));
+  await pose(desk.x + 2.6, desk.z, -Math.PI / 2, -0.55);
+  const target = await screenOf(desk.x + 0.55, 0.82, desk.z - 0.15);
+  await p.mouse.click(target.x, target.y, { button: 'right' }); await frames(3);
+  log('empty hand: a plain right-click removes the aimed desk', !(await store()).objects.some((o) => o.id === desk.id));
+  await p.keyboard.press('Control+z'); await frames(3);
+  log('one Undo restores the deleted desk', (await store()).objects.some((o) => o.id === desk.id));
+}
+
 // ── 7. Outside view of what we built
 await pose(office.x - 6, office.z - 14, 0.35, -0.2);
 await frames(4);

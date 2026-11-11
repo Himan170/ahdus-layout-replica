@@ -252,6 +252,7 @@ export interface RouteLine {
 }
 
 interface Hooks {
+  walkMaps?: ReturnType<typeof createWalkMapCache>;
   getLayout: () => { rooms: object; objects: object; floors: Record<number, { id: number; name: string; height?: number }>; currentFloor: number };
   /** Walking: where you stand; null from above. */
   getWalker: () => { x: number; z: number; floor: number } | null;
@@ -338,6 +339,7 @@ export class NavigationSystem {
 
   constructor(hooks: Hooks) {
     this.hooks = hooks;
+    if (hooks.walkMaps) this.walkMaps = hooks.walkMaps;
   }
 
   /** Who sits where (LayoutEngine.setPeople): only personId, deskId, name and department are kept. */

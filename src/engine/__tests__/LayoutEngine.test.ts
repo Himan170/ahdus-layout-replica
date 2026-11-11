@@ -424,6 +424,7 @@ describe('highlight and clearHighlights', () => {
  * A command added to editorHistory later must be added here (the first test checks).
  */
 const EDITS: Record<string, unknown[]> = {
+  setIgnoredChecks: [['ROOM_NO_DOOR:room_a']],
   addObject: [{ assetType: 'DESK_STANDARD', x: 3, z: 3 }],
   updateObject: ['obj_desk', { x: 2 }],
   deleteObject: ['obj_desk'],
