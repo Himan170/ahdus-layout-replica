@@ -437,7 +437,7 @@ export class LayoutEngine {
     // Redraw whatever changes in this engine's layout; an edit is a 'change'
     this._unsubscribe = this._store.subscribe((s, prev) => {
       const edited = s.rooms !== prev.rooms || s.objects !== prev.objects || s.floors !== prev.floors
-        || s.anchorData !== prev.anchorData;
+        || s.anchorData !== prev.anchorData || s.ignoredChecks !== prev.ignoredChecks;
       if (!edited && s.selectedRoomId === prev.selectedRoomId) return;
       this._cachedLayout = null;
       if (this._loading) return; // loadLayout builds it (in slices)

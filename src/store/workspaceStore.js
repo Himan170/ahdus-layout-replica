@@ -14,7 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { OBJECT_CATEGORIES } from '../utils/assetCatalog';
-import { normaliseLayout } from './layoutData';
+import { normaliseLayout, normaliseIgnoredChecks } from './layoutData';
 import { STOREY_HEIGHT, wallSpace, floorsInOrder, isGroundFloor } from '../play/building';
 import { WALL_THICKNESS } from '../play/geometry';
 
@@ -98,6 +98,10 @@ export const createWorkspaceStore = () => create(
     // { [anchorId]: { positionRef?, label? } } — anchor POSITIONS are derived
     // from objects (see integration/anchorsFromStore.js), only this is saved.
     anchorData: {},
+
+    // ━━ Check my layout ━━ (v0.15.3) the keys of the problems marked "Ignore" for this layout
+    // (navigation/checkLayout.js); saved with the layout, changed through editorHistory.setIgnoredChecks
+    ignoredChecks: [],
 
     // ━━ UI state ━━
     activePanel: 'rooms',              // 'rooms' | 'objects'
@@ -439,6 +443,7 @@ export const createWorkspaceStore = () => create(
         rooms: roomMap,
         objects: objMap,
         anchorData: n.anchorData,
+        ignoredChecks: n.ignoredChecks,
         selectedRoomId: null,
         selectedObjectId: null,
         selectedOpening: null,
@@ -460,6 +465,7 @@ export const createWorkspaceStore = () => create(
         rooms: Object.values(s.rooms).map(withoutSelection),
         objects: Object.values(s.objects).map(withoutSelection),
         anchorData: s.anchorData,
+        ...(s.ignoredChecks?.length ? { ignoredChecks: s.ignoredChecks } : {}), // only when there are some
         exportedAt: new Date().toISOString(),
       };
     },
@@ -484,16 +490,25 @@ export const createWorkspaceStore = () => create(
     },
 
     /**
+     * The problems of "Check my layout" marked "Ignore" (a list of problem keys).
+     * Use editorHistory.setIgnoredChecks (undoable) instead of calling this directly.
+     */
+    setIgnoredChecks: (keys) => {
+      set({ ignoredChecks: normaliseIgnoredChecks(keys), isDirty: true });
+    },
+
+    /**
      * Replace floors/rooms/objects wholesale. Used by undo/redo of actions
      * that touch many records at once (e.g. deleting a floor, restoring a version).
      */
-    replaceLayoutState: ({ floors, rooms, objects, currentFloor, anchorData }) => {
+    replaceLayoutState: ({ floors, rooms, objects, currentFloor, anchorData, ignoredChecks }) => {
       set((st) => ({
         floors,
         rooms,
         objects,
         currentFloor: currentFloor ?? st.currentFloor,
         anchorData: anchorData ?? st.anchorData,
+        ignoredChecks: ignoredChecks ?? st.ignoredChecks,
         selectedRoomId: null,
         selectedObjectId: null,
         selectedOpening: null,
@@ -565,6 +580,7 @@ export const createWorkspaceStore = () => create(
         rooms: {},
         objects: {},
         anchorData: {},
+        ignoredChecks: [],
         selectedRoomId: null,
         selectedObjectId: null,
         selectedOpening: null,

@@ -33,6 +33,8 @@ export interface V1Layout {
   rooms: V1Room[];
   objects: V1Object[];
   anchorData: Record<string, { positionRef?: string; label?: string }>;
+  /** Check my layout: the keys of the problems marked "Ignore" (only when there are some) */
+  ignoredChecks?: string[];
 }
 
 export interface V1Floor {
@@ -218,6 +220,7 @@ export function toV1(layout: Layout): V1Layout {
     rooms: layout.rooms.map((r) => convertRoom(r, layout.openings, floorOf)),
     objects: layout.objects.map((o) => convertObject(o, floorOf)),
     anchorData: buildAnchorData(layout.anchors),
+    ...(layout.ignoredChecks?.length ? { ignoredChecks: [...layout.ignoredChecks] } : {}),
   };
 }
 

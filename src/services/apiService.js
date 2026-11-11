@@ -399,7 +399,7 @@ async function _saveToAhdusNow({ force = false } = {}) {
   _setAhdusRevision(res.revision);
   // Changed while the request was on its way: still dirty (that change has its own save scheduled)
   const unchanged = now.rooms === state.rooms && now.objects === state.objects &&
-    now.floors === state.floors && now.anchorData === state.anchorData;
+    now.floors === state.floors && now.anchorData === state.anchorData && now.ignoredChecks === state.ignoredChecks;
   if (unchanged) now.markSaved();
   else useWorkspaceStore.setState({ saveError: null });
   _post('open');
@@ -996,6 +996,7 @@ export async function importLayout(companyId, text) {
     companyId, layoutId,
     layoutName: n.layoutName, layoutVersion: n.layoutVersion,
     floors: n.floors, rooms: n.rooms, objects: n.objects, anchorData: n.anchorData,
+    ...(n.ignoredChecks.length ? { ignoredChecks: n.ignoredChecks } : {}),
   };
 
   try {
@@ -1113,7 +1114,7 @@ export function startAutoSave() {
   const stopSync = _ahdusOn() ? null : startSyncListener(_persistQueueItem);
 
   const unsubStore = useWorkspaceStore.subscribe(
-    (s) => ({ rooms: s.rooms, objects: s.objects, floors: s.floors, anchorData: s.anchorData }),
+    (s) => ({ rooms: s.rooms, objects: s.objects, floors: s.floors, anchorData: s.anchorData, ignoredChecks: s.ignoredChecks }),
     () => {
       // Only auto-save if we have a tenant context
       const s = useWorkspaceStore.getState();
@@ -1121,7 +1122,7 @@ export function startAutoSave() {
     },
     {
       equalityFn: (a, b) => a.rooms === b.rooms && a.objects === b.objects &&
-        a.floors === b.floors && a.anchorData === b.anchorData,
+        a.floors === b.floors && a.anchorData === b.anchorData && a.ignoredChecks === b.ignoredChecks,
     }
   );
   window.addEventListener('beforeunload', _flush);

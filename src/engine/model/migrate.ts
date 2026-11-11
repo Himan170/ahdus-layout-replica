@@ -44,6 +44,8 @@ interface V1State {
   floorLinks?: Layout['floorLinks'];
   /** Data other modules wrote onto anchors: { [anchorId]: { positionRef?, label? } } */
   anchorData?: Record<string, { positionRef?: string; label?: string }>;
+  /** Check my layout: the keys of the problems marked "Ignore" */
+  ignoredChecks?: string[];
   [key: string]: unknown;
 }
 
@@ -190,6 +192,9 @@ export function migrateV1toV2(v1: V1State): Layout {
     anchors: [],
     routes: (v1.routes ?? []) as Layout['routes'],
     floorLinks: (v1.floorLinks ?? []) as Layout['floorLinks'],
+    ...(Array.isArray(v1.ignoredChecks) && v1.ignoredChecks.length
+      ? { ignoredChecks: v1.ignoredChecks.filter((k) => typeof k === 'string' && k.length > 0 && k.length <= 300).slice(0, 500) }
+      : {}),
   };
   // Regenerate object anchors at current positions while retaining extension
   // fields and manual anchors from saves that already used the v2 anchor shape.
