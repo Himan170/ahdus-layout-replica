@@ -3,6 +3,29 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.15.5 (12 Nov 2026): Faster building
+
+- **Plan view floors:** the floor switcher and Add floor are no longer covered (checked at 1366 × 768 and
+  1920 × 1080 with the Inspector open). Page Up / Page Down change floors in every Studio view; in Plan the
+  view stays where it was. A faint dashed outline of the floor below (the "Floor below" button hides it),
+  stairs drawn on both floors they join ("Up to Floor 1" / "Down to Ground Floor" / "Leads nowhere"). The
+  plan's zoom, position and the Floor below choice are remembered per workplace (localStorage `ahdus.planView`).
+- **All floors** (Plan view, "This floor | All floors"): every floor's plan side by side, labelled with its
+  rooms and items; a click opens that floor. For looking and choosing only. The 3D view draws no frames while
+  Plan view covers it, so Meridian (2 floors, 720 items) opens All floors in ~20 ms (it was ~1.5 fps).
+- **Multi-select:** Shift+click adds or removes an item, Shift+drag draws a box (3D, 2D and Plan). The group is
+  tinted blue; the Inspector shows "N items selected" with Turn 90°, Duplicate, Copy, Lock all, Delete. Drag one
+  of them, the arrows, R / Shift+R, L, Delete and Ctrl+D act on the whole group, each one undo step. Locked items
+  can be selected but stay: "2 locked items were not moved". Esc clears the selection. Groups hold items only.
+- **Copy and paste:** Ctrl+C copies the selection (a desk with its chair and what stands on it), Ctrl+V pastes
+  at the mouse (else 0.5 m aside, further each time), Ctrl+Shift+V at the same place, also on another floor.
+  One Ctrl+Z removes everything pasted. Pasted desks get new ids, so nobody sits at them ("Who sits here" is
+  not copied).
+- **Layers search:** a box at the top of Layers filters the floor's rooms and items.
+- **Typing is safe:** in a text field, dropdown or search box the new keys do nothing to the layout, and
+  Ctrl+C / Ctrl+V copy text as usual.
+- Shortcuts help lists the new keys. New e2e script `npm run e2e:faster` (32 checks).
+
 ## 0.15.4 (11 Nov 2026): Edit and Stretch fixed in the hotbar
 
 - Walk through: hotbar slots 1 Edit and 2 Stretch stay fixed. Office moves to 3 and Meeting to 9; slots 4–8 keep their items.

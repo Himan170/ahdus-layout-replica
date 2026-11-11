@@ -451,7 +451,7 @@ export default function FloorPlanView({
         {selectedObject && (
           <div className="floor-plan-toolbar__center" data-plan-selection="">
             <span className="floor-plan-toolbar__item-name">
-              {selectedObject.label || selectedObject.name || selectedObject.assetType}
+              {selectedObject.label || selectedObject.name || ASSET_TYPES[selectedObject.assetType]?.label || selectedObject.assetType}
             </span>
             <button
               type="button"

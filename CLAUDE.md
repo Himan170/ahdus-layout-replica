@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1317, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1348, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -32,6 +32,12 @@ npm run characters:placeholder  # public/assets/characters/: the self-made rigge
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
 # One-time: npx playwright install chromium
+npm run e2e:faster   # 32 checks   e2e/faster-building-smoke.mjs (v0.15.5: Plan view's floor switcher at 1366 × 768
+                     #                                       and 1920 × 1080 with the Inspector open, Page Up / Down, the floor
+                     #                                       below, stairs on both floors, All floors; Shift+click, Shift+drag
+                     #                                       box, group arrows / drag / Delete with a locked desk + one undo;
+                     #                                       Ctrl+C, Ctrl+Shift+V on Floor 1, Ctrl+V at the mouse; Layers
+                     #                                       search; keys in a text field; SHOTS=<dir>: screenshots)
 npm run e2e:planner  # 45 checks   e2e/editor-smoke.mjs    (Workplace Studio + its screenshots, the AHDUS look in local
                      #                                       mode, the library, the Realistic look switch, no missing
                      #                                       asset files, floor plan PNG / PDF export, room names + hover
@@ -310,6 +316,39 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   `stretchRoom`, `resizeItem`, `resizeOpening` (`geometry.js`), `placementHeight` (`building.js`), previews in `utils/buildPreview.js`,
   forgiving picks in `utils/pickHelpers.js`, tokens in `src/ui/theme.css`.
 
+## Faster building (v0.15.5, how it works)
+
+- **Plan view floors** (`floorplan/FloorPlanView.jsx`, pure `floorplan/planFloors.js`): the plan's controls sit in
+  `.floor-plan-chrome` (top left), so Studio's floor switcher / Add floor are never covered. All floors share ONE scale
+  and position (`planViewBox` of the whole building), so Page Up / Down (`useStudioKeyboard`, every Studio view,
+  `adjacentFloor`; "This is the top floor" / "…ground floor") keep the plan where it was. The floor below: dashed grey
+  rects (`[data-plan-below]`, button `Floor below`); stairs: `planStairs` → `[data-plan-stairs]` = up | down | nowhere.
+  Zoom, pan and Floor below per workplace in localStorage `ahdus.planView` (`{ "<company>/<layout>": { below, zoom,
+  pan, at } }`, ≤ 30, try / catch). **All floors** (`This floor` | `All floors`, `floorplan/AllFloorsView.jsx`,
+  `[data-all-floors]`, tiles `[data-floor-tile]` = id, aria-label "Open Floor 1: N rooms, M items"): looking and
+  choosing only. While Plan view shows, the 3D view draws no frames (`layoutScene.pauseRendering`, via
+  `pauseRenderingRef`): Meridian's All floors opens in ~20 ms.
+- **Multi-select:** store `selectedObjectIds` (2+ items; `selectedObjectId` is null then), `setObjectSelection(ids)`,
+  `toggleObjectSelection(id)`; every place that clears the selection clears it. Shift+click toggles an item (locked ones
+  too), Shift+drag a box (`plannerTools` `kind: 'box'`, `[data-select-box]`; items whose middle is in it; Plan:
+  `rect[data-plan-box]`). Groups hold ITEMS only. Pressing a member drags the group (`drag.group`); a click on a
+  member selects just it. `planner/groupActions.js` (`createGroupActions`): move / turn / remove / toggleLock / copy /
+  paste / duplicate, each ONE editor command (`moveObjects`, `replaceObjects`, new `lockObjects(ids, locked)`); pure
+  maths in `play/group.js` (`groupMembers` with `carriedWith`, `groupMoves`, `groupTurn`, `copyItems`, `pasteOffset`,
+  `pasteItems`, `lockedNote` "2 locked items were not moved"). Locked members never move / turn / delete. Studio
+  tints the group (`HighlightSystem.add(ids, GROUP_HIGHLIGHT, { tint: true })`; a lock tint wins). Inspector mode
+  `'group'`: "N items selected" (`data-group-count`), `data-group-actions`, `data-group-locked`.
+- **Copy / paste:** Studio's own clipboard (per page, not the system's). Ctrl+C = the selection + each unlocked
+  item's chair and riders; Ctrl+V = the selected items' middle at the mouse (`pasteTarget`: the Plan's pointer, else
+  `plannerTools.pointerGround()` while the mouse is over the canvas), else 0.5 m aside (further each time);
+  Ctrl+Shift+V = same x / z, on the floor being edited. New `obj_<uuid>` ids: "Who sits here" stays with the old
+  desk. One undo step ("Paste N items"); the pasted items are selected.
+- **Layers search** (`Search layers`, `matchesLayerQuery` in `ui/Inspector.jsx`; `[data-layers-found]`).
+- **Typing:** `ui/typing.js` `isTypingTarget` (inputs, textarea, select, contenteditable, role textbox / combobox /
+  searchbox / listbox): Studio's keys do nothing there.
+- Tests: `play/__tests__/group.test.js`, `planner/__tests__/groupActions.test.js` (the real store + editor),
+  `floorplan/__tests__/planFloors.test.js`, `ui/__tests__/layersSearch.test.js`, `npm run e2e:faster`.
+
 ## Check my layout (v0.15.3)
 
 Studio's top bar **Check** (phone: More) opens a floating panel grouped by floor. A click switches floor,
@@ -397,6 +436,9 @@ src/engine/systems/CharacterSystem.ts  People: simple figures (thin instances) +
 src/engine/systems/PlayerCharacter.ts  Walking as yourself: your character (copyCharacter) + the walk clip baked onto
                                    its bones (retargeted by name, rest-pose corrected), playController's character
 src/embed/characterManifest.js     PURE: the character manifest (assetReference → { url, rig, height }), setPeople's list
+src/play/group.js                  PURE (v0.15.5): several items: groupMembers, groupMoves, groupTurn, copyItems, paste
+src/planner/groupActions.js        Studio's group actions + copy / paste (one editor command each)
+src/floorplan/planFloors.js        PURE (v0.15.5): adjacentFloor, floorBelow, planStairs, the Plan's saved zoom / position
 src/play/carry.js                  PURE (v0.15.1): what an item takes along (carriedBy: a desk's chair + riders), carryMoves,
                                    turnStep (R 90°, Shift+R 15°), carryDrop (v0.15.2: putting it down in Walk through)
 src/utils/itemRiders.js            ridersOf: what stands on an item, from its mesh (Studio's drag + Walk through's carry)
@@ -1312,6 +1354,9 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - A partly covered roof is still drawn; the wall band of a lowered room shows only when ≥ 90 % of it is covered.
 - Lowering a room's walls never lowers its floor (use "Floor height" in the floor menu for that).
 - The outline of the floor below is hidden where it lies exactly under walls of the floor being edited.
+- Faster building (v0.15.5): groups hold items, not rooms; the clipboard is Studio's own (lost on reload, not
+  shared with other tabs); a pasted item may overlap what is already there (Check finds it); All floors is for
+  looking only; the floor-below outline hides under walls in the same place (a copied floor).
 - Rooms are rectangles (no L-shapes or free-form walls). Neighbours share one wall only when back to back
   (at most the thicker wall apart); further apart they keep two walls.
 - Wall thickness is per room, not per wall (a room's outside and inside walls are equally thick). Thickening a
@@ -1450,6 +1495,12 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: faster building (v0.15.5, 12 Nov 2026, branch `feature/v0.15.5-faster-building`)
+
+Plan view floors (switcher uncovered, Page Up / Down, the floor below, stairs on both floors, All floors), multi-select,
+copy / paste, Layers search, safe typing (see "Faster building"; CHANGELOG.md). Layers hide / show and lock, wall-mounted
+items and snapping guides move to v0.15.6. Screenshots: private-docs/screenshots/v0.15.5/ (not in git). e2e:faster 32.
 
 ## DONE: Edit and Stretch fixed in the hotbar (v0.15.4, 11 Nov 2026, branch `codex/walkthrough-edit-hotbar`)
 
