@@ -24,7 +24,16 @@ What changed in each version, newest first. Older versions (up to 0.14.9) are li
 - **Layers search:** a box at the top of Layers filters the floor's rooms and items.
 - **Typing is safe:** in a text field, dropdown or search box the new keys do nothing to the layout, and
   Ctrl+C / Ctrl+V copy text as usual.
-- Shortcuts help lists the new keys. New e2e script `npm run e2e:faster` (32 checks).
+- **Plan view, easier to read:** room names are drawn over the furniture, the stairs and the hook-point badges
+  with a white halo; a long name shrinks to fit its room, then is cut with "…" (the full name shows on hover).
+  The toggle chips (Dimensions, Anchors, Floor below) are filled green while on. The selected item's bar names
+  it ("Reception Desk", not RECEPTION_DESK). The fitted plan starts below the controls at its top left.
+  All floors draws the stairs on both floors ("Up" / "Down").
+- **Fixed:** a click on a room in Plan view never selected it (the plan took the pointer at once, so the
+  click went to the plan; only Enter worked). The plan now takes it only once a pan starts (4 px).
+- **Fixed:** the group's Duplicate and Turn 90° icons were squeezed to a dot. Ctrl+L stays the browser's
+  (the address bar): only L alone locks. `e2e/check-smoke.mjs` uses `http://localhost:3000/` by default.
+- Shortcuts help lists the new keys. New e2e script `npm run e2e:faster` (44 checks).
 
 ## 0.15.4 (11 Nov 2026): Edit and Stretch fixed in the hotbar
 

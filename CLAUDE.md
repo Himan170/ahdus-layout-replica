@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1348, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1353, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -32,12 +32,15 @@ npm run characters:placeholder  # public/assets/characters/: the self-made rigge
 
 # Browser tests: Playwright, need `npm run dev` running in another terminal.
 # One-time: npx playwright install chromium
-npm run e2e:faster   # 32 checks   e2e/faster-building-smoke.mjs (v0.15.5: Plan view's floor switcher at 1366 × 768
+npm run e2e:faster   # 44 checks   e2e/faster-building-smoke.mjs (v0.15.5: Plan view's floor switcher at 1366 × 768
                      #                                       and 1920 × 1080 with the Inspector open, Page Up / Down, the floor
                      #                                       below, stairs on both floors, All floors; Shift+click, Shift+drag
                      #                                       box, group arrows / drag / Delete with a locked desk + one undo;
                      #                                       Ctrl+C, Ctrl+Shift+V on Floor 1, Ctrl+V at the mouse; Layers
-                     #                                       search; keys in a text field; SHOTS=<dir>: screenshots)
+                     #                                       search; keys in a text field; review fixes: Ctrl+L not taken,
+                     #                                       room names over furniture + inside their rooms, the bar's item
+                     #                                       name, a room click selects it, filled chips, All floors' stairs,
+                     #                                       group icons, 3D frames again after Plan; SHOTS=<dir>: screenshots)
 npm run e2e:planner  # 45 checks   e2e/editor-smoke.mjs    (Workplace Studio + its screenshots, the AHDUS look in local
                      #                                       mode, the library, the Realistic look switch, no missing
                      #                                       asset files, floor plan PNG / PDF export, room names + hover
@@ -327,7 +330,12 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   pan, at } }`, ≤ 30, try / catch). **All floors** (`This floor` | `All floors`, `floorplan/AllFloorsView.jsx`,
   `[data-all-floors]`, tiles `[data-floor-tile]` = id, aria-label "Open Floor 1: N rooms, M items"): looking and
   choosing only. While Plan view shows, the 3D view draws no frames (`layoutScene.pauseRendering`, via
-  `pauseRenderingRef`): Meridian's All floors opens in ~20 ms.
+  `pauseRenderingRef`): Meridian's All floors opens in ~20 ms; its cards draw the stairs on both floors (`[data-tile-stairs]`).
+  **Plan labels:** room names in their own layer (`.floor-plan-labels`, `[data-plan-label]`, `data-truncated`) drawn LAST
+  (over furniture, stairs, badges), white halo, `planMath.roomLabelFit` (shrink to 88 % of the room width, then "…";
+  the room's `<title>` has the full name). The fitted plan leaves `CHROME_ROOM` (28 %) above the building for the
+  controls; a press pans only after `PAN_START_PX` 4 px (then the pointer is captured), so a click selects a room.
+  Toggle chips are filled (AHDUS green) while on.
 - **Multi-select:** store `selectedObjectIds` (2+ items; `selectedObjectId` is null then), `setObjectSelection(ids)`,
   `toggleObjectSelection(id)`; every place that clears the selection clears it. Shift+click toggles an item (locked ones
   too), Shift+drag a box (`plannerTools` `kind: 'box'`, `[data-select-box]`; items whose middle is in it; Plan:
@@ -1500,7 +1508,7 @@ Search followed as v0.13.3 (below).
 
 Plan view floors (switcher uncovered, Page Up / Down, the floor below, stairs on both floors, All floors), multi-select,
 copy / paste, Layers search, safe typing (see "Faster building"; CHANGELOG.md). Layers hide / show and lock, wall-mounted
-items and snapping guides move to v0.15.6. Screenshots: private-docs/screenshots/v0.15.5/ (not in git). e2e:faster 32.
+items and snapping guides move to v0.15.6. Screenshots: private-docs/screenshots/v0.15.5/ (not in git). e2e:faster 44.
 
 ## DONE: Edit and Stretch fixed in the hotbar (v0.15.4, 11 Nov 2026, branch `codex/walkthrough-edit-hotbar`)
 
