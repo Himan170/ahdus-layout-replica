@@ -767,7 +767,9 @@
 .inspector__footer .ui-btn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
 /* a group's five actions (v0.15.5): two rows */
 .inspector__footer.is-wrap { flex-wrap: wrap; }
-.inspector__footer.is-wrap .ui-btn { flex: 1 1 30%; min-width: 0; }
+.inspector__footer.is-wrap .ui-btn { flex: 1 1 30%; min-width: 0; white-space: nowrap; }
+/* a narrow button squeezed its icon to a dot (Turn 90°, Duplicate): icons keep their size */
+.inspector__footer .ui-btn svg { flex-shrink: 0; }
 .insp-group-row { display: flex; justify-content: space-between; gap: var(--space-2); padding: 4px 0; font-size: 13px; }
 
 .insp-section { padding: var(--space-4) var(--space-4) var(--space-3); }
@@ -1177,11 +1179,17 @@
   border-color: #94a3b8;
 }
 
-.floor-plan-toggle-btn.is-active {
-  background: #eff6ff !important;
-  border-color: #3b82f6 !important;
-  color: #1d4ed8 !important;
+/* ON = filled (v0.15.5): Dimensions, Anchors and Floor below must show at a glance which are on */
+.floor-plan-toggle-btn.is-active,
+.floor-plan-toggle-btn.is-active:hover {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #ffffff !important;
   font-weight: 600;
+}
+
+.floor-plan-toggle-btn.is-active:hover {
+  background: var(--accent-hover) !important;
 }
 
 .floor-plan-toolbar__item-name {
