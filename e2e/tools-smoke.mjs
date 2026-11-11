@@ -596,7 +596,7 @@ const startHand = await p.evaluate(() => ({
 }));
 log('v0.15.1 Walk through starts with an empty hand (no slot chosen)', startHand.slots > 0 && startHand.pressed === 0 && startHand.empty,
   JSON.stringify(startHand));
-await p.keyboard.press('Digit9'); await frames(3);
+await p.keyboard.press('Digit1'); await frames(3);
 const hintText = () => p.locator('[data-hud="hint"]').textContent({ timeout: 2000 }).catch(() => '');
 // stand south of the desk looking at it. The camera is 0.85 m over the right shoulder, but close behind a wall
 // it moves behind the head first (v0.15.1): so try both standing 0.85 m left of the desk and in line with it
@@ -672,7 +672,7 @@ log('v0.15.0 a click puts it down somewhere else (no new desk built)',
 await key('Control+z');
 const gBack = await deskNow();
 log('v0.15.0 Ctrl+Z moves it back', near(gBack.x, desk.x) && near(gBack.z, desk.z), `(${gBack.x}, ${gBack.z})`);
-await key('Digit9');
+await key('Digit1');
 
 // ── Edit item on a door: + / − width, Shift + / − height, 0 standard size ──
 const doorNow = async () => (await store()).rooms.find((r) => r.id === room.id).doors[0];

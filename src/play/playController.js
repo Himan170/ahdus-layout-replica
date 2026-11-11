@@ -74,7 +74,7 @@ import {
   snap, wallSegmentTransform, findRoomAt, formatRoomSize,
   planRoom, planOpening, planRemoveOpening, wallSegmentData, resizeItem,
   stretchRoom, openingData, openingPartner, resizeOpening, resetOpeningSize, formatOpeningSize, OPENING_STEP,
-  wallLine, OVERHANG_WARNING, planWallSegmentOpening, moveOpening,
+  wallLine, OVERHANG_WARNING, planWallSegmentOpening, moveOpening, openingCentre,
 } from './geometry';
 import {
   levelForY, elevationOf, supportHeight, stairHeightAt, floorAbove, floorBelow, placementHeight, canStandOn, floorOnlyText,
@@ -314,6 +314,8 @@ export function createPlayController(scene, canvas, {
   let cornerA = null;        // first click of a room / wall
   let grab = null;           // Stretch tool: { roomId, wallName } of the wall being moved
   let carry = null;          // the item being moved { id, mesh, rotationY, collisions } (Edit tool, G, an empty hand)
+  let editItemId = null;     // keep the named Edit target while the pointer moves onto its Delete button
+  let editOpening = null;   // a room door/window uses the same contextual Delete action
   let slide = null;          // Edit tool: a door / window picked up { roomId, kind, index, startOffset, grabAlong }
   let outlined = null;       // Edit tool: { id, meshes } of the item outlined under the crosshair
   let message = null;        // short feedback text (e.g. "Removed Desk")
@@ -935,6 +937,8 @@ export function createPlayController(scene, canvas, {
 
   function updateEditOpening(target) {
     const { room, kind, data } = target;
+    editItemId = null;
+    editOpening = { roomId: room.id, kind, index: target.index, record: (kind === 'door' ? room.doors : room.windows)?.[target.index] };
     const blocked = openingBlocked && openingBlocked.key === openingKey(target) && performance.now() < openingBlocked.until
       ? openingBlocked.text : null;
     pv.opening(room, data.wall, data.offset,
@@ -1007,6 +1011,7 @@ export function createPlayController(scene, canvas, {
       };
     }
     aim = { type: 'pickUp', id: obj.id };
+    if (tool?.kind === 'edit') { editItemId = obj.id; editOpening = null; }
     if (obj.isLocked) {
       return { title: itemName(obj), detail: 'Locked', bad: true, keys: [['L', 'Unlock']] };
     }
@@ -1308,6 +1313,32 @@ export function createPlayController(scene, canvas, {
     say('Cancelled');
   }
 
+  function currentEditOpening() {
+    if (!editOpening) return null;
+    const { roomId, kind, index, record } = editOpening;
+    const room = state().rooms.find((r) => r.id === roomId && (r.floor ?? 0) === currentLevel);
+    if (!room || !record || (kind === 'door' ? room.doors : room.windows)?.[index] !== record) return null;
+    const data = openingData(room, kind, index);
+    if (!data) return null;
+    const point = openingCentre(room, data.wall, data.offset);
+    if (Math.hypot(point.x - feet().x, point.z - feet().z) > REACH) return null;
+    return { id: `opening:${roomId}:${kind}:${index}`, room, kind, index, data, point };
+  }
+
+  function deleteObject(id) {
+    if (readOnly) return false;
+    const obj = state().objects.find((o) => o.id === id);
+    if (!obj) return false;
+    if (obj.isLocked) {
+      say('This item is locked. Unlock it with the Edit item tool (L).');
+      return false;
+    }
+    actions.deleteObject(id);
+    if (editItemId === id) editItemId = null;
+    say(`Removed ${itemName(obj)}. Press Ctrl+Z to undo.`);
+    return true;
+  }
+
   function secondaryAction() {
     if (readOnly) return;
     // First: cancel a half-drawn room or wall, a grabbed wall, or a carried item
@@ -1321,14 +1352,7 @@ export function createPlayController(scene, canvas, {
 
     const objectId = target.objectId;
     if (objectId) {
-      const obj = state().objects.find((o) => o.id === objectId);
-      if (!obj) return;
-      if (obj.isLocked) {
-        say('This item is locked. Unlock it with the Edit item tool (L).');
-        return;
-      }
-      actions.deleteObject(objectId);
-      say(`Removed ${ASSET_TYPES[obj.assetType]?.label ?? 'item'}. Press Ctrl+Z to undo.`);
+      deleteObject(objectId);
       return;
     }
 
@@ -1920,7 +1944,13 @@ export function createPlayController(scene, canvas, {
 
     // ── HUD ──
     const now = performance.now();
+    const editItem = !readOnly && tool?.kind === 'edit' && !carry && !slide
+      ? state().objects.find((o) => o.id === editItemId && (o.floor ?? 0) === currentLevel &&
+        Math.hypot((o.x ?? 0) - feet().x, (o.z ?? 0) - feet().z) <= REACH) : null;
+    const opening = !readOnly && tool?.kind === 'edit' && !carry && !slide ? currentEditOpening() : null;
     const info = {
+      editItem: editItem ? { id: editItem.id, name: itemName(editItem), locked: !!editItem.isLocked }
+        : opening ? { id: opening.id, name: opening.kind === 'door' ? 'Door' : 'Window', locked: false } : null,
       locked,
       mouseAim, // Walk through's easy controls: no "click to start", the mouse aims
       engaged: live, // the keys are the view's (Preview with mouse capture: = locked)
@@ -2075,6 +2105,8 @@ export function createPlayController(scene, canvas, {
       const same = tool && next && JSON.stringify(tool) === JSON.stringify(next);
       if (same) return;
       tool = next;
+      editItemId = null;
+      editOpening = null;
       clearGhost();
       clearPreview();
       onBuildToolChange(!!next && GROUND_BUILD_KINDS.has(next.kind));
@@ -2143,6 +2175,21 @@ export function createPlayController(scene, canvas, {
     clickAt(x, y, button = 0) { if (mouseAim) previewClick(x, y, button); },
     /** What a click would do now: { type, … } or null (tests). */
     getAim: () => (aim ? { ...aim } : null),
+    /** The HUD deletes its named item, never re-picks the world underneath the button. */
+    deleteEditItem(id) {
+      if (!active || readOnly || tool?.kind !== 'edit' || carry || slide) return false;
+      const opening = currentEditOpening();
+      if (opening && id === opening.id) {
+        actions.removeOpenings(planRemoveOpening(floorRooms(), opening.room, opening.data.wall, opening.point, opening.kind, opening.index));
+        editOpening = null;
+        say(`Removed ${opening.kind}. Press Ctrl+Z to undo.`);
+        return true;
+      }
+      if (id !== editItemId) return false;
+      const obj = state().objects.find((o) => o.id === id);
+      if (!obj || (obj.floor ?? 0) !== currentLevel || Math.hypot(obj.x - feet().x, obj.z - feet().z) > REACH) return false;
+      return deleteObject(id);
+    },
 
     /** Mouse-look mode (look 'drag'): capture the mouse / give it back. */
     lockMouse: () => (active ? lockPointer(canvas) : Promise.resolve(false)),

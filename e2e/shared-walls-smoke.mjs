@@ -233,7 +233,7 @@ if (!(await p.evaluate(() => !!document.pointerLockElement))) {
   await p.keyboard.press('KeyM');
   await p.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 10000 }).catch(() => {});
 }
-await p.keyboard.press('Digit3'); await frames(3);       // Stretch
+await p.keyboard.press('Digit2'); await frames(3);       // Stretch
 for (const pair of pairs) {
   const z = pair.z0 - 1.5;
   // the camera sits 0.85 m over the right shoulder: facing east that is −Z, facing west +Z
