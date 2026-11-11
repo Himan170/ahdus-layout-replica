@@ -3,6 +3,13 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.15.4 (11 Nov 2026): Edit and Stretch fixed in the hotbar
+
+- Walk through: hotbar slots 1 Edit and 2 Stretch stay fixed. Office moves to 3 and Meeting to 9; slots 4–8 keep their items.
+- Edit now shows a named Delete button when you aim at an item (or a room's door / window). It stays reachable when
+  the mouse moves onto the HUD, respects locks, and deletes in one undo step. Catalog picks never replace slots 1 / 2;
+  picking Edit or Stretch in the catalog selects its fixed slot.
+
 ## 0.15.3 (11 Nov 2026): Check my layout
 
 - Walk through: right-click removes aimed items with an empty hand again; right-drag still looks around.

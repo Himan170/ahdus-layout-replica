@@ -152,7 +152,7 @@ log('M turns mouse look on: the mouse is captured, the button shows it',
 
 // ── 1. Room: two clicks. Same view angle → the aim point moves exactly with the player.
 const PITCH = -0.45;
-await slot(1);
+await slot(3);
 await pose(0, -10, 0, PITCH); await click();          // corner A
 await pose(6, -5, 0, PITCH); await frames(3);          // move 6 m right, 5 m forward
 await shot('q1-room-preview.png');
@@ -217,11 +217,11 @@ await shot('q-catalog.png');
     pictures: [...document.querySelectorAll('.catalog__pic img')].filter((i) => i.complete && i.naturalWidth > 0).length,
     rooms: document.querySelectorAll('.catalog__pic .room-pic').length,
     names: [...document.querySelectorAll('[data-slot-name]')].map((n) => n.textContent),
-    roomIcons: [...document.querySelectorAll('.hud-slot')].slice(0, 2).map((s) => s.querySelector('svg')?.getAttribute('class') ?? ''),
+    roomIcons: [...document.querySelectorAll('.hud-slot')].filter((_, i) => i === 2 || i === 8).map((s) => s.querySelector('svg')?.getAttribute('class') ?? ''),
   }));
   log('the catalog says "Add to hotbar" and shows the library pictures; the hotbar has names; Office and Meeting have different icons',
     cat.title === 'Add to hotbar' && cat.pictures >= 10 && cat.rooms >= 8 &&
-    cat.names.join(',') === 'Office,Meeting,Stretch,Door,Window,Desk,Chair,Stairs,Edit' && cat.roomIcons[0] !== cat.roomIcons[1],
+    cat.names.join(',') === 'Edit,Stretch,Office,Door,Window,Desk,Chair,Stairs,Meeting' && cat.roomIcons[0] !== cat.roomIcons[1],
     `"${cat.title}", ${cat.pictures} item pictures, ${cat.rooms} room pictures, names: ${cat.names.join(' ')}; icons: ${cat.roomIcons.join(' | ')}`);
 }
 await p.locator('button:has-text("Dual Monitor")').click(); await wait(500);
@@ -251,7 +251,7 @@ const mon = (await store()).objects.find((o) => o.assetType === 'MONITOR_DUAL');
 log('aiming at the desk top stacks the monitor on it', !!mon && mon.y > 0.5, mon ? `monitor y=${mon.y.toFixed(2)}` : 'none');
 
 // ── 6. Second room built against the first: snaps back-to-back, and one door cuts both walls
-await slot(2);
+await slot(9);
 const eastX = office.x + office.width / 2;
 // (the camera is 0.85 m over the right shoulder, so the aim point is 0.85 m to the player's right)
 await pose(eastX + 0.1 - 0.85, -10, 0, PITCH);        // corner A just past the shared wall line
@@ -296,7 +296,7 @@ await frames(3);
 log('walk from one room into the next', /Meeting/.test(await hudRoom()), await hudRoom());
 
 // ── 6b. Stretch: grab the office's north wall and push it out 2 m
-await slot(3);
+await slot(2);
 const before = (await store()).rooms.find((r) => r.id === office.id);
 const northZ = before.z + before.depth / 2;
 await pose(before.x - 0.85 - 1, before.z, 0, 0);        // inside, facing the north wall
@@ -399,6 +399,34 @@ await p.waitForFunction(() => !document.pointerLockElement, null, { timeout: 100
 }
 
 // ── 7. Outside view of what we built
+{
+  const desk = (await store()).objects.find((o) => o.assetType === 'DESK_STANDARD');
+  await pose(desk.x + 2.6, desk.z, -Math.PI / 2, -0.55);
+  await slot(1);
+  const target = await screenOf(desk.x + 0.55, 0.82, desk.z - 0.15);
+  await p.mouse.move(target.x, target.y); await frames(3);
+  const remove = p.getByRole('button', { name: 'Delete Standard Desk', exact: true });
+  await remove.waitFor();
+  await p.keyboard.press('KeyL'); await frames(3);
+  log('Edit in fixed slot 1 shows Delete, disabled while the item is locked', await remove.isDisabled());
+  await p.keyboard.press('KeyL'); await frames(3);
+  await shot('q-edit-delete.png');
+  await remove.click(); await frames(3);
+  log('clicking Edit Delete removes its named item', !(await store()).objects.some((o) => o.id === desk.id));
+  await p.keyboard.press('Control+z'); await frames(3);
+  log('one Undo restores the item deleted through Edit', (await store()).objects.some((o) => o.id === desk.id));
+
+  await p.keyboard.press('KeyB'); await wait(300);
+  await p.locator('.catalog__item').filter({ hasText: 'Desk Plant' }).click(); await frames(3);
+  const pinned = await p.locator('.hud-slot').allTextContents();
+  log('a catalog pick while Edit is selected preserves fixed Edit/Stretch and uses slot 3',
+    /Edit/.test(pinned[0]) && /Stretch/.test(pinned[1]) && /Desk plant/.test(pinned[2]));
+  await p.keyboard.press('KeyB'); await wait(300);
+  await p.locator('.catalog__item').filter({ hasText: 'Edit item' }).click(); await frames(3);
+  log('choosing Edit in the catalog selects fixed slot 1', await p.locator('.hud-slot').nth(0).getAttribute('aria-pressed') === 'true');
+}
+
+// ── Outside view of what we built
 await pose(office.x - 6, office.z - 14, 0.35, -0.2);
 await frames(4);
 await shot('q4-outside.png');

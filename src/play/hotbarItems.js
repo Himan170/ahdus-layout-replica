@@ -71,15 +71,15 @@ const obj = (t) => OBJECT_ITEMS.find((i) => i.assetType === t);
 const structure = (k) => STRUCTURE_ITEMS.find((i) => i.kind === k);
 
 export const DEFAULT_HOTBAR = [
-  room('OFFICE'),
-  room('MEETING'),
+  structure('edit'),
   structure('stretch'),
+  room('OFFICE'),
   structure('door'),
   structure('window'),
   obj('DESK_STANDARD'),
   obj('CHAIR_OFFICE'),
   obj('STAIRCASE'),
-  structure('edit'),
+  room('MEETING'),
 ].map((item) => item ?? null);
 
 // The short name under a hotbar icon (v0.15.2): one or two short words that fit a slot.
@@ -127,11 +127,13 @@ export function nextSlot(current, step, size = 9) {
   return (current + step + size) % size;
 }
 
-/** The slot a catalog pick goes into: the chosen one, else (empty hand) the first empty slot, else the first. */
-export function catalogSlot(hotbar, selected) {
-  if (selected >= 0 && selected < hotbar.length) return selected;
-  const free = hotbar.findIndex((item) => !item);
-  return free >= 0 ? free : 0;
+/** Edit/Stretch always use 1/2. Other catalog picks use the chosen mutable slot, a free slot, or slot 3. */
+export function catalogSlot(hotbar, selected, item = null) {
+  if (item?.kind === 'edit') return 0;
+  if (item?.kind === 'stretch') return 1;
+  if (selected >= 2 && selected < hotbar.length) return selected;
+  const free = hotbar.findIndex((entry, i) => i >= 2 && !entry);
+  return free >= 0 ? free : 2;
 }
 
 /** Catalog sections shown when you press B */

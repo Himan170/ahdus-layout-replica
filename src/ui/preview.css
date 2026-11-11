@@ -164,6 +164,7 @@
 .hud-hint__detail.is-bad { color: var(--danger); }
 .hud-hint__keys { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; color: var(--text-muted); font-size: 13px; }
 .hud-hint__key { display: inline-flex; gap: 6px; align-items: center; }
+.hud-edit-actions { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 14px; pointer-events: auto; }
 
 .hud-hotbar {
   display: flex;

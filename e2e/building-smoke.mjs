@@ -159,7 +159,7 @@ log('N takes you up: standing in the copied room on Floor 1', (await level()) ==
   `level ${await level()} y=${q.y.toFixed(2)} flying=${await flying()}`);
 
 // ── Build a room on Floor 1 in Preview, sticking out past the floor below: warned, but built ──
-await p.keyboard.press('Digit1'); await frames(2);
+await p.keyboard.press('Digit3'); await frames(2);
 const PITCH = -0.9;
 await aimAt(5, -3, 3.52, 7.5, PITCH);           // 0.85 m from back to back with the copy: no snap (ROOM_SNAP 0.35)
 log('flying above Floor 1 keeps you on Floor 1', (await level()) === 1 && (await store()).currentFloor === 1, `level ${await level()}`);
@@ -235,7 +235,7 @@ log('Page Down: back to the ground floor', (await level()) === 0 && q.y < 0.1, `
 await p.keyboard.press('KeyF'); await frames(2);   // land
 
 // ── Stretch tool: + / − raises the ground floor's walls; the floor above goes up with them ──
-await p.keyboard.press('Digit3'); await frames(2);
+await p.keyboard.press('Digit2'); await frames(2);
 await pose({ x: -1, z: -1.5, yaw: Math.PI / 2, pitch: 0.05, floor: 0, fly: false });   // looking at the east wall
 await frames(3);
 const aimHint = await hudText('[data-hud="hint"]');
@@ -260,7 +260,7 @@ const gap = { walls: await yRange(ids.ground, 'wall'), slab: await yRange(copy.i
 log('no gap: the ground-floor walls (4 m) end exactly where the slab of Floor 1 starts',
   near(gap.walls[1], 4.0, 0.01) && near(gap.slab[0], gap.walls[1], 0.01),
   `walls top ${gap.walls[1].toFixed(3)} · slab bottom ${gap.slab[0].toFixed(3)}`);
-await p.keyboard.press('Digit1'); await frames(2);   // an empty-ish hand for the pictures
+await p.keyboard.press('Digit3'); await frames(2);   // an empty-ish hand for the pictures
 await pose({ x: -9, z: -13, yaw: 0.55, pitch: -0.05, floor: 0, fly: false });
 await frames(4);
 await shot('b6-outside-no-gap.png');
@@ -287,7 +287,7 @@ const roofOver = topStairs ? await partCovers(copy.id, 'roof', topStairs.x, topS
 const ceilingOver = topStairs ? await partCovers(copy.id, 'ceiling', topStairs.x, topStairs.z) : true;
 log('the roof and ceiling above those stairs are cut open (no solid grey surface over the stairwell)', !roofOver && !ceilingOver,
   topStairs ? `stairs at ${topStairs.x},${topStairs.z}` : 'no stairs');
-await p.keyboard.press('Digit1'); await frames(2);
+await p.keyboard.press('Digit3'); await frames(2);
 await p.keyboard.press('KeyV'); await frames(1);                 // first person, looking up the stairwell
 await pose({ x: topStairs?.x ?? -2, z: (topStairs?.z ?? 0) - 1, yaw: 0, pitch: 1.2, floor: 1, fly: false });
 await frames(4);

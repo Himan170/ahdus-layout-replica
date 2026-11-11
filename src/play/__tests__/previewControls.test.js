@@ -253,3 +253,48 @@ describe('the old mouse capture is unchanged (look "lock", the default)', () => 
     expect(calls.click).not.toHaveBeenCalled();
   });
 });
+
+
+describe('Edit contextual Delete action', () => {
+  it('also shows Delete for a room door and removes its opening through the editor action', () => {
+    room.doors = [{ wall: 'north', offset: 3, width: 1, height: 2.1 }];
+    try {
+      const { play, actions, calls, pointAt } = world();
+      actions.removeOpenings = vi.fn();
+      play.setTool({ kind: 'edit' });
+      pointAt(3, 1, 5);
+      expect(calls.hud.editItem).toMatchObject({ name: 'Door', locked: false });
+      const id = calls.hud.editItem.id;
+      expect(play.deleteEditItem(id)).toBe(true);
+      expect(actions.removeOpenings).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ roomId: 'r', kind: 'door', index: 0 })]));
+      expect(play.deleteEditItem(id)).toBe(false);
+    } finally { room.doors = []; }
+  });
+  it('keeps the named item when the pointer leaves it for the button; Delete targets that item', () => {
+    const { play, actions, calls, pointAt, scene } = world();
+    play.setTool({ kind: 'edit', label: 'Edit item' });
+    pointAt(0, deskTop + 0.02, 1.4);
+    expect(calls.hud.editItem).toMatchObject({ id: 'desk', name: 'Standard Desk', locked: false });
+    pointAt(3, 0.02, -2);
+    expect(calls.hud.editItem.id).toBe('desk');
+    expect(play.deleteEditItem('chair')).toBe(false);
+    expect(play.deleteEditItem('desk')).toBe(true);
+    expect(actions.deleteObject).toHaveBeenCalledWith('desk');
+    scene.render();
+    expect(calls.hud.editItem).toBeNull();
+  });
+  it('rechecks locks and clears the action when leaving Edit', () => {
+    const { play, actions, objects, calls, pointAt, scene } = world();
+    play.setTool({ kind: 'edit' });
+    pointAt(0, deskTop + 0.02, 1.4);
+    objects.find((o) => o.id === 'desk').isLocked = true;
+    scene.render();
+    expect(calls.hud.editItem.locked).toBe(true);
+    expect(play.deleteEditItem('desk')).toBe(false);
+    play.setTool(null);
+    scene.render();
+    expect(calls.hud.editItem).toBeNull();
+    expect(play.deleteEditItem('desk')).toBe(false);
+    expect(actions.deleteObject).not.toHaveBeenCalled();
+  });
+});

@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1312, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1317, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -38,7 +38,7 @@ npm run e2e:planner  # 45 checks   e2e/editor-smoke.mjs    (Workplace Studio + i
                      #                                       card, Settings → Room labels, Plan view: select, drag,
                      #                                       Ctrl+Z, a desk onto its own chair's old spot (v0.15.2),
                      #                                       a phone's hint at 390 px)
-npm run e2e:play     # 31 checks   e2e/play-smoke.mjs      (v0.15.2: no mouse capture, W with no click, drag looks, an
+npm run e2e:play     # 36 checks   e2e/play-smoke.mjs      (v0.15.2: no mouse capture, W with no click, drag looks, an
                      #                                       empty hand's click walks, M = mouse look, then the old
                      #                                       checks by crosshair; the catalog's pictures + hotbar names;
                      #                                       an item placed at the mouse, Esc, G on a desk with its chair
@@ -277,13 +277,18 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   controller; `setPointer`, `clickAt`, `getAim`). Left-click builds, right-click
   removes, R turns 90° (Shift+R 15°), E interacts, N adds a floor above, F fly (Space up / C down), V first/third person, Shift runs, Tab or
   "Back to Studio" returns. Code: `src/play/playController.js` + `src/components/PlayHUD.jsx` (+ `src/ui/preview.css`).
-  Default hotbar (`src/play/hotbarItems.js`): Office room, Meeting room, Stretch, Door, Window, Desk, Chair, Staircase, Edit item.
+  Default hotbar (`src/play/hotbarItems.js`): **1 Edit and 2 Stretch are fixed (v0.15.4)**, 3 Office, 4 Door, 5 Window, 6 Desk, 7 Chair, 8 Stairs, 9 Meeting.
+  Catalog picks cannot replace slots 1/2 (`catalogSlot(hotbar, selected, item)`: Edit / Stretch = their slot, else the
+  chosen slot 3–9, a free one, or 3). **Edit's Delete button (v0.15.4):** aiming Edit at an item or a room's door /
+  window shows `data-hud="edit-actions"` with "Delete <name>" (aria-label; disabled while locked); the controller keeps
+  that target while the mouse moves onto the HUD (`editItemId` / `editOpening`) and `play.deleteEditItem(id)` re-checks
+  lock, floor and reach, then deletes through `actions.deleteObject` / `removeOpenings` (one undo step).
   **It starts with an empty hand (v0.15.1, `EMPTY_HAND` −1):** nothing is built until 1–9 / B picks an item (the catalog puts
   it in a slot, `catalogSlot`, and holds it). **The third-person camera** (`thirdPersonCamera`, pure, v0.15.1): a ray to the wanted
   spot pulls it in front of a wall, then the ceiling lowers it and a ray to the lowered spot is tested too (a ray over a
   wall's top, lowered afterwards, ended behind it); blocked over the shoulder = behind the head (shoulder 0) before it
   pulls in, sliding there and back over `SHOULDER_EASE_S` 0.25 s (`easeShoulder`); closer than `HIDE_CHARACTER_BELOW` 0.5 m = the character hidden. First person (V) unchanged.
-  **Edit item** (slot 9) = Studio's gizmo actions on what you look at: click picks it up / puts it down,
+  **Edit item** (slot 1) = Studio's gizmo actions on what you look at: click picks it up / puts it down,
   R turns 90° (Shift+R 15°), + / − resizes (keeps proportions), 0 normal size, L lock/unlock. On a **door/window**: + / − width,
   Shift + / − height (0.1 m), 0 standard size; the hint shows "Door 0.9 × 2.1 m" or why it is blocked.
   **v0.15.0:** a click on a door / window picks it up: look along its wall to slide it (`moveOpening`, the same rule as
@@ -530,7 +535,7 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
   = the nearest free spot (`freeSpot`, see "Where walking starts"). Preview again after another floor was chosen
   (Studio's floor switcher) starts on that floor the same way, and a message left from the last walk is cleared
   (`activate`, `playController.floors.test.js`). A viewer's walkthrough always starts at the entrance instead.
-- **Room height:** Stretch (slot 3) aimed at the top edge of a wall grabs the top (drag up / down), or + / − on a
+- **Room height:** Stretch (slot 2) aimed at the top edge of a wall grabs the top (drag up / down), or + / − on a
   wall (0.1 m, a burst = one undo step). Studio: blue handles on top of the selected room's walls (3D), Inspector
   "Wall height". Hint: "Office · walls 3.4 m · Ground Floor is now 3.7 m high".
 - Build tools act on `currentLevel` (the floor under the character). `__ahdusPlay.setPose({x,z,yaw,pitch,floor,y,fly})`,
@@ -1381,7 +1386,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 
 The planner "felt very hard to understand". Done (see private-docs/PROGRESS_REPORT.md section 3.8):
 1. Planner toolbar is now a vertical bar on the left (`PlannerToolbar.jsx`).
-2. Build mode has the Edit item tool (slot 9): move, turn, resize, lock what you look at.
+2. Build mode has the Edit item tool (slot 1): move, turn, resize, lock what you look at.
 3. The planner has Build mode's tools with the mouse: draw room, drag a wall to resize, door / window, wall,
    furniture on table tops. Both modes use the same pure functions and previews.
 
@@ -1445,6 +1450,12 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: Edit and Stretch fixed in the hotbar (v0.15.4, 11 Nov 2026, branch `codex/walkthrough-edit-hotbar`)
+
+Walk through's hotbar: 1 Edit and 2 Stretch are fixed, Office 3, Meeting 9; Edit shows a Delete button for what it
+aims at (see "Preview"). Released apart from v0.15.3 (its tag was already published). The "faster building" plan
+(multi-select, copy / paste, hide) moves to v0.15.5. e2e:play 36 checks.
 
 ## DONE: easy Walk through (v0.15.2, 10 Nov 2026, branch `feature/easy-walkthrough`)
 

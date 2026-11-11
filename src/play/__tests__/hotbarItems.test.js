@@ -32,9 +32,9 @@ describe('the empty hand', () => {
     expect(nextSlot(3, 1)).toBe(4);
   });
 
-  it('a catalog pick with an empty hand goes into the first empty slot, else slot 1', () => {
+  it('a catalog pick with an empty hand goes into the first empty slot, else slot 3', () => {
     expect(catalogSlot(DEFAULT_HOTBAR, 4)).toBe(4);
-    expect(catalogSlot(DEFAULT_HOTBAR, EMPTY_HAND)).toBe(0);
+    expect(catalogSlot(DEFAULT_HOTBAR, EMPTY_HAND)).toBe(2);
     const bar = [...DEFAULT_HOTBAR];
     bar[5] = null;
     expect(catalogSlot(bar, EMPTY_HAND)).toBe(5);
@@ -43,10 +43,10 @@ describe('the empty hand', () => {
 
 // v0.15.2: a short name under each hotbar icon, and every room type its own icon
 describe('shortLabel (the name under a hotbar icon)', () => {
-  it('the default hotbar reads Office, Meeting, Stretch, Door, Window, Desk, Chair, Stairs, Edit', async () => {
+  it('the default hotbar fixes Edit and Stretch in slots 1 and 2', async () => {
     const { shortLabel } = await import('../hotbarItems');
     expect(DEFAULT_HOTBAR.map(shortLabel)).toEqual(
-      ['Office', 'Meeting', 'Stretch', 'Door', 'Window', 'Desk', 'Chair', 'Stairs', 'Edit']);
+      ['Edit', 'Stretch', 'Office', 'Door', 'Window', 'Desk', 'Chair', 'Stairs', 'Meeting']);
   });
 
   it('every item of the catalog has a name of at most 10 characters; an empty slot has none', async () => {
@@ -75,5 +75,18 @@ describe('room icons', () => {
     const icons = ROOM_ITEMS.map((item) => itemIcon(item));
     expect(icons.every(Boolean)).toBe(true);
     expect(new Set(icons).size).toBe(ROOM_ITEMS.length);
+  });
+});
+
+
+describe('fixed utility slots', () => {
+  it('catalog furniture cannot replace Edit or Stretch', () => {
+    for (const selected of [0, 1]) expect(catalogSlot(DEFAULT_HOTBAR, selected, { kind: 'object' })).toBe(2);
+    const bar = [...DEFAULT_HOTBAR]; bar[5] = null;
+    expect(catalogSlot(bar, 0, { kind: 'room' })).toBe(5);
+  });
+  it('choosing Edit or Stretch in the catalog selects its fixed slot', () => {
+    expect(catalogSlot(DEFAULT_HOTBAR, 7, { kind: 'edit' })).toBe(0);
+    expect(catalogSlot(DEFAULT_HOTBAR, 7, { kind: 'stretch' })).toBe(1);
   });
 });

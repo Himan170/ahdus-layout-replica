@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ArrowLeft, LayoutGrid as CatalogIcon, ChevronUp, ChevronDown, Copy, Square, DoorOpen, HelpCircle, Crosshair } from 'lucide-react';
+import { ArrowLeft, LayoutGrid as CatalogIcon, ChevronUp, ChevronDown, Copy, Square, DoorOpen, HelpCircle, Crosshair, Trash2 } from 'lucide-react';
 import { catalogSections, itemKey, shortLabel } from '../play/hotbarItems';
 import RoomPicture from '../ui/RoomPicture';
 import ItemPicture from '../ui/ItemPicture';
@@ -31,7 +31,7 @@ const CONTROLS = [
   ['V', 'First / third person'],
   ['R', 'Turn furniture 90° (Shift+R: 15°)'],
   ['G or middle-click', 'Pick up what the mouse points at, then click to put it down'],
-  ['9', 'Edit item: move, turn (R), resize (+ / −), lock (L), slide a door along its wall'],
+  ['1', 'Edit item: move, turn (R), resize (+ / −), lock (L), Delete, slide a door along its wall'],
   ['E', 'Use what the mouse points at'],
   ['1–9 or wheel', 'Choose hotbar slot (the same number again: empty hand)'],
   ['Esc', 'Cancel, then put the item away'],
@@ -40,7 +40,7 @@ const CONTROLS = [
   ['N', 'New floor above (copy the rooms below, or empty)'],
   ['Page Up / Down', 'Go to the floor above / below'],
   ['Home', 'Back to the entrance'],
-  ['3 + / −', 'Stretch: raise or lower the walls'],
+  ['2 + / −', 'Stretch: raise or lower the walls'],
   ['Ctrl+Z', 'Undo'],
   ['Tab', 'Back to Studio'],
 ];
@@ -111,6 +111,7 @@ export default function PlayHUD({
   onOpenCatalog,
   onCloseCatalog,
   onAssign,            // (item) => void   put item into the selected slot
+  onDeleteEditItem,    // (id) => void   delete the named Edit target, even after the pointer enters the HUD
   onResume,            // () => void       capture the mouse again
   onExitToStudio,
   interaction,         // { title, text } | null
@@ -242,6 +243,16 @@ export default function PlayHUD({
       {/* ── What clicking will do + hotbar ── */}
       <div className="hud__bottom">
         <ToolHint hint={hint} />
+        {hud?.editItem && (
+          <div className="hud-card hud-edit-actions" data-hud="edit-actions">
+            <span>Edit: <strong>{hud.editItem.name}</strong></span>
+            <button className="ui-btn is-danger" aria-label={`Delete ${hud.editItem.name}`}
+              disabled={hud.editItem.locked} title={hud.editItem.locked ? 'Unlock this item first (L)' : 'Delete this item (Ctrl+Z to undo)'}
+              onClick={() => onDeleteEditItem?.(hud.editItem.id)}>
+              <Trash2 size={16} aria-hidden /> Delete
+            </button>
+          </div>
+        )}
         <div className="hud-card hud-hotbar" role="toolbar" aria-label="Hotbar">
           {hotbar.map((item, i) => (
             <Slot key={i} item={item} index={i} selected={i === selectedSlot} onClick={() => onSelectSlot(i)} />
@@ -314,9 +325,9 @@ export default function PlayHUD({
               <div>
                 <h2 className="hud-panel__title">Add to hotbar</h2>
                 <p className="hud-catalog__sub ui-muted" data-catalog-sub>
-                  {selectedSlot >= 0
+                  {selectedSlot >= 2
                     ? `Pick an item: it goes into slot ${selectedSlot + 1}, and into your hand.`
-                    : 'Pick an item: it goes into the first free slot, and into your hand.'}
+                    : 'Edit (1) and Stretch (2) stay fixed. Other items go into a free slot from 3–9, or slot 3 when full.'}
                 </p>
               </div>
               <button className="ui-btn" onClick={onCloseCatalog}>Close</button>

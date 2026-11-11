@@ -428,8 +428,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
 
   // Picking an item (or closing the catalog) goes straight back to playing
   const handleAssignToSlot = useCallback((item) => {
-    // an empty hand: the first empty slot (else slot 1) gets it, and you hold it
-    const slot = catalogSlot(hotbar, selectedSlot);
+    // Utility slots 1/2 stay fixed; catalog picks use slots 3–9 (or select the matching utility).
+    const slot = catalogSlot(hotbar, selectedSlot, item);
     setHotbar((bar) => bar.map((it, i) => (i === slot ? item : it)));
     setSelectedSlot(slot);
     setCatalogOpen(false);
@@ -1525,6 +1525,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               }}
               onCloseCatalog={handleCloseCatalog}
               onAssign={handleAssignToSlot}
+              onDeleteEditItem={(id) => playRef.current?.deleteEditItem(id)}
               onResume={handleResumePlay}
               onExitToStudio={handleExitPlay}
               interaction={interaction}
