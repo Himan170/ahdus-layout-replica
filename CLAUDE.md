@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1269, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1305, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -304,6 +304,21 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
 - **Both modes share the decisions and the look:** `planRoom`, `planOpening`, `planRemoveOpening`, `wallSegmentData`,
   `stretchRoom`, `resizeItem`, `resizeOpening` (`geometry.js`), `placementHeight` (`building.js`), previews in `utils/buildPreview.js`,
   forgiving picks in `utils/pickHelpers.js`, tokens in `src/ui/theme.css`.
+
+## Check my layout (v0.15.3)
+
+Studio's top bar **Check** (phone: More) opens a floating panel grouped by floor. A click switches floor,
+selects the room/item and focuses the camera; the panel stays open beside the Inspector. There is no new key.
+The button counts errors and warnings; window notes do not count. A green tick means no counted problems.
+Ignore and Show again use `editor.setIgnoredChecks` (one undo step), saved with the layout. Problems never block
+saving/publishing; the AHDUS Publish dialog adds a count and Show button.
+
+Pure rules: `src/play/navigation/checkLayout.js`; UI: `ui/LayoutCheckPanel.jsx`, delayed idle scheduling in
+`hooks/useLayoutCheck.js` (1.5 s, no checks while dragging or in Preview). Walking and checking share
+`hooks/studioWalkMaps.js`. Optional `ignoredChecks: string[]` survives v1/v2 conversion, autosave, backup and version
+restore; the generated JSON Schema allows up to 500 keys of 300 characters. Old saves have none.
+Measured on 72 rooms / 864 items: 132 ms cold, 112 ms with warm walk maps (11 Nov 2026).
+Regression script: `npm run e2e:check` (12 checks) (template door removed/restored, selection, floor switching, Ignore/undo/reopen, phone).
 
 ## Code map
 
