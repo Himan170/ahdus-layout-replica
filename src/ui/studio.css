@@ -827,6 +827,19 @@
 .layers-list__item:hover { background: var(--bg-hover); }
 .layers-list__item .ui-muted { font-size: 12px; white-space: nowrap; }
 .layers-list__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Layers eye + lock (v0.15.6): the row's own buttons beside the select button */
+.layers-row { display: flex; align-items: center; gap: 2px; }
+.layers-row > .layers-list__item { flex: 1; min-width: 0; }
+.layers-row.is-hidden > .layers-list__item { opacity: 0.5; }
+.layers-row__btn {
+  flex: none; width: 28px; height: 28px; display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.layers-row__btn:hover { background: var(--bg-hover); color: var(--text); }
+.layers-row__btn[aria-pressed='true'] { color: var(--accent, #28664f); }
+.layers-row__btn:focus-visible { outline: 2px solid var(--accent, #28664f); outline-offset: 1px; }
+.layers-hidden-note { display: flex; align-items: center; gap: 8px; margin: 8px 16px 0; font-size: 12px; color: var(--text-muted); }
+.layers-hidden-note .ui-btn { padding: 2px 8px; font-size: 12px; }
 
 /* ── Footer ─────────────────────────────────────────────────────────── */
 

@@ -7,6 +7,7 @@
  * v1 field names that differ from v2:
  *   room.floor        → floorId          object.floor     → floorId
  *   room.doors[]      → openings[]       object.isLocked  → locked
+ *   room.isLocked     → locked (v0.15.6; only when true)
  *   object.name       → label (if no label)
  *   object.scaleX/Y/Z → scale {x,y,z}
  *   object.rotationX/Z, category → kept in metadata (v2 has no field for them;
@@ -114,6 +115,7 @@ export function migrateV1toV2(v1: V1State): Layout {
       color: r.color ?? '#4a90d9',
       floorFinish: typeof r.floorFinish === 'string' ? r.floorFinish : 'default',
       ...(typeof r.departmentRef === 'string' ? { departmentRef: r.departmentRef } : {}),
+      ...((r.isLocked ?? r.locked) ? { locked: true } : {}),
     };
     rooms.push(room);
 

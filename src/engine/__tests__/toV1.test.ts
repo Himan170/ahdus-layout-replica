@@ -146,7 +146,7 @@ function currentSave() {
     },
     rooms: [
       { id: 'room_a', type: 'OFFICE', name: 'Office 1', floor: 0, x: 0, z: 0, width: 6, depth: 4,
-        wallHeight: 3.2, color: '#4a7dff', floorFinish: 'carpet', departmentRef: 'DEPT-7',
+        wallHeight: 3.2, color: '#4a7dff', floorFinish: 'carpet', departmentRef: 'DEPT-7', isLocked: true,
         doors: [{ wall: 'south', offset: 1, width: 0.9, height: 2.1 }, { id: 'door-main', wall: 'east', offset: 0.5, width: 1.2, height: 2.2 }],
         windows: [{ wall: 'north', offset: 2, width: 1.4, height: 1.2, sill: 0.9 }] },
       { id: 'room_b', type: 'MEETING', name: 'Meeting 1', floor: 1, x: 0, z: 0, width: 6, depth: 4,

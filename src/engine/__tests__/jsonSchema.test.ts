@@ -56,3 +56,25 @@ describe('layoutJsonSchema (npm run schema:json)', () => {
     expect(validate({ rooms: [] })).toBe(false);
   });
 });
+
+describe("a room's lock (v0.15.6)", () => {
+  it('is an optional boolean `locked`: written only when true, so old files stay the same', () => {
+    const schema = layoutJsonSchema() as any;
+    const roomProps = schema.properties.rooms.items.properties;
+    expect(roomProps.locked).toEqual({ type: 'boolean' });
+    expect(schema.properties.rooms.items.required ?? []).not.toContain('locked');
+
+    const plain = loadLayout(structuredClone(sampleFile));
+    expect(plain.rooms.every((r: any) => !('locked' in r))).toBe(true);
+
+    const save = structuredClone(sampleFile) as any;
+    const rooms = save.layout?.rooms ?? save.rooms;
+    rooms[0].isLocked = true;
+    const v2 = JSON.parse(JSON.stringify(loadLayout(save)));
+    expect(v2.rooms.find((r: any) => r.locked)).toBeDefined();
+    expect(validator()(v2)).toBe(true);
+    const bad = sampleV2();
+    bad.rooms[0].locked = 'yes';
+    expect(validator()(bad)).toBe(false);
+  });
+});

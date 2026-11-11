@@ -746,3 +746,60 @@ describe('typing a position: one undo step per burst (v0.15.1)', () => {
     expect(S().objects[plant.id].x).toBe(1);
   });
 });
+
+describe('a locked room (v0.15.6)', () => {
+  function lockedRoom() {
+    editor.addRoom({ type: 'OFFICE', name: 'Office', x: 0, z: 0, width: 6, depth: 4, floor: 0 });
+    const id = rooms()[0].id;
+    editor.toggleRoomLock(id);
+    return id;
+  }
+
+  it('locks and unlocks as one undo step each', () => {
+    const id = lockedRoom();
+    expect(S().rooms[id].isLocked).toBe(true);
+    expect(editor.history.undoLabel).toBe('Lock room');
+    editor.undo();
+    expect(S().rooms[id].isLocked).toBeFalsy();
+    editor.redo();
+    expect(S().rooms[id].isLocked).toBe(true);
+  });
+
+  it("can't be moved, resized, turned or deleted; its name, type and finish still change", () => {
+    const id = lockedRoom();
+    const before = { ...S().rooms[id] };
+    const steps = editor.history.undoLabel;
+
+    expect(editor.deleteRoom(id).problem).toMatch(/Office is locked/);
+    expect(S().rooms[id]).toBeDefined();
+    expect(editor.moveRoom(id, planRoomMove(before, 5, 5, rooms(), objs()))).toBe(false);
+    expect(editor.turnRoom(id, planRoomTurn(before, rooms(), objs()))).toBe(false);
+    expect(editor.setWallHeight(id, 2.5).problem).toMatch(/locked/);
+    editor.updateRoom(id, { width: 9, x: 3 });
+    editor.updateRoom(id, { wallThickness: 0.3 });
+    expect(S().rooms[id]).toMatchObject({ x: before.x, z: before.z, width: 6, depth: 4, wallHeight: before.wallHeight });
+    expect(editor.history.undoLabel).toBe(steps); // nothing refused made an undo step
+
+    editor.updateRoom(id, { name: 'Boardroom', floorFinish: 'carpet', width: 12 });
+    expect(S().rooms[id]).toMatchObject({ name: 'Boardroom', floorFinish: 'carpet', width: 6 });
+
+    editor.toggleRoomLock(id);
+    editor.updateRoom(id, { width: 9 });
+    expect(S().rooms[id].width).toBe(9);
+    expect(editor.deleteRoom(id).problem).toBeNull();
+  });
+
+  it('lockRooms: several rooms in one step; a copied floor copies no lock', () => {
+    editor.addRoom({ type: 'OFFICE', x: 0, z: 0, width: 4, depth: 4, floor: 0 });
+    editor.addRoom({ type: 'OFFICE', x: 10, z: 0, width: 4, depth: 4, floor: 0 });
+    const ids = rooms().map((r) => r.id);
+    editor.lockRooms(ids, true);
+    expect(rooms().every((r) => r.isLocked)).toBe(true);
+    expect(editor.history.undoLabel).toBe('Lock rooms');
+    editor.addFloor({ copyRooms: true });
+    expect(rooms().filter((r) => r.floor !== 0).every((r) => !r.isLocked)).toBe(true);
+    editor.undo();
+    editor.undo();
+    expect(rooms().some((r) => r.isLocked)).toBe(false);
+  });
+});

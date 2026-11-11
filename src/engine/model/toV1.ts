@@ -7,6 +7,7 @@
  * v2 → v1 field mapping (inverse of migrate.ts):
  *   room.floorId         → floor            object.floorId   → floor
  *   openings[]           → room.doors/windows  object.locked → isLocked
+ *   room.locked          → room.isLocked (v0.15.6; only when true)
  *   object.scale {x,y,z} → scaleX, scaleY, scaleZ
  *   metadata.name        → name (else the label)
  *   metadata.rotationX/Z → rotationX, rotationZ
@@ -57,6 +58,7 @@ export interface V1Room {
   color: string;
   floorFinish: string;
   departmentRef?: string;
+  isLocked?: boolean;
   doors: V1Opening[];
   windows: V1Opening[];
 }
@@ -145,6 +147,7 @@ function convertRoom(r: Room, openings: Opening[], floorOf: (id: string | number
     color: r.color,
     floorFinish: r.floorFinish,
     ...(r.departmentRef ? { departmentRef: r.departmentRef } : {}),
+    ...(r.locked ? { isLocked: true } : {}),
     doors,
     windows,
   };

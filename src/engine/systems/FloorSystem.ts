@@ -8,6 +8,9 @@
  *             The camera stays under the ceiling indoors, so upper floors
  *             don't block the view; you see them through stairwells and windows.
  * Works on the meshes of a RoomSystem and an ObjectSystem.
+ *
+ * Studio's Layers eye (v0.15.6): setHidden(roomIds, objectIds) keeps those meshes off in the planner
+ * view only (walking shows everything: what you walk into is there).
  */
 
 import { floorsByElevation, coveredFraction } from '../../play/building';
@@ -28,6 +31,8 @@ export class FloorSystem {
   private objects: ObjectSystem;
   private getLayout: () => LayoutRecords;
   private view: LevelView = { mode: 'planner', level: 0 };
+  private hiddenRooms = new Set<string>();
+  private hiddenObjects = new Set<string>();
 
   constructor(rooms: RoomSystem, objects: ObjectSystem, getLayout: () => LayoutRecords) {
     this.rooms = rooms;
@@ -45,6 +50,13 @@ export class FloorSystem {
     this.apply();
   }
 
+  /** Rooms and items Studio's Layers panel hides (planner view only). Applies at once. */
+  setHidden(roomIds: Iterable<string> = [], objectIds: Iterable<string> = []): void {
+    this.hiddenRooms = new Set(roomIds);
+    this.hiddenObjects = new Set(objectIds);
+    this.apply();
+  }
+
   /** Show the building up to this floor, as Workplace Studio does. */
   setFloor(floorId: number): void {
     this.setView({ mode: 'planner', level: floorId });
@@ -59,6 +71,7 @@ export class FloorSystem {
     const rank = new Map(sorted.map((f: { id: number }, i: number) => [f.id, i]));
     const view = this.view;
     const levelRank = view.mode === 'planner' ? (rank.get(view.level) ?? 0) : Infinity;
+    const planner = view.mode === 'planner';
     const roomsByFloor = new Map<number, V1Room[]>();
     for (const r of Object.values(rooms)) {
       if (!roomsByFloor.has(r.floor)) roomsByFloor.set(r.floor, []);
@@ -68,7 +81,7 @@ export class FloorSystem {
       const room = rooms[roomId];
       if (!room) continue;
       const r = rank.get(room.floor) ?? 0;
-      const visible = r <= levelRank;
+      const visible = r <= levelRank && !(planner && this.hiddenRooms.has(roomId));
       node.setEnabled(visible);
       if (!visible) continue;
       const above = sorted[r + 1];
@@ -87,7 +100,10 @@ export class FloorSystem {
     }
     for (const [objId, mesh] of this.objects.meshes) {
       const o = objects[objId];
-      if (o) mesh.setEnabled((rank.get(o.floor ?? 0) ?? 0) <= levelRank && (this.objects.isShown?.(o) ?? true));
+      if (o) {
+        mesh.setEnabled((rank.get(o.floor ?? 0) ?? 0) <= levelRank && (this.objects.isShown?.(o) ?? true)
+          && !(planner && this.hiddenObjects.has(objId)));
+      }
     }
   }
 }

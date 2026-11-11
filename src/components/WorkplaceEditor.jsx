@@ -97,6 +97,8 @@ import { lockPointer } from '../utils/pointerLock';
 import { anchorsForObject } from '../integration/anchorsFromStore';
 import { createGroupActions, GROUP_HIGHLIGHT } from '../planner/groupActions';
 import { HighlightSystem } from '../engine/systems/HighlightSystem';
+import { readHidden, writeHidden, toggleHidden, liveHidden, hiddenText } from '../ui/hiddenLayers';
+import { lockedText } from '../play/locks';
 
 const DEMO_MODULES = typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('demoModules');
@@ -624,13 +626,19 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
 
   // ─── Rooms ───
   const handleDeleteRoom = useCallback((id) => {
-    editor.deleteRoom(id);
-  }, [editor]);
+    const res = editor.deleteRoom(id);
+    if (res?.problem) showStudioMessage(res.problem, true);
+  }, [editor, showStudioMessage]);
 
   const handleUpdateRoom = useCallback((id, patch, { typing = false } = {}) => {
     if ('departmentRef' in patch) {
       // the room's department (v0.14.9): a pick is one undo step, typing one step per burst
       editor.updateRoom(id, { departmentRef: patch.departmentRef }, { mergeKey: typing ? 'room-department' : undefined, label: 'Change department' });
+      return;
+    }
+    const locked = useWorkspaceStore.getState().rooms[id];
+    if (locked?.isLocked && ['x', 'z', 'width', 'depth', 'wallHeight', 'wallThickness'].some((k) => k in patch)) {
+      showStudioMessage(lockedText(locked.name), true); // a locked room keeps its shape (v0.15.6)
       return;
     }
     if ('x' in patch || 'z' in patch) {
@@ -701,6 +709,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     const st = useWorkspaceStore.getState();
     const room = st.rooms[id];
     if (!room) return;
+    if (room.isLocked) { showStudioMessage(lockedText(room.name), true); return; }
     // the rooms inside it and the items standing in it turn with it, around its centre: one undo step
     const plan = planRoomTurn(room, Object.values(st.rooms), Object.values(st.objects));
     if (plan.problem) { showStudioMessage(plan.problem, true); return; }
@@ -1125,6 +1134,49 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   const toastRef = useRef(null);
   const allObjects = useMemo(() => Object.values(objectsMap), [objectsMap]);
   const allRooms = useMemo(() => Object.values(roomsMap), [roomsMap]);
+
+  // ─── Layers' eye (v0.15.6): hidden in Studio's view only, remembered per workplace in this browser ───
+  const hiddenKey = planPrefsKey(planCompanyId, planLayoutId);
+  const [hiddenRaw, setHiddenRaw] = useState(() => readHidden(hiddenKey));
+  useEffect(() => setHiddenRaw(readHidden(hiddenKey)), [hiddenKey]);
+  const hiddenLive = useMemo(() => liveHidden(hiddenRaw, roomsMap, objectsMap), [hiddenRaw, roomsMap, objectsMap]);
+  const hiddenSets = useMemo(
+    () => ({ rooms: new Set(hiddenLive.rooms), objects: new Set(hiddenLive.objects) }), [hiddenLive]);
+  const hiddenNote = hiddenText(hiddenLive);
+  useEffect(() => {
+    floorSystemRef.current?.setHidden(hiddenLive.rooms, hiddenLive.objects);
+  }, [hiddenLive, sceneReady]);
+  const updateHidden = useCallback((next) => {
+    setHiddenRaw(next);
+    writeHidden(hiddenKey, next);
+  }, [hiddenKey]);
+  const handleToggleHidden = useCallback((kind, id) => {
+    const next = toggleHidden(hiddenRaw, kind, id);
+    updateHidden(next);
+    if (!next[kind].includes(id)) return;
+    // what you hide is no longer selected (it can't be seen or dragged)
+    const st = useWorkspaceStore.getState();
+    if (kind === 'objects') {
+      if (st.selectedObjectId === id) st.selectObject(null);
+      if (st.selectedObjectIds?.includes(id)) st.setObjectSelection(st.selectedObjectIds.filter((x) => x !== id));
+    } else if (st.selectedRoomId === id) {
+      st.selectRoom(null);
+    }
+  }, [hiddenRaw, updateHidden]);
+  const handleShowAllHidden = useCallback(() => updateHidden({ rooms: [], objects: [] }), [updateHidden]);
+  // what Plan view and the room labels draw: not what is hidden
+  const shownRooms = useMemo(() => (hiddenSets.rooms.size ? rooms.filter((r) => !hiddenSets.rooms.has(r.id)) : rooms), [rooms, hiddenSets]);
+  const shownObjects = useMemo(() => (hiddenSets.objects.size ? objects.filter((o) => !hiddenSets.objects.has(o.id)) : objects), [objects, hiddenSets]);
+  const shownAllRooms = useMemo(() => (hiddenSets.rooms.size ? allRooms.filter((r) => !hiddenSets.rooms.has(r.id)) : allRooms), [allRooms, hiddenSets]);
+  const shownAllObjects = useMemo(() => (hiddenSets.objects.size ? allObjects.filter((o) => !hiddenSets.objects.has(o.id)) : allObjects), [allObjects, hiddenSets]);
+
+  const handleToggleRoomLock = useCallback((id) => {
+    const room = useWorkspaceStore.getState().rooms[id];
+    if (!room) return;
+    editor.toggleRoomLock(id);
+    showStudioMessage(room.isLocked ? `Unlocked ${room.name}`
+      : `Locked ${room.name}. It can't be moved, resized, turned or deleted now.`);
+  }, [editor, showStudioMessage]);
   const seats = useAhdusSeats({
     enabled: inAhdus && hasBackend, objects: allObjects, phone,
     toast: (tone, text) => toastRef.current?.(tone, text),
@@ -1422,6 +1474,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               onRenameFloor={(id, name) => editor.renameFloor(id, name)}
               onRemoveFloor={(id) => editor.removeFloor(id)}
               hint={footerHint}
+              hiddenNote={hiddenNote}
+              onShowAllHidden={handleShowAllHidden}
             />
           )}
           onExportPng={!isPlaying ? handleExportPng : undefined}
@@ -1451,15 +1505,15 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           />
           {planView && !isPlaying && (
             <FloorPlanView
-              rooms={rooms}
-              objects={objects}
+              rooms={shownRooms}
+              objects={shownObjects}
               selectedRoomId={selectedRoomId}
               selectedObjectId={selectedObjectId}
               anchorData={anchorData}
               floors={floors}
               currentFloor={currentFloor}
-              allRooms={allRooms}
-              allObjects={allObjects}
+              allRooms={shownAllRooms}
+              allObjects={shownAllObjects}
               onOpenFloor={storeActions.selectFloor}
               prefsKey={planPrefsKey(planCompanyId, planLayoutId)}
               selectedObjectIds={selectedObjectIds}
@@ -1520,7 +1574,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           />
           <RoomLabels
             scene={sceneReady}
-            rooms={rooms}
+            rooms={shownRooms}
             elevation={elevationOf(floorsMap, currentFloor)}
             hidden={isPlaying || planView}
             showArea={showRoomAreas}
@@ -1558,11 +1612,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               targetKey={selectedObjectId ?? selectedRoomId}
               kind={selectedObject ? 'object' : 'room'}
               object={selectedObject}
+              room={selectedObject ? null : selectedRoom}
               gizmoMode={gizmoMode}
               onGizmoMode={handleSetGizmoMode}
               onTurn={() => handleTurnItem(selectedObjectId)}
               onDuplicate={() => editor.duplicateObject(selectedObjectId)}
-              onDelete={() => (selectedObject ? editor.deleteObject(selectedObjectId) : editor.deleteRoom(selectedRoomId))}
+              onDelete={() => (selectedObject ? editor.deleteObject(selectedObjectId) : handleDeleteRoom(selectedRoomId))}
               onMoveRoom={() => showStudioMessage("Drag the room's floor to move it. Its furniture and the rooms inside it move with it.")}
               onTurnRoom={() => handleTurnRoom(selectedRoomId)}
               onDuplicateRoom={() => handleDuplicateRoom(selectedRoomId)}
@@ -1637,6 +1692,11 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           departmentChoices={departmentNames}
           group={groupObjects}
           groupActions={groupActions}
+          onToggleRoomLock={handleToggleRoomLock}
+          hiddenLayers={hiddenSets}
+          hiddenNote={hiddenNote}
+          onToggleHidden={handleToggleHidden}
+          onShowAllHidden={handleShowAllHidden}
         />
       )}
     />

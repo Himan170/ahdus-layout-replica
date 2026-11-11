@@ -86,6 +86,7 @@ import { WALK_SPEED as WALK, RUN_SPEED as RUN, FLY_SPEED as FLY } from './speeds
 import { turnStep, carriedBy, carryDrop } from './carry';
 import { roomItemLabel } from './hotbarItems';
 import { ridersOf } from '../utils/itemRiders';
+import { lockedText } from './locks';
 
 // ── Feel ──
 const JUMP_SPEED = 5.2;
@@ -788,6 +789,12 @@ export function createPlayController(scene, canvas, {
         aim = null;
         return { title: 'Stretch room', detail: 'Aim at a wall of a room to move it, or at its top to change the height' };
       }
+      if (room.isLocked) {
+        // v0.15.6: a locked room keeps its walls (no stretch, no wall height)
+        pv.hide('box');
+        aim = null;
+        return { title: 'Stretch room', detail: lockedText(room.name), bad: true };
+      }
       const { wallName } = target;
       const wallHeight = room.wallHeight ?? 3;
       const nearTop = levelElev() + wallHeight - hit.pickedPoint.y < TOP_EDGE || (hit.getNormal(true)?.y ?? 0) > 0.7;
@@ -1372,6 +1379,7 @@ export function createPlayController(scene, canvas, {
       const victim = part.part === 'wall'
         ? floorRooms().find((r) => r.id === wallTargetOf(hit, camera.position).roomId) ?? room
         : room;
+      if (victim.isLocked) { say(lockedText(victim.name)); return; }
       actions.deleteRoom(victim.id);
       say(`Removed ${victim.name}. Press Ctrl+Z to undo.`);
     } else {

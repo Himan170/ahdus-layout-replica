@@ -487,6 +487,15 @@ export function createPlannerTools(scene, canvas, {
       hover = null;
       return null;
     }
+    if (room.isLocked) {
+      // v0.15.6: a locked room has no wall, floor or height grips; its items still move on their own
+      const item = updateItemHover();
+      if (item) return item;
+      pv.hide('box');
+      setCursor('');
+      hover = null;
+      return { title: room.name, detail: 'Locked. Press L to unlock it.', keys: [['L', 'Unlock']] };
+    }
     // From above (2D) the walls' height can't be dragged; in 3D their top handles can
     if (st().is3D) {
       showHeightHandles(room);

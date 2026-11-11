@@ -40,6 +40,7 @@ export default function SelectionToolbar({
   targetKey,         // changes when the selection changes
   kind,              // 'object' | 'room'
   object,            // selected object (kind 'object')
+  room = null,       // selected room (kind 'room'; v0.15.6: a locked one can't move, turn or be deleted)
   gizmoMode,
   onGizmoMode,
   onTurn,            // an item: R's 90° turn (with its chair)
@@ -89,26 +90,26 @@ export default function SelectionToolbar({
     return () => scene.onAfterRenderObservable.remove(obs);
   }, [scene, getBounds, targetKey, minTop, isBusy]);
 
-  const locked = !!object?.isLocked;
   const isRoom = kind === 'room';
+  const locked = isRoom ? !!room?.isLocked : !!object?.isLocked;
   return (
     <div className="selection-toolbar is-labelled" ref={ref} data-hidden="true" role="toolbar"
       aria-label={isRoom ? 'Room actions' : 'Item actions'}>
       <ToolButton label="Move" text="Move" icon={Move}
-        title={isRoom ? "Move: drag the room's floor" : (locked ? 'Unlock it first to move it' : 'Move: drag it, or show the arrows (W)')}
-        pressed={!isRoom && gizmoMode === 'position'} disabled={!isRoom && locked}
+        title={locked ? 'Unlock it first to move it' : (isRoom ? "Move: drag the room's floor" : 'Move: drag it, or show the arrows (W)')}
+        pressed={!isRoom && gizmoMode === 'position'} disabled={locked}
         onClick={() => (isRoom ? onMoveRoom() : onGizmoMode(gizmoMode === 'position' ? null : 'position'))} />
       <ToolButton label="Rotate" text="Rotate" icon={RotateCw}
-        title={isRoom ? 'Turn the room a quarter turn (R)' : (locked ? 'Unlock it first to turn it' : 'Turn 90° (R; Shift+R: 15°)')}
-        disabled={!isRoom && locked}
+        title={locked ? 'Unlock it first to turn it' : (isRoom ? 'Turn the room a quarter turn (R)' : 'Turn 90° (R; Shift+R: 15°)')}
+        disabled={locked}
         onClick={() => (isRoom ? onTurnRoom() : onTurn())} />
       <ToolButton label="Duplicate" text="Duplicate" icon={Copy}
         title={isRoom ? 'A copy of this room next to it' : 'Duplicate (Ctrl+D)'}
         onClick={isRoom ? onDuplicateRoom : onDuplicate} />
       <span className="selection-toolbar__sep" aria-hidden />
       <ToolButton label="Delete" text="Delete" icon={Trash2} danger
-        title={isRoom ? 'Delete room (Del)' : (locked ? 'Unlock it first to delete it' : 'Delete (Del)')}
-        disabled={!isRoom && locked} onClick={onDelete} />
+        title={locked ? 'Unlock it first to delete it' : (isRoom ? 'Delete room (Del)' : 'Delete (Del)')}
+        disabled={locked} onClick={onDelete} />
     </div>
   );
 }
