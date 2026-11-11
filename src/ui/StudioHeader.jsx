@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { usePopover } from './usePopover';
 import VersionHistory from './VersionHistory';
+import { CheckButton } from './LayoutCheckPanel';
 import { publishButton, statusPill } from './publishFlow';
 import { usePhone } from './look';
 import { MAX_SITE_NAME } from '../services/ahdusBackend';
@@ -304,7 +305,7 @@ export function StatusPill({ saveStatus, saveError, publishState, onPublish, sho
 }
 
 /** A phone's "⋯": Redo, Versions, Settings and Walk through. */
-function MoreMenu({ undoState, onRedo, editor, onMessage, settings, onPreview }) {
+function MoreMenu({ undoState, onRedo, editor, onMessage, settings, onPreview, checks, onCheck }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   usePopover(open, () => setOpen(false), [ref]);
@@ -319,6 +320,7 @@ function MoreMenu({ undoState, onRedo, editor, onMessage, settings, onPreview })
           <LabeledButton label="Redo" icon={Redo2} disabled={!undoState.canRedo} onClick={onRedo}
             title={undoState.canRedo ? `Redo: ${undoState.redoLabel ?? 'last change'}` : 'Nothing to redo'} />
           <VersionHistory editor={editor} onMessage={onMessage} label="Versions" />
+          <CheckButton checks={checks} onClick={() => { setOpen(false); onCheck(); }} />
           <Settings {...settings} label="Settings" />
           {onPreview && (
             <button className="ui-labeled-btn ahdus-more__walk" aria-label="Walk through"
@@ -368,7 +370,7 @@ export default function StudioHeader(props) {
   if (phone) return <AhdusPhoneHeader {...props} />;
   const {
     layoutName, onRenameLayout, onAllLayouts, allLayoutsLabel, onPublish, publishState, publishing, siteName,
-    saveStatus, saveError, undoState, onUndo, onRedo, editor, onMessage, settings, onPreview,
+    saveStatus, saveError, undoState, onUndo, onRedo, editor, onMessage, settings, onPreview, checks, onCheck,
   } = props;
   return (
     <header className="studio-header ahdus-header">
@@ -392,6 +394,7 @@ export default function StudioHeader(props) {
           <LabeledButton label="Redo" icon={Redo2} disabled={!undoState.canRedo} onClick={onRedo}
             title={undoState.canRedo ? `Redo: ${undoState.redoLabel ?? 'last change'} (Ctrl+Y)` : 'Nothing to redo'} />
           <VersionHistory editor={editor} onMessage={onMessage} label="Versions" />
+          <CheckButton checks={checks} onClick={onCheck} />
           <Settings {...settings} label="Settings" />
         </div>
         {onPreview && (

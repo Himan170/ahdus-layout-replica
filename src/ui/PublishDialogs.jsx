@@ -14,7 +14,7 @@ import Dialog from './Dialog';
 import { lastPublishedAt, lastPublishedText } from './publishFlow';
 
 /** loadVersions: () => Promise<versions[]> (newest first; may reject). */
-export function PublishDialog({ siteName, state, busy, loadVersions, seatWarning = null, onCancel, onConfirm }) {
+export function PublishDialog({ siteName, state, busy, loadVersions, seatWarning = null, checkCount = 0, onShowChecks, onCancel, onConfirm }) {
   const never = state === 'never';
   const [last, setLast] = useState(never ? null : undefined); // undefined: still asking
 
@@ -48,6 +48,7 @@ export function PublishDialog({ siteName, state, busy, loadVersions, seatWarning
     >
       <p>Everyone in your company will see this version.</p>
       {lastLine && <p className="ui-muted" data-last-published>{lastLine}</p>}
+      {checkCount > 0 && <p data-layout-check-warning>Check found {checkCount} {checkCount === 1 ? 'problem' : 'problems'} in this layout. <button className="ui-btn" onClick={onShowChecks}>Show</button></p>}
       {seatWarning && (
         <p className="dialog-warning" data-seat-warning>
           <AlertTriangle size={16} strokeWidth={1.75} aria-hidden /> {seatWarning} They stay under People without a desk.
