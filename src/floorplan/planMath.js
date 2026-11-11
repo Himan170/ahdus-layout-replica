@@ -318,6 +318,33 @@ export function roomDimensionLines(room, offset = 0.4) {
   return { top, right };
 }
 
+/** About how wide one character of the label font is, in font sizes (Inter, semibold: a little generous). */
+export const LABEL_CHAR_WIDTH = 0.6;
+
+/**
+ * A room's name label in the plan (v0.15.5): as big as before where it fits, smaller to fit
+ * the room's width (88 % of it), and cut with "…" when even `minFont` is too wide.
+ * → { text, full, fontSize, sizeFontSize, truncated }
+ */
+export function roomLabelFit(name, width, depth, { fill = 0.88, minFont = 0.14 } = {}) {
+  const full = String(name ?? '').trim() || 'Room';
+  const w = Math.max(0, Number(width) || 0);
+  const d = Math.max(0, Number(depth) || 0);
+  const maxFont = Math.max(0.12, Math.min(w, d) * 0.12);
+  const room = w * fill;
+  const widthAt = (text, font) => text.length * LABEL_CHAR_WIDTH * font;
+  const floorFont = Math.min(minFont, maxFont);
+  let fontSize = Math.min(maxFont, room / (full.length * LABEL_CHAR_WIDTH));
+  let text = full;
+  if (!(fontSize >= floorFont)) {
+    fontSize = floorFont;
+    const chars = Math.max(1, Math.floor(room / (LABEL_CHAR_WIDTH * fontSize)) - 1);
+    text = chars >= full.length ? full : `${full.slice(0, chars).trimEnd()}…`;
+  }
+  const sizeFontSize = Math.max(0.09, Math.min(fontSize * 0.7, Math.min(w, d) * 0.08));
+  return { text, full, fontSize, sizeFontSize, truncated: text !== full, fits: widthAt(text, fontSize) <= room + 1e-9 };
+}
+
 export const ANCHOR_COLORS = {
   workstation: '#2563eb',
   seat: '#6366f1',

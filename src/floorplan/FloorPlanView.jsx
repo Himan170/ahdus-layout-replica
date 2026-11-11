@@ -24,7 +24,7 @@ import AllFloorsView from './AllFloorsView';
 import {
   planDrop, itemSize, roomWallPieces, wallSegmentEnds,
   toPlan, screenToWorld, planAngle, planViewBox,
-  clampZoom, zoomViewBox, zoomTowards, roomDimensionLines,
+  clampZoom, zoomViewBox, zoomTowards, roomDimensionLines, roomLabelFit,
   ANCHOR_COLORS, ANCHOR_BADGE_SYMBOLS,
 } from './planMath';
 
@@ -32,6 +32,10 @@ import {
 const at = (p) => toPlan(p);
 const validRoom = (r) => Number(r.width) > 0 && Number(r.depth) > 0;
 const placed = (o) => Number.isFinite(Number(o.x)) && Number.isFinite(Number(o.z));
+/** Room left above the building when the plan is fitted, for the controls at its top left (a share of its height). */
+const CHROME_ROOM = 0.28;
+/** A press on the plan pans only after moving this far (px); less is a click (on a room: selects it). */
+const PAN_START_PX = 4;
 
 export default function FloorPlanView({
   rooms = [],
@@ -103,10 +107,16 @@ export default function FloorPlanView({
 
   // Base plan bounds: the WHOLE building (v0.15.5), so every floor has the same scale and place and
   // Page Up / Down keep where you were looking
-  const baseView = useMemo(
+  const buildingView = useMemo(
     () => planViewBox(buildingRooms.filter(validRoom), buildingObjects.filter(placed), 2.5),
     [buildingRooms, buildingObjects],
   );
+  // the plan's controls sit over its top left: fitted, the building starts below them
+  const baseView = useMemo(() => buildingView && {
+    ...buildingView,
+    y: buildingView.y - buildingView.height * CHROME_ROOM,
+    height: buildingView.height * (1 + CHROME_ROOM),
+  }, [buildingView]);
   const plan = useMemo(() => baseView && {
     rooms: rooms.filter(validRoom), objects: objects.filter(placed), baseView,
   }, [rooms, objects, baseView]);
@@ -247,13 +257,15 @@ export default function FloorPlanView({
       onSelectObject(null);
     }
 
+    // the pointer is captured only once the plan really pans (4 px): captured at once, the browser sent
+    // the click to the plan itself, so a click on a room never selected it (v0.15.5)
     setPanDrag({
       startX: event.clientX,
       startY: event.clientY,
       initialPan: { ...pan },
+      pointerId: event.pointerId,
+      captured: false,
     });
-
-    event.currentTarget.setPointerCapture?.(event.pointerId);
   }
 
   // ── Pointer Move (Pan background or move item) ──
@@ -270,6 +282,11 @@ export default function FloorPlanView({
 
     // 2. Panning the plan
     if (panDrag && svgRef.current) {
+      if (!panDrag.captured) {
+        if (Math.hypot(event.clientX - panDrag.startX, event.clientY - panDrag.startY) < PAN_START_PX) return;
+        try { svgRef.current.setPointerCapture?.(panDrag.pointerId); } catch { /* that pointer is gone */ }
+        setPanDrag({ ...panDrag, captured: true });
+      }
       const svgRect = svgRef.current.getBoundingClientRect();
       if (!svgRect.width || !svgRect.height || !dynamicView) return;
 
@@ -357,7 +374,7 @@ export default function FloorPlanView({
           rooms={buildingRooms}
           objects={buildingObjects}
           currentFloor={currentFloor}
-          baseView={plan.baseView}
+          baseView={buildingView}
           onOpen={(id) => { setAllFloors(false); onOpenFloor(id); }}
         />
       </div>
@@ -556,10 +573,6 @@ export default function FloorPlanView({
           const d = Number(room.depth);
           const selected = room.id === selectedRoomId;
           const name = room.name || room.type || 'Room';
-
-          // name above the size; the gap grows with the text (big halls have big text)
-          const nameSize = Math.max(0.12, Math.min(w, d) * 0.12);
-          const sizeSize = Math.max(0.09, Math.min(w, d) * 0.08);
           return (
             <g
               key={room.id}
@@ -577,6 +590,7 @@ export default function FloorPlanView({
               onKeyDown={selectOnKey(() => onSelectRoom(room.id))}
               style={{ cursor: 'pointer' }}
             >
+              <title>{`${name} · ${sizeLabel(w, d)}`}</title>
               <rect
                 className="floor-plan-shape"
                 x={c.x - w / 2}
@@ -589,29 +603,6 @@ export default function FloorPlanView({
                 strokeWidth={selected ? 0.12 : 0.04}
                 vectorEffect="non-scaling-stroke"
               />
-              <text
-                x={c.x}
-                y={c.y - sizeSize * 0.7}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fontSize={nameSize}
-                fill="#111827"
-                fontWeight="600"
-                pointerEvents="none"
-              >
-                {name}
-              </text>
-              <text
-                x={c.x}
-                y={c.y + nameSize * 0.7}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fontSize={sizeSize}
-                fill="#64748b"
-                pointerEvents="none"
-              >
-                {sizeLabel(w, d)}
-              </text>
             </g>
           );
         })}
@@ -924,6 +915,47 @@ export default function FloorPlanView({
             })}
           </g>
         )}
+        {/* ── Room names, over the furniture, the stairs and the hook-point badges (v0.15.5): a white halo keeps them
+            readable, the text shrinks to the room's width, then is cut with "…" (the full name
+            is the room's hover title). Clicks go through to what is under them. ── */}
+        <g className="floor-plan-labels" pointerEvents="none" aria-hidden="true">
+          {plan.rooms.map((room) => {
+            const c = at(room);
+            const w = Number(room.width);
+            const d = Number(room.depth);
+            const fit = roomLabelFit(room.name || room.type || 'Room', w, d);
+            const halo = { stroke: '#ffffff', strokeOpacity: 0.92, strokeLinejoin: 'round', paintOrder: 'stroke' };
+            return (
+              <g key={room.id} data-plan-label={room.id} data-truncated={fit.truncated ? '' : undefined}>
+                <text
+                  x={c.x}
+                  y={c.y - fit.sizeFontSize * 0.7}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize={fit.fontSize}
+                  fill="#111827"
+                  fontWeight="600"
+                  strokeWidth={fit.fontSize * 0.32}
+                  {...halo}
+                >
+                  {fit.text}
+                </text>
+                <text
+                  x={c.x}
+                  y={c.y + fit.fontSize * 0.7}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize={fit.sizeFontSize}
+                  fill="#475569"
+                  strokeWidth={fit.sizeFontSize * 0.32}
+                  {...halo}
+                >
+                  {sizeLabel(w, d)}
+                </text>
+              </g>
+            );
+          })}
+        </g>
       </svg>
     </div>
   );

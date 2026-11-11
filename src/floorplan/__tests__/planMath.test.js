@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   itemSize, itemContains, planDrop, roomWallPieces, wallSegmentEnds,
   toPlan, toWorld, screenToWorld, planAngle, planViewBox,
-  clampZoom, zoomViewBox, zoomTowards, roomDimensionLines,
+  clampZoom, zoomViewBox, zoomTowards, roomDimensionLines, roomLabelFit, LABEL_CHAR_WIDTH,
 } from '../planMath';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 import { wallSegmentData } from '../../play/geometry';
@@ -236,3 +236,41 @@ describe('zoom, pan, and dimensions', () => {
   });
 });
 
+
+describe('room labels fit their room (v0.15.5)', () => {
+  const textWidth = (fit) => fit.text.length * LABEL_CHAR_WIDTH * fit.fontSize;
+
+  it('a short name in a big room keeps its old size', () => {
+    const fit = roomLabelFit('Lobby', 10, 8);
+    expect(fit.fontSize).toBeCloseTo(0.96);
+    expect(fit.text).toBe('Lobby');
+    expect(fit.truncated).toBe(false);
+  });
+
+  it('a long name shrinks to fit the room width', () => {
+    const fit = roomLabelFit('Pantry & Break Area', 4, 4);
+    expect(fit.text).toBe('Pantry & Break Area');
+    expect(fit.fontSize).toBeLessThan(0.48);
+    expect(textWidth(fit)).toBeLessThanOrEqual(4 * 0.88 + 1e-9);
+  });
+
+  it('too long even at the smallest size: cut with an ellipsis, the full name kept', () => {
+    const fit = roomLabelFit('Pantry & Break Area', 1.5, 3);
+    expect(fit.truncated).toBe(true);
+    expect(fit.text.endsWith('…')).toBe(true);
+    expect(fit.full).toBe('Pantry & Break Area');
+    expect(fit.fits).toBe(true);
+    expect(fit.fontSize).toBeCloseTo(0.14);
+  });
+
+  it('the size line is never bigger than the name', () => {
+    for (const [w, d] of [[2, 2], [5, 3], [30, 20]]) {
+      const fit = roomLabelFit('Open Workspace', w, d);
+      expect(fit.sizeFontSize).toBeLessThanOrEqual(Math.max(0.09, fit.fontSize));
+    }
+  });
+
+  it('no name: Room', () => {
+    expect(roomLabelFit('', 4, 4).text).toBe('Room');
+  });
+});
