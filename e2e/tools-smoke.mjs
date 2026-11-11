@@ -520,6 +520,16 @@ log('v0.15.0 the Door tool on a wall drawn with the Wall tool: a door there, the
   near(wallDoor.x, wall.x, 0.05) && near(wallDoor.z, wall.z, 0.3) && /Add door/.test(cutUndo ?? ''),
   `${pieces.length} pieces, door ${wallDoor ? `(${wallDoor.x}, ${wallDoor.z})` : 'none'}, "${cutUndo}"`);
 await shot('t3d-door-in-wall.png');
+const doorwayOpen = wallDoor && await p.evaluate((door) => {
+  const scene = window.__ahdusScene;
+  const ray = scene.activeCamera.getForwardRay(2);
+  const nx = Math.sin(door.rotationY ?? 0), nz = Math.cos(door.rotationY ?? 0);
+  ray.origin.set(door.x - nx, (door.y ?? 0) + 1, door.z - nz);
+  ray.direction.set(nx, 0, nz);
+  ray.length = 2;
+  return !scene.pickWithRay(ray, (m) => m.metadata?.objectId === door.id)?.hit;
+}, wallDoor);
+log('a door cut into a drawn wall looks open through its centre', doorwayOpen);
 await key('Control+z');
 const uncut = (await store()).objects.filter((o) => o.assetType === 'WALL_SEGMENT' || o.assetType === 'DOOR_SINGLE');
 log('v0.15.0 Ctrl+Z gives the whole wall back (same id), no door', uncut.length === 1 && uncut[0].id === wall.id && near(uncut[0].scaleX, wall.scaleX, 0.001),

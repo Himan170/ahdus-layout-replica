@@ -5,6 +5,10 @@ What changed in each version, newest first. Older versions (up to 0.14.9) are li
 
 ## 0.15.3 (11 Nov 2026): Check my layout
 
+- Walk through: right-click removes aimed items with an empty hand again; right-drag still looks around.
+- Doors placed in drawn walls now look open, matching their passable doorway and room doors. Solid walls
+  and windows still stop walking from either side. Floor controls are unchanged.
+
 - **Check** in Studio's top bar lists problems by floor: rooms with no door, no entrance, places nobody can
   walk to, furniture overlapping or in walls, blocked doors/windows, items outside rooms upstairs, and stair problems.
 - Click a problem to switch floors, select it and focus the camera. The floating panel stays open beside the

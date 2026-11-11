@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1305, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1312, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -38,7 +38,7 @@ npm run e2e:planner  # 45 checks   e2e/editor-smoke.mjs    (Workplace Studio + i
                      #                                       card, Settings → Room labels, Plan view: select, drag,
                      #                                       Ctrl+Z, a desk onto its own chair's old spot (v0.15.2),
                      #                                       a phone's hint at 390 px)
-npm run e2e:play     # 28 checks   e2e/play-smoke.mjs      (v0.15.2: no mouse capture, W with no click, drag looks, an
+npm run e2e:play     # 31 checks   e2e/play-smoke.mjs      (v0.15.2: no mouse capture, W with no click, drag looks, an
                      #                                       empty hand's click walks, M = mouse look, then the old
                      #                                       checks by crosshair; the catalog's pictures + hotbar names;
                      #                                       an item placed at the mouse, Esc, G on a desk with its chair
@@ -49,7 +49,7 @@ npm run e2e:stairs   # 24 checks   e2e/stairs-smoke.mjs    (viewer.html: W climb
                      #                                       back down; first person; from the side it stops you; Take me there; Studio:
                      #                                       no Height / size for stairs, R says why, "lead nowhere"; SHOTS=<dir>: shots)
 npm run e2e:building # 27 checks   e2e/building-smoke.mjs  (multi-storey, floor heights, Page Up/Down)
-npm run e2e:tools    # 71 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
+npm run e2e:tools    # 72 checks   e2e/tools-smoke.mjs     (Studio mouse tools, door sizes, clicks on a selected
                      #                                       room's floor + Preview's Edit item; v0.15.0: a desk
                      #                                       dragged with its monitor, a Desk Plant dragged onto a
                      #                                       desk, the move arrow still works past it, a door in a
@@ -268,7 +268,7 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
   "Start preview" screen; the HUD's "?" `data-hud="help"` lists the keys), and everything is aimed at the MOUSE
   (`aimLine()`; before the mouse has moved: the middle of the view). An **empty hand**: a click walks there
   (`onPointClick` → Studio's own `NavigationSystem` + `RouteLineSystem` in `useStudioScene`, `routeTo(…, { walk: 'auto',
-  source: 'click' })`; a machine in reach with a module's action runs it, as E); it moves and removes nothing (G /
+  source: 'click' })`; a machine in reach with a module's action runs it, as E); left-click only walks, right-click removes the aimed item (G /
   middle-click pick up). **An item or tool in your hand**: a click uses it at the mouse and never walks (a press is
   `patient`: no time limit), right-click removes / cancels there. Esc cancels what is half done, then empties the hand
   (`onEmptyHand`); the held slot's number again does too. **M** / the HUD's "Mouse look" (`data-hud="mouse-look"`,
@@ -317,6 +317,9 @@ Pure rules: `src/play/navigation/checkLayout.js`; UI: `ui/LayoutCheckPanel.jsx`,
 `hooks/useLayoutCheck.js` (1.5 s, no checks while dragging or in Preview). Walking and checking share
 `hooks/studioWalkMaps.js`. Optional `ignoredChecks: string[]` survives v1/v2 conversion, autosave, backup and version
 restore; the generated JSON Schema allows up to 500 keys of 300 characters. Old saves have none.
+Walk through follow-up: plain right-click removes aimed items even with an empty hand; right-drag only looks.
+Door items in drawn walls are visibly open doorways, matching room doors; floor controls stay unchanged.
+
 Measured on 72 rooms / 864 items: 132 ms cold, 112 ms with warm walk maps (11 Nov 2026).
 Regression script: `npm run e2e:check` (12 checks) (template door removed/restored, selection, floor switching, Ignore/undo/reopen, phone).
 
@@ -1331,7 +1334,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Doors and windows slide along their own wall (v0.15.0) but can't move to another wall (remove and add again);
   window sills are fixed (0.9 m).
 - Walk through (v0.15.2): no joystick or phone layout in Studio's Walk through (a finger drag looks, a tap is a click);
-  with an empty hand right-click removes nothing; a click's walk has no "Paused" strip (a movement key ends it); the
+  a click's walk has no "Paused" strip (a movement key ends it); the
   Inspector's X / Z do not follow a drag in Plan view (3D / 2D drags and the move arrows do); a move arrow shows the
   chair live, but what the carried chair overlaps is not checked. Turning a room: quarter turns only; a staircase in it
   turns too (check where it arrives); a door shared with a neighbour must be removed first.

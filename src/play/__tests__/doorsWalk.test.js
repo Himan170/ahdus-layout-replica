@@ -4,6 +4,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
+import { Ray } from '@babylonjs/core/Culling/ray';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import '@babylonjs/core/Collisions/collisionCoordinator';
 
 import { RoomSystem } from '../../engine/systems/RoomSystem';
@@ -13,6 +15,7 @@ import { createWalkMapCache } from '../navigation/walkMap';
 import { findRoute } from '../navigation/route';
 import { createFollower } from '../navigation/follow';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
+import { planWallSegmentOpening } from '../geometry';
 
 vi.mock('../../utils/materialLibrary', async (orig) => ({
   ...(await orig()),
@@ -143,4 +146,40 @@ describe('doors in Studio: the walk map follows the real collision', () => {
     expect(walksIn(doors, [item])).toBe(false);
     expect(takeMeIn(doors, [item]).problem).toBe('NO_ROUTE');
   });
+});
+
+describe('walls drawn with the Wall tool', () => {
+  const item = (o) => ({ floor: 0, x: 0, y: 0, z: 0, rotationX: 0, rotationY: 0, rotationZ: 0, scaleX: 1, scaleY: 1, scaleZ: 1, ...o });
+  it('a passable door looks open: no visible panel across the doorway', () => {
+    const { scene } = world([], [item({ id: 'door', assetType: 'DOOR_SINGLE' })]);
+    const ray = new Ray(new Vector3(0, 1, -1), new Vector3(0, 0, 1), 2);
+    const hit = scene.pickWithRay(ray, (m) => m.metadata?.objectId === 'door');
+    expect(hit?.hit).toBe(false);
+  });
+  function walkAcross(objects, reverse = false, x = 0) {
+    const { scene, play } = world([{ wall: 'south', offset: 0, width: 1.2, height: 2.1 }], objects.map(item));
+    play.setPose({ x, z: reverse ? 2 : -2, yaw: reverse ? Math.PI : 0, pitch: 0, floor: 0, exact: true });
+    document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', bubbles: true }));
+    for (let n = 0; n < 45; n++) scene.render();
+    document.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', bubbles: true }));
+    const z = play.getPosition().z;
+    play.dispose();
+    engine.dispose(); engine = null;
+    return reverse ? -z : z;
+  }
+  for (const reverse of [false, true]) {
+    for (const kind of ['door', 'window']) {
+      it(`a cut ${kind} works from ${reverse ? 'behind' : 'in front'}`, () => {
+        const plan = planWallSegmentOpening(item({ id: 'wall', assetType: 'WALL_SEGMENT', scaleX: 2 }), { x: 0, z: 0 }, kind);
+        const pieces = plan.add.map((o, i) => ({ ...o, id: 'piece' + i }));
+        const z = walkAcross(pieces, reverse);
+        if (kind === 'door') expect(z).toBeGreaterThan(0.5);
+        else expect(z).toBeLessThan(-0.3);
+        expect(walkAcross(pieces, reverse, 1.5)).toBeLessThan(-0.3);
+      });
+    }
+    it(`a solid wall stops you from ${reverse ? 'behind' : 'in front'}`, () => {
+      expect(walkAcross([{ id: 'wall', assetType: 'WALL_SEGMENT', scaleX: 2 }], reverse)).toBeLessThan(-0.3);
+    });
+  }
 });
