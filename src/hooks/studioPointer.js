@@ -130,6 +130,9 @@ export function installStudioPointer({
       if (meta?.part === 'door' || meta?.part === 'window') {
         // Clicked a door or window (its frame, or the doorway itself)
         store.selectOpening({ roomId: meta.roomId, kind: meta.openingKind, index: meta.openingIndex });
+      } else if (meta?.objectId && store.selectedObjectIds.includes(meta.objectId)) {
+        // An item of the selected group (v0.15.5): the group stays (a drag moves it; plannerTools
+        // selects just this item when the press turns out to be a click)
       } else if (meta?.objectId) {
         // Clicked an object
         store.selectObject(meta.objectId);

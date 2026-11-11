@@ -23,7 +23,7 @@
  * On an upper floor, new rooms line up with the walls of the floor below.
  */
 
-import { Matrix } from '@babylonjs/core/Maths/math.vector';
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
@@ -45,6 +45,7 @@ import { carriedBy, carryMoves } from '../play/carry';
 import { ridersOf as itemRiders, KEEP_HEIGHT } from '../utils/itemRiders';
 import { livePosition } from '../utils/livePosition';
 import { isDesk } from '../play/people';
+import { groupMembers, lockedNote } from '../play/group';
 
 const FLOOR_Y = 0.02;
 const CLICK_SLOP = 5; // px the mouse may move with the button down and still count as a click
@@ -377,8 +378,9 @@ export function createPlannerTools(scene, canvas, {
     if (!p) return lastDragHint();
     const x = snapV(drag.items[0].x + p.x - drag.start.x);
     const z = snapV(drag.items[0].z + p.z - drag.start.z);
-    const s = dragSurface(drag, x, z);
-    const name = nameOf(obj);
+    // a group (v0.15.5) keeps every item's height: it slides over the floor as it is
+    const s = drag.group ? { y: drag.items[0].y ?? 0, on: null } : dragSurface(drag, x, z);
+    const name = drag.group ? `${drag.group} items` : nameOf(obj);
     if (!s || s.problem) {
       drag.plan = null;
       return saveDragHint({ title: `Move ${name}`, detail: s?.problem ?? 'Put it on the floor or on a table top', bad: true, keys: [['Esc', 'Cancel']] });
@@ -393,6 +395,13 @@ export function createPlannerTools(scene, canvas, {
     }
     drag.plan = { dx, dz, dy };
     livePosition.set(drag.objectId, x, z); // the Inspector's X / Z follow the drag
+    if (drag.group) {
+      return saveDragHint({
+        title: `Move ${name}`,
+        detail: [lockedNote(drag.locked), 'with their chairs and what stands on them'].filter(Boolean).join(' · '),
+        keys: [['Release', 'Put them here'], ['Esc', 'Cancel']],
+      });
+    }
     const riders = drag.items.filter((it, i) => i > 0 && it.onTop).length;
     const chair = drag.items.some((it, i) => i > 0 && !it.onTop);
     const room = findRoomAt(floorRooms(), x, z);
@@ -677,6 +686,7 @@ export function createPlannerTools(scene, canvas, {
     if (drag.kind === 'height') return updateHeightDrag();
     if (drag.kind === 'slide') return updateSlideDrag();
     if (drag.kind === 'item') return updateItemDrag();
+    if (drag.kind === 'box') return updateBoxDrag();
     const p = snappedGround();
     if (drag.kind === 'stretch') {
       const room = floorRooms().find((r) => r.id === drag.roomId);
@@ -750,6 +760,15 @@ export function createPlannerTools(scene, canvas, {
   function commitDrag() {
     const d = drag;
     endDrag();
+    if (d.kind === 'box') {
+      hideBox();
+      const ids = itemsInBox(d);
+      const now = st().selectedObjectIds.length ? st().selectedObjectIds : st().selectedObjectId ? [st().selectedObjectId] : [];
+      if (ids.length) st().setObjectSelection([...now, ...ids]);
+      const n = st().selectedObjectIds.length || (st().selectedObjectId ? 1 : 0);
+      onMessage(ids.length ? `${n} item${n === 1 ? '' : 's'} selected` : 'No items in the box');
+      return;
+    }
     if (d.kind === 'item') {
       commitItemDrag(d);
       return;
@@ -818,8 +837,9 @@ export function createPlannerTools(scene, canvas, {
       return [it.id, { x, z, y, roomId: findRoomAt(rooms, x, z)?.id ?? null }];
     });
     const obj = st().objects[d.objectId];
-    actions.moveObjects(moves, { label: `Move ${nameOf(obj)}` });
-    onMessage(`Moved ${nameOf(obj)}. Ctrl+Z to undo.`);
+    const name = d.group ? `${d.group} items` : nameOf(obj);
+    actions.moveObjects(moves, { label: `Move ${name}` });
+    onMessage([`Moved ${name}. Ctrl+Z to undo.`, lockedNote(d.locked)].filter(Boolean).join(' '), !!d.locked);
   }
 
   /**
@@ -850,10 +870,15 @@ export function createPlannerTools(scene, canvas, {
   }
 
   function cancelDrag() {
-    if (pendingMove) onPendingUp();
+    if (pendingMove) {
+      disarmMove(); // not a click: nothing gets selected
+      const camera = getCamera();
+      if (camera && scene.activeCamera === camera) camera.attachControl(canvas, true);
+    }
     if (!drag) return;
     const d = drag;
     endDrag();
+    if (d.kind === 'box') hideBox();
     if (d.kind === 'item') restoreItemDrag(d);
     if (d.kind === 'move') restoreRoomItems(d);
     refresh();
@@ -873,7 +898,10 @@ export function createPlannerTools(scene, canvas, {
     window.removeEventListener('pointerup', onPendingUp);
   }
   function onPendingUp() {
+    const d = pendingMove?.drag;
     disarmMove(); // it was a click
+    // a click (no drag) on an item of a group selects just that item (v0.15.5)
+    if (d?.group && d.objectId) st().selectObject(d.objectId);
     const camera = getCamera();
     if (camera && scene.activeCamera === camera) camera.attachControl(canvas, true);
   }
@@ -884,6 +912,73 @@ export function createPlannerTools(scene, canvas, {
       commitDrag();
       refresh();
     }
+  }
+
+  // ── Selecting several items (v0.15.5): Shift+click one, Shift+drag a box ──
+
+  let boxEl = null;
+  function showBox(d) {
+    if (!boxEl) {
+      boxEl = document.createElement('div');
+      boxEl.className = 'select-box';
+      boxEl.setAttribute('data-select-box', '');
+      canvas.parentElement?.appendChild(boxEl);
+    }
+    const c = canvas.getBoundingClientRect();
+    const host = canvas.parentElement?.getBoundingClientRect() ?? c;
+    Object.assign(boxEl.style, {
+      left: `${c.left - host.left + Math.min(d.x0, d.x1)}px`, top: `${c.top - host.top + Math.min(d.y0, d.y1)}px`,
+      width: `${Math.abs(d.x1 - d.x0)}px`, height: `${Math.abs(d.y1 - d.y0)}px`, display: 'block',
+    });
+  }
+  function hideBox() { if (boxEl) boxEl.style.display = 'none'; }
+
+  /** The items of this floor whose middle is inside the box on the screen. */
+  function itemsInBox(d) {
+    const camera = getCamera();
+    if (!camera) return [];
+    const x0 = Math.min(d.x0, d.x1 ?? d.x0);
+    const x1 = Math.max(d.x0, d.x1 ?? d.x0);
+    const y0 = Math.min(d.y0, d.y1 ?? d.y0);
+    const y1 = Math.max(d.y0, d.y1 ?? d.y0);
+    if (x1 - x0 < CLICK_SLOP && y1 - y0 < CLICK_SLOP) return [];
+    const viewport = camera.viewport.toGlobal(canvas.clientWidth, canvas.clientHeight);
+    const transform = scene.getTransformMatrix();
+    const out = [];
+    for (const o of Object.values(st().objects)) {
+      if ((o.floor ?? 0) !== st().currentFloor) continue;
+      const mesh = getObjectMesh(o.id);
+      if (!mesh || !mesh.isEnabled?.()) continue;
+      const at = Vector3.Project(mesh.getAbsolutePosition(), Matrix.Identity(), transform, viewport);
+      if (at.z < 0 || at.z > 1) continue; // behind the camera
+      if (at.x >= x0 && at.x <= x1 && at.y >= y0 && at.y <= y1) out.push(o.id);
+    }
+    return out;
+  }
+
+  function updateBoxDrag() {
+    drag.x1 = scene.pointerX;
+    drag.y1 = scene.pointerY;
+    showBox(drag);
+    const n = itemsInBox(drag).length;
+    return saveDragHint({
+      title: 'Select items',
+      detail: `${n} item${n === 1 ? '' : 's'} in the box`,
+      keys: [['Release', 'Select them'], ['Esc', 'Cancel']],
+    });
+  }
+
+  /** The item under the mouse on this floor (locked ones too): Shift+click. */
+  function itemUnderPointer() {
+    const hit = scene.pick(scene.pointerX, scene.pointerY, (m) =>
+      m.isPickable && m.isEnabled() && !pv.owns(m) && !handles?.includes(m) && !heightHandles?.includes(m));
+    if (!hit?.hit) return null;
+    let id = objectIdOf(hit.pickedMesh);
+    if (!id && (hit.pickedMesh.name === 'ground' || hit.pickedMesh.metadata?.part === 'floor')) {
+      id = itemOverFloorPoint(scene, hit.pickedPoint, onLevel);
+    }
+    const obj = id ? st().objects[id] : null;
+    return obj && (obj.floor ?? 0) === st().currentFloor ? obj : null;
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -915,7 +1010,34 @@ export function createPlannerTools(scene, canvas, {
       return false;
     }
     refresh(); // make sure `hover` matches where the mouse is now
+    if (tool.kind === 'select' && evt.shiftKey && !isOverGizmo()) {
+      // Shift+click: an item in or out of the selection; Shift+drag on anything else: a box
+      const obj = itemUnderPointer();
+      if (obj) {
+        st().toggleObjectSelection(obj.id);
+        const n = st().selectedObjectIds.length || (st().selectedObjectId ? 1 : 0);
+        onMessage(n ? `${n} item${n === 1 ? '' : 's'} selected` : 'Nothing selected');
+      } else {
+        startDrag({ kind: 'box', x0: scene.pointerX, y0: scene.pointerY, x1: scene.pointerX, y1: scene.pointerY });
+        hint(updateDrag());
+      }
+      return true;
+    }
     if (tool.kind === 'select') {
+      const group = st().selectedObjectIds ?? [];
+      if (hover?.type === 'grabItem' && group.includes(hover.objectId)) {
+        // an item of the selected group: the whole group moves (v0.15.5), each with what it carries
+        const p = groundPoint();
+        const obj = st().objects[hover.objectId];
+        if (obj && p) {
+          const { items: members, locked } = groupMembers(st().objects, group, carriedWith);
+          const first = members.findIndex((m) => m.item.id === obj.id);
+          if (first > 0) members.unshift(members.splice(first, 1)[0]);
+          const items = members.map(({ item: o }) => ({ id: o.id, x: o.x, y: o.y ?? 0, z: o.z, onTop: false }));
+          armMove({ kind: 'item', objectId: obj.id, start: p, items, group: group.length, locked: locked.length });
+        }
+        return true; // the group stays selected (a click without a drag selects just this item)
+      }
       if (hover?.type === 'grabItem') {
         // A click selects it as usual; it moves once the mouse has really been dragged (CLICK_SLOP)
         const obj = st().objects[hover.objectId];
@@ -1004,6 +1126,10 @@ export function createPlannerTools(scene, canvas, {
     },
     getTool: () => tool,
     isDragging: () => !!drag,
+    /** What an item takes along (its chair, what stands on it): groups, copy and paste (v0.15.5). */
+    carriedWith: (obj) => (obj ? carriedWith(obj) : []),
+    /** The point on the floor being edited under the mouse (paste goes there), or null. */
+    pointerGround: () => groundPoint(),
 
     /**
      * A move arrow is being dragged (v0.15.2): the item's mesh is at (x, z) now. Its chair and what
@@ -1083,6 +1209,7 @@ export function createPlannerTools(scene, canvas, {
 
     dispose() {
       cancelDrag();
+      boxEl?.remove();
       pv.dispose();
       handles?.forEach((m) => m.dispose());
       heightHandles?.forEach((m) => m.dispose());

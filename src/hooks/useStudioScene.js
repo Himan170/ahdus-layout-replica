@@ -46,7 +46,7 @@ export function useStudioScene({
   isPlayingRef, measureModeRef, measureStartRef, measurementIdRef, fpsRef, fpsDisplayRef, plannerMessageTimer,
   setBuildProgress, setPlayHud, setSelectedSlot, setCatalogOpen, setNewFloorAsk, setInteraction,
   setPositionsVersion, setPlannerHint, setMeasurePreview, setMeasureStart, setMeasurements, setSceneReady,
-  editor, showStudioMessage, placeObject, DEMO_MODULES,
+  editor, showStudioMessage, placeObject, DEMO_MODULES, pauseRenderingRef,
 }) {
   // ─── Initialise Babylon Engine & Scene ───
   useEffect(() => {
@@ -59,6 +59,7 @@ export function useStudioScene({
     const layoutScene = createLayoutScene(canvas, { quality: storedRealisticLook() ? 'high' : 'low' });
     const { engine, scene, camera, lights, siteEnv } = layoutScene;
     sceneRef.current = scene;
+    if (pauseRenderingRef) pauseRenderingRef.current = layoutScene.pauseRendering; // Plan view (v0.15.5)
     cameraRef.current = camera;
     lightsRef.current = lights;
     siteEnvRef.current = siteEnv;
@@ -365,6 +366,7 @@ export function useStudioScene({
       offLook();
       characters.dispose();
       characterSystemRef.current = null;
+      if (pauseRenderingRef) pauseRenderingRef.current = null;
       layoutScene.dispose();
       // The scene took every room/item mesh with it. Forget them, or the next
       // scene (React StrictMode mounts twice; Vite hot reload) would reuse

@@ -742,6 +742,11 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
     white-space: normal;
   }
   .canvas-footer .studio-footer__hint.is-bad { background: var(--danger); color: var(--on-accent); }
+  /* Plan view (v0.15.5): the floor button is top left on a phone, so the plan's bars start under it,
+     and the selected item sits above the hint */
+  :root .floor-plan-chrome { top: 64px; left: 12px; max-width: calc(100% - 24px); }
+  :root .floor-plan-toolbar { left: 12px; right: 12px; bottom: 96px; }
+  :root .all-floors { padding: 116px 12px 96px; }
 
   /* The selection bar: still icon + word, a little smaller */
   .selection-toolbar.is-labelled .ui-icon-btn.has-text { height: 40px; padding: 0 8px; gap: 5px; font-size: 13px; }

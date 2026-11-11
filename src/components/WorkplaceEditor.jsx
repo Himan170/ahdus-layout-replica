@@ -64,6 +64,7 @@ import RoomLabels, { storedRoomLabels, storeRoomLabels } from '../ui/RoomLabels'
 import RoomHoverCard from '../ui/RoomHoverCard';
 import MeasurementOverlay from '../ui/MeasurementOverlay';
 import FloorPlanView from '../floorplan/FloorPlanView';
+import { planPrefsKey } from '../floorplan/planFloors';
 import SelectionToolbar from '../ui/SelectionToolbar';
 import Inspector from '../ui/Inspector';
 import StudioFooter from '../ui/StudioFooter';
@@ -81,7 +82,7 @@ import { normaliseLayout } from '../store/layoutData';
 import { watchFirstFrame } from '../ui/firstFrame';
 import { isPhotoReconstructionOn } from '../services/reconstructionService';
 import { isAhdusBackendOn } from '../services/backendFlags';
-import { activeTile, toolHint, phoneIdleHint } from '../ui/tools';
+import { activeTile, toolHint, phoneIdleHint, PLAN_HINT } from '../ui/tools';
 
 import {
   openingData, openingPartner, openingCentre, resizeOpening, planRemoveOpening,
@@ -94,6 +95,8 @@ import { DEFAULT_HOTBAR, EMPTY_HAND, catalogSlot } from '../play/hotbarItems';
 import { layoutBridge } from '../integration/layoutBridge';
 import { lockPointer } from '../utils/pointerLock';
 import { anchorsForObject } from '../integration/anchorsFromStore';
+import { createGroupActions, GROUP_HIGHLIGHT } from '../planner/groupActions';
+import { HighlightSystem } from '../engine/systems/HighlightSystem';
 
 const DEMO_MODULES = typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('demoModules');
@@ -117,6 +120,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   }
   const canvasRef = useRef(null);
   const sceneRef = useRef(null);
+  const pauseRenderingRef = useRef(null); // layoutScene.pauseRendering: no 3D frames under the Plan view
   const cameraRef = useRef(null);
   const lightsRef = useRef(null);
 
@@ -243,6 +247,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   const selectedOpeningSel = useWorkspaceStore((s) => s.selectedOpening);
   const layoutName = useWorkspaceStore((s) => s.layoutName);
   const hasBackend = useWorkspaceStore((s) => !!(s.companyId && s.layoutId));
+  const planCompanyId = useWorkspaceStore((s) => s.companyId);  // Plan view's settings are kept per workplace
+  const planLayoutId = useWorkspaceStore((s) => s.layoutId);
   const inAhdus = isAhdusBackendOn(); // Studio inside AHDUS: Back to AHDUS, Publish, no copies
   const phone = usePhone(); // a phone: bottom tool bar, library sheet, PhoneBar
   const [canvasTouched, setCanvasTouched] = useState(false); // a phone's "Drag to turn…" hint is gone for good
@@ -262,6 +268,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       setPlacementMode: s.setPlacementMode,
       setIs3D: s.setIs3D,
       selectFloor: s.selectFloor,
+      toggleObjectSelection: s.toggleObjectSelection,
+      setObjectSelection: s.setObjectSelection,
     }),
     shallow
   );
@@ -339,7 +347,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     isPlayingRef, measureModeRef, measureStartRef, measurementIdRef, fpsRef, fpsDisplayRef,
     plannerMessageTimer, setBuildProgress, setPlayHud, setSelectedSlot, setCatalogOpen, setNewFloorAsk,
     setInteraction, setPositionsVersion, setPlannerHint, setMeasurePreview, setMeasureStart, setMeasurements,
-    setSceneReady, editor, showStudioMessage, placeObject, DEMO_MODULES,
+    setSceneReady, editor, showStudioMessage, placeObject, DEMO_MODULES, pauseRenderingRef,
   });
 
   // ─── Store → scene: meshes, the floor being edited, the gizmo (hooks/useStoreMeshSync.js) ───
@@ -1030,15 +1038,57 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     lights.directional.intensity = sun;
   }, []);
 
+  // ─── Several items at once, copy and paste (v0.15.5, planner/groupActions.js) ───
+  const groupActions = useMemo(() => createGroupActions({
+    editor,
+    getState: useWorkspaceStore.getState,
+    carriedWith: (obj) => plannerToolsRef.current?.carriedWith(obj) ?? [],
+    message: (text, bad) => showStudioMessage(text, bad),
+  }), [editor, showStudioMessage]);
+  // Where Ctrl+V pastes: the mouse over the 3D / 2D view, or over the Plan (its own pointer), else null
+  const canvasHoverRef = useRef(false);
+  const planPointerRef = useRef(null);
+  const pasteTarget = useCallback(() => {
+    if (planView) return planPointerRef.current;
+    return canvasHoverRef.current ? plannerToolsRef.current?.pointerGround() ?? null : null;
+  }, [planView]);
+
   // ─── Keyboard shortcuts (hooks/useStudioKeyboard.js) ───
   useStudioKeyboard({
     editor, handleCancelPlacement, handleToggleGizmo, handleTurnItem, handleTurnRoom, handleEnterPlay, handleSetPlannerTool,
     handleDeleteOpening, showStudioMessage, isPlayingRef, plannerToolsRef, measureModeRef, measureStartRef,
     placementManagerRef, snapRef, setMeasureMode, setMeasureStart, setMeasurePreview, setLayersOpen,
-    setOpenTray, setAnnounceText, cameraKeyRef,
+    setOpenTray, setAnnounceText, cameraKeyRef, groupActions, pasteTarget,
   });
 
   // ─── What the Studio shows ───
+  const selectedObjectIds = useWorkspaceStore((s) => s.selectedObjectIds);
+  const groupObjects = useMemo(
+    () => selectedObjectIds.map((id) => objectsMap[id]).filter(Boolean),
+    [selectedObjectIds, objectsMap],
+  );
+  // Plan view covers the 3D view: draw no 3D frames meanwhile (a big layout's plan stays fast)
+  useEffect(() => {
+    const pause = pauseRenderingRef.current;
+    pause?.(planView && !isPlaying);
+    return () => pause?.(false);
+  }, [planView, isPlaying, sceneReady]);
+
+  // The group outlined in the 3D / 2D view (the engine's HighlightSystem, as search results in the viewer)
+  const groupHighlightRef = useRef(null);
+  useEffect(() => {
+    if (!sceneReady || !roomSystemRef.current || !objectSystemRef.current) return undefined;
+    const lights = new HighlightSystem(roomSystemRef.current, objectSystemRef.current);
+    groupHighlightRef.current = lights;
+    return () => { lights.clear(); groupHighlightRef.current = null; };
+  }, [sceneReady]);
+  useEffect(() => {
+    const lights = groupHighlightRef.current;
+    if (!lights) return;
+    lights.clear();
+    if (selectedObjectIds.length > 1 && !isPlaying) lights.add(selectedObjectIds, GROUP_HIGHLIGHT, { tint: true });
+  }, [selectedObjectIds, objectsMap, isPlaying, sceneReady, buildProgress?.allBuilt]);
+
   const selectedObject = selectedObjectId ? objectsMap[selectedObjectId] ?? null : null;
   const selectedRoom = !selectedObject && selectedRoomId ? roomsMap[selectedRoomId] ?? null : null;
   // a selected staircase: why it can't be used as it stands (leads nowhere, doesn't fit its room)
@@ -1058,7 +1108,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       setAnnounceText(`Selected room ${selectedRoom.name}`);
     }
   }, [selectedObject, selectedRoom]);
-  const inspectorMode = selectedObject ? 'object' : selectedRoom ? 'room'
+  const inspectorMode = selectedObject ? 'object' : groupObjects.length > 1 ? 'group' : selectedRoom ? 'room'
     : selectedOpening ? 'opening' : layersOpen ? 'layers' : null;
   const floorName = floorsMap[currentFloor]?.name ?? '';
   const tile = activeTile(plannerTool, placementMode, ASSET_TYPES[placementMode]?.label);
@@ -1074,6 +1124,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   // ─── Inside AHDUS: who sits at which desk (hooks/useAhdusSeats.js); toasts come from useAhdusPublish ───
   const toastRef = useRef(null);
   const allObjects = useMemo(() => Object.values(objectsMap), [objectsMap]);
+  const allRooms = useMemo(() => Object.values(roomsMap), [roomsMap]);
   const seats = useAhdusSeats({
     enabled: inAhdus && hasBackend, objects: allObjects, phone,
     toast: (tone, text) => toastRef.current?.(tone, text),
@@ -1113,6 +1164,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     if (seats.pickHint) return { text: seats.pickHint, tone: 'message' };
     if (libraryDrop.hint) return { text: libraryDrop.hint, tone: libraryDrop.hintBad ? 'bad' : 'message' };
     if (plannerMessage) return { text: plannerMessage.text, tone: plannerMessage.bad ? 'bad' : 'message' };
+    // Plan view: the plan's own mouse (the 3D tools' hints don't apply there)
+    if (planView && !isPlaying) return { text: PLAN_HINT, tone: 'hint' };
     if (!placementMode && plannerHint) {
       const line = [plannerHint.title, plannerHint.detail].filter(Boolean).join(' · ');
       if (plannerHint.bad) return { text: line, tone: 'bad' };
@@ -1389,6 +1442,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
             ref={canvasRef}
             className={measureMode ? 'is-measuring' : ''}
             onPointerDown={phone && !canvasTouched ? () => setCanvasTouched(true) : undefined}
+            onPointerEnter={(e) => { if (e.pointerType === 'mouse') canvasHoverRef.current = true; }}
+            onPointerLeave={() => { canvasHoverRef.current = false; }}
             style={{
               visibility: planView && !isPlaying ? 'hidden' : 'visible',
               pointerEvents: planView && !isPlaying ? 'none' : 'auto',
@@ -1401,6 +1456,17 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               selectedRoomId={selectedRoomId}
               selectedObjectId={selectedObjectId}
               anchorData={anchorData}
+              floors={floors}
+              currentFloor={currentFloor}
+              allRooms={allRooms}
+              allObjects={allObjects}
+              onOpenFloor={storeActions.selectFloor}
+              prefsKey={planPrefsKey(planCompanyId, planLayoutId)}
+              selectedObjectIds={selectedObjectIds}
+              onToggleObject={(id) => storeActions.toggleObjectSelection(id)}
+              onSelectObjects={(ids) => storeActions.setObjectSelection(ids)}
+              onMoveGroup={(dx, dz) => { groupActions.move(dx, dz); editor.endBurst(); }}
+              onPointerWorld={(p) => { planPointerRef.current = p; }}
               onSelectRoom={(id) => {
                 storeActions.selectRoom(id);
                 storeActions.selectObject(null);
@@ -1569,6 +1635,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           onDuplicateRoom={handleDuplicateRoom}
           seatPanel={seatPanel}
           departmentChoices={departmentNames}
+          group={groupObjects}
+          groupActions={groupActions}
         />
       )}
     />

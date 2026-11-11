@@ -18,6 +18,7 @@ import type { RoomSystem } from './RoomSystem';
 import type { ObjectSystem } from './ObjectSystem';
 
 const OUTLINE_WIDTH = { room: 0.06, item: 0.03 };
+const TINT_ALPHA = 0.45;
 
 /** The meshes of an item that have something to outline. */
 const itemMeshes = (root: TransformNode) => [root, ...root.getChildMeshes(false)]
@@ -26,6 +27,8 @@ const itemMeshes = (root: TransformNode) => [root, ...root.getChildMeshes(false)
 export class HighlightSystem {
   /** room or item id → its highlight colour */
   private colors = new Map<string, string>();
+  /** item ids that are also tinted (Studio's group selection, v0.15.5: an outline alone is too thin from above) */
+  private tinted = new Set<string>();
   /** item roots that have the 'highlight' look now */
   private lit = new Set<TransformNode>();
   private rooms: RoomSystem;
@@ -42,8 +45,11 @@ export class HighlightSystem {
   }
 
   /** Highlight these rooms / items (others keep theirs) and apply it. */
-  add(ids: string[], color: string): void {
-    for (const id of ids) this.colors.set(id, color);
+  add(ids: string[], color: string, options: { tint?: boolean } = {}): void {
+    for (const id of ids) {
+      this.colors.set(id, color);
+      if (options.tint) this.tinted.add(id);
+    }
     this.apply();
   }
 
@@ -55,6 +61,7 @@ export class HighlightSystem {
     for (const root of this.lit) this.unlight(root);
     this.lit.clear();
     this.colors.clear();
+    this.tinted.clear();
   }
 
   /** Apply the highlights to the current meshes (after the systems synced). */
@@ -85,17 +92,33 @@ export class HighlightSystem {
       }
       setItemLook(root, 'highlight', true); // instances can't have an outline of their own
       this.lit.add(root);
+      const tint = this.tinted.has(id);
       for (const m of itemMeshes(root)) {
         m.renderOutline = true;
         m.outlineColor = Color3.FromHexString(color);
         m.outlineWidth = OUTLINE_WIDTH.item;
+        // a tint, unless the item has one already (a locked item keeps its lock tint)
+        if (tint && !m.renderOverlay) {
+          m.renderOverlay = true;
+          m.overlayColor = Color3.FromHexString(color);
+          m.overlayAlpha = TINT_ALPHA;
+          m.metadata = { ...(m.metadata ?? {}), highlightTint: m.overlayColor.toHexString() };
+        }
       }
     }
   }
 
   private unlight(root: TransformNode): void {
     if (root.isDisposed()) return;
-    for (const m of itemMeshes(root)) m.renderOutline = false;
+    for (const m of itemMeshes(root)) {
+      m.renderOutline = false;
+      if (m.metadata?.highlightTint) {
+        // only our own tint: a lock tint set since then stays
+        if (m.overlayColor?.toHexString() === m.metadata.highlightTint) m.renderOverlay = false;
+        const { highlightTint: _drop, ...rest } = m.metadata;
+        m.metadata = rest;
+      }
+    }
     setItemLook(root, 'highlight', false); // back to a cheap instance (unless locked)
   }
 }

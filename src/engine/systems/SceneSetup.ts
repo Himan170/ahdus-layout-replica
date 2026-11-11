@@ -40,6 +40,11 @@ export interface LayoutScene {
    * by itself after HOLD_RENDER_MAX_MS, so the view can never stay blank.
    */
   holdRendering(hold: boolean): void;
+  /**
+   * No frames at all while paused (Studio's Plan view, v0.15.5: the 3D view is hidden under the plan,
+   * and drawing it every frame made a big layout's plan slow). Unlike a hold, it has no time limit.
+   */
+  pauseRendering(paused: boolean): void;
   /** Stops rendering and disposes the site, the scene and the engine. */
   dispose(): void;
 }
@@ -76,7 +81,9 @@ export function createLayoutScene(canvas: HTMLCanvasElement, options: LayoutScen
   siteEnv.setPlayLook(true);
 
   let heldUntil = 0; // holdRendering: no frames until then (performance.now())
+  let paused = false; // pauseRendering
   engine.runRenderLoop(() => {
+    if (paused) return;
     if (heldUntil && performance.now() < heldUntil) return;
     heldUntil = 0;
     scene.render();
@@ -107,6 +114,9 @@ export function createLayoutScene(canvas: HTMLCanvasElement, options: LayoutScen
     siteEnv,
     holdRendering(hold: boolean) {
       heldUntil = hold ? performance.now() + HOLD_RENDER_MAX_MS : 0;
+    },
+    pauseRendering(on: boolean) {
+      paused = on;
     },
     dispose() {
       window.removeEventListener('resize', onResize);
