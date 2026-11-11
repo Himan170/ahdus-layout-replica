@@ -1003,7 +1003,7 @@ export function createPlayController(scene, canvas, {
       return {
         title: itemName(obj),
         detail: obj.isLocked ? 'Locked' : itemSize(mesh),
-        keys: obj.isLocked ? [['Click', 'Walk to it']] : [['Click', 'Walk to it'], ['G', 'Pick up']],
+        keys: obj.isLocked ? [['Click', 'Walk to it']] : [['Click', 'Walk to it'], ['G', 'Pick up'], ['Right-click', 'Remove']],
       };
     }
     aim = { type: 'pickUp', id: obj.id };
@@ -1313,11 +1313,6 @@ export function createPlayController(scene, canvas, {
     // First: cancel a half-drawn room or wall, a grabbed wall, or a carried item
     if (cornerA || grab || carry || slide) {
       cancelBuild();
-      return;
-    }
-    if (!tool && mouseAim) {
-      // an empty hand removes nothing (a right-drag looks around: a slip must not delete a desk)
-      if (aimTarget()) say('To remove things, hold an item or the Edit item tool (1–9, B), then right-click', 3000);
       return;
     }
     const target = aimTarget();

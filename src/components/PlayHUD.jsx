@@ -24,7 +24,7 @@ const CONTROLS = [
   ['W A S D', 'Move'],
   ['Drag', 'Look around (the mouse stays)'],
   ['Click', 'Empty hand: walk there. Holding an item: build where the mouse points'],
-  ['Right-click', 'Holding an item: remove what the mouse points at'],
+  ['Right-click', 'Remove what the mouse points at; drag instead to look around'],
   ['Shift', 'Run'],
   ['Space', 'Jump'],
   ['F', 'Fly (Space up, C down)'],
