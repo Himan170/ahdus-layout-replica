@@ -95,6 +95,8 @@ import { DEFAULT_HOTBAR, EMPTY_HAND, catalogSlot } from '../play/hotbarItems';
 import { layoutBridge } from '../integration/layoutBridge';
 import { lockPointer } from '../utils/pointerLock';
 import { anchorsForObject } from '../integration/anchorsFromStore';
+import { createGroupActions, GROUP_HIGHLIGHT } from '../planner/groupActions';
+import { HighlightSystem } from '../engine/systems/HighlightSystem';
 
 const DEMO_MODULES = typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('demoModules');
@@ -265,6 +267,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       setPlacementMode: s.setPlacementMode,
       setIs3D: s.setIs3D,
       selectFloor: s.selectFloor,
+      toggleObjectSelection: s.toggleObjectSelection,
+      setObjectSelection: s.setObjectSelection,
     }),
     shallow
   );
@@ -1033,15 +1037,50 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     lights.directional.intensity = sun;
   }, []);
 
+  // ─── Several items at once, copy and paste (v0.15.5, planner/groupActions.js) ───
+  const groupActions = useMemo(() => createGroupActions({
+    editor,
+    getState: useWorkspaceStore.getState,
+    carriedWith: (obj) => plannerToolsRef.current?.carriedWith(obj) ?? [],
+    message: (text, bad) => showStudioMessage(text, bad),
+  }), [editor, showStudioMessage]);
+  // Where Ctrl+V pastes: the mouse over the 3D / 2D view, or over the Plan (its own pointer), else null
+  const canvasHoverRef = useRef(false);
+  const planPointerRef = useRef(null);
+  const pasteTarget = useCallback(() => {
+    if (planView) return planPointerRef.current;
+    return canvasHoverRef.current ? plannerToolsRef.current?.pointerGround() ?? null : null;
+  }, [planView]);
+
   // ─── Keyboard shortcuts (hooks/useStudioKeyboard.js) ───
   useStudioKeyboard({
     editor, handleCancelPlacement, handleToggleGizmo, handleTurnItem, handleTurnRoom, handleEnterPlay, handleSetPlannerTool,
     handleDeleteOpening, showStudioMessage, isPlayingRef, plannerToolsRef, measureModeRef, measureStartRef,
     placementManagerRef, snapRef, setMeasureMode, setMeasureStart, setMeasurePreview, setLayersOpen,
-    setOpenTray, setAnnounceText, cameraKeyRef,
+    setOpenTray, setAnnounceText, cameraKeyRef, groupActions, pasteTarget,
   });
 
   // ─── What the Studio shows ───
+  const selectedObjectIds = useWorkspaceStore((s) => s.selectedObjectIds);
+  const groupObjects = useMemo(
+    () => selectedObjectIds.map((id) => objectsMap[id]).filter(Boolean),
+    [selectedObjectIds, objectsMap],
+  );
+  // The group outlined in the 3D / 2D view (the engine's HighlightSystem, as search results in the viewer)
+  const groupHighlightRef = useRef(null);
+  useEffect(() => {
+    if (!sceneReady || !roomSystemRef.current || !objectSystemRef.current) return undefined;
+    const lights = new HighlightSystem(roomSystemRef.current, objectSystemRef.current);
+    groupHighlightRef.current = lights;
+    return () => { lights.clear(); groupHighlightRef.current = null; };
+  }, [sceneReady]);
+  useEffect(() => {
+    const lights = groupHighlightRef.current;
+    if (!lights) return;
+    lights.clear();
+    if (selectedObjectIds.length > 1 && !isPlaying) lights.add(selectedObjectIds, GROUP_HIGHLIGHT, { tint: true });
+  }, [selectedObjectIds, objectsMap, isPlaying, sceneReady, buildProgress?.allBuilt]);
+
   const selectedObject = selectedObjectId ? objectsMap[selectedObjectId] ?? null : null;
   const selectedRoom = !selectedObject && selectedRoomId ? roomsMap[selectedRoomId] ?? null : null;
   // a selected staircase: why it can't be used as it stands (leads nowhere, doesn't fit its room)
@@ -1061,7 +1100,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       setAnnounceText(`Selected room ${selectedRoom.name}`);
     }
   }, [selectedObject, selectedRoom]);
-  const inspectorMode = selectedObject ? 'object' : selectedRoom ? 'room'
+  const inspectorMode = selectedObject ? 'object' : groupObjects.length > 1 ? 'group' : selectedRoom ? 'room'
     : selectedOpening ? 'opening' : layersOpen ? 'layers' : null;
   const floorName = floorsMap[currentFloor]?.name ?? '';
   const tile = activeTile(plannerTool, placementMode, ASSET_TYPES[placementMode]?.label);
@@ -1395,6 +1434,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
             ref={canvasRef}
             className={measureMode ? 'is-measuring' : ''}
             onPointerDown={phone && !canvasTouched ? () => setCanvasTouched(true) : undefined}
+            onPointerEnter={(e) => { if (e.pointerType === 'mouse') canvasHoverRef.current = true; }}
+            onPointerLeave={() => { canvasHoverRef.current = false; }}
             style={{
               visibility: planView && !isPlaying ? 'hidden' : 'visible',
               pointerEvents: planView && !isPlaying ? 'none' : 'auto',
@@ -1413,6 +1454,11 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               allObjects={allObjects}
               onOpenFloor={storeActions.selectFloor}
               prefsKey={planPrefsKey(planCompanyId, planLayoutId)}
+              selectedObjectIds={selectedObjectIds}
+              onToggleObject={(id) => storeActions.toggleObjectSelection(id)}
+              onSelectObjects={(ids) => storeActions.setObjectSelection(ids)}
+              onMoveGroup={(dx, dz) => { groupActions.move(dx, dz); editor.endBurst(); }}
+              onPointerWorld={(p) => { planPointerRef.current = p; }}
               onSelectRoom={(id) => {
                 storeActions.selectRoom(id);
                 storeActions.selectObject(null);
@@ -1581,6 +1627,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           onDuplicateRoom={handleDuplicateRoom}
           seatPanel={seatPanel}
           departmentChoices={departmentNames}
+          group={groupObjects}
+          groupActions={groupActions}
         />
       )}
     />

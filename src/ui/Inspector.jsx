@@ -16,6 +16,7 @@ import { useEffect, useState, useMemo, useCallback, useSyncExternalStore } from 
 import { livePosition } from '../utils/livePosition';
 import {
   X, Copy, Lock, LockOpen, Trash2, Link2, Unlink2, LayoutGrid, DoorOpen, AppWindow, RotateCcw, Volume2, VolumeX, Plus,
+  RotateCw, Boxes, ClipboardCopy,
 } from 'lucide-react';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { ROOM_TYPES } from '../utils/roomStore';
@@ -489,6 +490,47 @@ function LayersBody({ rooms = [], objects = [], floors = [], routes = [], onPick
   );
 }
 
+// ── Several items (v0.15.5) ─────────────────────────────────────────────
+
+/** "3 × Standard Desk, 3 × Office Chair": what the group holds, most first. */
+export function groupSummary(items = []) {
+  const counts = new Map();
+  for (const o of items) {
+    const name = ASSET_TYPES[o.assetType]?.label ?? o.assetType;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+function GroupBody({ items }) {
+  const locked = items.filter((o) => o.isLocked).length;
+  return (
+    <>
+      <Section title="In the selection">
+        <ul className="layers-list" role="list" aria-label="Selected items">
+          {groupSummary(items).map(([name, n]) => (
+            <li key={name} className="insp-group-row">
+              <span className="layers-list__name">{name}</span>
+              <span className="ui-muted">× {n}</span>
+            </li>
+          ))}
+        </ul>
+        {locked > 0 && (
+          <p className="insp-note" data-group-locked={locked}>
+            {locked} locked: {locked === 1 ? 'it stays' : 'they stay'} when the group moves, turns or is deleted.
+          </p>
+        )}
+      </Section>
+      <Section title="Tips">
+        <p className="insp-note">
+          Drag one of them to move them all. Shift+click adds or removes an item; Shift+drag draws a box.
+          Arrow keys move, R turns, Ctrl+C / Ctrl+V copy and paste, Esc clears the selection.
+        </p>
+      </Section>
+    </>
+  );
+}
+
 // ── Card ────────────────────────────────────────────────────────────────
 
 export default function Inspector({
@@ -512,6 +554,8 @@ export default function Inspector({
   onDuplicateRoom,      // (roomId) => void
   seatPanel = null,     // a desk inside AHDUS: SeatSection's props ("Who sits here"), else null
   departmentChoices = null, // a room's Department field (v0.14.9): the page's names (roomDepartment.departmentChoices); null: free text
+  group = [],           // v0.15.5: the selected items when 2+ are selected (mode 'group')
+  groupActions = null,  // planner/groupActions.js: turn, duplicate, copy, lock, delete
 }) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -534,8 +578,11 @@ export default function Inspector({
       const summary = describeAccessibilityRoutes(floors, rooms, objects, routes);
       return `${floorName} outline. ${rooms?.length || 0} rooms and ${objects?.length || 0} items on this floor. ${summary}`;
     }
+    if (mode === 'group') {
+      return `${group.length} items selected: ${groupSummary(group).map(([name, n]) => `${n} ${name}`).join(', ')}.`;
+    }
     return '';
-  }, [mode, object, room, opening, floorName, objects, rooms, floors, routes]);
+  }, [mode, object, room, opening, floorName, objects, rooms, floors, routes, group]);
 
   const handleToggleSpeech = useCallback(() => {
     if (!canSpeak || !speechText) return;
@@ -573,6 +620,7 @@ export default function Inspector({
           {mode === 'object' && ObjIcon && <ObjIcon size={20} strokeWidth={1.75} />}
           {mode === 'room' && <span className="ui-dot inspector__room-dot" style={{ background: room.color }} />}
           {mode === 'layers' && <LayoutGrid size={20} strokeWidth={1.75} />}
+          {mode === 'group' && <Boxes size={20} strokeWidth={1.75} />}
           {mode === 'opening' && (opening.kind === 'door'
             ? <DoorOpen size={20} strokeWidth={1.75} /> : <AppWindow size={20} strokeWidth={1.75} />)}
         </span>
@@ -600,6 +648,12 @@ export default function Inspector({
               <span className="inspector__type">
                 {opening.data.width.toFixed(1)} × {opening.data.height.toFixed(1)} m · {opening.room.name}
               </span>
+            </>
+          )}
+          {mode === 'group' && (
+            <>
+              <h2 className="inspector__title" data-group-count={group.length}>{group.length} items selected</h2>
+              <span className="inspector__type">On {floorName}</span>
             </>
           )}
           {mode === 'layers' && (
@@ -642,7 +696,30 @@ export default function Inspector({
         {mode === 'layers' && (
           <LayersBody rooms={rooms} objects={objects} floors={floors} routes={routes} onPick={onPickLayer} />
         )}
+        {mode === 'group' && <GroupBody items={group} />}
       </div>
+
+      {mode === 'group' && groupActions && (
+        <footer className="inspector__footer is-wrap" data-group-actions="">
+          <button className="ui-btn" onClick={() => groupActions.turn(false)} title="Turn them all 90° about their middle (R)">
+            <RotateCw {...ICON} /> Turn 90°
+          </button>
+          <button className="ui-btn" onClick={() => groupActions.duplicate()} title="A copy of them beside them (Ctrl+D)">
+            <Copy {...ICON} /> Duplicate
+          </button>
+          <button className="ui-btn" onClick={() => groupActions.copy()} title="Copy, then paste with Ctrl+V (Ctrl+C)">
+            <ClipboardCopy {...ICON} /> Copy
+          </button>
+          <button className="ui-btn" onClick={() => groupActions.toggleLock()}
+            title={group.every((o) => o.isLocked) ? 'Unlock them all (L)' : 'Lock them all (L)'}>
+            {group.every((o) => o.isLocked) ? <LockOpen {...ICON} /> : <Lock {...ICON} />}
+            {group.every((o) => o.isLocked) ? 'Unlock all' : 'Lock all'}
+          </button>
+          <button className="ui-btn is-danger" onClick={() => groupActions.remove()} title="Delete them (Del); locked items stay">
+            <Trash2 {...ICON} /> Delete
+          </button>
+        </footer>
+      )}
 
       {mode === 'opening' && (
         <footer className="inspector__footer">

@@ -55,6 +55,12 @@ export default function FloorPlanView({
   allObjects = null,  // every floor's items
   onOpenFloor = null, // (floorId) => void   All floors: a click opens that floor
   prefsKey = null,    // the workplace: its Plan settings are remembered in this browser
+  // v0.15.5: several items
+  selectedObjectIds = [],      // the group (2+ items)
+  onToggleObject = () => {},   // (id) => void   Shift+click
+  onSelectObjects = () => {},  // (ids) => void  Shift+drag a box
+  onMoveGroup = () => {},      // (dx, dz) => void   a group dragged (one undo step)
+  onPointerWorld = () => {},   // ({ x, z } | null) => void   where the mouse is (Ctrl+V pastes there)
 }) {
   const svgRef = useRef(null);
 
@@ -83,6 +89,11 @@ export default function FloorPlanView({
   const below = useMemo(() => (belowId == null ? [] : buildingRooms.filter((r) => r.floor === belowId)), [buildingRooms, belowId]);
   const stairs = useMemo(() => planStairs(buildingObjects, floors, currentFloor), [buildingObjects, floors, currentFloor]);
   const floorName = (id) => floors.find((f) => f.id === id)?.name ?? 'another floor';
+
+  // ── Several items (v0.15.5): Shift+drag box { start, current } (world), and the click after a drag ──
+  const [box, setBox] = useState(null);
+  const justDraggedRef = useRef(false);
+  const group = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
 
   // ── Item Drag State ──
   const [drag, setDrag] = useState(null);
@@ -131,6 +142,27 @@ export default function FloorPlanView({
     }, { objects, rooms, snap, ground });
   }, [objects, rooms, snap, ground]);
 
+  // ── A group being dragged: how far (snapped to the grid step, as one item's drag) ──
+  const groupDelta = useCallback((d) => {
+    const step = snap?.enabled && snap.step > 0 ? snap.step : 0;
+    const round = (v) => (step ? Math.round(v / step) * step : Math.round(v * 100) / 100);
+    return { dx: round(d.current.x - d.start.x), dz: round(d.current.z - d.start.z) };
+  }, [snap]);
+
+  /** The items of this floor whose middle is inside a box (world corners). */
+  const itemsInBox = useCallback((b) => {
+    const x0 = Math.min(b.start.x, b.current.x);
+    const x1 = Math.max(b.start.x, b.current.x);
+    const z0 = Math.min(b.start.z, b.current.z);
+    const z1 = Math.max(b.start.z, b.current.z);
+    if (x1 - x0 < 0.05 && z1 - z0 < 0.05) return [];
+    return objects.filter((o) => {
+      const x = Number(o.x) || 0;
+      const z = Number(o.z) || 0;
+      return x >= x0 && x <= x1 && z >= z0 && z <= z1;
+    }).map((o) => o.id);
+  }, [objects]);
+
   // ── Wheel Event for Zoom centered at cursor ──
   useEffect(() => {
     const svg = svgRef.current;
@@ -166,15 +198,26 @@ export default function FloorPlanView({
 
   // ── Pointer Down on Items (Drag item) ──
   function handleItemPointerDown(event, object) {
+    if (event.button !== 0) return;
+    // Shift+click: in or out of the selection (locked items too), no drag
+    if (event.shiftKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      onToggleObject(object.id);
+      return;
+    }
     if (object.isLocked) return;
 
     event.preventDefault();
     event.stopPropagation();
-    onSelectObject(object.id);
+    // an item of the selected group drags the whole group; any other item is selected first
+    const inGroup = group.has(object.id);
+    if (!inGroup) onSelectObject(object.id);
 
     const start = pointerWorld(event.clientX, event.clientY);
     startDrag({
       id: object.id,
+      group: inGroup,
       start,
       current: start,
       originalX: Number(object.x) || 0,
@@ -189,6 +232,14 @@ export default function FloorPlanView({
   function handleBackgroundPointerDown(event) {
     if (event.button !== 0) return; // Left mouse button only
     if (dragRef.current) return;
+
+    // Shift+drag anywhere but an item: a box that selects the items in it (v0.15.5)
+    if (event.shiftKey) {
+      const start = pointerWorld(event.clientX, event.clientY);
+      setBox({ start, current: start });
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      return;
+    }
 
     // Deselect if clicking pure background
     if (event.target === svgRef.current || event.target.classList.contains('floor-plan-bg')) {
@@ -207,6 +258,9 @@ export default function FloorPlanView({
 
   // ── Pointer Move (Pan background or move item) ──
   function handlePointerMove(event) {
+    const here = pointerWorld(event.clientX, event.clientY);
+    onPointerWorld(here);
+    if (box) { setBox({ ...box, current: here }); return; }
     // 1. Moving an item
     if (dragRef.current) {
       const current = pointerWorld(event.clientX, event.clientY);
@@ -233,7 +287,25 @@ export default function FloorPlanView({
 
   // ── Pointer Up (Finish drag or pan) ──
   function handlePointerUp() {
+    if (box) {
+      const ids = itemsInBox(box);
+      const now = selectedObjectIds.length ? selectedObjectIds : selectedObjectId ? [selectedObjectId] : [];
+      if (ids.length) onSelectObjects([...now, ...ids]);
+      setBox(null);
+      return;
+    }
     const d = dragRef.current;
+    if (d?.group) {
+      // a group: every unlocked item moves by as much (snapped), with their chairs (one undo step)
+      if (d.moved) {
+        const { dx, dz } = groupDelta(d);
+        if (Math.abs(dx) > 1e-6 || Math.abs(dz) > 1e-6) onMoveGroup(dx, dz);
+        justDraggedRef.current = true; // the click that follows keeps the group
+      }
+      startDrag(null);
+      return;
+    }
+    if (d?.moved) justDraggedRef.current = true;
     if (d) {
       const to = d.moved ? dropOf(d) : null;
       const object = objects.find((o) => o.id === d.id);
@@ -419,6 +491,7 @@ export default function FloorPlanView({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
+        onPointerLeave={() => onPointerWorld(null)}
         style={{
           cursor: panDrag ? 'grabbing' : drag ? 'move' : 'grab',
           touchAction: 'none',
@@ -498,6 +571,7 @@ export default function FloorPlanView({
               aria-pressed={selected}
               onClick={(e) => {
                 e.stopPropagation();
+                if (e.shiftKey) return; // Shift: a box, not the room
                 onSelectRoom(room.id);
               }}
               onKeyDown={selectOnKey(() => onSelectRoom(room.id))}
@@ -661,12 +735,17 @@ export default function FloorPlanView({
         {plan.objects.map((object) => {
           const type = ASSET_TYPES[object.assetType] || {};
           const { width: w, depth: d } = itemSize(object);
-          const activeDrag = drag?.id === object.id;
-          const dropAt = activeDrag && drag.moved ? dropOf(drag) : null;
+          const inGroup = group.has(object.id);
+          // a group being dragged: its unlocked items follow the mouse together
+          const groupMove = drag?.group && drag.moved && inGroup && !object.isLocked ? groupDelta(drag) : null;
+          const activeDrag = drag?.id === object.id || !!groupMove;
+          const dropAt = !drag?.group && drag?.id === object.id && drag.moved ? dropOf(drag) : null;
           // a refused spot (a floor-only item over a table top): it shows where it stands
-          const pos = (dropAt?.problem ? null : dropAt) ?? { x: Number(object.x) || 0, z: Number(object.z) || 0 };
+          const pos = groupMove
+            ? { x: (Number(object.x) || 0) + groupMove.dx, z: (Number(object.z) || 0) + groupMove.dz }
+            : (dropAt?.problem ? null : dropAt) ?? { x: Number(object.x) || 0, z: Number(object.z) || 0 };
           const c = at(pos);
-          const selected = object.id === selectedObjectId;
+          const selected = object.id === selectedObjectId || inGroup;
           const label = object.label || type.label || object.assetType || 'Item';
           const wall = wallSegmentEnds({ ...object, ...pos });
 
@@ -679,12 +758,24 @@ export default function FloorPlanView({
               tabIndex={0}
               aria-label={`Item: ${label}${object.isLocked ? ' (locked)' : ''}`}
               aria-pressed={selected}
+              data-in-group={inGroup ? '' : undefined}
               onClick={(e) => {
                 e.stopPropagation();
-                onSelectObject(object.id);
+                if (e.shiftKey) return; // Shift+click toggled it on press
+                if (justDraggedRef.current) { justDraggedRef.current = false; return; } // the end of a drag
+                onSelectObject(object.id); // a click on an item of a group: just that item
               }}
               onPointerDown={(event) => handleItemPointerDown(event, object)}
-              onKeyDown={selectOnKey(() => onSelectObject(object.id))}
+              onKeyDown={(e) => {
+                // Shift+Enter / Shift+Space: in or out of the selection, as Shift+click
+                if (e.shiftKey && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleObject(object.id);
+                  return;
+                }
+                selectOnKey(() => onSelectObject(object.id))(e);
+              }}
               style={{
                 cursor: object.isLocked ? 'not-allowed' : 'move',
                 touchAction: 'none',
@@ -773,6 +864,19 @@ export default function FloorPlanView({
           </g>
         )}
 
+        {/* ── Shift+drag: the selecting box ── */}
+        {box && (
+          <rect
+            data-plan-box=""
+            x={Math.min(at(box.start).x, at(box.current).x)}
+            y={Math.min(at(box.start).y, at(box.current).y)}
+            width={Math.abs(box.current.x - box.start.x)}
+            height={Math.abs(box.current.z - box.start.z)}
+            fill="#2563eb" fillOpacity={0.08} stroke="#2563eb" strokeWidth={0.04} strokeDasharray="0.2 0.12"
+            pointerEvents="none"
+          />
+        )}
+
         {/* ── Module Anchors (Workstations, Seats, Reception, Machines, Spawn) ── */}
         {showAnchors && (
           <g className="floor-plan-anchors" aria-label="Module Anchors">
@@ -790,6 +894,8 @@ export default function FloorPlanView({
                   transform={`translate(${pt.x}, ${pt.y})`}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (e.shiftKey) return;
+                    if (justDraggedRef.current) { justDraggedRef.current = false; return; }
                     if (anchor.objectId) onSelectObject(anchor.objectId);
                   }}
                   // The badge sits on its item: a press on it grabs the item (else the plan would pan)

@@ -32,6 +32,20 @@ const objectId = () => `obj_${uuidv4()}`;
 function claimRoomId(id)   { return id ? String(id) : roomId(); }
 function claimObjectId(id) { return id ? String(id) : objectId(); }
 
+/**
+ * The selection for these item ids (v0.15.5): 2+ = a group (no single item), 1 = that item, 0 = none.
+ * Ids that are not items any more are dropped; the `isSelected` flags follow the single item.
+ */
+function groupSelection(objects, ids) {
+  const group = [...new Set(ids ?? [])].filter((id) => objects[id]);
+  const single = group.length === 1 ? group[0] : null;
+  const next = { ...objects };
+  for (const [id, o] of Object.entries(objects)) {
+    if (o.isSelected !== (id === single)) next[id] = { ...o, isSelected: id === single };
+  }
+  return { objects: next, selectedObjectId: single, selectedObjectIds: group.length > 1 ? group : [] };
+}
+
 /** "Office 3": one more than the highest number already used after `label`. */
 function nextName(label, records) {
   let max = 0;
@@ -90,6 +104,7 @@ export const createWorkspaceStore = () => create(
     // ━━ Objects ━━
     objects: {},                       // { [objId]: objectData }
     selectedObjectId: null,
+    selectedObjectIds: [],             // v0.15.5: a group of 2+ items (Shift+click, a box); then selectedObjectId is null
 
     // ━━ Selected door / window ━━ { roomId, kind: 'door'|'window', index } or null
     selectedOpening: null,
@@ -250,7 +265,7 @@ export const createWorkspaceStore = () => create(
           objects[s.selectedObjectId] = { ...objects[s.selectedObjectId], isSelected: false };
         }
         objects[id] = { ...obj, isSelected: true };
-        return { objects, selectedObjectId: id, isDirty: true };
+        return { objects, selectedObjectId: id, selectedObjectIds: [], isDirty: true };
       });
       return get().objects[id];
     },
@@ -271,9 +286,12 @@ export const createWorkspaceStore = () => create(
       set((s) => {
         const objects = { ...s.objects };
         delete objects[id];
+        const group = s.selectedObjectIds.filter((g) => g !== id);
         return {
           objects,
           selectedObjectId: s.selectedObjectId === id ? null : s.selectedObjectId,
+          // a group that falls to one item is that item, selected on its own
+          ...(group.length !== s.selectedObjectIds.length && groupSelection(objects, group)),
           isDirty: true,
         };
       });
@@ -291,8 +309,24 @@ export const createWorkspaceStore = () => create(
         if (id && objects[id]) {
           objects[id] = { ...objects[id], isSelected: true };
         }
-        return { objects, selectedObjectId: id, selectedOpening: null };
+        return { objects, selectedObjectId: id, selectedObjectIds: [], selectedOpening: null };
       });
+    },
+
+    /**
+     * Select these items as a group (v0.15.5: a box, a paste). One item = selected on its own,
+     * none = nothing. Rooms and doors / windows are deselected.
+     */
+    setObjectSelection: (ids) => {
+      set((s) => ({ ...groupSelection(s.objects, ids), selectedRoomId: null, selectedOpening: null }));
+    },
+
+    /** Shift+click: add an item to the selection, or take it out (v0.15.5). */
+    toggleObjectSelection: (id) => {
+      const s = get();
+      if (!s.objects[id]) return;
+      const now = s.selectedObjectIds.length ? s.selectedObjectIds : s.selectedObjectId ? [s.selectedObjectId] : [];
+      get().setObjectSelection(now.includes(id) ? now.filter((g) => g !== id) : [...now, id]);
     },
 
     /** Toggle lock on an object. */
@@ -314,7 +348,7 @@ export const createWorkspaceStore = () => create(
 
     /** Clear all objects. */
     clearObjects: () => {
-      set({ objects: {}, selectedObjectId: null, isDirty: true });
+      set({ objects: {}, selectedObjectId: null, selectedObjectIds: [], isDirty: true });
     },
 
     // ──────────────────────────────────
@@ -391,6 +425,7 @@ export const createWorkspaceStore = () => create(
           currentFloor: newCurrentFloor,
           selectedRoomId: null,
           selectedObjectId: null,
+          selectedObjectIds: [],
           isDirty: true,
         };
       });
@@ -402,6 +437,7 @@ export const createWorkspaceStore = () => create(
         currentFloor: floorId,
         selectedRoomId: null,    // deselect when switching floors
         selectedObjectId: null,
+        selectedObjectIds: [],
         selectedOpening: null,
       });
     },
@@ -446,6 +482,7 @@ export const createWorkspaceStore = () => create(
         ignoredChecks: n.ignoredChecks,
         selectedRoomId: null,
         selectedObjectId: null,
+        selectedObjectIds: [],
         selectedOpening: null,
         isDirty: false,
         saveError: null,
@@ -511,6 +548,7 @@ export const createWorkspaceStore = () => create(
         ignoredChecks: ignoredChecks ?? st.ignoredChecks,
         selectedRoomId: null,
         selectedObjectId: null,
+        selectedObjectIds: [],
         selectedOpening: null,
         isDirty: true,
       }));
@@ -583,6 +621,7 @@ export const createWorkspaceStore = () => create(
         ignoredChecks: [],
         selectedRoomId: null,
         selectedObjectId: null,
+        selectedObjectIds: [],
         selectedOpening: null,
         activePanel: 'rooms',
         gizmoMode: null,

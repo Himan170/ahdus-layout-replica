@@ -359,6 +359,17 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
       const cmd = new CompositeCommand(label, [...removes, ...adds]);
       run(cmd);
     },
+    /**
+     * Lock or unlock several items as ONE undo step (v0.15.5: a group's "Lock all" / L).
+     * @param {string[]} ids
+     * @param {boolean} locked
+     */
+    lockObjects(ids, locked) {
+      const cmds = ids.map((id) => s.getObject(id)).filter((o) => o && !!o.isLocked !== locked)
+        .map((o) => new TransformCommand(s, o.id, { isLocked: locked }, { label: locked ? 'Lock items' : 'Unlock items' }));
+      if (cmds.length === 0) return;
+      run(cmds.length === 1 ? cmds[0] : new CompositeCommand(locked ? 'Lock items' : 'Unlock items', cmds));
+    },
     toggleLock(id) {
       const obj = s.getObject(id);
       if (!obj) return;
