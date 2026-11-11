@@ -145,6 +145,20 @@ const measure = () => p.evaluate(() => new Promise((res) => {
 await frames(2);
 
 const ground = await measure();
+// Check my layout must remain cheap on the same 72-room building.
+const layoutCheck = await p.evaluate(async () => {
+  const { checkLayout } = await import('/src/play/navigation/checkLayout.js');
+  const { ASSET_TYPES } = await import('/src/utils/assetCatalog.js');
+  const { createWalkMapCache } = await import('/src/play/navigation/walkMap.js');
+  const layout = window.__ahdusStore.getState();
+  const maps = createWalkMapCache({ catalog: ASSET_TYPES });
+  const cold = checkLayout(layout, { catalog: ASSET_TYPES, maps });
+  const warm = checkLayout(layout, { catalog: ASSET_TYPES, maps });
+  return { cold: Math.round(cold.ms), warm: Math.round(warm.ms), problems: cold.problems.length };
+});
+log('Check my layout completes on 72 rooms', layoutCheck.cold < 2000,
+  JSON.stringify(layoutCheck) + ' ms (cold / warm maps)');
+
 log(`probe building loaded: ${build.rooms} rooms, ${build.objects} items`, build.rooms === 72 && build.objects === 864,
   `store load ${build.ms} ms`);
 if (realistic) log('realistic look: all 864 items are drawn by real models', real.items === 864 && real.models === 864, JSON.stringify(real));
