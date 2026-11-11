@@ -267,6 +267,9 @@ export const PHONE_HINT = 'Drag to turn · pinch to zoom · tap a room to select
  * The phone's idle hint, or '' (no hint): hidden while a bottom sheet (the library, the
  * Inspector) covers the bottom of the view, and for good once the canvas has been touched.
  */
+/** Plan view's hint (v0.15.5: was a bar at the bottom of the plan, over the floor switcher). */
+export const PLAN_HINT = 'Click to select · drag to move · scroll to zoom · Page Up / Down: floors';
+
 export function phoneIdleHint({ sheetOpen = false, touched = false } = {}) {
   return sheetOpen || touched ? '' : PHONE_HINT;
 }

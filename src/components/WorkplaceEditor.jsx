@@ -64,6 +64,7 @@ import RoomLabels, { storedRoomLabels, storeRoomLabels } from '../ui/RoomLabels'
 import RoomHoverCard from '../ui/RoomHoverCard';
 import MeasurementOverlay from '../ui/MeasurementOverlay';
 import FloorPlanView from '../floorplan/FloorPlanView';
+import { planPrefsKey } from '../floorplan/planFloors';
 import SelectionToolbar from '../ui/SelectionToolbar';
 import Inspector from '../ui/Inspector';
 import StudioFooter from '../ui/StudioFooter';
@@ -81,7 +82,7 @@ import { normaliseLayout } from '../store/layoutData';
 import { watchFirstFrame } from '../ui/firstFrame';
 import { isPhotoReconstructionOn } from '../services/reconstructionService';
 import { isAhdusBackendOn } from '../services/backendFlags';
-import { activeTile, toolHint, phoneIdleHint } from '../ui/tools';
+import { activeTile, toolHint, phoneIdleHint, PLAN_HINT } from '../ui/tools';
 
 import {
   openingData, openingPartner, openingCentre, resizeOpening, planRemoveOpening,
@@ -243,6 +244,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   const selectedOpeningSel = useWorkspaceStore((s) => s.selectedOpening);
   const layoutName = useWorkspaceStore((s) => s.layoutName);
   const hasBackend = useWorkspaceStore((s) => !!(s.companyId && s.layoutId));
+  const planCompanyId = useWorkspaceStore((s) => s.companyId);  // Plan view's settings are kept per workplace
+  const planLayoutId = useWorkspaceStore((s) => s.layoutId);
   const inAhdus = isAhdusBackendOn(); // Studio inside AHDUS: Back to AHDUS, Publish, no copies
   const phone = usePhone(); // a phone: bottom tool bar, library sheet, PhoneBar
   const [canvasTouched, setCanvasTouched] = useState(false); // a phone's "Drag to turn…" hint is gone for good
@@ -1074,6 +1077,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   // ─── Inside AHDUS: who sits at which desk (hooks/useAhdusSeats.js); toasts come from useAhdusPublish ───
   const toastRef = useRef(null);
   const allObjects = useMemo(() => Object.values(objectsMap), [objectsMap]);
+  const allRooms = useMemo(() => Object.values(roomsMap), [roomsMap]);
   const seats = useAhdusSeats({
     enabled: inAhdus && hasBackend, objects: allObjects, phone,
     toast: (tone, text) => toastRef.current?.(tone, text),
@@ -1113,6 +1117,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     if (seats.pickHint) return { text: seats.pickHint, tone: 'message' };
     if (libraryDrop.hint) return { text: libraryDrop.hint, tone: libraryDrop.hintBad ? 'bad' : 'message' };
     if (plannerMessage) return { text: plannerMessage.text, tone: plannerMessage.bad ? 'bad' : 'message' };
+    // Plan view: the plan's own mouse (the 3D tools' hints don't apply there)
+    if (planView && !isPlaying) return { text: PLAN_HINT, tone: 'hint' };
     if (!placementMode && plannerHint) {
       const line = [plannerHint.title, plannerHint.detail].filter(Boolean).join(' · ');
       if (plannerHint.bad) return { text: line, tone: 'bad' };
@@ -1401,6 +1407,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               selectedRoomId={selectedRoomId}
               selectedObjectId={selectedObjectId}
               anchorData={anchorData}
+              floors={floors}
+              currentFloor={currentFloor}
+              allRooms={allRooms}
+              allObjects={allObjects}
+              onOpenFloor={storeActions.selectFloor}
+              prefsKey={planPrefsKey(planCompanyId, planLayoutId)}
               onSelectRoom={(id) => {
                 storeActions.selectRoom(id);
                 storeActions.selectObject(null);

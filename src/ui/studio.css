@@ -1058,12 +1058,21 @@
   text-align: center;
 }
 
-/* Floating Zoom Bar (Top Left) */
-.floor-plan-zoom-bar {
+/* Top left: the zoom bar, the plan's options under it (v0.15.5: the bottom row is the floor switcher's) */
+.floor-plan-chrome {
   position: absolute;
   top: 12px;
   left: 12px;
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  pointer-events: none;
+}
+.floor-plan-chrome > * { pointer-events: auto; }
+.floor-plan-zoom-bar {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -1109,23 +1118,21 @@
   font-weight: 600;
 }
 
-/* Bottom Toolbar */
+/* The selected item: bottom right, ABOVE the floor switcher's row (16 px + 44 px + a gap) */
 .floor-plan-toolbar {
   position: absolute;
   z-index: 10;
-  bottom: 12px;
-  left: 12px;
+  bottom: 72px;
   right: 12px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   pointer-events: none;
 }
 
 .floor-plan-toolbar__left,
-.floor-plan-toolbar__center,
-.floor-plan-toolbar__right {
+.floor-plan-toolbar__center {
   pointer-events: auto;
   display: flex;
   align-items: center;
@@ -1139,14 +1146,8 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
-.floor-plan-toolbar__title {
-  font-weight: 600;
-  font-size: 13px;
-  color: #0f172a;
-  margin-right: 4px;
-}
-
-.floor-plan-toolbar button {
+.floor-plan-toolbar button,
+.floor-plan-toolbar__left button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1161,7 +1162,8 @@
   transition: all 120ms ease;
 }
 
-.floor-plan-toolbar button:hover {
+.floor-plan-toolbar button:hover,
+.floor-plan-toolbar__left button:hover {
   background: #f8fafc;
   border-color: #94a3b8;
 }
@@ -1194,11 +1196,44 @@
   font-variant-numeric: tabular-nums;
 }
 
-.floor-plan-toolbar__right {
-  font-size: 12px;
-  color: #64748b;
-  white-space: nowrap;
+/* This floor | All floors (v0.15.5) */
+.floor-plan-scope { background: rgba(255, 255, 255, 0.94); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
+
+/* All floors: every floor's plan, one scale, side by side; a click opens one (v0.15.5) */
+.all-floors {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 64px 16px 76px; /* clear of the plan's top bar and the floor switcher's row */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  grid-auto-rows: minmax(260px, 1fr);
+  gap: 16px;
+  align-content: start;
 }
+.all-floors > [role="listitem"] { min-height: 0; display: flex; }
+.all-floors__tile {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  background: var(--bg-panel, #fff);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  position: relative;
+}
+.all-floors__tile:hover { border-color: var(--accent, #28664f); }
+.all-floors__tile.is-current { border-color: var(--accent, #28664f); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #28664f) 30%, transparent); }
+.all-floors__tile:focus { outline: none; }
+.all-floors__tile:focus-visible { outline: 3px solid var(--accent, #28664f); outline-offset: 2px; }
+.all-floors__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; }
+.all-floors__name { font-weight: 600; color: var(--text, #0f172a); }
+.all-floors__svg { flex: 1; width: 100%; min-height: 200px; background: #f8fafc; border-radius: 8px; }
+.all-floors__empty { position: absolute; inset: 40px 0 0; display: grid; place-items: center; margin: 0; color: #64748b; font-size: 13px; pointer-events: none; }
 
 /* Floor plan: keyboard focus (Tab through rooms and items) */
 .floor-plan-svg [role="button"]:focus { outline: none; }
@@ -1217,27 +1252,10 @@
 
 /* Responsive adjustments for tablet and phone */
 @media (max-width: 768px) {
-  .floor-plan-toolbar {
-    flex-direction: column-reverse;
-    align-items: flex-start;
-    gap: 8px;
-    bottom: 8px;
-    left: 8px;
-    right: 8px;
-  }
-  .floor-plan-toolbar__right {
-    display: none;
-  }
-  .floor-plan-toolbar__left,
-  .floor-plan-toolbar__center {
-    width: 100%;
-    overflow-x: auto;
-    justify-content: flex-start;
-  }
-  .floor-plan-zoom-bar {
-    top: 8px;
-    left: 8px;
-  }
+  .floor-plan-chrome { top: 8px; left: 8px; max-width: calc(100% - 16px); }
+  .floor-plan-toolbar__left { max-width: 100%; overflow-x: auto; }
+  .floor-plan-toolbar { left: 8px; right: 8px; justify-content: flex-start; }
+  .floor-plan-toolbar__center { max-width: 100%; overflow-x: auto; }
 }
 
 /* ── Accessibility (SRD section 18) ─────────────────────────────────── */

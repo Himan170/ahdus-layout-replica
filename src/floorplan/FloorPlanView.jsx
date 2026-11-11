@@ -13,12 +13,14 @@
 
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import {
-  ZoomIn, ZoomOut, Maximize2, RotateCw, Ruler, Anchor,
+  ZoomIn, ZoomOut, Maximize2, RotateCw, Ruler, Anchor, Layers2,
 } from 'lucide-react';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { WALL_THICKNESS, wallThicknessOf } from '../play/geometry';
 import { sizeLabel } from '../ui/tools';
 import { anchorsForObject } from '../integration/anchorsFromStore';
+import { floorBelow, planStairs, loadPlanPrefs, savePlanPrefs } from './planFloors';
+import AllFloorsView from './AllFloorsView';
 import {
   planDrop, itemSize, roomWallPieces, wallSegmentEnds,
   toPlan, screenToWorld, planAngle, planViewBox,
@@ -28,6 +30,8 @@ import {
 
 /** World point → SVG plan coordinates { x, y: -z }. */
 const at = (p) => toPlan(p);
+const validRoom = (r) => Number(r.width) > 0 && Number(r.depth) > 0;
+const placed = (o) => Number.isFinite(Number(o.x)) && Number.isFinite(Number(o.z));
 
 export default function FloorPlanView({
   rooms = [],
@@ -44,17 +48,41 @@ export default function FloorPlanView({
   ground = false,     // the ground floor (outside rooms is the ground)
   anchorData = {},    // metadata attached to anchors from store
   routes = [],        // evacuation/accessible routes
+  // v0.15.5: every floor (one scale and place for all of them, the floor below, All floors)
+  floors = [],        // [{ id, name }]
+  currentFloor = 0,
+  allRooms = null,    // every floor's rooms (null: just this floor's)
+  allObjects = null,  // every floor's items
+  onOpenFloor = null, // (floorId) => void   All floors: a click opens that floor
+  prefsKey = null,    // the workplace: its Plan settings are remembered in this browser
 }) {
   const svgRef = useRef(null);
 
-  // ── Pan and Zoom State ──
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  // ── Pan and Zoom State (v0.15.5: remembered per workplace, kept when the floor changes) ──
+  const [initialPrefs] = useState(() => (prefsKey ? loadPlanPrefs(prefsKey) : null));
+  const [zoom, setZoom] = useState(initialPrefs?.zoom ?? 1);
+  const [pan, setPan] = useState(initialPrefs?.pan ?? { x: 0, y: 0 });
   const [panDrag, setPanDrag] = useState(null); // { startClientX, startClientY, initialPan }
 
   // ── Toggles ──
   const [showDimensions, setShowDimensions] = useState(true);
   const [showAnchors, setShowAnchors] = useState(true);
+  const [showBelow, setShowBelow] = useState(initialPrefs?.below ?? true);
+  const [allFloors, setAllFloors] = useState(false);
+
+  // Remember zoom, place and the floor-below outline (a moment after the last change)
+  useEffect(() => {
+    if (!prefsKey) return undefined;
+    const timer = setTimeout(() => savePlanPrefs(prefsKey, { zoom, pan, below: showBelow }), 300);
+    return () => clearTimeout(timer);
+  }, [prefsKey, zoom, pan, showBelow]);
+
+  const buildingRooms = allRooms ?? rooms;
+  const buildingObjects = allObjects ?? objects;
+  const belowId = floorBelow(floors, currentFloor);
+  const below = useMemo(() => (belowId == null ? [] : buildingRooms.filter((r) => r.floor === belowId)), [buildingRooms, belowId]);
+  const stairs = useMemo(() => planStairs(buildingObjects, floors, currentFloor), [buildingObjects, floors, currentFloor]);
+  const floorName = (id) => floors.find((f) => f.id === id)?.name ?? 'another floor';
 
   // ── Item Drag State ──
   const [drag, setDrag] = useState(null);
@@ -62,13 +90,15 @@ export default function FloorPlanView({
   const dragRef = useRef(null);
   const startDrag = (next) => { dragRef.current = next; setDrag(next); };
 
-  // Base plan bounds from room & furniture geometry
-  const plan = useMemo(() => {
-    const validRooms = rooms.filter((r) => Number(r.width) > 0 && Number(r.depth) > 0);
-    const furniture = objects.filter((o) => Number.isFinite(Number(o.x)) && Number.isFinite(Number(o.z)));
-    const baseView = planViewBox(validRooms, furniture, 2.5);
-    return baseView && { rooms: validRooms, objects: furniture, baseView };
-  }, [rooms, objects]);
+  // Base plan bounds: the WHOLE building (v0.15.5), so every floor has the same scale and place and
+  // Page Up / Down keep where you were looking
+  const baseView = useMemo(
+    () => planViewBox(buildingRooms.filter(validRoom), buildingObjects.filter(placed), 2.5),
+    [buildingRooms, buildingObjects],
+  );
+  const plan = useMemo(() => baseView && {
+    rooms: rooms.filter(validRoom), objects: objects.filter(placed), baseView,
+  }, [rooms, objects, baseView]);
 
   // Dynamic viewBox string computed with current zoom and pan
   const dynamicView = useMemo(() => {
@@ -238,9 +268,36 @@ export default function FloorPlanView({
 
   const viewBoxAttr = dynamicView?.viewBoxStr || '0 0 100 100';
 
+  // v0.15.5: this floor (to edit) or all floors side by side (to look and choose)
+  const floorScope = floors.length > 1 && onOpenFloor && (
+    <div className="ui-segmented floor-plan-scope" role="group" aria-label="Floors shown">
+      <button type="button" aria-label="This floor" aria-pressed={!allFloors} onClick={() => setAllFloors(false)}>This floor</button>
+      <button type="button" aria-label="All floors" aria-pressed={allFloors} onClick={() => setAllFloors(true)}>All floors</button>
+    </div>
+  );
+
+  if (allFloors && floorScope) {
+    return (
+      <div className="floor-plan-view" aria-label="2D Floor plan view" data-plan-all-floors="">
+        <div className="floor-plan-chrome">{floorScope}</div>
+        <AllFloorsView
+          floors={floors}
+          rooms={buildingRooms}
+          objects={buildingObjects}
+          currentFloor={currentFloor}
+          baseView={plan.baseView}
+          onOpen={(id) => { setAllFloors(false); onOpenFloor(id); }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="floor-plan-view" aria-label="2D Floor plan view">
-      {/* ── Top-Left: Mini Zoom & View Controls ── */}
+      {/* ── Top left: zoom, then the plan's toggles under it. Nothing on the bottom row: that is
+          the floor switcher's (v0.15.5: the old bottom bar covered it) ── */}
+      <div className="floor-plan-chrome">
+      {floorScope}
       <div className="floor-plan-zoom-bar" role="toolbar" aria-label="Floor plan zoom controls">
         <button
           type="button"
@@ -280,10 +337,7 @@ export default function FloorPlanView({
         </button>
       </div>
 
-      {/* ── Bottom Controls Toolbar ── */}
-      <div className="floor-plan-toolbar">
-        <div className="floor-plan-toolbar__left">
-          <span className="floor-plan-toolbar__title">2D Floor Plan</span>
+        <div className="floor-plan-toolbar__left" role="toolbar" aria-label="Floor plan options">
           <button
             type="button"
             className={`floor-plan-toggle-btn ${showDimensions ? 'is-active' : ''}`}
@@ -304,10 +358,26 @@ export default function FloorPlanView({
             <Anchor size={14} strokeWidth={1.75} aria-hidden />
             <span>Anchors ({allAnchors.length})</span>
           </button>
+          {belowId != null && (
+            <button
+              type="button"
+              className={`floor-plan-toggle-btn ${showBelow ? 'is-active' : ''}`}
+              aria-pressed={showBelow}
+              aria-label="Floor below"
+              onClick={() => setShowBelow((v) => !v)}
+              title={`Show ${floorName(belowId)} as a faint outline, to line up walls and stairs`}
+            >
+              <Layers2 size={14} strokeWidth={1.75} aria-hidden />
+              <span>Floor below</span>
+            </button>
+          )}
         </div>
+      </div>
 
+      {/* ── The selected item: bottom right, above the floor switcher's row ── */}
+      <div className="floor-plan-toolbar">
         {selectedObject && (
-          <div className="floor-plan-toolbar__center">
+          <div className="floor-plan-toolbar__center" data-plan-selection="">
             <span className="floor-plan-toolbar__item-name">
               {selectedObject.label || selectedObject.name || selectedObject.assetType}
             </span>
@@ -335,10 +405,6 @@ export default function FloorPlanView({
             </span>
           </div>
         )}
-
-        <div className="floor-plan-toolbar__right ui-muted">
-          <span>Scroll to zoom · Drag background to pan · Drag items to move</span>
-        </div>
       </div>
 
       {/* ── Main SVG Canvas ── */}
@@ -385,6 +451,30 @@ export default function FloorPlanView({
           height={dynamicView?.height ?? 200}
           fill="url(#plan-grid)"
         />
+
+        {/* ── The floor below, a faint grey outline (v0.15.5): to line up walls and stairs ── */}
+        {showBelow && below.length > 0 && (
+          <g className="floor-plan-below" data-plan-below={belowId} pointerEvents="none" aria-hidden="true">
+            {below.filter(validRoom).map((room) => {
+              const c = at(room);
+              const T = wallThicknessOf(room);
+              return (
+                <rect
+                  key={room.id}
+                  x={c.x - room.width / 2}
+                  y={c.y - room.depth / 2}
+                  width={room.width}
+                  height={room.depth}
+                  fill="none"
+                  stroke="#94a3b8"
+                  strokeOpacity={0.75}
+                  strokeWidth={T}
+                  strokeDasharray={`${T * 2} ${T * 1.4}`}
+                />
+              );
+            })}
+          </g>
+        )}
 
         {/* ── Room Footprints ── */}
         {plan.rooms.map((room) => {
@@ -646,6 +736,42 @@ export default function FloorPlanView({
             </g>
           );
         })}
+
+        {/* ── Stairs on both floors they join (v0.15.5): up from here, down from the floor above's view ── */}
+        {stairs.length > 0 && (
+          <g className="floor-plan-stairs" pointerEvents="none" aria-label="Stairs">
+            {stairs.map((s) => {
+              const c = at(s);
+              const label = s.dir === 'up' ? `Up to ${floorName(s.other)}`
+                : s.dir === 'down' ? `Down to ${floorName(s.other)}` : 'Leads nowhere';
+              const font = Math.max(0.16, Math.min(s.width, s.length) * 0.17);
+              return (
+                <g key={s.id} data-plan-stairs={s.dir} transform={`rotate(${planAngle(s.rotationY)} ${c.x} ${c.y})`}>
+                  {s.dir === 'down' && (
+                    <rect
+                      x={c.x - s.width / 2} y={c.y - s.length / 2} width={s.width} height={s.length}
+                      fill="#f1f5f9" fillOpacity={0.85} stroke="#64748b" strokeWidth={0.04} strokeDasharray="0.15 0.1"
+                    />
+                  )}
+                  {/* the treads, every 0.4 m, and the way up as an arrow (+z of the flight = up) */}
+                  {Array.from({ length: Math.max(1, Math.floor(s.length / 0.4)) - 1 }, (_, i) => {
+                    const y = c.y + s.length / 2 - (i + 1) * 0.4;
+                    return <line key={i} x1={c.x - s.width / 2} x2={c.x + s.width / 2} y1={y} y2={y} stroke="#64748b" strokeWidth={0.02} />;
+                  })}
+                  <line x1={c.x} x2={c.x} y1={c.y + s.length / 2 - 0.2} y2={c.y - s.length / 2 + 0.25}
+                    stroke="#2563eb" strokeWidth={0.05} markerEnd="url(#fp-route-arrow)" />
+                  <text
+                    x={c.x} y={c.y} textAnchor="middle" dominantBaseline="middle" fontSize={font} fontWeight="600"
+                    fill="#1e3a8a" stroke="#ffffff" strokeWidth={font * 0.25} paintOrder="stroke"
+                    transform={`rotate(-90 ${c.x} ${c.y})`}
+                  >
+                    {label}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+        )}
 
         {/* ── Module Anchors (Workstations, Seats, Reception, Machines, Spawn) ── */}
         {showAnchors && (

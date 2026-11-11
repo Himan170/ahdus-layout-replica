@@ -18,6 +18,8 @@ import { STAIRS_KEEP_SIZE } from '../play/building';
 import { findRoomAt } from '../play/geometry';
 import { saveNow } from '../services/apiService';
 import { turnStep } from '../play/carry';
+import { adjacentFloor } from '../floorplan/planFloors';
+import { isTypingTarget } from '../ui/typing';
 
 export function useStudioKeyboard({
   editor, handleCancelPlacement, handleToggleGizmo, handleTurnItem, handleTurnRoom, handleEnterPlay, handleSetPlannerTool,
@@ -38,8 +40,9 @@ export function useStudioKeyboard({
         }).catch((err) => showStudioMessage(`Not saved: ${err?.message ?? err}`, true));
         return;
       }
-      // Ignore if typing in an input
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      // Typing is safe: in a text field, a dropdown or a search box no key changes the layout
+      // (Ctrl+C / Ctrl+V copy text there as normal)
+      if (isTypingTarget(e.target)) return;
 
       const store = useWorkspaceStore.getState();
 
@@ -97,6 +100,24 @@ export function useStudioKeyboard({
             handleSetPlannerTool({ kind: 'select' });
           } else {
             setOpenTray((cur) => (cur === tile.id ? null : tile.id));
+          }
+          break;
+        }
+
+        case 'PageUp':
+        case 'PageDown': {
+          // v0.15.5: floors in every Studio view (Plan keeps its zoom and place)
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
+          e.preventDefault();
+          const floors = Object.values(store.floors);
+          const next = adjacentFloor(floors, store.currentFloor, e.key === 'PageUp' ? 1 : -1);
+          if (next == null) {
+            showStudioMessage(e.key === 'PageUp' ? 'This is the top floor' : 'This is the ground floor');
+          } else {
+            store.selectFloor(next);
+            const name = store.floors[next]?.name ?? 'Floor';
+            showStudioMessage(name);
+            setAnnounceText(name);
           }
           break;
         }
