@@ -9,6 +9,8 @@
  * (hasDesk: the server found the desk in the published layout).
  */
 
+import { charactersOf } from '../embed/characterManifest';
+
 /** Desks people sit at: DESK* and RECEPTION_DESK (the same rule as play/people.js and the AHDUS server). */
 export function isDesk(assetType) {
   return typeof assetType === 'string' && (assetType.startsWith('DESK') || assetType === 'RECEPTION_DESK');
@@ -122,7 +124,8 @@ export function losingDeskText(losing) {
 }
 
 /** The people Studio draws at their desks: seats on desks of the layout (LayoutEngine / CharacterSystem shape). */
-export function seatedPeople(seats, objects, characters = new Map()) {
+export function seatedPeople(seats, objects, manifest = new Map()) {
+  const characters = charactersOf(manifest);
   const desks = new Set(desksOf(objects).map((o) => String(o.id)));
   return (seats ?? []).filter((s) => desks.has(String(s.deskId))).map((s) => ({
     personId: String(s.userId),

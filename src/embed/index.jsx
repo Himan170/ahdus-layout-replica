@@ -34,7 +34,7 @@ import { LayoutViewer } from '../engine/react/LayoutViewer';
 import { layoutBridge } from '../integration/layoutBridge';
 import { anchorsFromStore } from '../integration/anchorsFromStore';
 import { readLayout, modeProblem, actionMatcher, filterAnchors, cleanDepartments, cleanOpenAt } from './embedLayout';
-import { readManifest, resolvePeople, resolvePlayer, walkClipUrlOf } from './characterManifest';
+import { parseManifest, readManifest, resolvePeople, resolvePlayer, walkClipUrlOf } from './characterManifest';
 import css from './embed.css?inline';
 
 /** layoutBridge, for modules on the page (docs/TEAM_INTEGRATION.md): the same object our modules use. */
@@ -207,15 +207,15 @@ export function mount(element, options = {}) {
     });
   }
 
-  /** The character manifest (option characters), read once: assetReference → { url, rig, height }. */
+  /** The character manifest (option characters), read once: parseManifest's result (v1 or v2). */
   function characterMap() {
     manifest ??= readManifest(options.characters, { headers: options.headers, signal: abort.signal, pageUrl: document.baseURI })
       .then((m) => {
         if (m.problems.length) console.warn(`[AHDUSWorkplace] character manifest: ${m.problems.join('; ')}`);
-        return m.characters;
+        return m;
       }, (err) => {
         if (err?.name !== 'AbortError') console.warn(`[AHDUSWorkplace] ${err.message}: everyone is a simple figure`);
-        return new Map();
+        return parseManifest({});
       });
     return manifest;
   }

@@ -55,6 +55,12 @@ export interface CharacterFile {
   url: string;
   rig?: CharacterRig;
   height?: number;
+  /** v0.16.0 (manifest v2): 'female' | 'male', which clip set fits. */
+  gender?: 'female' | 'male';
+  /** v0.16.0: 'rocketbox' = the file has the Rocketbox outfit parts (play/outfit.js shows / tints them). */
+  outfit?: 'rocketbox';
+  /** v0.16.0: the url of the character's clip set (an animation-only .glb shared by many characters). */
+  clips?: string;
 }
 
 export interface Person {
@@ -562,11 +568,15 @@ export function poseBones(root: TransformNode, bones: Map<string, TransformNode>
 export function validCharacter(c: CharacterFile | null | undefined): CharacterFile | null {
   if (!c || typeof c.url !== 'string' || !c.url) return null;
   const height = Number(c.height);
-  return {
+  const out: CharacterFile = {
     url: c.url,
     rig: c.rig === 'ue' ? 'ue' : 'mixamo',
     height: Number.isFinite(height) && height >= 1 && height <= 2.3 ? height : FIGURE_HEIGHT,
   };
+  if (c.gender === 'female' || c.gender === 'male') out.gender = c.gender;
+  if (c.outfit === 'rocketbox') out.outfit = c.outfit;
+  if (typeof c.clips === 'string' && c.clips) out.clips = c.clips;
+  return out;
 }
 
 function samePlace(a: PlacedPerson, b: PlacedPerson): boolean {

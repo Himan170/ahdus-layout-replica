@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  parseManifest, readManifest, resolvePeople, resolvePlayer, walkClipUrlOf, DEFAULT_HEIGHT, MAX_TEXT,
+  parseManifest, readManifest, resolvePeople, resolvePlayer, walkClipUrlOf, charactersOf, DEFAULT_HEIGHT, MAX_TEXT,
 } from '../characterManifest';
 
 const BASE = 'https://ahdus.example/frontend/character/manifest.json';
@@ -122,5 +122,82 @@ describe('walking as yourself: the player and the walk clip', () => {
     expect(walkClipUrlOf({ walkClipUrl: 'javascript:alert(1)' }, page)).toBeNull();
     expect(walkClipUrlOf({ walkClipUrl: '  ' }, page)).toBeNull();
     expect(walkClipUrlOf(undefined, page)).toBeNull();
+  });
+});
+
+describe('manifest version 2 (v0.16.0)', () => {
+  const URL2 = 'https://ahdus.example/frontend/workplace/characters.json';
+  const v2 = {
+    version: 2,
+    groups: { imported: false, rocketbox: true },
+    clips: { female: { url: 'office/clips-female.glb' }, male: { url: 'office/clips-male.glb' } },
+    neutral: ['rocketbox:aisha-v1', 'rocketbox:andre-v1', 'imported:nadia-v1'],
+    characters: {
+      'rocketbox:aisha-v1': { url: 'office/aisha.glb', height: 1.74, gender: 'female', group: 'rocketbox', outfit: 'rocketbox', clips: 'female' },
+      'rocketbox:andre-v1': { url: 'office/andre.glb', height: 1.81, gender: 'male', group: 'rocketbox', outfit: 'rocketbox', clips: 'male' },
+      'imported:nadia-v1': { url: 'office/nadia.glb', height: 1.76, gender: 'female', group: 'imported' },
+      'mixamo:aj-v1': { url: 'office/aj.glb', height: 1.8 },
+    },
+  };
+
+  it('reads characters, clip sets and the neutral set; a group switched off is left out', () => {
+    const m = parseManifest(v2, URL2);
+    expect(m.version).toBe(2);
+    expect(m.off).toEqual(['imported']);
+    expect([...m.characters.keys()]).toEqual(['rocketbox:aisha-v1', 'rocketbox:andre-v1', 'mixamo:aj-v1']);
+    expect(m.characters.get('rocketbox:aisha-v1')).toEqual({
+      url: 'https://ahdus.example/frontend/workplace/office/aisha.glb', rig: 'mixamo', height: 1.74, gender: 'female',
+      group: 'rocketbox', outfit: 'rocketbox', clips: 'https://ahdus.example/frontend/workplace/office/clips-female.glb',
+    });
+    expect(m.clips.get('male')).toEqual({ url: 'https://ahdus.example/frontend/workplace/office/clips-male.glb' });
+    // a neutral character of a group switched off is not in the set (and is reported)
+    expect(m.neutral).toEqual(['rocketbox:aisha-v1', 'rocketbox:andre-v1']);
+    expect(m.problems).toEqual(['neutral: imported:nadia-v1 is not a character here']);
+    // switched on again: one flag
+    const on = parseManifest({ ...v2, groups: { imported: true } }, URL2);
+    expect(on.characters.has('imported:nadia-v1')).toBe(true);
+    expect(on.neutral).toHaveLength(3);
+  });
+
+  it('says what is wrong and keeps the rest', () => {
+    const m = parseManifest({
+      version: 2,
+      groups: { x: 'no' },
+      clips: { bad: { url: 'javascript:1' } },
+      neutral: 'all',
+      characters: {
+        a: { url: 'a.glb', gender: 'robot', outfit: 'toga', clips: 'bad' },
+        b: { url: '' },
+      },
+    }, URL2);
+    expect([...m.characters.keys()]).toEqual(['a']);
+    expect(m.characters.get('a')).toEqual({ url: 'https://ahdus.example/frontend/workplace/a.glb', rig: 'mixamo', height: DEFAULT_HEIGHT });
+    expect(m.problems).toEqual([
+      'groups.x: must be true or false', 'clips.bad: only http(s) urls', 'a: unknown gender "robot"',
+      'a: unknown outfit "toga" (shown as it is)', 'a: no clip set "bad"', 'b: no url', '"neutral" must be a list of asset references',
+    ]);
+    expect(parseManifest({ version: 2 }).problems).toEqual(['"characters" must be an object']);
+    expect(parseManifest({ version: 3, a: { url: 'https://x/a.glb' } }).problems).toEqual(['unknown manifest version 3 (read as version 1)']);
+  });
+
+  it('a version 1 manifest reads as before (no clip sets, no neutral set)', () => {
+    const m = parseManifest({ 'mixamo:aj-v1': { url: 'aj.glb' } }, BASE);
+    expect(m).toMatchObject({ version: 1, neutral: [], off: [], problems: [] });
+    expect(m.clips.size).toBe(0);
+  });
+
+  it('people and the player get gender, outfit and clips; the resolvers take the manifest or its Map', () => {
+    const m = parseManifest(v2, URL2);
+    const [p] = resolvePeople([{ personId: 'u1', deskId: 'd1', assetReference: 'rocketbox:andre-v1' }], m);
+    expect(Object.keys(p.character)).toEqual(['url', 'rig', 'height', 'gender', 'outfit', 'clips']);
+    expect(p.character.clips).toBe('https://ahdus.example/frontend/workplace/office/clips-male.glb');
+    // no group in what the view gets
+    expect(p.character.group).toBeUndefined();
+    expect(resolvePlayer({ personId: 'u1', assetReference: 'rocketbox:aisha-v1' }, m).character.outfit).toBe('rocketbox');
+    // a character switched off is unknown: the simple figure (the even default comes later)
+    expect(resolvePeople([{ personId: 'u2', deskId: 'd2', assetReference: 'imported:nadia-v1' }], m)[0].character).toBeNull();
+    expect(charactersOf(m)).toBe(m.characters);
+    expect(charactersOf(m.characters)).toBe(m.characters);
+    expect(charactersOf(null).size).toBe(0);
   });
 });

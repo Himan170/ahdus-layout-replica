@@ -62,7 +62,7 @@ export function useAhdusSeats({ enabled, objects, toast, phone }) {
       if (seatAccess(res.me) !== 'none') refresh();
     });
     readManifest({ manifestUrl: AHDUS_CHARACTERS }, { pageUrl: window.location.href })
-      .then((m) => { if (!cancelled) setCharacters(m.characters); })
+      .then((m) => { if (!cancelled) setCharacters(m); }) // the whole manifest (v2: clip sets, the neutral set)
       .catch((err) => console.warn(`[AHDUS] ${err.message}: everyone is a simple figure`));
     return () => { cancelled = true; };
   }, [enabled, site, refresh]);
