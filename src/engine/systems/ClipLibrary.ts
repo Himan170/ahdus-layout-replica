@@ -188,6 +188,18 @@ export function instantiateClip(scene: Scene, clip: BakedClip, bones: Map<string
   return group;
 }
 
+/** A baked clip's pose at `frame` set on a person's bones: a held pose, no animation running (v0.16.0). */
+export function holdClip(clip: BakedClip, bones: Map<string, TransformNode>, frame = 0): void {
+  for (const { key, animation } of clip.tracks) {
+    const node = bones.get(key);
+    if (!node) continue;
+    const v = animation.evaluate(Math.min(Math.max(0, frame), clip.frames));
+    if (animation.targetProperty === 'rotationQuaternion') node.rotationQuaternion = (v as Quaternion).clone();
+    else if (animation.targetProperty === 'position') node.position.copyFrom(v as Vector3);
+    else if (animation.targetProperty === 'scaling') node.scaling.copyFrom(v as Vector3);
+  }
+}
+
 /** The nodes under `top` by boneKey (Mixamo with or without its prefix, Unreal-style, the biped rig). */
 export function clipBones(top: TransformNode): Map<string, TransformNode> {
   const bones = new Map<string, TransformNode>();
@@ -410,7 +422,11 @@ export class Animator {
   }
 
   /** Fade to `name` (false: no such clip, nothing changes). */
-  play(name: string, { fade = FADE_S, speed = 1, once = false, then }: { fade?: number; speed?: number; once?: boolean; then?: string | null } = {}): boolean {
+  play(name: string, { fade = FADE_S, speed = 1, once = false, then, at }: {
+    fade?: number; speed?: number; once?: boolean; then?: string | null;
+    /** Start this far into the cycle (0…1), v0.16.0: people at desks don't all move in step. */
+    at?: number;
+  } = {}): boolean {
     const track = this.tracks.get(name);
     if (!track) return false;
     if (once) {
@@ -424,6 +440,7 @@ export class Animator {
     this.target = name;
     this.setSpeed(speed);
     if (!track.group.isPlaying) this.startTrack(track);
+    if (at !== undefined && Number.isFinite(at)) track.group.goToFrame((((at % 1) + 1) % 1) * track.clip.frames);
     if (this.fade === 0) this.step(Infinity);
     return true;
   }

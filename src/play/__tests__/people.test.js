@@ -3,7 +3,7 @@ import {
   DESK_SIZES, SEAT_REACH, deskSeat, deskSeats, seatPose, personNear, chooseFullCharacters, MAX_FULL_CHARACTERS,
   normaliseBoneName, canonicalBoneName, BONE_TABLE, SEATED_POSE, STANDING_POSE, breathing, phaseOf,
   playerEyeHeight, walkRatio, clipSpeed, MIN_WALK_RATIO, MAX_WALK_RATIO, visitorSpot, COUNTER_GAP, figureWalkCycle, FIGURE_LEG,
-  visitorSpots, CORNER_DESK_ARM, OPEN_SIDE_GAP, boneKey, chooseGait, RUN_FROM, stairLift,
+  visitorSpots, CORNER_DESK_ARM, OPEN_SIDE_GAP, boneKey, chooseGait, RUN_FROM, stairLift, workClip, TYPING_TYPES,
 } from '../people';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 
@@ -329,5 +329,23 @@ describe('gait and stairs (v0.16.0)', () => {
     expect(stairLift(-1.9)).toBeCloseTo(0.4, 5);
     expect(stairLift(Infinity)).toBe(0);
     expect(stairLift(undefined)).toBe(0);
+  });
+});
+
+describe('workClip (v0.16.0)', () => {
+  const o = (id, assetType, x, z, extra = {}) => ({ id, assetType, floor: 0, x, y: 0, z, rotationY: 0, ...extra });
+  it('types at a desk with a keyboard, laptop or monitor on it; sits at another; stands idle', () => {
+    const desk = o('d', 'DESK_STANDARD', 0, 0, { rotationY: Math.PI / 2 }); // turned: 0.8 wide along X, 1.6 along Z
+    const seated = { seated: true, deskId: 'd' };
+    expect(workClip(seated, [desk])).toBe('Sit');
+    expect(workClip(seated, [desk, o('k', 'KEYBOARD', 0.2, 0.7)])).toBe('Type');
+    expect(workClip(seated, [desk, o('l', 'LAPTOP', 0, 0)])).toBe('Type');
+    expect(workClip(seated, { d: desk, m: o('m', 'MONITOR_DUAL', 0, -0.5) })).toBe('Type');
+    // off the desk (beside it, or upstairs), or not something to type on
+    expect(workClip(seated, [desk, o('k', 'KEYBOARD', 0.7, 0)])).toBe('Sit');
+    expect(workClip(seated, [desk, o('k', 'KEYBOARD', 0, 0, { floor: 1 })])).toBe('Sit');
+    expect(workClip(seated, [desk, o('p', 'DESK_PLANT', 0, 0)])).toBe('Sit');
+    expect(TYPING_TYPES).toContain('KEYBOARD');
+    expect(workClip({ seated: false, deskId: 'd' }, [desk, o('l', 'LAPTOP', 0, 0)])).toBe('Idle');
   });
 });

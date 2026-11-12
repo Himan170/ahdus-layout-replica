@@ -169,6 +169,29 @@ export function seatPose(deskId, objects, floors, seats = null) {
   };
 }
 
+/** v0.16.0: items on a desk that make its person type (else they just sit). */
+export const TYPING_TYPES = Object.freeze(['KEYBOARD', 'LAPTOP', 'MONITOR_DUAL']);
+
+/**
+ * v0.16.0: the clip a person at a desk plays: 'Type' seated at a desk with a keyboard, laptop or monitor on it
+ * (its middle inside the desk's outline, on its floor), 'Sit' seated at any other desk, 'Idle' standing.
+ * @param {{ seated?: boolean, deskId: string }} person a placed person (seatPose)
+ * @param {object[] | Record<string, object>} objects
+ * @returns {'Type' | 'Sit' | 'Idle'}
+ */
+export function workClip(person, objects) {
+  if (!person?.seated) return 'Idle';
+  const all = list(objects);
+  const desk = all.find((o) => o.id === person.deskId);
+  if (!desk || !isDesk(desk.assetType)) return 'Sit';
+  const { w, d } = halfSize(desk);
+  const on = all.some((o) => TYPING_TYPES.includes(o.assetType) && floorOf(o) === floorOf(desk) && (() => {
+    const p = toLocal(desk, o.x, o.z);
+    return Math.abs(p.x) <= w && Math.abs(p.z) <= d;
+  })());
+  return on ? 'Type' : 'Sit';
+}
+
 /**
  * Where a visitor stands at a desk that has a front for visitors (the reception desk): the side opposite its
  * person (DESK_WORK_SIDE), COUNTER_GAP from the counter, in the middle; turned with the desk. Null for other desks.
@@ -229,6 +252,8 @@ export function personNear(placed, point, floor, radius) {
 
 /** At most this many full characters at once; everyone else is a simple figure. */
 export const MAX_FULL_CHARACTERS = 12;
+/** v0.16.0: of the full characters, the nearest this many play their clip (typing, sitting); the rest hold it. */
+export const MAX_ANIMATED = 8;
 /** Full characters only this near the camera (m)… */
 export const FULL_RADIUS = 15;
 /** …and they stay full until this far (so walking past doesn't swap them back and forth). */

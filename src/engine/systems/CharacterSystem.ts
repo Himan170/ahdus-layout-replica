@@ -16,6 +16,12 @@
  *   play/people.canonicalBoneName) and aimed into a seated or standing pose
  *   (play/people SEATED_POSE / STANDING_POSE); no animation file is needed.
  *   The nearest few breathe slowly. A file that fails keeps the simple figure.
+ * - v0.16.0: a character with clips (its clip set or its own file: the shared
+ *   ClipLibrary) is posed by its clip instead: 'Type' at a desk with a keyboard,
+ *   laptop or monitor, 'Sit' at another, 'Idle' standing (play/people workClip).
+ *   The nearest MAX_ANIMATED of them play it (an Animator each, starting at
+ *   their own point of the cycle); the others hold its first frame. The hips go
+ *   onto the seat in that pose, so the clip's own sitting height counts.
  * - A person shows while their desk does (FloorSystem: per floor) and once it
  *   is built (progressive loading). Nothing here is pickable: a pick goes to
  *   the desk or chair, and pickPerson() finds the person from it.
@@ -41,13 +47,14 @@ import '@babylonjs/core/Meshes/thinInstanceMesh';
 
 import {
   deskSeats, seatPose, personNear, chooseFullCharacters, canonicalBoneName, boneKey, SEATED_POSE, STANDING_POSE,
-  SEAT_HEIGHT, HIPS_ABOVE_SEAT, HIPS_BEHIND_SEAT, breathing, phaseOf, MAX_FULL_CHARACTERS,
+  SEAT_HEIGHT, HIPS_ABOVE_SEAT, HIPS_BEHIND_SEAT, breathing, phaseOf, MAX_FULL_CHARACTERS, MAX_ANIMATED, workClip,
 } from '../../play/people';
 import { levelForY } from '../../play/building';
 import { cleanClothing, outfitLook, partName } from '../../play/outfit';
 import { loadGlbContainer } from '../../utils/modelLoader';
 import type { LayoutRecords } from './RoomSystem';
-import { ClipLibrary } from './ClipLibrary';
+import { ClipLibrary, Animator, holdClip } from './ClipLibrary';
+import type { BakedClip } from './ClipLibrary';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -107,6 +114,8 @@ export interface CharacterSystemOptions {
   getObjectMesh: (objectId: string) => { isEnabled(): boolean; isDisposed(): boolean } | null;
   /** At most this many full characters (default 12). */
   maxFull?: number;
+  /** v0.16.0: at most this many of them (the nearest) play their clip; the rest hold its first frame (default 8). */
+  maxAnimated?: number;
   /** At most this many character files downloading at once (default 3). */
   maxDownloads?: number;
   /** Load a character file (tests); default: the glTF loader. */
@@ -132,7 +141,16 @@ interface FullCharacter {
   /** Breathing: the spine's posed rotation and the axis it sways about (its parent's frame). */
   spine: { node: TransformNode; base: Quaternion; axis: Vector3 } | null;
   phase: number;
+  /** v0.16.0: every bone by key (the clips' targets). */
+  bones: Map<string, TransformNode>;
+  /** v0.16.0: the clip that poses them (Type / Sit / Idle), null: the procedural pose. */
+  clip: BakedClip | null;
+  /** v0.16.0: playing it (the nearest few); null: holding its first frame. */
+  animator: Animator | null;
 }
+
+/** The clips a person at a desk may play (play/people workClip). */
+const WORK_CLIPS = ['Type', 'Sit', 'Idle'];
 
 /** How often who is a full character is decided again (ms). */
 const CHOOSE_EVERY_MS = 300;
@@ -147,7 +165,11 @@ export class CharacterSystem {
   private scene: Scene;
   private options: CharacterSystemOptions;
   private maxFull: number;
+  private maxAnimated: number;
   private maxDownloads: number;
+  /** v0.16.0: the work clips baked per character file (the library's key): ready, or being baked. */
+  private workClips = new Map<string, Map<string, BakedClip> | 'baking'>();
+  private lastFrame = -1;
 
   private people: Person[] = [];
   private placed: PlacedPerson[] = [];
@@ -180,6 +202,7 @@ export class CharacterSystem {
     this.scene = scene;
     this.options = options;
     this.maxFull = options.maxFull ?? MAX_FULL_CHARACTERS;
+    this.maxAnimated = options.maxAnimated ?? MAX_ANIMATED;
     this.maxDownloads = options.maxDownloads ?? 3;
     this.observer = scene.onBeforeRenderObservable.add(() => this.update());
     this.clipLibrary = new ClipLibrary(scene, (url) => this.loadFile(url));
@@ -236,6 +259,19 @@ export class CharacterSystem {
     return this.personAt(point, levelForY(this.options.getLayout().floors, point.y, 0.05));
   }
 
+  /** v0.16.0: how many full characters play their clip now (the rest hold it). */
+  get animatedCount(): number {
+    let n = 0;
+    for (const f of this.full.values()) if (f.animator && f.root.isEnabled()) n++;
+    return n;
+  }
+
+  /** v0.16.0: what a full character does (tests): its clip, whether it plays. Null: not a full character. */
+  fullState(personId: string): { clip: string | null; playing: boolean; root: TransformNode; bones: Map<string, TransformNode> } | null {
+    const f = this.full.get(personId);
+    return f ? { clip: f.clip?.name ?? null, playing: !!f.animator, root: f.root, bones: f.bones } : null;
+  }
+
   /** How many people are drawn as full characters now. */
   get fullCount(): number {
     let n = 0;
@@ -286,7 +322,8 @@ export class CharacterSystem {
     this.enabled = !!on;
     if (!on) {
       for (const id of [...this.full.keys()]) this.removeFull(id);
-    this.clipLibrary.dispose();
+      this.clipLibrary.dispose();
+      this.workClips.clear();
       this.chosen = [];
     }
     this.figureKey = null;
@@ -304,6 +341,9 @@ export class CharacterSystem {
       this.choose();
     }
     this.syncFigures();
+    const dt = this.lastFrame < 0 ? 0 : Math.min(0.25, (now - this.lastFrame) / 1000);
+    this.lastFrame = now;
+    this.animate(dt);
     this.breathe(now / 1000);
   }
 
@@ -411,13 +451,16 @@ export class CharacterSystem {
   }
 
   private makeFull(person: PlacedPerson, file: LoadedFile): void {
-    const { root, meshes, skeletons, bones } = copyCharacter(this.scene, file, person.character!, `person_${person.personId}`,
+    const { root, meshes, skeletons, bones, allBones } = copyCharacter(this.scene, file, person.character!, `person_${person.personId}`,
       { personId: person.personId }, person.clothing);
     root.rotation.y = person.yaw;
     root.position.set(person.x, person.y, person.z);
     refreshTree(root);
 
-    poseBones(root, bones, person.seated ? SEATED_POSE : STANDING_POSE);
+    // v0.16.0: the clip's pose (its first frame) where the character has clips, else the procedural pose
+    const clip = this.workClipFor(person, file);
+    if (clip) holdClip(clip, allBones, 0);
+    else poseBones(root, bones, person.seated ? SEATED_POSE : STANDING_POSE);
 
     // seated: the hips onto the seat, a little behind its centre
     const hips = bones.get('Hips');
@@ -444,6 +487,7 @@ export class CharacterSystem {
     }
     this.full.set(person.personId, {
       url: person.character!.url, wears: wearsOf(person), root, meshes, skeletons, spine, phase: phaseOf(person.personId),
+      bones: allBones, clip, animator: null,
     });
     this.figureKey = null;
   }
@@ -452,17 +496,67 @@ export class CharacterSystem {
     const f = this.full.get(personId);
     if (!f) return;
     this.full.delete(personId);
+    f.animator?.dispose();
     // materials and textures belong to the file's container (shared): keep them
     f.root.dispose(false, false);
     for (const s of f.skeletons) s.dispose();
     this.figureKey = null;
   }
 
+  /**
+   * v0.16.0: the clip this person is posed by, once it is baked (null meanwhile, or none: the procedural pose).
+   * The first ask starts the baking; when it is done the people of that file are made again in their clip's pose.
+   */
+  private workClipFor(person: PlacedPerson, file: LoadedFile): BakedClip | null {
+    const character = person.character!;
+    const key = [ClipLibrary.sourceOf(character), character.url, character.height ?? '', character.rig ?? 'mixamo'].join('|');
+    const known = this.workClips.get(key);
+    if (known === undefined) {
+      this.workClips.set(key, 'baking');
+      this.clipLibrary.clips(character, file, WORK_CLIPS).then((clips) => {
+        if (this.disposed || this.workClips.get(key) !== 'baking') return;
+        this.workClips.set(key, clips);
+        if (!clips.size) return;
+        // those already drawn in the procedural pose: made again in the clip's
+        for (const [id, f] of [...this.full]) {
+          const p = this.placed.find((x) => x.personId === id);
+          if (!f.clip && p?.character && [ClipLibrary.sourceOf(p.character), p.character.url, p.character.height ?? '',
+            p.character.rig ?? 'mixamo'].join('|') === key) this.removeFull(id);
+        }
+        this.lastChoice = -Infinity;
+      });
+      return null;
+    }
+    if (known === 'baking') return null;
+    const want = workClip(person, this.options.getLayout().objects);
+    return known.get(want) ?? (want === 'Type' ? known.get('Sit') : undefined) ?? null;
+  }
+
+  /** v0.16.0: the nearest maxAnimated full characters play their clip, the others hold its first frame. */
+  private animate(dt: number): void {
+    const wanted = new Set(this.chosen.slice(0, this.maxAnimated));
+    for (const [id, f] of this.full) {
+      if (!f.clip) continue;
+      const play = wanted.has(id) && f.root.isEnabled();
+      if (play && !f.animator) {
+        const animator = new Animator(this.scene, f.bones, `person_${id}`);
+        animator.add(f.clip);
+        animator.play(f.clip.name, { fade: 0.3, at: f.phase / (Math.PI * 2) });
+        f.animator = animator;
+      } else if (!play && f.animator) {
+        f.animator.dispose();
+        f.animator = null;
+        holdClip(f.clip, f.bones, 0);
+      }
+      f.animator?.update(dt);
+    }
+  }
+
   private breathe(t: number): void {
     const near = this.chosen.slice(0, BREATHING);
     for (const id of near) {
       const f = this.full.get(id);
-      if (!f?.spine || !f.root.isEnabled()) continue;
+      if (!f?.spine || !f.root.isEnabled() || f.animator) continue;
       const sway = Quaternion.RotationAxis(f.spine.axis, breathing(t, f.phase));
       f.spine.node.rotationQuaternion = sway.multiply(f.spine.base);
     }
