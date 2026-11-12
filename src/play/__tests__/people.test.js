@@ -3,7 +3,7 @@ import {
   DESK_SIZES, SEAT_REACH, deskSeat, deskSeats, seatPose, personNear, chooseFullCharacters, MAX_FULL_CHARACTERS,
   normaliseBoneName, canonicalBoneName, BONE_TABLE, SEATED_POSE, STANDING_POSE, breathing, phaseOf,
   playerEyeHeight, walkRatio, clipSpeed, MIN_WALK_RATIO, MAX_WALK_RATIO, visitorSpot, COUNTER_GAP, figureWalkCycle, FIGURE_LEG,
-  visitorSpots, CORNER_DESK_ARM, OPEN_SIDE_GAP, boneKey,
+  visitorSpots, CORNER_DESK_ARM, OPEN_SIDE_GAP, boneKey, chooseGait, RUN_FROM, stairLift,
 } from '../people';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 
@@ -303,5 +303,31 @@ describe('boneKey (v0.16.0): every bone two files name alike', () => {
     expect(boneKey('Bip01 R Finger42')).toBe('RightHandPinky3');
     // a face bone keeps its own name (matched only by a file with the same one)
     expect(boneKey('Bip01 MJaw')).toBe('Bip01 MJaw');
+  });
+});
+
+describe('gait and stairs (v0.16.0)', () => {
+  const both = { walk: true, run: true };
+  it('stands still, walks, runs from RUN_FROM (Shift), and stands while flying', () => {
+    expect(chooseGait(0, false, both)).toBe('Idle');
+    expect(chooseGait(2.2, false, both)).toBe('Walk');
+    expect(chooseGait(4.5, false, both)).toBe('Run');
+    expect(RUN_FROM).toBeGreaterThan(2.2);
+    expect(RUN_FROM).toBeLessThan(4.5);
+    expect(chooseGait(4.5, true, both)).toBe('Idle');
+    // no Run clip: walks faster; no Walk clip: stands
+    expect(chooseGait(4.5, false, { walk: true })).toBe('Walk');
+    expect(chooseGait(2.2, false, {})).toBe('Idle');
+    expect(chooseGait(NaN, false, both)).toBe('Idle');
+  });
+
+  it('lifts the feet when the ground rises (stairs), a little going down, not on the flat', () => {
+    expect(stairLift(0)).toBe(0);
+    expect(stairLift(0.2)).toBe(0);
+    expect(stairLift(1.9)).toBe(1);
+    expect(stairLift(0.9)).toBeCloseTo(0.5, 5);
+    expect(stairLift(-1.9)).toBeCloseTo(0.4, 5);
+    expect(stairLift(Infinity)).toBe(0);
+    expect(stairLift(undefined)).toBe(0);
   });
 });

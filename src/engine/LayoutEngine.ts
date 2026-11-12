@@ -970,7 +970,7 @@ export class LayoutEngine {
     const files = this.characters!;
     this._playerReady = createPlayerCharacter(this.scene, {
       character, clothing: cleanClothing(p?.clothing), walkClipUrl: p?.walkClipUrl ?? null, walk: p?.walk,
-    }, (url) => files.loadFile(url)).then((made) => {
+    }, (url) => files.loadFile(url), files.clipLibrary).then((made) => {
       if (token !== this._playerToken || this._walkthrough !== walk) { made.dispose(); return; }
       walk.setCharacter(made);
     }, (err) => {

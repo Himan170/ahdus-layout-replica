@@ -19,6 +19,11 @@
  *   No clip, a clip that can't be loaded or `walk: false` = the standing pose
  *   all the time (the character slides).
  *
+ * v0.16.0: a character with clips (its clip set, or its own file's: the shared ClipLibrary) stands in its Idle,
+ * walks, runs from RUN_FROM (Shift; play/people chooseGait), cross-fading between them, lifts its feet on stairs
+ * (play/people stairLift: the forward leg bent more, after the clips are applied) and waves (wave(), the H key:
+ * standing still only). Without clips, the walk clip of v0.12 as before.
+ *
  * The result has Preview's character interface (play/character.js):
  * { root, update(dt, speed, flying), setVisible, dispose }, its root at the
  * feet facing +Z, plus the camera height for this person (`eyeHeight`).
@@ -32,11 +37,13 @@ import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/core/Animations/animatable';
 
 import {
-  playerEyeHeight, walkRatio, STANDING_POSE, WALK_MIN_SPEED,
+  playerEyeHeight, walkRatio, STANDING_POSE, WALK_MIN_SPEED, chooseGait, stairLift, STAIR_HIP_LIFT,
 } from '../../play/people';
 import { copyCharacter, poseBones, refreshTree, restContainer } from './CharacterSystem';
 import type { Clothing } from './CharacterSystem';
-import { bakeClip, clipBones, instantiateClip } from './ClipLibrary';
+import { bakeClip, clipBones, instantiateClip, Animator, refreshChain } from './ClipLibrary';
+import type { BakedClip, ClipLibrary } from './ClipLibrary';
+import type { Observer } from '@babylonjs/core/Misc/observable';
 import type { CharacterFile, CharacterCopy, LoadedFile } from './CharacterSystem';
 
 /** Who walks: their character file, the walk clip, and whether this character may use it. */
@@ -52,7 +59,12 @@ export interface PlayerCharacterSpec {
 /** Preview's character interface (play/character.js) and what the walkthrough needs to know. */
 export interface PlayCharacter {
   root: TransformNode;
-  update(dt: number, speed: number, flying: boolean): void;
+  /** `ctx.climb`: how fast the ground under you rises (m/s; stairs), v0.16.0. */
+  update(dt: number, speed: number, flying: boolean, ctx?: { climb?: number }): void;
+  /** v0.16.0: wave (the H key): false = can't now (moving, or no Wave clip). */
+  wave?(): boolean;
+  /** v0.16.0: the clip playing ('Idle', 'Walk', 'Run', 'Wave'), null: none (the standing pose). */
+  readonly gait?: string | null;
   setVisible(visible: boolean): void;
   dispose(): void;
   /** The walkthrough camera's height for this person (m). */
@@ -76,9 +88,17 @@ export interface PlayCharacter {
  */
 export async function createPlayerCharacter(
   scene: Scene, spec: PlayerCharacterSpec, loadFile: (url: string) => Promise<LoadedFile>,
+  library: ClipLibrary | null = null,
 ): Promise<PlayCharacter> {
   const { character } = spec;
   const wantsWalk = spec.walk !== false && !!spec.walkClipUrl;
+  // v0.16.0: the character's own clips (its clip set or its file), through the shared library
+  if (library && spec.walk !== false) {
+    const file = await loadFile(character.url);
+    const clips = await library.clips(character, file, PLAYER_CLIPS);
+    if (scene.isDisposed) throw new Error('The scene was closed');
+    if (clips.has('Walk')) return animatedCharacter(scene, file, spec, clips);
+  }
   const [file, clip] = await Promise.all([
     loadFile(character.url),
     wantsWalk
@@ -141,6 +161,140 @@ export async function createPlayerCharacter(
       for (const s of copy.skeletons) s.dispose();
     },
   };
+}
+
+// ── v0.16.0: a character with its clips ─────────────────────────────────
+
+/** The clips your character plays. */
+const PLAYER_CLIPS = ['Idle', 'Walk', 'Run', 'Wave'];
+
+function animatedCharacter(scene: Scene, file: LoadedFile, spec: PlayerCharacterSpec, clips: Map<string, BakedClip>): PlayCharacter {
+  const { character } = spec;
+  const copy = copyCharacter(scene, file, character, 'player_character', { player: true }, spec.clothing ?? null);
+  // the standing pose under the clips (what a fading clip blends with)
+  poseBones(copy.root, copy.bones, STANDING_POSE as [string, string, number[]][]);
+  refreshAll(copy);
+  const animator = new Animator(scene, copy.allBones, 'player');
+  for (const clip of clips.values()) animator.add(clip);
+  const has = { walk: animator.has('Walk'), run: animator.has('Run') };
+  const idle = () => (animator.has('Idle') ? animator.play('Idle') : animator.stop());
+  if (animator.has('Idle')) animator.play('Idle', { fade: 0 });
+  const legs = legsOf(copy);
+  let gait = 'Idle';
+  let lift = 0;
+  let lastSpeed = 0;
+  const observer: Observer<Scene> | null = scene.onAfterAnimationsObservable.add(() => {
+    if (lift > 0.02 && gait !== 'Idle' && copy.root.isEnabled()) liftLegs(copy, legs, lift);
+  });
+  return {
+    root: copy.root,
+    eyeHeight: playerEyeHeight(character.height ?? 1.75),
+    kind: 'full',
+    get walking() { return gait !== 'Idle'; },
+    get speed() { return lastSpeed; },
+    get gait() { return animator.current; },
+    walkSpeed: animator.speedOf('Walk'),
+    walkGroup: animator.groupOf('Walk'),
+    update(dt, speed, flying, ctx) {
+      lastSpeed = speed;
+      const want = chooseGait(speed, flying, has);
+      lift += (stairLift(ctx?.climb ?? 0) - lift) * Math.min(1, dt * 8); // eased: a step onto a floor is one frame
+      if (want !== gait) {
+        gait = want;
+        if (want === 'Idle') idle();
+        else animator.play(want);
+      }
+      if (gait !== 'Idle') animator.setSpeed(walkRatio(speed, animator.speedOf(gait) ?? speed));
+      animator.update(dt);
+    },
+    wave() {
+      if (gait !== 'Idle' || !animator.has('Wave')) return false;
+      if (animator.current !== 'Wave') animator.play('Wave', { once: true, then: animator.has('Idle') ? 'Idle' : null });
+      return true;
+    },
+    setVisible(visible) {
+      copy.root.setEnabled(visible);
+    },
+    dispose() {
+      scene.onAfterAnimationsObservable.remove(observer);
+      animator.dispose();
+      copy.root.dispose(false, false);
+      for (const s of copy.skeletons) s.dispose();
+    },
+  };
+}
+
+/** A leg for lifting the feet on stairs: its bones and which way turns them forward (found on the copy). */
+export interface Leg {
+  thigh: TransformNode;
+  knee: TransformNode;
+  foot: TransformNode;
+  hipSign: number;
+  kneeSign: number;
+}
+
+/** Turn a node about a world axis (in its parent's frame, after its own rotation). */
+function turnAbout(node: TransformNode, axisWorld: Vector3, angle: number): void {
+  const parent = node.parent as TransformNode;
+  refreshChain(parent);
+  const inv = parent.getWorldMatrix().clone().invert();
+  const axis = Vector3.TransformNormal(axisWorld, inv).normalize();
+  node.rotationQuaternion ??= Quaternion.FromEulerVector(node.rotation);
+  node.rotationQuaternion = Quaternion.RotationAxis(axis, angle).multiply(node.rotationQuaternion);
+}
+
+function sideAxes(copy: Pick<CharacterCopy, 'root'>): { forward: Vector3; right: Vector3 } {
+  copy.root.computeWorldMatrix(true);
+  const w = copy.root.getWorldMatrix();
+  return {
+    forward: Vector3.TransformNormal(new Vector3(0, 0, 1), w).normalize(),
+    right: Vector3.TransformNormal(new Vector3(1, 0, 0), w).normalize(),
+  };
+}
+
+/** Both legs, with the sign that swings the thigh forward and bends the knee backward (tried once on the copy). */
+export function legsOf(copy: Pick<CharacterCopy, 'root' | 'bones'>): Leg[] {
+  const legs: Leg[] = [];
+  const { forward, right } = sideAxes(copy);
+  for (const side of ['Left', 'Right']) {
+    const thigh = copy.bones.get(side + 'UpLeg');
+    const knee = copy.bones.get(side + 'Leg');
+    const foot = copy.bones.get(side + 'Foot');
+    if (!thigh || !knee || !foot) continue;
+    const tryTurn = (node: TransformNode, moved: TransformNode) => {
+      node.rotationQuaternion ??= Quaternion.FromEulerVector(node.rotation);
+      const keep = node.rotationQuaternion.clone();
+      refreshChain(moved);
+      const before = moved.getAbsolutePosition().clone();
+      turnAbout(node, right, 0.3);
+      refreshChain(moved);
+      const d = moved.getAbsolutePosition().subtract(before);
+      node.rotationQuaternion = keep;
+      refreshChain(moved);
+      return Vector3.Dot(d, forward);
+    };
+    const hipSign = tryTurn(thigh, knee) >= 0 ? 1 : -1;
+    const kneeSign = tryTurn(knee, foot) <= 0 ? 1 : -1;
+    legs.push({ thigh, knee, foot, hipSign, kneeSign });
+  }
+  return legs;
+}
+
+/**
+ * On stairs: the leg swinging forward is lifted (more hip and knee bend), so the foot clears the step. `lift` 0…1.
+ * Runs after the clips are applied each frame (they set the bones again next frame).
+ */
+export function liftLegs(copy: Pick<CharacterCopy, 'root' | 'bones'>, legs: Leg[], lift: number): void {
+  const { forward, right } = sideAxes(copy);
+  for (const leg of legs) {
+    refreshChain(leg.knee);
+    const dir = leg.knee.getAbsolutePosition().subtract(leg.thigh.getAbsolutePosition()).normalize();
+    const swing = Math.min(1, Math.max(0, (Vector3.Dot(dir, forward) + 0.05) / 0.35));
+    const bend = lift * STAIR_HIP_LIFT * swing;
+    if (bend <= 0) continue;
+    turnAbout(leg.thigh, right, leg.hipSign * bend);
+    turnAbout(leg.knee, right, leg.kneeSign * 2 * bend);
+  }
 }
 
 // ── Retargeting the walk clip ────────────────────────────────────────────

@@ -422,6 +422,38 @@ export function walkRatio(speed, clipSpeed) {
   return Math.min(MAX_WALK_RATIO, Math.max(MIN_WALK_RATIO, speed / clipSpeed));
 }
 
+/** v0.16.0: from this speed (m/s) a character with a Run clip runs (walking 2.2, Shift 4.5: play/speeds.js). */
+export const RUN_FROM = 3.3;
+
+/**
+ * v0.16.0: which clip a walking character plays: 'Idle' standing still or flying, 'Run' from RUN_FROM when it has
+ * one, else 'Walk' (no Walk: 'Idle').
+ * @param {number} speed m/s
+ * @param {boolean} flying
+ * @param {{ walk?: boolean, run?: boolean }} has which clips the character has
+ * @returns {'Idle' | 'Walk' | 'Run'}
+ */
+export function chooseGait(speed, flying, { walk = false, run = false } = {}) {
+  if (flying || !(speed >= WALK_MIN_SPEED) || !walk) return 'Idle';
+  return run && speed >= RUN_FROM ? 'Run' : 'Walk';
+}
+
+/** v0.16.0: the extra bend of the forward leg on stairs, at full lift (rad at the hip; the knee bends twice that). */
+export const STAIR_HIP_LIFT = 0.45;
+
+/**
+ * v0.16.0: how much a walker lifts their feet (0…1) when the ground under them rises `climb` m/s (stairs: about
+ * 1.9 m/s at walking speed). Going down: a little (0.4 at most). A step onto a room floor is one frame: the caller
+ * eases it.
+ * @param {number} climb vertical speed, m/s (up > 0)
+ */
+export function stairLift(climb) {
+  const c = Number(climb);
+  if (!Number.isFinite(c)) return 0;
+  if (c > 0) return Math.min(1, Math.max(0, (c - 0.3) / 1.2));
+  return 0.4 * Math.min(1, Math.max(0, (-c - 0.3) / 1.2));
+}
+
 /** The built-in figure's legs (play/character.js: hip to sole, m). */
 export const FIGURE_LEG = 0.82;
 

@@ -197,6 +197,7 @@ const HINT_FADE_MS = 800;
 export const WALK_HELP: [string, string][] = [
   ['W A S D / arrows', 'Walk'],
   ['Shift', 'Run'],
+  ['H', 'Wave (your own character)'],
   ['Drag', 'Look around'],
   ['Click the floor', 'Walk there'],
   ['Click a person', 'Their name card'],

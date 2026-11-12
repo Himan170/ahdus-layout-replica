@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
-import type { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import type { AssetContainer } from '@babylonjs/core/assetContainer';
 import { LoadAssetContainerAsync } from '@babylonjs/core/Loading/sceneLoader';
 import '@babylonjs/loaders/glTF/glTFFileLoader';
@@ -13,7 +14,9 @@ import { registerGltfExtensions } from '../../utils/gltfExtensions';
 import { GLB_LOAD_OPTIONS } from '../../utils/modelLoader';
 import { copyCharacter } from '../systems/CharacterSystem';
 import type { CharacterFile, LoadedFile } from '../systems/CharacterSystem';
-import { Animator, ClipLibrary, CLIP_NAMES } from '../systems/ClipLibrary';
+import { Animator, ClipLibrary, CLIP_NAMES, refreshChain } from '../systems/ClipLibrary';
+import { createPlayerCharacter, legsOf, liftLegs } from '../systems/PlayerCharacter';
+import type { Leg } from '../systems/PlayerCharacter';
 
 // v0.16.0: clips baked once per character file, cloned per person, played with cross-fades. Our own figures.
 const FILES: Record<string, Uint8Array> = {
@@ -156,3 +159,78 @@ describe('Animator (v0.16.0)', () => {
     expect(scene.animationGroups.filter((g) => g.name.startsWith('w_'))).toHaveLength(0);
   });
 });
+
+describe('your character with clips (v0.16.0)', () => {
+  const spec = { character: suit, walkClipUrl: null };
+
+  it('stands in its Idle, walks, runs with Shift, stands while flying', async () => {
+    const lib = new ClipLibrary(scene, loadFile);
+    const me = await createPlayerCharacter(scene, spec, loadFile, lib);
+    expect(me.kind).toBe('full');
+    expect(me.gait).toBe('Idle');
+    expect(me.walking).toBe(false);
+    expect(me.walkSpeed).toBeGreaterThan(0.8);
+    me.update(0.05, 2.2, false);
+    expect(me.gait).toBe('Walk');
+    expect(me.walking).toBe(true);
+    // played as fast as you move (no foot sliding)
+    expect(me.walkGroup!.speedRatio).toBeCloseTo(2.2 / me.walkSpeed!, 5);
+    me.update(0.05, 4.5, false);
+    expect(me.gait).toBe('Run');
+    me.update(0.05, 4.5, true);
+    expect(me.gait).toBe('Idle');
+    me.dispose();
+    expect(scene.animationGroups.filter((g) => g.name.startsWith('player_'))).toHaveLength(0);
+  });
+
+  it('waves standing still (H), then back to Idle; not while walking', async () => {
+    const me = await createPlayerCharacter(scene, spec, loadFile, new ClipLibrary(scene, loadFile));
+    me.update(0.05, 2.2, false);
+    expect(me.wave!()).toBe(false);
+    me.update(0.05, 0, false);
+    expect(me.wave!()).toBe(true);
+    expect(me.gait).toBe('Wave');
+    for (let i = 0; i < 12; i++) me.update(0.25, 0, false); // the placeholder wave is 2 s
+    expect(me.gait).toBe('Idle');
+    me.dispose();
+  });
+
+  it('no clips (an old Mixamo file, no walk clip): the standing pose, as in v0.12', async () => {
+    const old: CharacterFile = { url: '/c/mixamo.glb', height: 1.75 };
+    const me = await createPlayerCharacter(scene, { character: old }, loadFile, new ClipLibrary(scene, loadFile));
+    expect(me.walkGroup).toBeNull();
+    me.update(0.05, 2.2, false);
+    expect(me.walking).toBe(false);
+    me.dispose();
+  });
+
+  it('on stairs the forward leg is lifted: its foot higher, the other leg as it was', async () => {
+    const file = await loadFile(suit.url);
+    const copy = copyCharacter(scene, file, suit, 'stairs');
+    const legs = legsOf(copy);
+    expect(legs).toHaveLength(2);
+    const [left, right] = legs;
+    // the left leg swung forward (as in a walk), the right one straight down
+    turn(left, 0.5);
+    const leftBefore = footOf(left);
+    const rightBefore = footOf(right);
+    liftLegs(copy, legs, 0); // no lift: nothing moves
+    expect(footOf(left).subtract(leftBefore).length()).toBeLessThan(1e-6);
+    liftLegs(copy, legs, 1);
+    expect(footOf(left).y - leftBefore.y).toBeGreaterThan(0.05);
+    expect(footOf(right).subtract(rightBefore).length()).toBeLessThan(0.01);
+  });
+});
+
+function footOf(leg: Leg): Vector3 {
+  refreshChain(leg.foot);
+  return leg.foot.getAbsolutePosition().clone();
+}
+
+/** Swing a thigh forward by `a` (about the character's right axis, the leg's own sign). */
+function turn(leg: Leg, a: number): void {
+  const parent = leg.thigh.parent as TransformNode;
+  refreshChain(parent);
+  const axis = Vector3.TransformNormal(new Vector3(1, 0, 0), parent.getWorldMatrix().clone().invert()).normalize();
+  leg.thigh.rotationQuaternion = Quaternion.RotationAxis(axis, leg.hipSign * a).multiply(leg.thigh.rotationQuaternion!);
+}
