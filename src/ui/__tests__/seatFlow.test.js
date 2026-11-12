@@ -111,3 +111,22 @@ describe('seatedPeople', () => {
     ]);
   });
 });
+
+describe('seatedPeople (v0.16.0)', () => {
+  it('Studio shows the same neutral character and Wardrobe clothing as the viewer', async () => {
+    const { parseManifest, neutralFor } = await import('../../embed/characterManifest');
+    const m = parseManifest({
+      version: 2,
+      neutral: ['rocketbox:aisha-v1', 'rocketbox:andre-v1'],
+      characters: { 'rocketbox:aisha-v1': { url: 'aisha.glb' }, 'rocketbox:andre-v1': { url: 'andre.glb' } },
+    }, 'https://ahdus.example/frontend/workplace/characters.json');
+    const [a, b] = seatedPeople([
+      { ...asha, assetReference: null, clothing: { upperBody: 'shirt', upperColor: '#ffcc00' } },
+      { ...ravi, assetReference: null },
+    ], objects, m);
+    expect(a.character).toBe(m.characters.get(neutralFor('1', m)));
+    expect(b.character).toBe(m.characters.get(neutralFor('2', m)));
+    expect(a.clothing).toEqual({ schemaVersion: 1, pantsColor: 'black', upperBody: 'shirt', upperColor: '#ffcc00' });
+    expect('clothing' in b).toBe(false);
+  });
+});

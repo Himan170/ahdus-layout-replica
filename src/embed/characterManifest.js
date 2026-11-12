@@ -147,6 +147,41 @@ export function charactersOf(manifest) {
 }
 
 /**
+ * A number from a person's id (FNV-1a, 32 bits): the same id = the same number on every page and device.
+ * Never the name: who someone looks like must not be guessed from it.
+ * @param {string} personId
+ */
+export function idHash(personId) {
+  let h = 0x811c9dc5;
+  const s = String(personId);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/**
+ * The neutral character of someone with none (never chose, a character the manifest doesn't have, or one of a
+ * group switched off): one of the manifest's neutral set, picked evenly by their id (`idHash(personId) % n`).
+ * null = no neutral set (a v1 manifest) or no id: the simple figure, as before.
+ * @param {string | null} personId
+ * @param {{ neutral?: string[], characters?: Map<string, object> } | Map<string, object>} manifest
+ * @returns {string | null} its asset reference
+ */
+export function neutralFor(personId, manifest) {
+  const set = manifest instanceof Map ? [] : (manifest?.neutral ?? []);
+  if (!personId || !set.length) return null;
+  return set[idHash(personId) % set.length];
+}
+
+/** A person's manifest entry: their own, else their neutral one (or null). */
+function entryFor(ref, personId, manifest) {
+  const characters = charactersOf(manifest);
+  return (ref && characters.get(ref)) || characters.get(neutralFor(personId, manifest)) || null;
+}
+
+/**
  * The manifest of mount's `characters` option: `manifest` (the JSON itself),
  * else fetched from `manifestUrl` (with the page's cookies, plus `headers`).
  * No option = an empty manifest (everyone a simple figure). Throws if it
@@ -181,14 +216,14 @@ const text = (v) => (typeof v === 'string' || typeof v === 'number' ? String(v).
 /**
  * The page's people as the viewer draws them: { personId, deskId, name,
  * department, character }. A person's character comes from the manifest by
- * their `assetReference`; unknown or null = the neutral simple figure. Only
+ * their `assetReference`; unknown, switched off or null = their neutral character (v2: neutralFor), else the
+ * simple figure. Only
  * these fields are kept (no email or anything else reaches the 3D view).
  * People with no personId or deskId are left out.
  * @param {unknown[]} list
  * @param {Map<string, object> | { characters: Map<string, object> }} manifest parseManifest's result (or its Map)
  */
 export function resolvePeople(list, manifest) {
-  const characters = charactersOf(manifest);
   if (!Array.isArray(list)) throw new TypeError('setPeople(list): list must be an array of { personId, deskId, name, department, assetReference }');
   const out = [];
   for (const p of list) {
@@ -201,7 +236,7 @@ export function resolvePeople(list, manifest) {
       deskId,
       name: text(p.name),
       department: text(p.department),
-      character: fileOf(ref && characters.get(ref)),
+      character: fileOf(entryFor(ref, personId, manifest)),
       characterChosen: ref !== null,
       ...clothingOf(p.clothing),
     });
@@ -223,17 +258,16 @@ function fileOf(entry) {
 /**
  * The person looking (mount's `player`, setPlayer): { personId, assetReference }
  * → what the viewer takes: { personId, character, walk }. Walking through, they
- * are their character from the manifest (unknown / null = the simple figure);
+ * are their character from the manifest (unknown / null = their neutral one, as at their desk, else the simple figure);
  * `walk` false if the manifest says so. null = nobody given.
  * @param {unknown} value
  * @param {Map<string, object> | { characters: Map<string, object> }} manifest parseManifest's result (or its Map)
  */
 export function resolvePlayer(value, manifest) {
-  const characters = charactersOf(manifest);
   if (!value || typeof value !== 'object') return null;
   const personId = text(value.personId) || null;
   const ref = typeof value.assetReference === 'string' ? value.assetReference : null;
-  const entry = (ref && characters.get(ref)) || null;
+  const entry = entryFor(ref, personId, manifest);
   if (!personId && !entry) return null;
   return { personId, character: fileOf(entry), walk: entry?.walk !== false, ...clothingOf(value.clothing) };
 }

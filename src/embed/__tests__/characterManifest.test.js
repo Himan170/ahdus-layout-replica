@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  parseManifest, readManifest, resolvePeople, resolvePlayer, walkClipUrlOf, charactersOf, DEFAULT_HEIGHT, MAX_TEXT,
+  parseManifest, readManifest, resolvePeople, resolvePlayer, walkClipUrlOf, charactersOf, idHash, neutralFor,
+  DEFAULT_HEIGHT, MAX_TEXT,
 } from '../characterManifest';
 
 const BASE = 'https://ahdus.example/frontend/character/manifest.json';
@@ -194,8 +195,8 @@ describe('manifest version 2 (v0.16.0)', () => {
     // no group in what the view gets
     expect(p.character.group).toBeUndefined();
     expect(resolvePlayer({ personId: 'u1', assetReference: 'rocketbox:aisha-v1' }, m).character.outfit).toBe('rocketbox');
-    // a character switched off is unknown: the simple figure (the even default comes later)
-    expect(resolvePeople([{ personId: 'u2', deskId: 'd2', assetReference: 'imported:nadia-v1' }], m)[0].character).toBeNull();
+    // a character switched off is unknown: their neutral character (aisha or andre here)
+    expect(resolvePeople([{ personId: 'u2', deskId: 'd2', assetReference: 'imported:nadia-v1' }], m)[0].character.url).toMatch(/(aisha|andre).glb$/);
     expect(charactersOf(m)).toBe(m.characters);
     expect(charactersOf(m.characters)).toBe(m.characters);
     expect(charactersOf(null).size).toBe(0);
@@ -212,5 +213,53 @@ describe('clothing (v0.16.0)', () => {
     expect('clothing' in b).toBe(false);
     expect(resolvePlayer({ personId: 'u1', clothing: { upperBody: 'tshirt' } }, new Map()).clothing)
       .toEqual({ schemaVersion: 1, pantsColor: 'black', upperBody: 'tshirt', upperColor: null });
+  });
+});
+
+describe('the even default: the neutral set (v0.16.0)', () => {
+  const NEUTRAL = ['rocketbox:aisha-v1', 'rocketbox:emma-v1', 'rocketbox:olivia-v1', 'rocketbox:andre-v1', 'rocketbox:kenji-v1', 'rocketbox:carlos-v1'];
+  const m = parseManifest({
+    version: 2,
+    groups: { imported: false },
+    neutral: NEUTRAL,
+    characters: {
+      ...Object.fromEntries(NEUTRAL.map((ref) => [ref, { url: `${ref.split(':')[1]}.glb`, outfit: 'rocketbox' }])),
+      'rocketbox:mei-v1': { url: 'mei.glb', outfit: 'rocketbox' },
+      'imported:nadia-v1': { url: 'nadia.glb', group: 'imported' },
+    },
+  }, BASE);
+
+  it('the hash is fixed (the same person looks the same everywhere)', () => {
+    expect(idHash('')).toBe(0x811c9dc5);
+    expect(idHash('a')).toBe(0xe40c292c);
+    expect(idHash('user_14')).toBe(idHash('user_14'));
+    expect(neutralFor('user_14', m)).toBe(neutralFor('user_14', m));
+  });
+
+  it('evenly: 6,000 ids, each of the six about 1,000 times; women and men about half each', () => {
+    const counts = Object.fromEntries(NEUTRAL.map((r) => [r, 0]));
+    for (let i = 0; i < 6000; i++) counts[neutralFor(`user_${i}`, m)]++;
+    for (const n of Object.values(counts)) expect(Math.abs(n - 1000)).toBeLessThan(100);
+    const women = counts[NEUTRAL[0]] + counts[NEUTRAL[1]] + counts[NEUTRAL[2]];
+    expect(Math.abs(women - 3000)).toBeLessThan(150);
+  });
+
+  it('never chose, unknown or switched off = their neutral character; a choice wins; v1 = the simple figure', () => {
+    const people = resolvePeople([
+      { personId: 'u1', deskId: 'd1', assetReference: null },
+      { personId: 'u1', deskId: 'd2', assetReference: 'mixamo:gone-v9' },
+      { personId: 'u1', deskId: 'd3', assetReference: 'imported:nadia-v1' },
+      { personId: 'u1', deskId: 'd4', assetReference: 'rocketbox:mei-v1' },
+    ], m);
+    const mine = `https://ahdus.example/frontend/character/${neutralFor('u1', m).split(':')[1]}.glb`;
+    expect(people.slice(0, 3).map((p) => p.character.url)).toEqual([mine, mine, mine]);
+    expect(people[3].character.url).toBe('https://ahdus.example/frontend/character/mei.glb');
+    // "Choose your character" still only for someone who never chose
+    expect(people.map((p) => p.characterChosen)).toEqual([false, true, true, true]);
+    expect(resolvePlayer({ personId: 'u1' }, m).character.url).toBe(mine); // you walk as you sit
+    const v1 = parseManifest({ a: { url: 'a.glb' } }, BASE);
+    expect(resolvePeople([{ personId: 'u1', deskId: 'd1' }], v1)[0].character).toBeNull();
+    expect(neutralFor('u1', v1.characters)).toBeNull();
+    expect(neutralFor('', m)).toBeNull();
   });
 });

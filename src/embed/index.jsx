@@ -226,7 +226,7 @@ export function mount(element, options = {}) {
     playerGiven = given;
     player = resolvePlayer(given, new Map());
     render();
-    if (typeof given?.assetReference !== 'string') return;
+    if (typeof given?.assetReference !== 'string' && (given?.personId ?? '') === '') return; // (v0.16.0: no character = their neutral one)
     const characters = await characterMap();
     if (closed || playerGiven !== given) return;
     player = resolvePlayer(given, characters);
