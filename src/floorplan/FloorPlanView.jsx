@@ -326,7 +326,8 @@ export default function FloorPlanView({
     if (d) {
       const to = d.moved ? dropOf(d) : null;
       const object = objects.find((o) => o.id === d.id);
-      const same = to && object && to.x === object.x && to.z === object.z && to.y === (object.y ?? 0);
+      const same = to && object && to.x === object.x && to.z === object.z && to.y === (object.y ?? 0)
+        && (to.rotationY === undefined || to.rotationY === object.rotationY);
       if (to?.problem) onProblem(to.problem);
       else if (to && !same) onMoveObject(d.id, to);
       startDrag(null);
@@ -796,7 +797,7 @@ export default function FloorPlanView({
                     fillOpacity={activeDrag ? 0.95 : 0.9}
                     stroke={selected ? '#2563eb' : '#475569'}
                     strokeWidth={selected ? 0.08 : 0.03}
-                    transform={`rotate(${planAngle(object.rotationY)} ${c.x} ${c.y})`}
+                    transform={`rotate(${planAngle(pos.rotationY ?? object.rotationY)} ${c.x} ${c.y})`}
                   />
                   <text
                     x={c.x}

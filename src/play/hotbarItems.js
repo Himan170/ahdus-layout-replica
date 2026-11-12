@@ -92,6 +92,7 @@ const SHORT_NAMES = {
   GLASS_PARTITION: 'Glass wall', VENDING_MACHINE: 'Vending', COFFEE_MACHINE: 'Coffee', WATER_COOLER: 'Water',
   FIRE_EXTINGUISHER: 'Fire ext.', EMERGENCY_EXIT: 'Exit sign', FIRST_AID: 'First aid', COMPUTER_MOUSE: 'Mouse',
   SPAWN_POINT: 'Start', ZONE_MARKER: 'Zone', CNC_MACHINE: 'CNC', LOUNGE_CHAIR: 'Armchair',
+  WALL_CLOCK: 'Clock', WALL_SHELF: 'Shelf', AC_UNIT: 'AC',
 };
 const STRUCTURE_SHORT = { edit: 'Edit', stretch: 'Stretch', wall: 'Wall', door: 'Door', window: 'Window' };
 /** At most this many characters under a slot (longer names are cut with …). */

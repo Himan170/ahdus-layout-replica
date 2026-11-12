@@ -10,6 +10,16 @@ import { snap, roomOpenings, WALL_ASSET_LENGTH } from '../play/geometry';
 import { placementHeight, canStandOn, floorOnlyText, FLOOR_LIKE_TYPES } from '../play/building';
 import { carriedBy } from '../play/carry';
 import { ASSET_TYPES } from '../utils/assetCatalog';
+import { isWallItem, mountOnWall, wallPieces } from '../play/wallMount';
+
+// the walls of the plan's floor, kept while its rooms and items are the same arrays (a drag asks every move)
+let wallCache = { rooms: null, objects: null, pieces: [] };
+function planWalls(rooms, objects) {
+  if (wallCache.rooms !== rooms || wallCache.objects !== objects) {
+    wallCache = { rooms, objects, pieces: wallPieces(rooms, objects) };
+  }
+  return wallCache.pieces;
+}
 
 // ── World ↔ plan ↔ screen ─────────────────────────────────────────────────
 
@@ -196,6 +206,11 @@ export function planCarried(object, objects = []) {
  */
 export function planDrop(object, point, { objects = [], rooms = [], snap: snapping, ground = false, ignore = [] } = {}) {
   if (!object || object.isLocked) return null;
+  // v0.15.6: a wall item hangs on the wall nearest the mouse (no wall near: it stands on the floor as any item)
+  if (isWallItem(object.assetType)) {
+    const m = mountOnWall(object, point, planWalls(rooms, objects), { catalog: ASSET_TYPES });
+    if (m) return { x: m.x, y: m.y, z: m.z, rotationY: m.rotationY };
+  }
   const s = snapping?.enabled && snapping.step > 0 ? snapping.step : 0;
   const x = s ? snap(point.x, s) : point.x;
   const z = s ? snap(point.z, s) : point.z;

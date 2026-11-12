@@ -99,6 +99,8 @@ import { createGroupActions, GROUP_HIGHLIGHT } from '../planner/groupActions';
 import { HighlightSystem } from '../engine/systems/HighlightSystem';
 import { readHidden, writeHidden, toggleHidden, liveHidden, hiddenText } from '../ui/hiddenLayers';
 import { lockedText } from '../play/locks';
+import { isWallItem, isOnWall, mountOnWall } from '../play/wallMount';
+import { createFloorWalls } from '../play/floorWalls';
 
 const DEMO_MODULES = typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('demoModules');
@@ -1106,6 +1108,27 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       ? stairProblems(selectedObject, floorsMap, Object.values(roomsMap)).map((p) => p.text) : []),
     [selectedObject, floorsMap, roomsMap],
   );
+  // v0.15.6: a selected wall item (a TV, a clock…): does it hang on a wall? (no: the Inspector's "Mount on wall")
+  const floorWallsRef = useRef(null);
+  if (!floorWallsRef.current) floorWallsRef.current = createFloorWalls();
+  const wallMount = useMemo(() => {
+    if (!selectedObject || !isWallItem(selectedObject.assetType)) return null;
+    const pieces = floorWallsRef.current({ rooms: roomsMap, objects: objectsMap }, selectedObject.floor ?? 0);
+    return { onWall: isOnWall(selectedObject, pieces, { catalog: ASSET_TYPES }) };
+  }, [selectedObject, roomsMap, objectsMap]);
+  const handleMountOnWall = useCallback((id) => {
+    const st = useWorkspaceStore.getState();
+    const obj = st.objects[id];
+    if (!obj) return;
+    const name = obj.label || ASSET_TYPES[obj.assetType]?.label || 'The item';
+    if (obj.isLocked) { showStudioMessage(lockedText(name), true); return; }
+    const pieces = floorWallsRef.current(st, obj.floor ?? 0);
+    const m = mountOnWall(obj, { x: obj.x, z: obj.z }, pieces, { catalog: ASSET_TYPES, maxDistance: Infinity });
+    if (!m) { showStudioMessage(`No wall on this floor has room for ${name}`, true); return; }
+    moveItemCarrying(id, { x: m.x, y: m.y, z: m.z, rotationY: m.rotationY }, { label: 'Mount on wall' });
+    editor.endBurst();
+    showStudioMessage(`${name} hangs on the nearest wall. Ctrl+Z to undo.`);
+  }, [editor, moveItemCarrying, showStudioMessage]);
 
   // Accessibility (Task S3): Announce selection changes to screen readers
   useEffect(() => {
@@ -1660,6 +1683,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           mode={inspectorMode}
           object={selectedObject}
           stairWarnings={stairWarnings}
+          wallMount={wallMount}
+          onMountOnWall={handleMountOnWall}
           room={selectedRoom}
           opening={selectedOpening}
           onResizeOpening={handleResizeOpening}

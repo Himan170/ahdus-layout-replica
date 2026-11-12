@@ -46,10 +46,10 @@ const CHIP_OF = {
   LAPTOP: 'Desks', KEYBOARD: 'Desks', COMPUTER_MOUSE: 'Desks',
   CHAIR_OFFICE: 'Seating', LOUNGE_CHAIR: 'Seating',
   TABLE_MEETING: 'Meeting', TABLE_ROUND: 'Meeting', TABLE_COFFEE: 'Meeting', WHITEBOARD: 'Meeting',
-  PROJECTOR_SCREEN: 'Meeting', TV_DISPLAY: 'Meeting',
+  PROJECTOR_SCREEN: 'Meeting', TV_DISPLAY: 'Meeting', WALL_CLOCK: 'Meeting',
   FRIDGE: 'Kitchen', MICROWAVE: 'Kitchen', COFFEE_MACHINE: 'Kitchen', VENDING_MACHINE: 'Kitchen', WATER_COOLER: 'Kitchen',
   BOOKSHELF: 'Storage', BOOKCASE_CLOSED: 'Storage', FILING_CABINET: 'Storage', LOCKER_BANK: 'Storage',
-  STORAGE_RACK: 'Storage', SIDE_TABLE: 'Storage', COAT_RACK: 'Storage',
+  STORAGE_RACK: 'Storage', SIDE_TABLE: 'Storage', COAT_RACK: 'Storage', WALL_SHELF: 'Storage',
   PLANT_LARGE: 'Plants', PLANT_SMALL: 'Plants',
 };
 

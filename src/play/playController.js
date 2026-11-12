@@ -87,6 +87,8 @@ import { turnStep, carriedBy, carryDrop } from './carry';
 import { roomItemLabel } from './hotbarItems';
 import { ridersOf } from '../utils/itemRiders';
 import { lockedText } from './locks';
+import { isWallItem, mountOnWall, mountText } from './wallMount';
+import { createFloorWalls } from './floorWalls';
 
 // ── Feel ──
 const JUMP_SPEED = 5.2;
@@ -368,6 +370,7 @@ export function createPlayController(scene, canvas, {
     return { origin: camera.position, dir: lookDir() };
   }
   const state = () => getState();
+  const floorWalls = createFloorWalls(); // v0.15.6: the walls wall items hang on
   // Rooms on the floor the character is on (not the planner's floor)
   const floorRooms = () => state().rooms.filter((r) => r.floor === currentLevel);
   const levelElev = () => elevationOf(state().floors, currentLevel);
@@ -465,7 +468,7 @@ export function createPlayController(scene, canvas, {
     setOutline(null);
     // v0.15.2: a desk takes its chair and what stands on it, as in Studio (carry.carriedBy)
     const objects = state().objects;
-    const items = carriedBy(obj, objects, ridersOf(obj, mesh, objects, elevationOf(state().floors, obj.floor ?? 0)))
+    const items = (isWallItem(obj.assetType) ? [] : carriedBy(obj, objects, ridersOf(obj, mesh, objects, elevationOf(state().floors, obj.floor ?? 0))))
       .map(({ item, onTop }) => ({ item, onTop, mesh: getObjectMesh(item.id) }))
       .filter((c) => c.mesh);
     const roots = [mesh, ...items.map((c) => c.mesh)];
@@ -560,6 +563,23 @@ export function createPlayController(scene, canvas, {
    * top of furniture (a monitor on a desk). Not the ground under an upper
    * floor, not the storey below. Returns {x, z, worldY, y} or {problem, bad}.
    */
+  /**
+   * v0.15.6: a wall item (wallMount.WALL_ITEMS) under the crosshair hangs on the nearest wall of the floor you
+   * are on: { x, z, worldY, y, rotationY, mounted: true }, or null (no wall near: it stands on the floor).
+   * Aiming at a wall = the face on your side of it.
+   */
+  function aimWall(obj) {
+    const hit = aimPick((m) =>
+      (m.name === 'ground' && levelElev() === 0) ||
+      ((m.metadata?.part === 'floor' || m.metadata?.part === 'wall' || !!objectIdOf(m)) && onThisLevel(m)));
+    if (!hit || Vector3.Distance(hit.pickedPoint, feet()) > REACH + 1) return null;
+    const { x, z } = hit.pickedPoint;
+    const { dir } = aimLine();
+    const point = { x: x - dir.x * 0.25, z: z - dir.z * 0.25 }; // a little back: the face you look at is nearer
+    const m = mountOnWall(obj, point, floorWalls(state(), currentLevel), { catalog: ASSET_TYPES });
+    return m && { x: m.x, z: m.z, y: m.y, worldY: levelElev() + m.y, rotationY: m.rotationY, mounted: true };
+  }
+
   function aimSurface(assetType = null) {
     const hit = aimPick((m) =>
       (m.name === 'ground' && levelElev() === 0) ||
@@ -580,7 +600,8 @@ export function createPlayController(scene, canvas, {
   }
 
   function updateObjectTool() {
-    const s = aimSurface(tool.assetType);
+    const wall = isWallItem(tool.assetType) ? aimWall({ assetType: tool.assetType }) : null;
+    const s = wall ?? aimSurface(tool.assetType);
     if (s.problem) {
       ghost?.setEnabled(false);
       aim = null;
@@ -595,9 +616,12 @@ export function createPlayController(scene, canvas, {
     }
     ghost.setEnabled(true);
     ghost.position.set(x, worldY, z);
-    ghost.rotation.y = ghostRotation;
+    ghost.rotation.y = wall ? wall.rotationY : ghostRotation;
 
-    aim = { type: 'placeObject', x, y, z };
+    aim = { type: 'placeObject', x, y, z, rotationY: wall?.rotationY };
+    if (wall) {
+      return { title: tool.label, detail: mountText(tool.label, true), keys: [['Left-click', 'Hang it here'], ['G', 'Pick up'], ['Right-click', 'Remove']] };
+    }
     const keys = [['Left-click', 'Place'], ['R', 'Turn 90°'], ['G', 'Pick up'], ['Right-click', 'Remove']];
     if (tool.assetType === 'STAIRCASE' &&
         stairNeedsRoomAbove({ x, z, rotationY: ghostRotation, floor: currentLevel }, state().floors, state().rooms)) {
@@ -967,7 +991,9 @@ export function createPlayController(scene, canvas, {
       setOutline(null);
       const obj = editTarget();
       if (!obj) { endCarry(false); aim = null; return { title: 'Edit item' }; }
-      const s = aimSurface(obj.assetType);
+      const wall = isWallItem(obj.assetType) ? aimWall(obj) : null;
+      if (wall) carry.rotationY = wall.rotationY; // a wall item faces away from the wall it hangs on
+      const s = wall ?? aimSurface(obj.assetType);
       carry.mesh.rotation.y = carry.rotationY;
       if (s.problem) {
         aim = null;
@@ -978,7 +1004,7 @@ export function createPlayController(scene, canvas, {
       aim = { type: 'dropItem', id: obj.id, x: s.x, y: s.y, z: s.z };
       return {
         title: `Moving ${itemName(obj)}`,
-        detail: carriedText(),
+        detail: wall ? mountText(itemName(obj), true) : carriedText(),
         keys: [['Left-click', 'Put it here'], ['R', 'Turn 90°'], ['Right-click', 'Cancel']],
       };
     }
@@ -1131,7 +1157,7 @@ export function createPlayController(scene, canvas, {
           assetType: tool.assetType,
           category: ASSET_TYPES[tool.assetType]?.category,
           x: aim.x, y: aim.y, z: aim.z,
-          rotationY: ghostRotation,
+          rotationY: aim.rotationY ?? ghostRotation,
           floor: currentFloor,
           roomId: room?.id ?? null,
         });

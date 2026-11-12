@@ -32,7 +32,7 @@ import { isRealistic, onLookChange } from './realLook';
 /** Small items don't cast shadows (a shadow each costs a draw call and shows little). */
 const NO_SHADOW = new Set([
   'CHAIR_OFFICE', 'PLANT_LARGE', 'PLANT_SMALL', 'MONITOR_DUAL', 'PRINTER', 'COFFEE_MACHINE',
-  'FIRE_EXTINGUISHER', 'EMERGENCY_EXIT', 'FIRST_AID',
+  'FIRE_EXTINGUISHER', 'EMERGENCY_EXIT', 'FIRST_AID', 'WALL_CLOCK',
   'LAPTOP', 'KEYBOARD', 'COMPUTER_MOUSE', 'TRASH_CAN', 'MICROWAVE', 'FLOOR_LAMP', 'RUG',
 ]);
 
@@ -171,6 +171,17 @@ function attachChild(root, mesh, checkCollisions) {
   mesh.receiveShadows = true;
   if (it.castShadow) it.shadowGenerator?.addShadowCaster(mesh, false);
   it.mesh = mesh;
+}
+
+/**
+ * Does the item block the character (v0.15.6: a wall item hung on a wall doesn't; on the floor it does)?
+ * Only a change is applied, so carrying an item (collisions off meanwhile) is left alone.
+ */
+export function setItemSolid(root, solid) {
+  const it = items.get(root);
+  if (!it || it.solid === solid) return;
+  it.solid = solid;
+  if (it.mesh && !it.mesh.isDisposed()) it.mesh.checkCollisions = solid;
 }
 
 /** A per-item look (lock tint, outline) set on the old mesh carries over to the new one. */

@@ -184,6 +184,112 @@ await key('Control+z');
 log('Ctrl+Z locks it again (one step)', (await store()).rooms.find((r) => r.id === meeting.id).isLocked === true);
 await key('Control+y');
 
+// ── Part 2: wall items ──
+const LIB = '[data-library="furniture"]';
+const dragTile = async (name, x, y, z) => {
+  if (!(await p.locator(LIB).isVisible().catch(() => false))) { await p.click('[aria-label="Furniture"]'); await frames(2); }
+  await p.fill('[aria-label="Search furniture"]', name);
+  const box = await p.locator(`.lib-tile[title^="${name}"]`).first().boundingBox();
+  await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await p.mouse.down();
+  const to = await toScreen(x, y, z);
+  await p.mouse.move(to.x, to.y, { steps: 12 });
+  await frames(2);
+  const during = await hint();
+  await p.mouse.up();
+  await frames(3);
+  return during;
+};
+const newest = async (type) => (await store()).objects.filter((o) => o.assetType === type).at(-1);
+const facesSouth = (o) => Math.abs(Math.cos(o.rotationY) + 1) < 0.01; // its front (+Z) turned to −Z
+const solidOf = (id) => p.evaluate((id) => {
+  const m = window.__ahdusScene.meshes.find((x) => x.parent?.metadata?.objectId === id && !x.name.includes('pick'));
+  return m ? m.checkCollisions : null;
+}, id);
+await p.keyboard.press('Escape'); await frames(2);
+st = await store();
+const room = st.rooms.find((r) => r.id === meeting.id); // 7 × 6 at (5, 8): its north wall's inside face at z 10.925
+const northFace = room.z + room.depth / 2 - (room.wallThickness ?? 0.15) / 2;
+const southFace = room.z - room.depth / 2 + (room.wallThickness ?? 0.15) / 2;
+
+const tvHint = await dragTile('Large Display TV', room.x, 0, northFace - 0.6);
+let tv = await newest('TV_DISPLAY');
+log('a TV dropped near a wall hangs on it: back to the wall, facing the room, its middle at 1.4 m',
+  tv && Math.abs(tv.z - (northFace - 0.04 - 0.005)) < 0.01 && facesSouth(tv) && Math.abs(tv.y + 0.95 / 2 - 1.4) < 0.01,
+  tv ? `at ${tv.x}, ${tv.y}, ${tv.z}, turned ${tv.rotationY.toFixed(2)}` : 'none');
+log('while dragging the hint says it hangs on the wall', /hangs on the wall/.test(tvHint), tvHint.replace(/\s+/g, ' ').slice(0, 80));
+await dragTile('Wall Clock', room.x - 2.4, 0, northFace - 0.5);
+const clock = await newest('WALL_CLOCK');
+log('a wall clock hangs at 2.0 m on the same wall', clock && Math.abs(clock.y + 0.175 - 2) < 0.01 && clock.z > northFace - 0.04 && facesSouth(clock),
+  clock ? `at ${clock.x}, ${clock.y}, ${clock.z}` : 'none');
+log('a hung TV is no obstacle for walking', (await solidOf(tv.id)) === false);
+
+// a picture of both on the wall, in 3D
+await p.click('[aria-label="3D view"]'); await frames(3);
+await p.evaluate(([x, y, z]) => {
+  const cam = window.__ahdusScene.activeCamera;
+  cam.target.set(x, y, z); cam.alpha = -Math.PI / 2; cam.beta = 1.25; cam.radius = 7;
+}, [room.x - 1.2, 1.5, northFace]);
+await frames(4); await wait(400);
+await shot('lw-wall-tv-clock.png');
+
+// drag it along its wall, then onto the opposite one (in 2D, from above)
+await p.click('[aria-label="2D view"]'); await frames(3); await wait(400);
+await dragWorld([tv.x, tv.y + 0.5, tv.z - 0.03], [tv.x + 1.5, tv.y + 0.5, tv.z - 0.03]);
+let moved = await newest('TV_DISPLAY');
+log('dragged along its wall: it slides, still on the wall', Math.abs(moved.x - (tv.x + 1.5)) < 0.3 && Math.abs(moved.z - tv.z) < 0.01 && facesSouth(moved),
+  `${moved.x}, ${moved.z} (was ${tv.x}, ${tv.z})`);
+await dragWorld([moved.x, moved.y + 0.5, moved.z - 0.03], [moved.x, moved.y + 0.5, southFace + 0.4]);
+moved = await newest('TV_DISPLAY');
+log('dragged across the room: onto the other wall, turned round', Math.abs(moved.z - (southFace + 0.045)) < 0.01 && Math.abs(Math.cos(moved.rotationY) - 1) < 0.01,
+  `${moved.x}, ${moved.y}, ${moved.z}, turned ${moved.rotationY.toFixed(2)}`);
+await key('Control+z');
+log('Ctrl+Z puts it back in one step', Math.abs((await newest('TV_DISPLAY')).z - (northFace - 0.045)) < 0.01);
+
+// guide lines while dragging (Part 3) are checked further down; here: an old layout's TV on the floor
+const oldId = await p.evaluate(([x, z]) => {
+  const s = window.__ahdusStore.getState();
+  // as an old save has it (no editor step: nothing moves it by itself)
+  return s.addObject({ assetType: 'TV_DISPLAY', x, y: 0, z, rotationY: 0, floor: 0, roomId: null });
+}, [room.x + 1.5, room.z]);
+await frames(3); await wait(2200); // Check runs 1.5 s after a change
+st = await store();
+const old = st.objects.find((o) => o.assetType === 'TV_DISPLAY' && o.y === 0);
+log('an old layout\'s TV on the floor stays where it is', !!old && old.x === room.x + 1.5 && old.z === room.z && !!oldId);
+log('…and stays an obstacle', (await solidOf(old.id)) === true);
+await p.getByRole('button', { name: 'Check layout', exact: true }).click(); await frames(2); await wait(300);
+const warning = p.locator(`[data-check-kind="WALL_ITEM_OFF_WALL"] .check-message`);
+const warnText = await warning.first().innerText().catch(() => '');
+log('Check my layout warns: it is not on a wall', await warning.count() === 1 && /Large Display TV is not on a wall/.test(warnText), warnText);
+await shot('lw-check-warning.png');
+await warning.first().click(); await frames(3); await wait(400);
+log('a click on the warning selects it, and its Inspector offers Mount on wall',
+  (await store()).selected === old.id && await p.locator('[data-wall-mount="off"] button:has-text("Mount on wall")').count() === 1);
+await p.click('[aria-label="Close layout check"]').catch(() => {}); await frames(2);
+await shot('lw-mount-on-wall.png');
+await p.locator('[data-wall-mount="off"] button:has-text("Mount on wall")').click(); await frames(3); await wait(300);
+const mounted = (await store()).objects.find((o) => o.id === old.id);
+log('Mount on wall hangs it on the nearest wall', mounted.y > 0.5 && await p.locator('[data-wall-mount]').count() === 0 && (await solidOf(old.id)) === false,
+  `${mounted.x}, ${mounted.y}, ${mounted.z}, turned ${mounted.rotationY.toFixed(2)}; ${await hint()}`);
+await key('Control+z');
+log('Ctrl+Z puts it back on the floor', (await store()).objects.find((o) => o.id === old.id).y === 0);
+await key('Control+y');
+
+// Walk through: walking past the wall TV (the TV is no obstacle; the wall still is)
+await p.click('[aria-label="Walk through"]'); await frames(4); await wait(600);
+const hungTv = await newest('TV_DISPLAY');
+// in front of it, 0.38 m from the wall: a body (0.32 m) there would touch a solid TV (it sticks out 0.085 m)
+const front = Math.cos(hungTv.rotationY);
+const laneZ = hungTv.z + front * 0.34;
+await p.evaluate(([x, z]) => window.__ahdusPlay.setPose({ x, z, yaw: Math.PI / 2, pitch: -0.05, floor: 0 }), [hungTv.x - 2.2, laneZ]);
+await frames(3); await wait(400);
+await blur();
+await p.keyboard.down('w'); await wait(700); await shot('lw-walk-past-tv.png'); await wait(900); await p.keyboard.up('w'); await frames(3);
+const pose = await p.evaluate(() => { const v = window.__ahdusPlay.getPosition?.(); return v ? { x: v.x, z: v.z } : null; });
+log('Walk through: you walk past the TV along the wall', !!pose && pose.x > hungTv.x - 0.3 && Math.abs(pose.z - laneZ) < 0.1,
+  pose ? `at ${pose.x.toFixed(2)}, ${pose.z.toFixed(2)} (TV at ${hungTv.x}, ${hungTv.z})` : 'no position');
+await p.click('[aria-label="Back to Studio"]'); await frames(4); await wait(500);
+
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length} / ${results.length} checks passed`);
 await b.close();

@@ -111,7 +111,7 @@ function Section({ title, children }) {
 
 // ── Item ────────────────────────────────────────────────────────────────
 
-function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetPositionRef, stairWarnings = [] }) {
+function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetPositionRef, stairWarnings = [], wallMount = null, onMountOnWall }) {
   const [keepProportions, setKeepProportions] = useState(true);
   const commit = (patch) => onUpdate(object.id, patch);
   // while it is dragged (or a move arrow is): where it is now, not where the layout still has it
@@ -142,6 +142,17 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
       {isStairs && stairWarnings.length > 0 && (
         <section className="insp-section" data-stairs-problems>
           {stairWarnings.map((text) => <p key={text} className="insp-note is-bad" role="alert">{text}.</p>)}
+        </section>
+      )}
+      {wallMount && !wallMount.onWall && (
+        <section className="insp-section" data-wall-mount="off">
+          <p className="insp-note">This hangs on a wall, but it isn't on one.</p>
+          <div className="insp-row">
+            <button className="ui-btn" onClick={() => onMountOnWall?.(object.id)} disabled={!!object.isLocked}
+              title={object.isLocked ? 'Unlock it first (L)' : 'Hang it on the nearest wall'}>
+              Mount on wall
+            </button>
+          </div>
         </section>
       )}
       <Section title="Position">
@@ -635,6 +646,8 @@ export default function Inspector({
   routes = [],
   onClose,
   onUpdateObject, onDuplicate, onToggleLock, onDeleteObject,
+  wallMount = null,     // v0.15.6: a selected wall item: { onWall } (off its wall: "Mount on wall")
+  onMountOnWall,        // (objectId) => void
   onUpdateRoom, onRenameRoom, onDeleteRoom,
   hookPoints = [], positions = [], onSetPositionRef,
   onPickLayer,
@@ -783,6 +796,7 @@ export default function Inspector({
         {mode === 'object' && seatPanel && <SeatSection key={object.id} {...seatPanel} />}
         {mode === 'object' && (
           <ObjectBody object={object} floorName={floorName} onUpdate={onUpdateObject} stairWarnings={stairWarnings}
+            wallMount={wallMount} onMountOnWall={onMountOnWall}
             hookPoints={hookPoints} positions={positions} onSetPositionRef={onSetPositionRef} />
         )}
         {mode === 'room' && (

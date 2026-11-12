@@ -13,7 +13,7 @@ import {
   Lock, Warehouse, Monitor, Server, Projector, Printer, Tv, Leaf, Sprout, CupSoda,
   Droplets, FireExtinguisher, Siren, Cross, MapPin, Square, Cog, Wrench, Columns3,
   RectangleHorizontal, Users, Laptop, Keyboard, Mouse, Library, Trash2, Refrigerator, Microwave,
-  Circle, Rows3, LampFloor, Shirt, Toilet, Bath,
+  Circle, Rows3, LampFloor, Shirt, Toilet, Bath, Clock, AirVent, LibraryBig,
 } from 'lucide-react';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { OBJECT_ITEMS } from '../play/hotbarItems';
@@ -58,6 +58,9 @@ export const ASSET_ICONS = {
   KEYBOARD: Keyboard,
   COMPUTER_MOUSE: Mouse,
   BOOKCASE_CLOSED: Library,
+  WALL_CLOCK: Clock,
+  WALL_SHELF: LibraryBig,
+  AC_UNIT: AirVent,
   TRASH_CAN: Trash2,
   FRIDGE: Refrigerator,
   MICROWAVE: Microwave,

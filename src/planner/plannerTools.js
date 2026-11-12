@@ -43,6 +43,8 @@ import {
 } from '../play/building';
 import { carriedBy, carryMoves } from '../play/carry';
 import { ridersOf as itemRiders, KEEP_HEIGHT } from '../utils/itemRiders';
+import { isWallItem, mountOnWall, mountText } from '../play/wallMount';
+import { createFloorWalls } from '../play/floorWalls';
 import { livePosition } from '../utils/livePosition';
 import { isDesk } from '../play/people';
 import { groupMembers, lockedNote } from '../play/group';
@@ -74,6 +76,7 @@ export function createPlannerTools(scene, canvas, {
   let lastHint = '';
   let pointerId = null; // the pointer pressed last: captured by the canvas while it drags something
   const pv = createBuildPreview(scene, 'planner');
+  const floorWalls = createFloorWalls(); // v0.15.6: the walls wall items hang on
 
   // ── Helpers ──
   const st = () => getState();
@@ -104,13 +107,17 @@ export function createPlannerTools(scene, canvas, {
     canvas.style.cursor = c;
   }
 
-  /** Point on the floor being edited under the mouse, or null (looking at the sky). */
-  function groundPoint() {
+  /**
+   * Point on the floor being edited under the mouse, or null (looking at the sky). `lift`: on a level that
+   * high over the floor instead (a wall item is dragged at its own height: the floor behind its wall is
+   * further away and would move it too fast).
+   */
+  function groundPoint(lift = 0) {
     const camera = getCamera();
     if (!camera) return null;
     const ray = scene.createPickingRay(scene.pointerX, scene.pointerY, Matrix.Identity(), camera);
     if (Math.abs(ray.direction.y) < 1e-4) return null;
-    const t = (elev() + FLOOR_Y - ray.origin.y) / ray.direction.y;
+    const t = (elev() + FLOOR_Y + lift - ray.origin.y) / ray.direction.y;
     if (t < 0) return null;
     return { x: ray.origin.x + ray.direction.x * t, z: ray.origin.z + ray.direction.z * t };
   }
@@ -371,11 +378,37 @@ export function createPlannerTools(scene, canvas, {
     return { worldY: h.worldY, y: h.y, on: surface === 'object' ? st().objects[objectIdOf(hit.pickedMesh)] : null };
   }
 
+  /**
+   * A wall item dragged (v0.15.6): onto the wall nearest the mouse (play/wallMount.js), facing away from it,
+   * at its height, sliding along it. Returns its hint, or null when no wall is near (it then stands on the floor).
+   */
+  function updateWallItemDrag(obj, p) {
+    const it = drag.items[0];
+    const point = { x: it.x + p.x - drag.start.x, z: it.z + p.z - drag.start.z };
+    const m = mountOnWall(obj, point, floorWalls(st(), obj.floor ?? 0), { catalog: ASSET_TYPES });
+    const mesh = getObjectMesh(obj.id);
+    if (!m) {
+      if (mesh) mesh.rotation.y = obj.rotationY ?? 0;
+      return null;
+    }
+    if (mesh) {
+      mesh.position.set(m.x, elev() + m.y, m.z);
+      mesh.rotation.y = m.rotationY;
+    }
+    drag.plan = { dx: m.x - it.x, dz: m.z - it.z, dy: m.y - (it.y ?? 0), rotationY: m.rotationY };
+    livePosition.set(drag.objectId, m.x, m.z);
+    return saveDragHint({ title: `Move ${nameOf(obj)}`, detail: mountText(nameOf(obj), true), keys: [['Release', 'Hang it here'], ['Esc', 'Cancel']] });
+  }
+
   function updateItemDrag() {
     const obj = st().objects[drag.objectId];
     if (!obj || !getObjectMesh(drag.objectId)) { cancelDrag(); return null; }
-    const p = groundPoint();
+    const p = groundPoint(drag.lift ?? 0);
     if (!p) return lastDragHint();
+    if (drag.wallItem) {
+      const h = updateWallItemDrag(obj, p);
+      if (h) return h;
+    }
     const x = snapV(drag.items[0].x + p.x - drag.start.x);
     const z = snapV(drag.items[0].z + p.z - drag.start.z);
     // a group (v0.15.5) keeps every item's height: it slides over the floor as it is
@@ -395,6 +428,9 @@ export function createPlannerTools(scene, canvas, {
     }
     drag.plan = { dx, dz, dy };
     livePosition.set(drag.objectId, x, z); // the Inspector's X / Z follow the drag
+    if (drag.wallItem) {
+      return saveDragHint({ title: `Move ${name}`, detail: mountText(name, false), keys: [['Release', 'Put it here'], ['Esc', 'Cancel']] });
+    }
     if (drag.group) {
       return saveDragHint({
         title: `Move ${name}`,
@@ -436,7 +472,10 @@ export function createPlannerTools(scene, canvas, {
     for (const it of d.items) {
       const o = st().objects[it.id];
       const mesh = getObjectMesh(it.id);
-      if (o && mesh && !mesh.isDisposed?.()) mesh.position.set(o.x, e + (o.y ?? 0), o.z);
+      if (o && mesh && !mesh.isDisposed?.()) {
+        mesh.position.set(o.x, e + (o.y ?? 0), o.z);
+        mesh.rotation.y = o.rotationY ?? 0; // a wall item turned to face its new wall
+      }
     }
   }
 
@@ -832,7 +871,8 @@ export function createPlannerTools(scene, canvas, {
   /** Release after dragging an item: one undo step for it and what stands on it. */
   function commitItemDrag(d) {
     const plan = d.plan;
-    if (!plan || (Math.abs(plan.dx) < 1e-6 && Math.abs(plan.dz) < 1e-6 && Math.abs(plan.dy) < 1e-6)) {
+    const turned = plan?.rotationY !== undefined && Math.abs(plan.rotationY - (st().objects[d.objectId]?.rotationY ?? 0)) > 1e-6;
+    if (!plan || (!turned && Math.abs(plan.dx) < 1e-6 && Math.abs(plan.dz) < 1e-6 && Math.abs(plan.dy) < 1e-6)) {
       restoreItemDrag(d);
       if (d.hint?.bad) onMessage(d.hint.detail, true);
       return;
@@ -843,7 +883,8 @@ export function createPlannerTools(scene, canvas, {
       const x = r3(it.x + plan.dx);
       const z = r3(it.z + plan.dz);
       const y = it.onTop ? Math.max(0, r3((it.y ?? 0) + plan.dy)) : it.y ?? 0;
-      return [it.id, { x, z, y, roomId: findRoomAt(rooms, x, z)?.id ?? null }];
+      const turn = it.id === d.objectId && plan.rotationY !== undefined ? { rotationY: plan.rotationY } : {};
+      return [it.id, { x, z, y, ...turn, roomId: findRoomAt(rooms, x, z)?.id ?? null }];
     });
     const obj = st().objects[d.objectId];
     const name = d.group ? `${d.group} items` : nameOf(obj);
@@ -1050,6 +1091,16 @@ export function createPlannerTools(scene, canvas, {
       if (hover?.type === 'grabItem') {
         // A click selects it as usual; it moves once the mouse has really been dragged (CLICK_SLOP)
         const obj = st().objects[hover.objectId];
+        if (obj && isWallItem(obj.assetType)) {
+          // v0.15.6: a wall item goes from wall to wall, alone, dragged at its own height
+          const lift = (obj.y ?? 0) + (ASSET_TYPES[obj.assetType]?.defaultHeight ?? 0.5) * Math.abs(obj.scaleY ?? 1) / 2;
+          const start = groundPoint(lift);
+          if (start) {
+            armMove({ kind: 'item', objectId: obj.id, start, lift, wallItem: true,
+              items: [{ id: obj.id, x: obj.x, y: obj.y ?? 0, z: obj.z, onTop: true }] });
+          }
+          return false;
+        }
         const p = groundPoint();
         if (obj && p) {
           // what it takes along: its chair (a desk) keeps its height, what stands on it rises with it

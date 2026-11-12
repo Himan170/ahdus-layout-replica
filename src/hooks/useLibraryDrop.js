@@ -20,6 +20,7 @@ import { elevationOf, floorBelow } from '../play/building';
 import { formatRoomSize } from '../play/geometry';
 import { projectPoint } from '../ui/projection';
 import { footprintAt, planRoomDrop } from '../ui/library';
+import { mountText } from '../play/wallMount';
 
 const DRAG_SLOP = 6; // px the pointer travels before a press on a tile is a drag
 
@@ -81,7 +82,11 @@ export function useLibraryDrop({
     const ghost = mgr.getGhostPosition();
     if (!ghost) return null;
     const problem = mgr.getProblem?.() ?? null;
-    return { rect: footprintAt(ghost, tile.width, tile.depth), valid: !problem, problem };
+    // turned a quarter (a wall item on a wall along Z): its footprint is turned too
+    const turned = Math.abs(Math.sin(ghost.rotationY ?? 0)) > 0.7;
+    const rect = footprintAt(ghost, turned ? tile.depth : tile.width, turned ? tile.width : tile.depth);
+    const mounted = mgr.isMounted?.() ?? null; // v0.15.6: a wall item hangs on the nearest wall
+    return { rect, valid: !problem, problem, note: mounted === null ? null : mountText(tile.label, mounted) };
   }, [groundAt, placementManagerRef, snapRef]);
 
   /** The plan's corners and centre in canvas pixels (the dashed footprint). */
@@ -94,7 +99,7 @@ export function useLibraryDrop({
     const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => projectPoint(scene, x + (sx * width) / 2, y, z + (sz * depth) / 2));
     if (corners.some((c) => !c.visible)) return null;
     const centre = projectPoint(scene, x, y, z);
-    return { points: corners.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' '), centre, valid: plan.valid, size: formatRoomSize(width, depth), problem: plan.problem };
+    return { points: corners.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' '), centre, valid: plan.valid, size: formatRoomSize(width, depth), problem: plan.problem, note: plan.note ?? null };
   }, [sceneRef]);
 
   /** Put the tile down at canvas pixels `at`. @returns {boolean} placed */
@@ -213,7 +218,7 @@ export function useLibraryDrop({
     commit(tile, { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }, false);
   }, [canvasRef, commit, handleSetPlannerTool, handleStartPlacement]);
 
-  const hint = drag ? (drag.footprint?.problem ?? (drag.tile.kind === 'room' ? ROOM_HINT : ITEM_HINT)) : null;
+  const hint = drag ? (drag.footprint?.problem ?? drag.footprint?.note ?? (drag.tile.kind === 'room' ? ROOM_HINT : ITEM_HINT)) : null;
 
   return { drag, hint, hintBad: !!drag?.footprint?.problem, onTilePointerDown, onPlaceTile };
 }

@@ -39,6 +39,7 @@ import {
   floorsInOrder, floorBelow, stairOpening, stairDimsFor, rectContains, roomRect, stairNeedsRoomAbove,
 } from '../building';
 import { CORNER_DESK_ARM } from '../people';
+import { hangsOnWall } from '../wallMount';
 
 /** Cell size (m): a 1 m door minus the body leaves ~3 cells; narrower doors are opened along their centre line. */
 export const CELL = 0.1;
@@ -92,6 +93,7 @@ export function isSolidItem(obj, catalog = {}) {
   if (!obj || obj.assetType === 'STAIRCASE') return false;
   const def = catalog[obj.assetType];
   if (def?.category === 'Marker' || def?.solid === false) return false;
+  if (hangsOnWall(obj)) return false; // v0.15.6: a TV or an exit sign on a wall (a floor-standing one still is)
   return !((obj.y ?? 0) >= BODY_HEIGHT);
 }
 
