@@ -13,14 +13,17 @@
  *     "clips": { "female": { "url": "clips-female.glb" } }, // animation-only files, shared by many characters
  *     "neutral": ["rocketbox:aisha-v1", …],                // the even default (part 5)
  *     "characters": { "rocketbox:aisha-v1": { "url": "…", "rig": "mixamo", "height": 1.74, "gender": "female",
- *                                             "group": "rocketbox", "outfit": "rocketbox", "clips": "female" } } }
+ *                                             "group": "rocketbox", "outfit": "rocketbox", "clips": "female",
+ *                                             "seated": "aisha-seated.glb" } } }
  * url: relative to the manifest's own address (or absolute); rig: 'mixamo'
  * (default) or 'ue' (Unreal-style bone names); height in m (default 1.75);
  * "walk": false = walking through, this character doesn't use the walk clip
  * (it stands and slides), for a skeleton the clip doesn't fit. v2 only: gender
  * 'female' | 'male'; group (any name, for "groups"); outfit 'rocketbox' = the
  * file has the Rocketbox outfit parts (Body, Top_shirt, Trousers, Outfit_formal…);
- * clips = the name of one of "clips" (resolved to its url here).
+ * clips = the name of one of "clips" (resolved to its url here); seated = a lighter copy of the same character
+ * (smaller textures: about a quarter of the graphics memory) drawn for the people at their desks, while the person
+ * walking through is the full file (v0.16.0).
  */
 
 import { cleanClothing } from '../play/outfit';
@@ -118,6 +121,11 @@ export function parseManifest(data, baseUrl) {
       if (entry.outfit !== undefined) {
         if (OUTFITS.includes(entry.outfit)) character.outfit = entry.outfit;
         else problems.push(`${ref}: unknown outfit "${entry.outfit}" (shown as it is)`);
+      }
+      if (entry.seated !== undefined) {
+        const s = resolveUrl(entry.seated, baseUrl);
+        if (s.problem) problems.push(`${ref}: seated: ${s.problem} (the full file is used)`);
+        else character.seated = s.url;
       }
       if (entry.clips !== undefined) {
         const set = clips.get(entry.clips);
@@ -236,7 +244,7 @@ export function resolvePeople(list, manifest) {
       deskId,
       name: text(p.name),
       department: text(p.department),
-      character: fileOf(entryFor(ref, personId, manifest)),
+      character: fileOf(entryFor(ref, personId, manifest), { seated: true }),
       characterChosen: ref !== null,
       ...clothingOf(p.clothing),
     });
@@ -246,11 +254,12 @@ export function resolvePeople(list, manifest) {
 
 /**
  * A manifest entry as the viewer draws it: { url, rig, height } and, from a v2 manifest, gender / outfit / clips
- * (the clip set's url) when it has them (no other fields), or null.
+ * (the clip set's url) when it has them (no other fields), or null. `seated`: someone at their desk, drawn from the
+ * lighter copy when the manifest has one (v0.16.0).
  */
-function fileOf(entry) {
+export function fileOf(entry, { seated = false } = {}) {
   if (!entry) return null;
-  const file = { url: entry.url, rig: entry.rig, height: entry.height };
+  const file = { url: (seated && entry.seated) || entry.url, rig: entry.rig, height: entry.height };
   for (const key of ['gender', 'outfit', 'clips']) if (entry[key]) file[key] = entry[key];
   return file;
 }

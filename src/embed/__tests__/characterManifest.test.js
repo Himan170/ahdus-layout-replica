@@ -263,3 +263,27 @@ describe('the even default: the neutral set (v0.16.0)', () => {
     expect(neutralFor('', m)).toBeNull();
   });
 });
+
+describe('a lighter copy for people at their desks (v0.16.0)', () => {
+  const base = 'https://ahdus.example/frontend/workplace/characters.json';
+  const m = parseManifest({ version: 2, characters: {
+    'rocketbox:emma-v1': { url: 'emma.glb', seated: 'emma-seated.glb' },
+    'rocketbox:leo-v1': { url: 'leo.glb' },
+    'rocketbox:bad-v1': { url: 'bad.glb', seated: 'ftp://x/bad.glb' },
+  } }, base);
+  it('people at desks get the seated copy, the person walking the full file; none given = the full file', () => {
+    const [emma, leo] = resolvePeople([
+      { personId: 'a', deskId: 'd1', assetReference: 'rocketbox:emma-v1' },
+      { personId: 'b', deskId: 'd2', assetReference: 'rocketbox:leo-v1' },
+    ], m);
+    expect(emma.character.url).toBe('https://ahdus.example/frontend/workplace/emma-seated.glb');
+    expect(leo.character.url).toBe('https://ahdus.example/frontend/workplace/leo.glb');
+    expect('seated' in emma.character).toBe(false);
+    expect(resolvePlayer({ personId: 'a', assetReference: 'rocketbox:emma-v1' }, m).character.url)
+      .toBe('https://ahdus.example/frontend/workplace/emma.glb');
+  });
+  it('a bad seated url is a problem and the full file is used', () => {
+    expect(m.problems.some((p) => p.startsWith('rocketbox:bad-v1: seated'))).toBe(true);
+    expect(m.characters.get('rocketbox:bad-v1').seated).toBeUndefined();
+  });
+});

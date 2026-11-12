@@ -124,9 +124,17 @@ describe('seatedPeople (v0.16.0)', () => {
       { ...asha, assetReference: null, clothing: { upperBody: 'shirt', upperColor: '#ffcc00' } },
       { ...ravi, assetReference: null },
     ], objects, m);
-    expect(a.character).toBe(m.characters.get(neutralFor('1', m)));
-    expect(b.character).toBe(m.characters.get(neutralFor('2', m)));
+    expect(a.character).toEqual(m.characters.get(neutralFor('1', m)));
+    expect(b.character).toEqual(m.characters.get(neutralFor('2', m)));
     expect(a.clothing).toEqual({ schemaVersion: 1, pantsColor: 'black', upperBody: 'shirt', upperColor: '#ffcc00' });
     expect('clothing' in b).toBe(false);
+  });
+
+  it('people at their desks are drawn from the lighter "seated" copy when the manifest has one', async () => {
+    const { parseManifest } = await import('../../embed/characterManifest');
+    const m = parseManifest({ version: 2, characters: { 'rocketbox:aisha-v1': { url: 'aisha.glb', seated: 'aisha-seated.glb' } } },
+      'https://ahdus.example/frontend/workplace/characters.json');
+    const [a] = seatedPeople([{ ...asha, assetReference: 'rocketbox:aisha-v1' }], objects, m);
+    expect(a.character.url).toBe('https://ahdus.example/frontend/workplace/aisha-seated.glb');
   });
 });

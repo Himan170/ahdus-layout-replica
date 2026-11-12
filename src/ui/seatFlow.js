@@ -9,7 +9,7 @@
  * (hasDesk: the server found the desk in the published layout).
  */
 
-import { charactersOf, neutralFor } from '../embed/characterManifest';
+import { charactersOf, fileOf, neutralFor } from '../embed/characterManifest';
 import { cleanClothing } from '../play/outfit';
 
 /** Desks people sit at: DESK* and RECEPTION_DESK (the same rule as play/people.js and the AHDUS server). */
@@ -133,8 +133,9 @@ export function seatedPeople(seats, objects, manifest = new Map()) {
     deskId: String(s.deskId),
     name: s.name ?? '',
     department: s.department ?? '',
-    character: (s.assetReference && characters.get(s.assetReference))
-      || characters.get(neutralFor(String(s.userId), manifest)) || null, // none: their neutral one (v0.16.0)
+    // none: their neutral one; at their desk the manifest's lighter copy when it has one (v0.16.0)
+    character: fileOf((s.assetReference && characters.get(s.assetReference))
+      || characters.get(neutralFor(String(s.userId), manifest)) || null, { seated: true }),
     characterChosen: !!s.assetReference,
     ...(cleanClothing(s.clothing) ? { clothing: cleanClothing(s.clothing) } : {}),
   }));
