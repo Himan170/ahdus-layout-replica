@@ -204,8 +204,12 @@ describe('chooseFullCharacters', () => {
     expect(full[0]).toBe('p0_11');
     expect(full).toContain('p0_13');
     expect(full).not.toContain('p0_0');
-    // still only within reach of the camera
-    expect(chooseFullCharacters(row(30), cam, 0, { focus: { x: 25, y: 0, z: 0 }, max: 100 }).every((id) => Number(id.split('_')[1]) <= 14)).toBe(true);
+    // from above, looking at a desk 20 m away: the people round it, though further than 15 m from the camera
+    const above = { x: 0, y: 12, z: 0 };
+    const around = chooseFullCharacters(row(40), above, 0, { focus: { x: 22, y: 0, z: 0 }, max: 3 });
+    expect(around).toEqual(['p0_22', 'p0_21', 'p0_23']);
+    // the whole building from far away (the camera > 30 m from the point looked at): nobody
+    expect(chooseFullCharacters(row(40), { x: 0, y: 60, z: -40 }, 0, { focus: { x: 20, y: 0, z: 0 } })).toEqual([]);
     // those full already stay when the focus moves a little (2 m nearer)
     const turned = chooseFullCharacters(people, cam, 0, { focus: { x: 10, y: 0, z: 0 }, current: full });
     expect(new Set(turned)).toEqual(new Set(full));

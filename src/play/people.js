@@ -261,32 +261,37 @@ export const KEEP_RADIUS = 18;
 
 /** v0.16.0: those full already rank this much nearer the point looked at (m), so a small turn doesn't swap them. */
 export const KEEP_BONUS = 2;
+/** v0.16.0: the point looked at counts while the camera is this near it (m); further away (the whole building from
+ * above), only the camera's own distance: nobody is near enough, no files are loaded. */
+export const VIEW_REACH = 30;
 
 /**
  * Who is drawn as a full character: people with a character file, on the
- * current floor, within FULL_RADIUS of the camera (KEEP_RADIUS for those full
- * already), at most MAX_FULL_CHARACTERS: the nearest to `options.focus` (v0.16.0: the
- * point the camera looks at: from above, the people in the middle of the view, not
- * those under the camera at the edge; those full already KEEP_BONUS nearer), else to the camera.
+ * current floor, within FULL_RADIUS (KEEP_RADIUS for those full already), at
+ * most MAX_FULL_CHARACTERS, the nearest first. Measured from `options.focus` (v0.16.0: the
+ * point the camera looks at: from above, the people in the middle of the view, not those
+ * under the camera at the edge; those full already rank KEEP_BONUS nearer) while the
+ * camera is within VIEW_REACH of it, else from the camera.
  * @param {{ personId: string, floor: number, x: number, y: number, z: number, character?: object | null }[]} people
  * @param {{ x: number, y: number, z: number }} camera
  * @param {number} floor
  * @param {{ max?: number, radius?: number, keepRadius?: number, current?: Iterable<string>,
- *   focus?: { x: number, y: number, z: number } | null }} [options]
+ *   focus?: { x: number, y: number, z: number } | null, reach?: number }} [options]
  * @returns {string[]} personIds, nearest (to the focus) first
  */
 export function chooseFullCharacters(people, camera, floor, options = {}) {
   const { max = MAX_FULL_CHARACTERS, radius = FULL_RADIUS, keepRadius = KEEP_RADIUS } = options;
   const current = new Set(options.current ?? []);
   const near = [];
+  const f = options.focus;
+  const fromFocus = !!f && Math.hypot(f.x - camera.x, f.y - camera.y, f.z - camera.z) <= (options.reach ?? VIEW_REACH);
+  const from = fromFocus ? f : camera;
   for (const p of people) {
     if (p.floor !== floor || !p.character?.url) continue;
-    const d = Math.hypot(p.x - camera.x, (p.y ?? 0) - camera.y, p.z - camera.z);
+    const d = Math.hypot(p.x - from.x, (p.y ?? 0) - from.y, p.z - from.z);
     const full = current.has(p.personId);
     if (d > (full ? keepRadius : radius)) continue;
-    const f = options.focus;
-    const rank = f ? Math.hypot(p.x - f.x, (p.y ?? 0) - f.y, p.z - f.z) - (full ? KEEP_BONUS : 0) : d;
-    near.push({ id: p.personId, d: rank });
+    near.push({ id: p.personId, d: fromFocus && full ? d - KEEP_BONUS : d });
   }
   near.sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
   return near.slice(0, Math.max(0, max)).map((n) => n.id);
