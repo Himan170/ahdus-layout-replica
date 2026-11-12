@@ -23,6 +23,7 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { buildAssetMesh } from './assetCatalog';
 import { disposeMaterialIfOwned } from './materialLibrary';
 import { placementHeight, canStandOn, floorOnlyText } from '../play/building';
+import { isWallItem, mountOnWall } from '../play/wallMount';
 import { ASSET_TYPES } from './assetCatalog';
 
 // ─── Ghost visual config ───
@@ -94,6 +95,8 @@ export function createPlacementManager(scene, options = {}) {
   let _surfaceY = 0;          // height of the surface under the pointer
   let pickFilter = null;      // (mesh) => boolean: only place on the floor being edited
   let getElevation = () => 0; // elevation of the floor being edited
+  let getWalls = null;        // () => wallPieces of the floor being edited (v0.15.6: wall items hang on them)
+  let _mounted = null;        // a wall item: true = on a wall, false = no wall near; null: not a wall item
   const ghostMaterials = createGhostMaterials(scene);
 
   // ── Ghost cleanup ──
@@ -106,21 +109,47 @@ export function createPlacementManager(scene, options = {}) {
     currentYOffset = 0;
     currentRotationY = 0;
     _valid = true;
+    _mounted = null;
   }
 
   const objectIdOf = (m) => m.metadata?.objectId ?? m.parent?.metadata?.objectId ?? null;
 
   // ── Raycast onto the floor, the ground, or placed furniture ──
-  function raycastSurface(pointerX, pointerY) {
+  function raycastSurface(pointerX, pointerY, walls = false) {
     return scene.pick(
       pointerX,
       pointerY,
       mesh => mesh.isPickable && mesh.isEnabled() && (!pickFilter || pickFilter(mesh)) && (
         mesh.name === 'ground' ||
         mesh.metadata?.part === 'floor' ||
+        (walls && mesh.metadata?.part === 'wall') ||
         !!objectIdOf(mesh)
       )
     );
+  }
+
+  /**
+   * A wall item (v0.15.6): hang the ghost on the wall nearest the mouse (play/wallMount.js). Pointing at a
+   * wall = the face on your side of it. Returns false when no wall is near (it then stands on the floor).
+   */
+  function mountGhost(pick) {
+    const pieces = getWalls?.();
+    if (!pieces) return false;
+    let { x, z } = pick.pickedPoint;
+    const hitWall = pick.pickedMesh.metadata?.part === 'wall' || pick.pickedMesh.metadata?.assetType === 'WALL_SEGMENT'
+      || pick.pickedMesh.parent?.metadata?.assetType === 'WALL_SEGMENT';
+    if (hitWall && pick.ray) {
+      // a little back towards the camera: the face you are looking at is the nearest one
+      x -= pick.ray.direction.x * 0.25;
+      z -= pick.ray.direction.z * 0.25;
+    }
+    const m = mountOnWall({ assetType: currentAssetType }, { x, z }, pieces, { catalog: ASSET_TYPES });
+    if (!m) return false;
+    _surfaceY = getElevation() + m.y;
+    currentRotationY = m.rotationY;
+    ghostRoot.position.set(m.x, _surfaceY, m.z);
+    ghostRoot.rotation.y = m.rotationY;
+    return true;
   }
 
   // ── Start placement mode ──
@@ -152,7 +181,18 @@ export function createPlacementManager(scene, options = {}) {
   function updatePointer(pointerX, pointerY) {
     if (!ghostRoot) return;
 
-    const pick = raycastSurface(pointerX, pointerY);
+    const wallItem = isWallItem(currentAssetType) && !!getWalls;
+    const pick = raycastSurface(pointerX, pointerY, wallItem);
+    if (pick?.hit && wallItem) {
+      _mounted = mountGhost(pick);
+      if (_mounted) {
+        _problem = null;
+        _valid = true;
+        applyGhostMaterial(ghostRoot, ghostMaterials.valid);
+        return;
+      }
+      if (pick.pickedMesh.metadata?.part === 'wall') return; // no room for it on that wall: keep the last spot
+    }
     if (pick?.hit) {
       let x = pick.pickedPoint.x;
       let z = pick.pickedPoint.z;
@@ -185,7 +225,7 @@ export function createPlacementManager(scene, options = {}) {
 
   // ── Scroll wheel: adjust height ──
   function adjustHeight(delta) {
-    if (!ghostRoot) return;
+    if (!ghostRoot || _mounted) return; // a hung item keeps its wall height
     currentYOffset = Math.max(0, currentYOffset + delta * 0.1);
     ghostRoot.position.y = _surfaceY + currentYOffset;
   }
@@ -193,7 +233,7 @@ export function createPlacementManager(scene, options = {}) {
   // ── R key: rotate 45° ──
   /** R turns what you are placing (90°, Shift+R 15°: carry.turnStep). */
   function rotatePreview(step = Math.PI / 2) {
-    if (!ghostRoot) return;
+    if (!ghostRoot || _mounted) return; // a hung item faces away from its wall
     currentRotationY += step;
     ghostRoot.rotation.y = currentRotationY;
   }
@@ -256,6 +296,10 @@ export function createPlacementManager(scene, options = {}) {
   function setPickFilter(fn) { pickFilter = fn; }
   /** Where the floor being edited is (furniture heights are kept relative to it). */
   function setElevationSource(fn) { getElevation = fn; }
+  /** v0.15.6: () => wallPieces of the floor being edited; wall items (wallMount.WALL_ITEMS) hang on them. */
+  function setWallSource(fn) { getWalls = fn; }
+  /** A wall item being placed: true = on a wall, false = no wall near; null: not a wall item. */
+  function isMounted() { return ghostRoot ? _mounted : null; }
   function setSnapEnabled(v) { snapEnabled = v; }
   function setSnapStep(v) { snapStep = v; }
   function isSnapEnabled() { return snapEnabled; }
@@ -267,7 +311,7 @@ export function createPlacementManager(scene, options = {}) {
 
   function getGhostPosition() {
     if (!ghostRoot) return null;
-    return { x: ghostRoot.position.x, y: ghostRoot.position.y, z: ghostRoot.position.z };
+    return { x: ghostRoot.position.x, y: ghostRoot.position.y, z: ghostRoot.position.z, rotationY: currentRotationY };
   }
 
   // ── Cleanup ──
@@ -289,6 +333,8 @@ export function createPlacementManager(scene, options = {}) {
     setSnapEnabled,
     setPickFilter,
     setElevationSource,
+    setWallSource,
+    isMounted,
     setSnapStep,
     isSnapEnabled,
     isActive,

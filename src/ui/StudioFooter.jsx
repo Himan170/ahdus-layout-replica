@@ -7,7 +7,7 @@
  */
 
 import { useRef, useState } from 'react';
-import { ChevronDown, Layers, Plus, Pencil, Trash2, Check, Copy, Square } from 'lucide-react';
+import { ChevronDown, Layers, Plus, Pencil, Trash2, Check, Copy, Square, EyeOff } from 'lucide-react';
 import { MIN_FLOOR_HEIGHT, MAX_FLOOR_HEIGHT, STOREY_HEIGHT, GROUND_FLOOR_STAYS } from '../play/building';
 import { usePopover } from './usePopover';
 
@@ -174,6 +174,8 @@ export default function StudioFooter({
   onSetFloorHeight,  // (floorId, height) => problem | null
   onRenameFloor, onRemoveFloor,
   hint,          // { text, tone: 'hint' | 'message' | 'bad' } | null
+  hiddenNote = null,   // v0.15.6: '3 hidden' (Layers' eye) or null
+  onShowAllHidden,
 }) {
   const [open, setOpen] = useState(false); // false | 'menu' | 'add'
   const wrapRef = useRef(null);
@@ -221,6 +223,13 @@ export default function StudioFooter({
         aria-expanded={open === 'add'} onClick={() => setOpen((v) => (v === 'add' ? false : 'add'))}>
         <Plus {...ICON} /> Add floor
       </button>
+      {hiddenNote && (
+        <span className="canvas-footer__hidden" role="status" data-hidden-note={hiddenNote}>
+          <EyeOff {...ICON} /> {hiddenNote}
+          <button type="button" className="canvas-footer__show-all" onClick={onShowAllHidden}
+            title="Show everything hidden in Layers again">Show all</button>
+        </span>
+      )}
     </div>
   );
 

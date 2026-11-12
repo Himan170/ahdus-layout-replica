@@ -442,12 +442,7 @@ export const ASSET_TYPES = {
       const tray = box(scene,'wbt',1.88,0.06,0.1,0,-0.57,0.04);
       tray.material = metalMat(scene,'#9098a0');
       [frame, board, tray].forEach(p => { p.parent = root; p.isPickable = true; });
-      // Legs (floor-standing)
-      const legMat = metalMat(scene, '#a0a8b0');
-      [[-0.9, 0, 0],[0.9, 0, 0]].forEach(([x,y,z],i) => {
-        const leg = cyl(scene,'wbl'+i,0.03,0.6+0.6,x,y-0.6,z);
-        leg.material = legMat; leg.parent = root;
-      });
+      // v0.15.6: no legs any more (they reached under the floor): it hangs on a wall (play/wallMount.js)
       root.metadata = { assetType: 'WHITEBOARD', objectId: id };
       return root;
     },
@@ -558,6 +553,36 @@ export const ASSET_TYPES = {
         shelf.material = mat(scene,'#c8b898'); shelf.parent = root; shelf.isPickable = true;
       });
       root.metadata = { assetType: 'STORAGE_RACK', objectId: id };
+      return root;
+    },
+  },
+
+  WALL_SHELF: {
+    label: 'Wall Shelf',
+    icon: '📚',
+    category: OBJECT_CATEGORIES.STORAGE,
+    defaultWidth: 1.0, defaultHeight: 0.3, defaultDepth: 0.25,
+    color: '#8b6f47',
+    source: 'Built-in (simple shapes, v0.15.6)',
+    buildMesh(scene, id) {
+      const root = new TransformNode('stor_wshelf_' + id, scene);
+      const woodMat = mat(scene, '#8b6f47');
+      const board = box(scene, 'wsb', 1.0, 0.03, 0.25, 0, 0.12, 0);
+      board.material = woodMat;
+      const bracketMat = metalMat(scene, '#606870');
+      const brackets = [-0.38, 0.38].map((x, i) => {
+        const b = box(scene, 'wsk' + i, 0.025, 0.12, 0.2, x, 0, -0.025);
+        b.material = bracketMat;
+        return b;
+      });
+      const bookColors = ['#c0392b', '#2980b9', '#27ae60', '#e67e22'];
+      const books = bookColors.map((c, i) => {
+        const bk = box(scene, 'wsbk' + i, 0.05, 0.15, 0.18, -0.3 + i * 0.07, 0.15, -0.02);
+        bk.material = mat(scene, c);
+        return bk;
+      });
+      [board, ...brackets, ...books].forEach(p => { p.parent = root; p.isPickable = true; });
+      root.metadata = { assetType: 'WALL_SHELF', objectId: id };
       return root;
     },
   },
@@ -674,6 +699,29 @@ export const ASSET_TYPES = {
     },
   },
 
+  // Wall items added in v0.15.6 (wall clock, wall shelf, AC unit): built here from simple shapes, like the
+  // items above (no downloaded file). Their back is local −Z, their front +Z; play/wallMount.js hangs them.
+  AC_UNIT: {
+    label: 'AC Unit',
+    icon: '❄️',
+    category: OBJECT_CATEGORIES.TECH,
+    defaultWidth: 0.9, defaultHeight: 0.3, defaultDepth: 0.22,
+    color: '#f2f4f5',
+    source: 'Built-in (simple shapes, v0.15.6)',
+    buildMesh(scene, id) {
+      const root = new TransformNode('tech_ac_' + id, scene);
+      const body = box(scene, 'acb', 0.9, 0.3, 0.22, 0, 0, 0);
+      body.material = mat(scene, '#f2f4f5');
+      const vent = box(scene, 'acv', 0.8, 0.05, 0.02, 0, 0.03, 0.105);
+      vent.material = mat(scene, '#9aa2aa');
+      const led = box(scene, 'acl', 0.03, 0.015, 0.01, 0.36, 0.22, 0.11);
+      led.material = mat(scene, '#2ecc71');
+      [body, vent, led].forEach(p => { p.parent = root; p.isPickable = true; });
+      root.metadata = { assetType: 'AC_UNIT', objectId: id };
+      return root;
+    },
+  },
+
   // ══════════════════════════════════════════
   //  AMENITY
   // ══════════════════════════════════════════
@@ -778,6 +826,40 @@ export const ASSET_TYPES = {
       cap.material = mat(scene,'#4080c0');
       [body, bottle, cap].forEach(p => { p.parent = root; p.isPickable = true; });
       root.metadata = { assetType: 'WATER_COOLER', objectId: id };
+      return root;
+    },
+  },
+
+  WALL_CLOCK: {
+    label: 'Wall Clock',
+    icon: '🕒',
+    category: OBJECT_CATEGORIES.AMENITY,
+    defaultWidth: 0.35, defaultHeight: 0.35, defaultDepth: 0.05,
+    color: '#ffffff',
+    source: 'Built-in (simple shapes, v0.15.6)',
+    buildMesh(scene, id) {
+      const root = new TransformNode('amen_clock_' + id, scene);
+      // a disc facing +Z: a cylinder laid on its side
+      const rim = MeshBuilder.CreateCylinder('clr', { diameter: 0.35, height: 0.05, tessellation: 24 }, scene);
+      rim.rotation.x = Math.PI / 2;
+      rim.position.set(0, 0.175, 0);
+      rim.material = metalMat(scene, '#2a2e38');
+      const face = MeshBuilder.CreateCylinder('clf', { diameter: 0.31, height: 0.01, tessellation: 24 }, scene);
+      face.rotation.x = Math.PI / 2;
+      face.position.set(0, 0.175, 0.022);
+      face.material = mat(scene, '#ffffff');
+      const hour = box(scene, 'clh', 0.014, 0.08, 0.004, 0, 0.175, 0.03);
+      hour.rotation.z = -0.9;
+      const minute = box(scene, 'clm', 0.01, 0.12, 0.004, 0, 0.175, 0.033);
+      minute.rotation.z = 0.5;
+      // box() puts the bottom at py: turn the hands about the clock's middle
+      for (const h of [hour, minute]) {
+        const len = h === hour ? 0.08 : 0.12;
+        h.position.set(Math.sin(-h.rotation.z) * len / 2, 0.175 + Math.cos(h.rotation.z) * len / 2, h.position.z);
+        h.material = mat(scene, '#1a1e28');
+      }
+      [rim, face, hour, minute].forEach(p => { p.parent = root; p.isPickable = true; });
+      root.metadata = { assetType: 'WALL_CLOCK', objectId: id };
       return root;
     },
   },

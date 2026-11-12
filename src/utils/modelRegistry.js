@@ -42,7 +42,6 @@ export const MODEL_REGISTRY = {
       { model: 'computerScreen', region: { x: [0.51, 1] }, fit: 'contain' },
     ],
   },
-  TV_DISPLAY: one('televisionModern'),
   PLANT_LARGE: one('pottedPlant'),
   PLANT_SMALL: one('plantSmall1'),
   COFFEE_MACHINE: one('kitchenCoffeeMachine', { fit: 'contain' }),
@@ -72,6 +71,12 @@ export function modelPartsFor(assetType) {
 /** Types with no real model that still get a library picture (of their primitive model): type → file name. */
 export const PRIMITIVE_THUMBS = {
   RECEPTION_DESK: 'receptionDesk',
+  // v0.15.6: the wall items made from simple shapes (assetCatalog); the TV hangs on a wall now, and Kenney's
+  // televisionModern stood on a foot, so it is drawn by its own flat-panel model too
+  TV_DISPLAY: 'tvDisplay',
+  WALL_CLOCK: 'wallClock',
+  WALL_SHELF: 'wallShelf',
+  AC_UNIT: 'acUnit',
 };
 
 /** The file name of an asset type's library picture (its first model's name), or null. */

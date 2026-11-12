@@ -23,6 +23,7 @@ import {
 } from './walkMap';
 import { entranceSpawn, outsideDoors, nearestFree } from './entrance';
 import { floorLinks, areaOf, roomHasDoor, roomAt } from './route';
+import { WALL_ITEM_TYPES, isWallItem, isOnWall, wallPieces } from '../wallMount';
 
 const list = (v) => (Array.isArray(v) ? v : Object.values(v ?? {}));
 const floorOf = (r) => r.floor ?? r.floorId ?? 0;
@@ -40,6 +41,7 @@ export const CHECK_KINDS = {
   DOOR_BLOCKED: 'DOOR_BLOCKED',
   WINDOW_BLOCKED: 'WINDOW_BLOCKED',
   STAIRS: 'STAIRS',
+  WALL_ITEM_OFF_WALL: 'WALL_ITEM_OFF_WALL', // v0.15.6: a TV, a clock… that doesn't hang on a wall
 };
 
 /** Worst first. */
@@ -48,7 +50,7 @@ export const SEVERITY_ORDER = { error: 0, warning: 1, info: 2 };
 /** Building parts drawn as items (a wall from the Wall tool, a door cut into it): they touch each other and walls. */
 const BUILDING_PARTS = new Set(['WALL_SEGMENT', 'DOOR_SINGLE', 'WINDOW_FRAME', 'GLASS_PARTITION', 'COLUMN']);
 /** Things that hang on a wall or stand against it: touching the wall is how they are meant to be. */
-const WALL_HUNG = new Set(['WHITEBOARD', 'TV_DISPLAY', 'PROJECTOR_SCREEN', 'FIRST_AID', 'EMERGENCY_EXIT', 'FIRE_EXTINGUISHER']);
+const WALL_HUNG = new Set([...WALL_ITEM_TYPES, 'FIRST_AID']);
 const isChair = (type) => /^CHAIR|LOUNGE_CHAIR/.test(type ?? '');
 const isTable = (type) => isDesk(type) || /^TABLE/.test(type ?? '');
 
@@ -277,6 +279,17 @@ export function checkLayout(layout, options = {}) {
       if (!wall) continue;
       add(CHECK_KINDS.ITEM_IN_WALL, 'warning',
         `${itemName(item)} stands in ${wall.name ? `a wall of ${wall.name}` : 'a wall'}`, [item.id], id, { objectId: item.id });
+    }
+
+    // a wall item (play/wallMount.js) that doesn't hang on a wall: on the floor, or off its wall (v0.15.6)
+    const wallItems = all.filter((o) => isWallItem(o.assetType));
+    if (wallItems.length) {
+      const pieces = wallPieces(here, all);
+      for (const item of wallItems) {
+        if (isOnWall(item, pieces, { catalog })) continue;
+        add(CHECK_KINDS.WALL_ITEM_OFF_WALL, 'warning', `${itemName(item)} is not on a wall: select it, then Mount on wall`,
+          [item.id], id, { objectId: item.id });
+      }
     }
 
     // outside every room, on an upper floor: it floats in the air (the ground floor has the ground)

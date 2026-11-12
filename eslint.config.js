@@ -6,7 +6,8 @@ import globals from 'globals';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default [
-  { ignores: ['dist/', 'dist-embed/', 'dist-ahdus/', 'node_modules/', 'public/', 'e2e/screens/', '**/*.ts', '**/*.tsx'] },
+  // private-docs/: Himan's own notes and scripts (not in git); .claude/: worktree copies of the repo
+  { ignores: ['dist/', 'dist-embed/', 'dist-ahdus/', 'node_modules/', 'public/', 'e2e/screens/', 'private-docs/', '.claude/', '**/*.ts', '**/*.tsx'] },
 
   js.configs.recommended,
 

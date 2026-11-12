@@ -78,3 +78,24 @@ describe('FloorSystem', () => {
     expect(part('u', 'ceiling')).toBe(true);
   });
 });
+
+describe("Layers' eye (v0.15.6)", () => {
+  it('hides rooms and items in the planner view only; walking shows everything', () => {
+    const { floorSystem, roomMeshes, objectMeshes } = setup([room('g', 0), room('side', 0, 10), room('u', 1)]);
+    floorSystem.setFloor(0);
+    floorSystem.setHidden(['side'], ['o0']);
+    expect(roomMeshes.get('side')!.isEnabled()).toBe(false);
+    expect(roomMeshes.get('g')!.isEnabled()).toBe(true);
+    expect(objectMeshes.get('o0')!.isEnabled()).toBe(false);
+
+    floorSystem.setView({ mode: 'outside', level: 0 }); // Walk through: nothing hidden
+    expect(roomMeshes.get('side')!.isEnabled()).toBe(true);
+    expect(objectMeshes.get('o0')!.isEnabled()).toBe(true);
+
+    floorSystem.setFloor(0);
+    expect(roomMeshes.get('side')!.isEnabled()).toBe(false); // back in Studio: still hidden
+    floorSystem.setHidden([], []);
+    expect(roomMeshes.get('side')!.isEnabled()).toBe(true);
+    expect(objectMeshes.get('o0')!.isEnabled()).toBe(true);
+  });
+});

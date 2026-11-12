@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1353, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1386, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -158,6 +158,13 @@ npm run e2e:tour     # 28 checks   e2e/tour-smoke.mjs      (viewer.html, the Mer
                      #                                       a reload, Restart, Esc, phone (above the joystick, touch words,
                      #                                       one line while walking, a tap opens it, full at a stop);
                      #                                       run it ALONE; SHOTS=<dir>: screenshots + a .webm recording)
+npm run e2e:layers   # 38 checks   e2e/layers-walls-smoke.mjs (v0.15.6: Layers' eye hides a room / an item in Studio only
+                     #                                       (Walk through + the saved layout keep it), "N hidden · Show all",
+                     #                                       after a reload; a locked room: Delete, R, typed size, wall drag,
+                     #                                       L + undo; wall items: a TV and a clock on a wall at their
+                     #                                       height, facing in, never across a door; Mount on wall + Check's
+                     #                                       warning; walking past a wall TV; snapping: guides, against the
+                     #                                       wall, Alt = none, Plan view's guides; SHOTS=<dir>: screenshots)
 npm run e2e          # all of them (Himan's laptop once hung on this: run the scripts ONE AT A TIME)
 node e2e/real-assets-shots.mjs before|after   # screenshots of one sample layout: e2e/screens/real-assets-<tag>-*.png
 ```
@@ -357,6 +364,45 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
 - Tests: `play/__tests__/group.test.js`, `planner/__tests__/groupActions.test.js` (the real store + editor),
   `floorplan/__tests__/planFloors.test.js`, `ui/__tests__/layersSearch.test.js`, `npm run e2e:faster`.
 
+## Layers, wall items and snapping (v0.15.6, how they work)
+
+- **Hide / show** (Layers' eye, `ui/hiddenLayers.js`): a Studio VIEW setting only: localStorage `ahdus.hiddenLayers`
+  = { "<company>/<layout>": { rooms, objects } } (≤ 30 workplaces, try / catch), never in the layout, never hidden in
+  Walk through, the viewer or the embed (`FloorSystem` hides them in Studio's planner view only; Plan view leaves them
+  out). The footer's "N hidden · Show all" (`data-hidden-note`).
+- **Room locks** (`play/locks.js`): store field `isLocked` (v2 `locked`, optional, written only when true; the ONE
+  layout format change of v0.15.6, in `schema.ts` / `migrate.ts` / `toV1.ts`, so `layout.schema.json` gains it).
+  `editorHistory` refuses moving, resizing, turning, wall height / thickness and deleting a locked room
+  (`allowedRoomPatch`, `lockedText`); name, type, finish, department, doors and windows still change, and its items
+  still move on their own. `lockRooms(ids, locked)` / `toggleRoomLock(id)`: one undo step. L, the Inspector's Lock,
+  the Layers lock.
+- **Wall items** (`play/wallMount.js`, PURE + tested): `WALL_ITEMS` = whiteboard 1.35 m, TV 1.4, projector screen 1.6,
+  exit sign (`aboveDoor`: `EXIT_GAP` 0.1 m over the door / window under it, else 2.2 m), extinguisher 1.0, wall clock
+  2.0, wall shelf 1.5, AC unit 2.3 (heights of the item's middle). `wallPieces(rooms, objects)` = the floor's walls cut
+  by doors and windows + WALL_SEGMENT items; `wallFaces` (cached per pieces array); `mountOnWall(obj, point, pieces)` →
+  `{ x, z, y, rotationY, face }`: back against the nearest face within `SNAP_DISTANCE` 3 m (`MOUNT_GAP` 5 mm), facing
+  into the room (θ = atan2(n.x, n.z)), along the wall in 0.05 m steps, never across an opening, under the wall's top.
+  `play/floorWalls.js` `createFloorWalls()` caches a floor's pieces until rooms / items change. Used by Studio's
+  placement manager (`setWallSource`), the library drop (`mountText` in the hint), the drag (`plannerTools`
+  `updateWallItemDrag`: the item turns to the wall, a wall guide), Plan view's `planDrop`, Walk through's placing,
+  G and Edit item (`aimWall`; a wall item carries nothing). Nothing saved differently: being on a wall is derived.
+- **Not floor obstacles:** `hangsOnWall(obj)` (a wall type with its foot ≥ `OFF_FLOOR` 0.3 m): `walkMap.isSolidItem`
+  skips it and ObjectSystem makes it non-solid (`setItemSolid`); one standing on the floor still collides.
+- **Old layouts:** nothing moves by itself. A selected wall item off its wall: the Inspector's "Mount on wall"
+  (`[data-wall-mount="off"]`, `mountOnWall` with no distance limit, one undo step); Check my layout's
+  `WALL_ITEM_OFF_WALL` warning (also FIRST_AID). The new types (WALL_CLOCK, WALL_SHELF, AC_UNIT) and the TV are
+  primitive models (`source: 'Built-in (simple shapes, v0.15.6)'`, thumbs in `PRIMITIVE_THUMBS`).
+- **Snapping while dragging** (`play/dragSnap.js`, PURE + tested): `snapTargets(objects, pieces, { catalog, ignore })`
+  once per drag (items' axis-aligned boxes from `itemFootprints`, wall faces along X / Z), `snapDrag(obj, at, targets,
+  { grid, free })` per move: per axis within `SNAP_TOLERANCE` 0.15 m, a wall in reach always wins (only from the
+  room's side), else the nearest item edge / middle (`SNAP_REACH` 8 m), else Studio's grid step. Guides
+  `[{ ax, az, bx, bz, kind: wall | edge | centre }]`: Studio draws them as one LineSystem `snap_guides` (orange wall,
+  pink item; `metadata.guides`), Plan view as `line[data-plan-guide]`; the hint "Against the wall · hold Alt for no
+  snapping". **Alt** held (or `free`) = 1 cm, no grid. Groups snap to the grid only. Meridian: targets < 200 ms (a
+  few ms in practice), a move < 4 ms (unit test).
+- Tests: `play/__tests__/wallMount.test.js`, `dragSnap.test.js`, `ui/__tests__/hiddenLayers.test.js`,
+  `editorHistory.test.js` (room locks), `npm run e2e:layers`.
+
 ## Check my layout (v0.15.3)
 
 Studio's top bar **Check** (phone: More) opens a floating panel grouped by floor. A click switches floor,
@@ -447,6 +493,11 @@ src/embed/characterManifest.js     PURE: the character manifest (assetReference 
 src/play/group.js                  PURE (v0.15.5): several items: groupMembers, groupMoves, groupTurn, copyItems, paste
 src/planner/groupActions.js        Studio's group actions + copy / paste (one editor command each)
 src/floorplan/planFloors.js        PURE (v0.15.5): adjacentFloor, floorBelow, planStairs, the Plan's saved zoom / position
+src/play/wallMount.js              PURE (v0.15.6): wall items (WALL_ITEMS heights), wallPieces / wallFaces, mountOnWall,
+                                   isOnWall, hangsOnWall (no floor obstacle); play/floorWalls.js caches a floor's pieces
+src/play/dragSnap.js               PURE (v0.15.6): snapping while dragging (walls, items' edges / middles, grid) + guides
+src/play/locks.js                  PURE (v0.15.6): what a lock stops (a locked room: no move / resize / turn / delete)
+src/ui/hiddenLayers.js             Layers' eye (v0.15.6): hidden rooms / items per workplace, Studio's view only
 src/play/carry.js                  PURE (v0.15.1): what an item takes along (carriedBy: a desk's chair + riders), carryMoves,
                                    turnStep (R 90°, Shift+R 15°), carryDrop (v0.15.2: putting it down in Walk through)
 src/utils/itemRiders.js            ridersOf: what stands on an item, from its mesh (Studio's drag + Walk through's carry)
@@ -501,7 +552,7 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 ## Rules (follow these)
 
 1. **Every layout change goes through `editorHistory`** (`createEditorHistory()`: addObject, updateObject,
-   deleteObject, duplicateObject, moveObjects, replaceObjects, toggleLock, addRoom, updateRoom, moveRoom, turnRoom, deleteRoom, toggleDoor, addOpenings,
+   deleteObject, duplicateObject, moveObjects, replaceObjects, toggleLock, lockObjects, lockRooms, toggleRoomLock, addRoom, updateRoom, moveRoom, turnRoom, deleteRoom, toggleDoor, addOpenings,
    removeOpenings, resizeOpening, setWallHeight, setFloorHeight, setAnchorData, addFloor({ copyRooms }), removeFloor,
    renameFloor, restoreVersion). Never call store mutators directly from
    UI or tools, or undo breaks. Continuous edits (slider drag, typing, + / − bursts) pass `{ mergeKey }` so they are
@@ -1365,6 +1416,11 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Faster building (v0.15.5): groups hold items, not rooms; the clipboard is Studio's own (lost on reload, not
   shared with other tabs); a pasted item may overlap what is already there (Check finds it); All floors is for
   looking only; the floor-below outline hides under walls in the same place (a copied floor).
+- Layers, wall items, snapping (v0.15.6): hidden rooms / items are per browser (not shared with other editors);
+  wall items hang on any straight wall (a Wall-tool wall at an angle too), but snapping guides use walls along
+  X / Z only; a group snaps to the grid only
+  (no guides); an item snaps to items on its own floor only. Wall items don't check what hangs next to them
+  (two TVs can overlap on one wall; Check doesn't say). The AC unit, clock and shelf are simple shapes (no model).
 - Rooms are rectangles (no L-shapes or free-form walls). Neighbours share one wall only when back to back
   (at most the thicker wall apart); further apart they keep two walls.
 - Wall thickness is per room, not per wall (a room's outside and inside walls are equally thick). Thickening a
@@ -1380,7 +1436,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - Two levels deep (a room inside a room inside a room, all on one wall line): from outside, the wall picks the
   middle room, not the outermost.
 - An Inspector size whose edge snaps moves the room's centre a little; doors on the other two walls move with it.
-- Realistic look: 27 item types have a Kenney model (low-poly, stretched into the primitive model's box, so some
+- Realistic look: 26 item types have a Kenney model (low-poly, stretched into the primitive model's box, so some
   proportions differ a little; the open bookcase has no back). Stairs, machines, lockers, racks, signs and markers
   keep their primitive models. The placement ghost shows the primitive model. A faint vertical line can show on
   textured walls where wall pieces meet beside a door or window. Item icons are generic lucide icons, not thumbnails.
@@ -1503,6 +1559,14 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: Layers, wall items and snapping (v0.15.6, 12 Nov 2026, branch `feature/v0.15.6-layers-wall-snapping`)
+
+The rest of "faster building": Layers hide / show (Studio's view only) and lock for rooms (the one format change: an
+optional room `locked`), wall items that hang on walls (+ wall clock, wall shelf, AC unit; Mount on wall, Check's
+warning, not floor obstacles), snapping while dragging with guide lines (Alt: none), lint ignores private-docs/,
+steadier timing tests (see "Layers, wall items and snapping"; CHANGELOG.md). e2e:layers 38 checks. Screenshots:
+private-docs/screenshots/v0.15.6/ (not in git).
 
 ## DONE: faster building (v0.15.5, 12 Nov 2026, branch `feature/v0.15.5-faster-building`)
 

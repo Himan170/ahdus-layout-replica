@@ -17,6 +17,13 @@ The library's furniture pictures, `thumbs/<model>.webp` (one per model above, 16
 isometric previews from the same pack (`Isometric/<model>_SE.png`, CC0 1.0), trimmed and resized by
 `node scripts/prepare-assets.mjs <pack folder> thumbs`. They show Kenney's colours, not ours.
 
+The **wall clock, wall shelf and AC unit** (v0.15.6) are **made by us**, CC0 1.0: built in code from boxes and
+cylinders in `src/utils/assetCatalog.js` (their `source` field says so), like the other items without a Kenney
+model; nothing downloaded, no model file. Since v0.15.6 the TV is drawn by its own flat-panel model too: Kenney's
+`televisionModern` stands on a foot, which looks wrong on a wall, so its file was removed. Their library pictures
+(`thumbs/wallClock.webp`, `wallShelf.webp`, `acUnit.webp`, `tvDisplay.webp`, like `receptionDesk.webp`) are drawn by
+the app itself: `node scripts/make-thumbs.mjs`.
+
 The **placeholder characters**, `characters/placeholder-mixamo.glb` and `characters/placeholder-ue.glb`, the walk
 clip `characters/placeholder-walk.glb` (a skeleton and one walk cycle, no mesh) (and `characters/manifest.json`), are
 **made by us**, CC0 1.0: `npm run characters:placeholder`
@@ -58,7 +65,6 @@ the lift models (lifts come later).
 | models/kenney/table.glb | Kenney Furniture Kit 2.0 (table) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
 | models/kenney/tableCoffee.glb | Kenney Furniture Kit 2.0 (tableCoffee) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
 | models/kenney/tableRound.glb | Kenney Furniture Kit 2.0 (tableRound) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
-| models/kenney/televisionModern.glb | Kenney Furniture Kit 2.0 (televisionModern) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
 | models/kenney/toilet.glb | Kenney Furniture Kit 2.0 (toilet) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
 | models/kenney/trashcan.glb | Kenney Furniture Kit 2.0 (trashcan) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |
 | models/kenney/License.txt | Kenney Furniture Kit 2.0 (its licence file) | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) | CC0 1.0 | 2026-10-24 |

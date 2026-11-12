@@ -155,7 +155,8 @@ export function useStudioKeyboard({
               editor.deleteObject(store.selectedObjectId);
             }
           } else if (store.selectedRoomId) {
-            editor.deleteRoom(store.selectedRoomId);
+            const res = editor.deleteRoom(store.selectedRoomId);
+            if (res?.problem) showStudioMessage(res.problem, true); // a locked room stays (v0.15.6)
           }
           break;
 
@@ -251,6 +252,14 @@ export function useStudioKeyboard({
             groupActions.toggleLock(); // all locked → unlock all, else lock all
           } else if (store.selectedObjectId) {
             editor.toggleLock(store.selectedObjectId);
+          } else if (store.selectedRoomId && !store.selectedOpening) {
+            // v0.15.6: rooms lock too (no move, resize, turn or delete)
+            const room = store.rooms[store.selectedRoomId];
+            if (room) {
+              editor.toggleRoomLock(room.id);
+              showStudioMessage(room.isLocked ? `Unlocked ${room.name}`
+                : `Locked ${room.name}. It can't be moved, resized, turned or deleted now.`);
+            }
           }
           break;
 

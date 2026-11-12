@@ -12,7 +12,8 @@ import type { Scene } from '@babylonjs/core/scene';
 import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 
 import { ASSET_TYPES, OBJECT_CATEGORIES } from '../../utils/assetCatalog';
-import { createItemMesh, disposeItemMesh } from '../../utils/assetInstances';
+import { createItemMesh, disposeItemMesh, setItemSolid } from '../../utils/assetInstances';
+import { isWallItem, hangsOnWall } from '../../play/wallMount';
 import { applyLockVisual, removeLockVisual } from '../../utils/lockIndicator';
 import { elevationOf, floorHeight, stairDrawn } from '../../play/building';
 import type { LayoutRecords, SyncOptions } from './RoomSystem';
@@ -106,6 +107,9 @@ export class ObjectSystem {
       mesh.scaling.x = drawn.scaleX;
       mesh.scaling.y = drawn.scaleY;
       mesh.scaling.z = drawn.scaleZ;
+
+      // v0.15.6: a wall item hung on a wall is no obstacle (walking past a wall TV); on the floor it is
+      if (isWallItem(obj.assetType)) setItemSolid(mesh, !hangsOnWall(obj));
 
       if (obj.isLocked) applyLockVisual(mesh);
       else removeLockVisual(mesh);

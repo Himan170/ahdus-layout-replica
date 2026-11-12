@@ -467,6 +467,17 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 .canvas-footer .studio-footer__floor-name { font-weight: 600; }
 :root .canvas-footer__add { gap: 6px; font-weight: 500; color: var(--accent); }
 :root .canvas-footer__add:hover, :root .canvas-footer .studio-footer__floor-btn:hover { background: var(--bg-hover); }
+/* Layers' eye (v0.15.6): "3 hidden · Show all" beside the floor switcher */
+.canvas-footer__hidden {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 4px 0 10px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--bg-panel); box-shadow: var(--shadow-card);
+  color: var(--text-muted); font-size: 13px; white-space: nowrap;
+}
+.canvas-footer__show-all {
+  height: 24px; padding: 0 10px; border: 0; border-radius: 999px; background: var(--accent-soft, #e3efe9);
+  color: var(--accent); font: inherit; font-weight: 600; cursor: pointer;
+}
+.canvas-footer__show-all:hover { filter: brightness(0.96); }
 .canvas-footer .studio-footer__hint {
   grid-column: 2;
   min-width: 0;
@@ -724,6 +735,7 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
   .canvas-footer { inset: 12px; display: block; }
   .canvas-footer__floors { position: absolute; top: 0; left: 0; max-width: calc(100% - 64px); }
   .canvas-footer__add { display: none !important; }
+  .canvas-footer__hidden { display: none; } /* a phone: the note is in Layers */
   :root .canvas-footer .studio-footer__floor-btn { max-width: 100%; }
   .canvas-footer .studio-footer__floor-name { overflow: hidden; text-overflow: ellipsis; }
   .canvas-footer .floor-menu { top: calc(100% + 8px); bottom: auto; width: min(280px, calc(100vw - 24px)); }

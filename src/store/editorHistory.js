@@ -21,6 +21,7 @@ import {
   GROUND_FLOOR_STAYS, stairPatch,
 } from '../play/building';
 import { toV1 } from '../engine/model/toV1';
+import { lockedText, allowedRoomPatch } from '../play/locks';
 import { normaliseLayout } from './layoutData';
 import { CommandHistory } from '../engine/commands/CommandHistory';
 import {
@@ -392,9 +393,31 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
         return planWallHeight(store().floors, Object.values(store().rooms), room, room.wallHeight);
       }, undefined, undefined, store)]));
     },
+    /** @returns {{ problem: string | null }}  a locked room stays (v0.15.6) */
     deleteRoom(id) {
-      if (!s.getRoom(id)) return;
+      const room = s.getRoom(id);
+      if (!room) return { problem: 'This room is gone' };
+      if (room.isLocked) return { problem: lockedText(room.name) };
       run(new DeleteRoomCommand(s, id));
+      return { problem: null };
+    },
+    /**
+     * Lock or unlock rooms as ONE undo step (v0.15.6): a locked room can't be moved, resized,
+     * turned or deleted (play/locks.js); its name, type, finish, doors and windows still change.
+     * @param {string[]} ids
+     * @param {boolean} locked
+     */
+    lockRooms(ids, locked) {
+      const many = ids.length > 1;
+      const label = `${locked ? 'Lock' : 'Unlock'} ${many ? 'rooms' : 'room'}`;
+      const cmds = ids.map((id) => s.getRoom(id)).filter((r) => r && !!r.isLocked !== locked)
+        .map((r) => new UpdateRoomCommand(s, r.id, { isLocked: locked }, { label }));
+      if (cmds.length === 0) return;
+      run(cmds.length === 1 ? cmds[0] : new CompositeCommand(label, cmds));
+    },
+    toggleRoomLock(id) {
+      const room = s.getRoom(id);
+      if (room) api.lockRooms([id], !room.isLocked);
     },
     /**
      * Move a room with what is in it as ONE undo step (v0.15.1): `plan` is
@@ -406,7 +429,7 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
      */
     moveRoom(id, plan, { label, mergeKey } = {}) {
       const room = s.getRoom(id);
-      if (!room || !plan || plan.blocker) return false;
+      if (!room || !plan || plan.blocker || room.isLocked) return false;
       if (Math.abs(plan.rect.x - room.x) < 1e-6 && Math.abs(plan.rect.z - room.z) < 1e-6) return false;
       const text = label ?? `Move ${room.name ?? 'room'}`;
       const sub = { label: text, mergeKey: mergeKey ? `group:${mergeKey}` : undefined };
@@ -438,7 +461,7 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
      */
     turnRoom(id, plan, { label } = {}) {
       const room = s.getRoom(id);
-      if (!room || !plan || plan.problem || !plan.patch) return false;
+      if (!room || !plan || plan.problem || !plan.patch || room.isLocked) return false;
       const text = label ?? `Turn ${room.name ?? 'room'}`;
       const sub = { label: text };
       const cmds = [new UpdateRoomCommand(s, id, plan.patch, sub)];
@@ -456,6 +479,8 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
     updateRoom(id, patch, options) {
       const room = s.getRoom(id);
       if (!room) return;
+      // A locked room keeps its shape: the rest of the patch (name, type, finish…) still applies
+      patch = allowedRoomPatch(room, patch).patch;
       if ('wallHeight' in patch) {
         // Wall heights keep the floor fitting (see setWallHeight)
         const { wallHeight, ...rest } = patch;
@@ -478,6 +503,7 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
     setWallHeight(id, wallHeight, { label, mergeKey } = {}) {
       const room = s.getRoom(id);
       if (!room) return { problem: 'This room is gone' };
+      if (room.isLocked) return { problem: lockedText(room.name) };
       const plan = planWallHeight(store().floors, Object.values(store().rooms), room, wallHeight);
       if (plan.problem || plan.rooms.length === 0) return plan;
       run(new HeightsCommand(label ?? `Wall height of ${room.name}`, () => plan, mergeKey, `room:${id}`, store));

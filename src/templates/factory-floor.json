@@ -52,7 +52,7 @@
     { "id": "obj_raw_rack_1", "assetType": "STORAGE_RACK", "floor": 0, "roomId": "room_raw_storage", "x": -14, "y": 0, "z": 0, "rotationY": 0 },
     { "id": "obj_raw_rack_2", "assetType": "STORAGE_RACK", "floor": 0, "roomId": "room_raw_storage", "x": -12, "y": 0, "z": 0, "rotationY": 0 },
     { "id": "obj_quality_desk", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_quality", "x": 12, "y": 0, "z": 0, "rotationY": 0 },
-    { "id": "obj_quality_whiteboard", "assetType": "WHITEBOARD", "floor": 0, "roomId": "room_quality", "x": 12, "y": 0, "z": 2, "rotationY": 0 },
+    { "id": "obj_quality_whiteboard", "assetType": "WHITEBOARD", "floor": 0, "roomId": "room_quality", "x": 12, "y": 0.75, "z": 2.89, "rotationY": 3.141592653589793 },
     { "id": "obj_supervisor_desk", "assetType": "DESK_STANDARD", "floor": 0, "roomId": "room_supervisor", "x": -7, "y": 0, "z": 10, "rotationY": 0 },
     { "id": "obj_dispatch_rack", "assetType": "STORAGE_RACK", "floor": 0, "roomId": "room_finished_storage", "x": 14, "y": 0, "z": 10, "rotationY": 0 }
   ],

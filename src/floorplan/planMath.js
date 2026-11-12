@@ -10,6 +10,27 @@ import { snap, roomOpenings, WALL_ASSET_LENGTH } from '../play/geometry';
 import { placementHeight, canStandOn, floorOnlyText, FLOOR_LIKE_TYPES } from '../play/building';
 import { carriedBy } from '../play/carry';
 import { ASSET_TYPES } from '../utils/assetCatalog';
+import { isWallItem, mountOnWall, wallPieces } from '../play/wallMount';
+import { snapTargets, snapDrag } from '../play/dragSnap';
+
+// the walls of the plan's floor, kept while its rooms and items are the same arrays (a drag asks every move)
+let wallCache = { rooms: null, objects: null, pieces: [] };
+function planWalls(rooms, objects) {
+  if (wallCache.rooms !== rooms || wallCache.objects !== objects) {
+    wallCache = { rooms, objects, pieces: wallPieces(rooms, objects) };
+  }
+  return wallCache.pieces;
+}
+
+// what a dragged item can line up with (dragSnap), kept for the drag: the same rooms, items and moving ids
+let targetCache = { key: null, targets: null };
+function planTargets(rooms, objects, moving) {
+  const ids = [...moving].sort().join('|');
+  if (targetCache.rooms !== rooms || targetCache.objects !== objects || targetCache.key !== ids) {
+    targetCache = { rooms, objects, key: ids, targets: snapTargets(objects, planWalls(rooms, objects), { catalog: ASSET_TYPES, ignore: moving }) };
+  }
+  return targetCache.targets;
+}
 
 // ── World ↔ plan ↔ screen ─────────────────────────────────────────────────
 
@@ -194,16 +215,28 @@ export function planCarried(object, objects = []) {
  * @returns {{ x:number, y:number, z:number } | { problem: string } | null}  null for a locked item (it does not
  *          move); { problem } for a floor-only item over a table top (it does not move either)
  */
-export function planDrop(object, point, { objects = [], rooms = [], snap: snapping, ground = false, ignore = [] } = {}) {
+export function planDrop(object, point, { objects = [], rooms = [], snap: snapping, ground = false, ignore = [], lineUp = false, free = false } = {}) {
   if (!object || object.isLocked) return null;
+  // v0.15.6: a wall item hangs on the wall nearest the mouse (no wall near: it stands on the floor as any item)
+  if (isWallItem(object.assetType)) {
+    const m = mountOnWall(object, point, planWalls(rooms, objects), { catalog: ASSET_TYPES });
+    if (m) return { x: m.x, y: m.y, z: m.z, rotationY: m.rotationY };
+  }
   const s = snapping?.enabled && snapping.step > 0 ? snapping.step : 0;
-  const x = s ? snap(point.x, s) : point.x;
-  const z = s ? snap(point.z, s) : point.z;
-  const at = { x, z };
-
   // What moves with it is no surface for it: a desk dragged onto the spot where its own chair
   // stood ended up on that chair (1.10 m up)
   const moving = new Set([object.id, ...ignore, ...planCarried(object, objects).map((o) => o.id)]);
+  let x = s ? snap(point.x, s) : point.x;
+  let z = s ? snap(point.z, s) : point.z;
+  let guides = null;
+  if (lineUp || free) {
+    // v0.15.6: lined up with the walls and the items near it, else the grid; free (Alt): neither
+    const lined = snapDrag(object, point, planTargets(rooms, objects, moving), { grid: s, free });
+    x = lined.x;
+    z = lined.z;
+    guides = lined.guides;
+  }
+  const at = { x, z };
   let top = null;
   let under = null; // the item it would stand on
   for (const other of objects) {
@@ -221,7 +254,7 @@ export function planDrop(object, point, { objects = [], rooms = [], snap: snappi
   }
   // y in the store is relative to the floor: work at elevation 0
   const h = placementHeight({ surface, normalY: 1, pointY: top ?? 0, elevation: 0 });
-  return { x, y: h.y, z };
+  return guides ? { x, y: h.y, z, guides } : { x, y: h.y, z };
 }
 
 // ── Zoom, pan and dimensions ──────────────────────────────────────────────

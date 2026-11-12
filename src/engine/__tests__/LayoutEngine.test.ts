@@ -435,6 +435,8 @@ const EDITS: Record<string, unknown[]> = {
   turnRoom: ['room_a', { problem: null, patch: { width: 4, depth: 6, doors: [], windows: [] }, rooms: [], objects: [['obj_desk', { x: 1, z: 0, rotationY: 1.57 }]] }],
   toggleLock: ['obj_desk'],
   lockObjects: [['obj_desk'], true],
+  lockRooms: [['room_a'], true],
+  toggleRoomLock: ['room_a'],
   addRoom: [{ type: 'OFFICE', x: 20, z: 0, width: 4, depth: 4 }],
   deleteRoom: ['room_b'],
   updateRoom: ['room_a', { name: 'Renamed' }],

@@ -38,6 +38,7 @@ import { installStudioPointer } from './studioPointer';
 import { studioWalkMaps } from './studioWalkMaps';
 import { NavigationSystem } from '../engine/systems/NavigationSystem';
 import { RouteLineSystem } from '../engine/systems/RouteLineSystem';
+import { createFloorWalls } from '../play/floorWalls';
 
 export function useStudioScene({
   canvasRef, sceneRef, cameraRef, lightsRef, siteEnvRef, roomSystemRef, objectSystemRef, floorSystemRef, characterSystemRef,
@@ -269,6 +270,12 @@ export function useStudioScene({
     placementMgr.setElevationSource(() => {
       const st = useWorkspaceStore.getState();
       return elevationOf(st.floors, st.currentFloor);
+    });
+    // v0.15.6: wall items hang on the walls of the floor being edited
+    const floorWalls = createFloorWalls();
+    placementMgr.setWallSource(() => {
+      const st = useWorkspaceStore.getState();
+      return floorWalls(st, st.currentFloor);
     });
 
     const plannerTools = createPlannerTools(scene, canvas, {

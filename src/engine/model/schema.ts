@@ -101,6 +101,8 @@ export const RoomSchema = z.object({
   color: z.string().default('#4a90d9'),
   floorFinish: z.string().default('default'),
   departmentRef: z.string().optional(),
+  // v0.15.6: a locked room can't be moved, resized, turned or deleted in Studio. Missing = unlocked
+  locked: z.boolean().optional(),
 });
 export type Room = z.infer<typeof RoomSchema>;
 

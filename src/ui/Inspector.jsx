@@ -9,14 +9,15 @@
  *           linked position); Duplicate / Lock / Delete
  *   room:   name, room type, department (v0.14.9), Width / Length / Ceiling, floor swatches, wall thickness,
  *           the doors and windows (a click selects one) + "Add a door or window"; Duplicate, Delete room
- *   layers: outline of rooms and items on this floor
+ *   layers: outline of rooms and items on this floor; each row's eye (hide / show in Studio's view only,
+ *           ui/hiddenLayers.js) and lock (v0.15.6)
  */
 
 import { useEffect, useState, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { livePosition } from '../utils/livePosition';
 import {
   X, Copy, Lock, LockOpen, Trash2, Link2, Unlink2, LayoutGrid, DoorOpen, AppWindow, RotateCcw, Volume2, VolumeX, Plus,
-  RotateCw, Boxes, ClipboardCopy, Search,
+  RotateCw, Boxes, ClipboardCopy, Search, Eye, EyeOff,
 } from 'lucide-react';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { ROOM_TYPES } from '../utils/roomStore';
@@ -52,7 +53,7 @@ const toRad = (deg) => (deg * Math.PI) / 180;
  * value, and shows the stored value again when you leave it (so undo and
  * gizmo drags always show up).
  */
-function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2, suffix }) {
+function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2, suffix, disabled = false, title }) {
   const [draft, setDraft] = useState(null);
   const shown = draft ?? Number(value ?? 0).toFixed(digits);
   return (
@@ -63,6 +64,8 @@ function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2,
           type="number"
           className="ui-input insp-field__input"
           aria-label={label}
+          disabled={disabled}
+          title={title}
           value={shown}
           step={step}
           min={min}
@@ -108,7 +111,7 @@ function Section({ title, children }) {
 
 // ── Item ────────────────────────────────────────────────────────────────
 
-function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetPositionRef, stairWarnings = [] }) {
+function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetPositionRef, stairWarnings = [], wallMount = null, onMountOnWall }) {
   const [keepProportions, setKeepProportions] = useState(true);
   const commit = (patch) => onUpdate(object.id, patch);
   // while it is dragged (or a move arrow is): where it is now, not where the layout still has it
@@ -139,6 +142,17 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
       {isStairs && stairWarnings.length > 0 && (
         <section className="insp-section" data-stairs-problems>
           {stairWarnings.map((text) => <p key={text} className="insp-note is-bad" role="alert">{text}.</p>)}
+        </section>
+      )}
+      {wallMount && !wallMount.onWall && (
+        <section className="insp-section" data-wall-mount="off">
+          <p className="insp-note">This hangs on a wall, but it isn't on one.</p>
+          <div className="insp-row">
+            <button className="ui-btn" onClick={() => onMountOnWall?.(object.id)} disabled={!!object.isLocked}
+              title={object.isLocked ? 'Unlock it first (L)' : 'Hang it on the nearest wall'}>
+              Mount on wall
+            </button>
+          </div>
         </section>
       )}
       <Section title="Position">
@@ -308,6 +322,9 @@ function RoomBody({ room, departmentChoices: choices, onUpdate, onSetFloor, onSe
   const area = room.width * room.depth;
   const floor = floorKindOf(room);
   const openings = roomOpenings(room);
+  // a locked room keeps its size, place and walls (v0.15.6): unlock it first
+  const locked = !!room.isLocked;
+  const lockTip = locked ? 'Locked: unlock it (L) to change this' : undefined;
   return (
     <div className="insp-room">
       <label className="insp-field insp-field--wide">
@@ -330,25 +347,25 @@ function RoomBody({ room, departmentChoices: choices, onUpdate, onSetFloor, onSe
       <div className="insp-room__group">
         <h3 className="insp-room__title">Size</h3>
         <div className="insp-grid insp-grid--3">
-          <NumberField label="Width" value={room.width} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m"
+          <NumberField label="Width" value={room.width} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { width: v })} />
-          <NumberField label="Length" value={room.depth} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m"
+          <NumberField label="Length" value={room.depth} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { depth: v })} />
-          <NumberField label="Ceiling" value={room.wallHeight ?? 3} step={0.1} min={MIN_WALL_HEIGHT} max={MAX_WALL_HEIGHT} digits={1} suffix="m"
+          <NumberField label="Ceiling" value={room.wallHeight ?? 3} step={0.1} min={MIN_WALL_HEIGHT} max={MAX_WALL_HEIGHT} digits={1} suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { wallHeight: v })} />
         </div>
-        <p className="insp-room__note">{Math.round(area * 10) / 10} m² · or drag its walls in the view</p>
+        <p className="insp-room__note">{Math.round(area * 10) / 10} m² · {locked ? 'locked: unlock it to resize it' : 'or drag its walls in the view'}</p>
       </div>
 
       <div className="insp-room__group">
         <h3 className="insp-room__title">Position</h3>
         <div className="insp-grid">
-          <NumberField label="Room X" value={room.x} step={0.5} digits={2} suffix="m"
+          <NumberField label="Room X" value={room.x} step={0.5} digits={2} suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { x: v })} />
-          <NumberField label="Room Z" value={room.z} step={0.5} digits={2} suffix="m"
+          <NumberField label="Room Z" value={room.z} step={0.5} digits={2} suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { z: v })} />
         </div>
-        <p className="insp-room__note">Its furniture and the rooms inside it move with it · or drag its floor</p>
+        <p className="insp-room__note">{locked ? 'Locked: unlock it (L) to move it' : 'Its furniture and the rooms inside it move with it · or drag its floor'}</p>
       </div>
 
       <div className="insp-room__group">
@@ -366,7 +383,7 @@ function RoomBody({ room, departmentChoices: choices, onUpdate, onSetFloor, onSe
         <h3 className="insp-room__title">Walls</h3>
         <div className="insp-grid">
           <NumberField label="Wall thickness" value={wallThicknessOf(room)} step={WALL_THICKNESS_STEP}
-            min={MIN_WALL_THICKNESS} max={MAX_WALL_THICKNESS} digits={2} suffix="m"
+            min={MIN_WALL_THICKNESS} max={MAX_WALL_THICKNESS} digits={2} suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { wallThickness: v })} />
         </div>
       </div>
@@ -447,7 +464,34 @@ export function matchesLayerQuery(text, query) {
 
 let lastLayersQuery = ''; // kept while the panel closes for a selection and opens again
 
-function LayersBody({ rooms = [], objects = [], floors = [], routes = [], onPick }) {
+/** A Layers row's own buttons (v0.15.6): the eye (Studio's view only) and the lock. */
+function RowButtons({ name, hidden, locked, onToggleHidden, onToggleLock }) {
+  return (
+    <>
+      {onToggleHidden && (
+        <button type="button" className="layers-row__btn" aria-pressed={hidden} data-layer-eye={hidden ? 'hidden' : 'shown'}
+          aria-label={`${hidden ? 'Show' : 'Hide'} ${name}`}
+          title={hidden ? 'Show it again' : 'Hide it while you work (only here, in Studio)'} onClick={onToggleHidden}>
+          {hidden ? <EyeOff {...ICON} /> : <Eye {...ICON} />}
+        </button>
+      )}
+      {onToggleLock && (
+        <button type="button" className="layers-row__btn" aria-pressed={locked} data-layer-lock={locked ? 'locked' : 'open'}
+          aria-label={`${locked ? 'Unlock' : 'Lock'} ${name}`}
+          title={locked ? 'Unlock it' : "Lock it: it can't be moved, resized, turned or deleted"} onClick={onToggleLock}>
+          {locked ? <Lock {...ICON} /> : <LockOpen {...ICON} />}
+        </button>
+      )}
+    </>
+  );
+}
+
+function LayersBody({
+  rooms = [], objects = [], floors = [], routes = [], onPick,
+  hidden = null,          // { rooms: Set, objects: Set } hidden in Studio's view (v0.15.6)
+  hiddenNote = null,      // '3 hidden' (the whole workplace) or null
+  onToggleHidden, onShowAll, onToggleRoomLock, onToggleLock,
+}) {
   const [query, setQuery] = useState(lastLayersQuery);
   const roomName = (id) => rooms.find((r) => r.id === id)?.name;
   const routeSummary = describeAccessibilityRoutes(floors, rooms, objects, routes);
@@ -480,6 +524,12 @@ function LayersBody({ rooms = [], objects = [], floors = [], routes = [], onPick
             : `${shownRooms.length + shownObjects.length} found`}
         </p>
       )}
+      {hiddenNote && (
+        <p className="layers-hidden-note" role="status" data-layers-hidden={hiddenNote}>
+          <EyeOff {...ICON} /> {hiddenNote}
+          <button type="button" className="ui-btn is-ghost" onClick={onShowAll}>Show all</button>
+        </p>
+      )}
       {!searching && (
         <Section title="Accessibility & Routes">
           <p className="insp-note" role="status">
@@ -490,19 +540,25 @@ function LayersBody({ rooms = [], objects = [], floors = [], routes = [], onPick
       <Section title={`Rooms (${count(shownRooms, rooms)})`}>
         {rooms.length === 0 && <p className="insp-note">No rooms on this floor yet.</p>}
         <ul className="layers-list" role="list" aria-label="Rooms and spaces">
-          {shownRooms.map((r) => (
-            <li key={r.id}>
-              <button
-                className="layers-list__item"
-                onClick={() => onPick({ type: 'room', id: r.id })}
-                aria-label={`Room: ${r.name}, ${sizeLabel(r.width, r.depth)}`}
-              >
-                <span className="ui-dot" style={{ background: r.color }} aria-hidden />
-                <span className="layers-list__name">{r.name}</span>
-                <span className="ui-muted">{sizeLabel(r.width, r.depth)}</span>
-              </button>
-            </li>
-          ))}
+          {shownRooms.map((r) => {
+            const off = !!hidden?.rooms.has(r.id);
+            return (
+              <li key={r.id} className={`layers-row${off ? ' is-hidden' : ''}`} data-layer-room={r.id}>
+                <button
+                  className="layers-list__item"
+                  onClick={() => onPick({ type: 'room', id: r.id })}
+                  aria-label={`Room: ${r.name}, ${sizeLabel(r.width, r.depth)}${r.isLocked ? ' (locked)' : ''}${off ? ' (hidden)' : ''}`}
+                >
+                  <span className="ui-dot" style={{ background: r.color }} aria-hidden />
+                  <span className="layers-list__name">{r.name}</span>
+                  <span className="ui-muted">{sizeLabel(r.width, r.depth)}</span>
+                </button>
+                <RowButtons name={r.name} hidden={off} locked={!!r.isLocked}
+                  onToggleHidden={onToggleHidden && (() => onToggleHidden('rooms', r.id))}
+                  onToggleLock={onToggleRoomLock && (() => onToggleRoomLock(r.id))} />
+              </li>
+            );
+          })}
         </ul>
       </Section>
       <Section title={`Items (${count(shownObjects, objects)})`}>
@@ -511,18 +567,21 @@ function LayersBody({ rooms = [], objects = [], floors = [], routes = [], onPick
           {shownObjects.map((o) => {
             const Icon = assetIcon(o.assetType);
             const label = itemLabel(o);
+            const off = !!hidden?.objects.has(o.id);
             return (
-              <li key={o.id}>
+              <li key={o.id} className={`layers-row${off ? ' is-hidden' : ''}`} data-layer-item={o.id}>
                 <button
                   className="layers-list__item"
                   onClick={() => onPick({ type: 'object', id: o.id })}
-                  aria-label={`Item: ${label}${o.isLocked ? ' (locked)' : ''}`}
+                  aria-label={`Item: ${label}${o.isLocked ? ' (locked)' : ''}${off ? ' (hidden)' : ''}`}
                 >
                   <Icon {...ICON} />
                   <span className="layers-list__name">{label}</span>
                   <span className="ui-muted">{roomName(o.roomId) ?? ''}</span>
-                  {o.isLocked && <Lock {...ICON} />}
                 </button>
+                <RowButtons name={label} hidden={off} locked={!!o.isLocked}
+                  onToggleHidden={onToggleHidden && (() => onToggleHidden('objects', o.id))}
+                  onToggleLock={onToggleLock && (() => onToggleLock(o.id))} />
               </li>
             );
           })}
@@ -587,6 +646,8 @@ export default function Inspector({
   routes = [],
   onClose,
   onUpdateObject, onDuplicate, onToggleLock, onDeleteObject,
+  wallMount = null,     // v0.15.6: a selected wall item: { onWall } (off its wall: "Mount on wall")
+  onMountOnWall,        // (objectId) => void
   onUpdateRoom, onRenameRoom, onDeleteRoom,
   hookPoints = [], positions = [], onSetPositionRef,
   onPickLayer,
@@ -598,6 +659,11 @@ export default function Inspector({
   departmentChoices = null, // a room's Department field (v0.14.9): the page's names (roomDepartment.departmentChoices); null: free text
   group = [],           // v0.15.5: the selected items when 2+ are selected (mode 'group')
   groupActions = null,  // planner/groupActions.js: turn, duplicate, copy, lock, delete
+  onToggleRoomLock,     // v0.15.6: (roomId) => void
+  hiddenLayers = null,  // v0.15.6: { rooms: Set, objects: Set } hidden in Studio's view
+  hiddenNote = null,    // v0.15.6: '3 hidden' or null
+  onToggleHidden,       // v0.15.6: ('rooms' | 'objects', id) => void
+  onShowAllHidden,      // v0.15.6: () => void
 }) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -680,7 +746,9 @@ export default function Inspector({
           )}
           {mode === 'room' && (
             <>
-              <span className="inspector__eyebrow">Room</span>
+              <span className="inspector__eyebrow" data-room-locked={room.isLocked ? 'true' : undefined}>
+                Room{room.isLocked ? ' · Locked' : ''}
+              </span>
               <NameInput value={room.name} placeholder="Room name" onChange={(v) => onRenameRoom(room.id, v)} />
             </>
           )}
@@ -728,6 +796,7 @@ export default function Inspector({
         {mode === 'object' && seatPanel && <SeatSection key={object.id} {...seatPanel} />}
         {mode === 'object' && (
           <ObjectBody object={object} floorName={floorName} onUpdate={onUpdateObject} stairWarnings={stairWarnings}
+            wallMount={wallMount} onMountOnWall={onMountOnWall}
             hookPoints={hookPoints} positions={positions} onSetPositionRef={onSetPositionRef} />
         )}
         {mode === 'room' && (
@@ -736,7 +805,9 @@ export default function Inspector({
         )}
         {mode === 'opening' && <OpeningBody opening={opening} floorName={floorName} onResize={onResizeOpening} />}
         {mode === 'layers' && (
-          <LayersBody rooms={rooms} objects={objects} floors={floors} routes={routes} onPick={onPickLayer} />
+          <LayersBody rooms={rooms} objects={objects} floors={floors} routes={routes} onPick={onPickLayer}
+            hidden={hiddenLayers} hiddenNote={hiddenNote} onToggleHidden={onToggleHidden} onShowAll={onShowAllHidden}
+            onToggleRoomLock={onToggleRoomLock} onToggleLock={onToggleLock} />
         )}
         {mode === 'group' && <GroupBody items={group} />}
       </div>
@@ -792,7 +863,15 @@ export default function Inspector({
           <button className="ui-btn" onClick={() => onDuplicateRoom(room.id)} title="A copy of this room next to it">
             <Copy {...ICON} /> Duplicate
           </button>
-          <button className="ui-btn is-danger" onClick={() => onDeleteRoom(room.id)} title="Delete room (Del)">
+          {onToggleRoomLock && (
+            <button className="ui-btn" aria-pressed={!!room.isLocked} onClick={() => onToggleRoomLock(room.id)}
+              title={room.isLocked ? 'Unlock (L)' : 'Lock so it cannot be moved, resized, turned or deleted (L)'}>
+              {room.isLocked ? <LockOpen {...ICON} /> : <Lock {...ICON} />} {room.isLocked ? 'Unlock' : 'Lock'}
+            </button>
+          )}
+          <button className="ui-btn is-danger" aria-disabled={!!room.isLocked}
+            onClick={() => { if (!room.isLocked) onDeleteRoom(room.id); }}
+            title={room.isLocked ? 'Unlock it first to delete it' : 'Delete room (Del)'}>
             <Trash2 {...ICON} /> Delete room
           </button>
         </footer>
