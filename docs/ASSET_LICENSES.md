@@ -31,7 +31,11 @@ clip `characters/placeholder-walk.glb` (a skeleton and one walk cycle, no mesh) 
 no 3D program, nothing downloaded). Same skeleton as a Mixamo character, 1.75 m, T-pose, facing +Z: one with
 Mixamo bone names (`mixamorig:Hips`, …), one with Unreal-style names (`Root`, `pelvis`, `spine_01`, `thigh_l`, …).
 They are the test and demo figures for people
-at their desks. **No Mixamo or AHDUS character file may ever be put in this repo** (it is public; Mixamo's licence
+at their desks. v0.16.0 adds `characters/placeholder-suit.glb` and `characters/placeholder-own.glb` (built like a
+Rocketbox character: one mesh and material per outfit part, `Outfit_formal` / `Outfit_original`, `Top_shirt`,
+`Top_tee`, `Trousers`, …, meshopt-compressed) and `characters/placeholder-clips.glb` (a clip set, no mesh: Idle,
+Walk, Run, Wave, Sit, Type), made the same way (CC0 1.0). **No Mixamo, Rocketbox or AHDUS character file may ever
+be put in this repo** (it is public; Mixamo's licence
 does not allow sharing the raw files).
 
 Not used (and not in the repo): the Quaternius Furniture Pack, the Industrial Pack (needs FBX conversion), and
@@ -99,3 +103,6 @@ the lift models (lifts come later).
 | characters/placeholder-mixamo.glb | made by us (scripts/make-placeholder-character.mjs) | this repo | ahdus-layout-replica | CC0 1.0 | 2026-11-03 |
 | characters/placeholder-ue.glb | made by us (scripts/make-placeholder-character.mjs) | this repo | ahdus-layout-replica | CC0 1.0 | 2026-11-03 |
 | characters/placeholder-walk.glb | made by us (scripts/make-placeholder-character.mjs) | this repo | ahdus-layout-replica | CC0 1.0 | 2026-11-04 |
+| characters/placeholder-suit.glb | made by us (scripts/make-placeholder-character.mjs) | this repo | ahdus-layout-replica | CC0 1.0 | 2026-11-12 |
+| characters/placeholder-own.glb | made by us (scripts/make-placeholder-character.mjs) | this repo | ahdus-layout-replica | CC0 1.0 | 2026-11-12 |
+| characters/placeholder-clips.glb | made by us (scripts/make-placeholder-character.mjs) | this repo | ahdus-layout-replica | CC0 1.0 | 2026-11-12 |

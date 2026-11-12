@@ -169,6 +169,29 @@ export function seatPose(deskId, objects, floors, seats = null) {
   };
 }
 
+/** v0.16.0: items on a desk that make its person type (else they just sit). */
+export const TYPING_TYPES = Object.freeze(['KEYBOARD', 'LAPTOP', 'MONITOR_DUAL']);
+
+/**
+ * v0.16.0: the clip a person at a desk plays: 'Type' seated at a desk with a keyboard, laptop or monitor on it
+ * (its middle inside the desk's outline, on its floor), 'Sit' seated at any other desk, 'Idle' standing.
+ * @param {{ seated?: boolean, deskId: string }} person a placed person (seatPose)
+ * @param {object[] | Record<string, object>} objects
+ * @returns {'Type' | 'Sit' | 'Idle'}
+ */
+export function workClip(person, objects) {
+  if (!person?.seated) return 'Idle';
+  const all = list(objects);
+  const desk = all.find((o) => o.id === person.deskId);
+  if (!desk || !isDesk(desk.assetType)) return 'Sit';
+  const { w, d } = halfSize(desk);
+  const on = all.some((o) => TYPING_TYPES.includes(o.assetType) && floorOf(o) === floorOf(desk) && (() => {
+    const p = toLocal(desk, o.x, o.z);
+    return Math.abs(p.x) <= w && Math.abs(p.z) <= d;
+  })());
+  return on ? 'Type' : 'Sit';
+}
+
 /**
  * Where a visitor stands at a desk that has a front for visitors (the reception desk): the side opposite its
  * person (DESK_WORK_SIDE), COUNTER_GAP from the counter, in the middle; turned with the desk. Null for other desks.
@@ -229,29 +252,46 @@ export function personNear(placed, point, floor, radius) {
 
 /** At most this many full characters at once; everyone else is a simple figure. */
 export const MAX_FULL_CHARACTERS = 12;
+/** v0.16.0: of the full characters, the nearest this many play their clip (typing, sitting); the rest hold it. */
+export const MAX_ANIMATED = 8;
 /** Full characters only this near the camera (m)… */
 export const FULL_RADIUS = 15;
 /** …and they stay full until this far (so walking past doesn't swap them back and forth). */
 export const KEEP_RADIUS = 18;
 
+/** v0.16.0: those full already rank this much nearer the point looked at (m), so a small turn doesn't swap them. */
+export const KEEP_BONUS = 2;
+/** v0.16.0: the point looked at counts while the camera is this near it (m); further away (the whole building from
+ * above), only the camera's own distance: nobody is near enough, no files are loaded. */
+export const VIEW_REACH = 30;
+
 /**
  * Who is drawn as a full character: people with a character file, on the
- * current floor, within FULL_RADIUS of the camera (KEEP_RADIUS for those full
- * already), the nearest first, at most MAX_FULL_CHARACTERS.
+ * current floor, within FULL_RADIUS (KEEP_RADIUS for those full already), at
+ * most MAX_FULL_CHARACTERS, the nearest first. Measured from `options.focus` (v0.16.0: the
+ * point the camera looks at: from above, the people in the middle of the view, not those
+ * under the camera at the edge; those full already rank KEEP_BONUS nearer) while the
+ * camera is within VIEW_REACH of it, else from the camera.
  * @param {{ personId: string, floor: number, x: number, y: number, z: number, character?: object | null }[]} people
  * @param {{ x: number, y: number, z: number }} camera
  * @param {number} floor
- * @param {{ max?: number, radius?: number, keepRadius?: number, current?: Iterable<string> }} [options]
- * @returns {string[]} personIds, nearest first
+ * @param {{ max?: number, radius?: number, keepRadius?: number, current?: Iterable<string>,
+ *   focus?: { x: number, y: number, z: number } | null, reach?: number }} [options]
+ * @returns {string[]} personIds, nearest (to the focus) first
  */
 export function chooseFullCharacters(people, camera, floor, options = {}) {
   const { max = MAX_FULL_CHARACTERS, radius = FULL_RADIUS, keepRadius = KEEP_RADIUS } = options;
   const current = new Set(options.current ?? []);
   const near = [];
+  const f = options.focus;
+  const fromFocus = !!f && Math.hypot(f.x - camera.x, f.y - camera.y, f.z - camera.z) <= (options.reach ?? VIEW_REACH);
+  const from = fromFocus ? f : camera;
   for (const p of people) {
     if (p.floor !== floor || !p.character?.url) continue;
-    const d = Math.hypot(p.x - camera.x, (p.y ?? 0) - camera.y, p.z - camera.z);
-    if (d <= (current.has(p.personId) ? keepRadius : radius)) near.push({ id: p.personId, d });
+    const d = Math.hypot(p.x - from.x, (p.y ?? 0) - from.y, p.z - from.z);
+    const full = current.has(p.personId);
+    if (d > (full ? keepRadius : radius)) continue;
+    near.push({ id: p.personId, d: fromFocus && full ? d - KEEP_BONUS : d });
   }
   near.sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
   return near.slice(0, Math.max(0, max)).map((n) => n.id);
@@ -307,6 +347,47 @@ export function canonicalBoneName(name, rig = 'mixamo') {
   if (rig === 'ue') return UE_TO_MIXAMO.get(String(name ?? '').toLowerCase()) ?? null;
   const n = normaliseBoneName(name);
   return MIXAMO_BONES.has(n) ? n : null;
+}
+
+/**
+ * v0.16.0: the 3ds Max biped rig of Microsoft's Rocketbox clips ('Bip01 Pelvis', 'Bip01 L Thigh', …) → Mixamo
+ * names, so its clips play on Mixamo-named characters (the retargeting's rest-pose correction does the rest).
+ * Fingers: Finger0 = thumb, 1 index, 2 middle, 3 ring, 4 pinky; FingerN1 / N2 the next joints.
+ */
+const BIPED_TO_MIXAMO = new Map([
+  ['Bip01 Pelvis', 'Hips'], ['Bip01 Spine', 'Spine'], ['Bip01 Spine1', 'Spine1'], ['Bip01 Spine2', 'Spine2'],
+  ['Bip01 Neck', 'Neck'], ['Bip01 Head', 'Head'],
+  ...['L', 'R'].flatMap((s) => {
+    const side = s === 'L' ? 'Left' : 'Right';
+    const fingers = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'].flatMap((f, i) => [
+      [`Bip01 ${s} Finger${i}`, `${side}Hand${f}1`],
+      [`Bip01 ${s} Finger${i}1`, `${side}Hand${f}2`],
+      [`Bip01 ${s} Finger${i}2`, `${side}Hand${f}3`],
+    ]);
+    return [
+      [`Bip01 ${s} Clavicle`, `${side}Shoulder`], [`Bip01 ${s} UpperArm`, `${side}Arm`],
+      [`Bip01 ${s} Forearm`, `${side}ForeArm`], [`Bip01 ${s} Hand`, `${side}Hand`],
+      [`Bip01 ${s} Thigh`, `${side}UpLeg`], [`Bip01 ${s} Calf`, `${side}Leg`],
+      [`Bip01 ${s} Foot`, `${side}Foot`], [`Bip01 ${s} Toe0`, `${side}ToeBase`],
+      ...fingers,
+    ];
+  }),
+]);
+
+/**
+ * v0.16.0: the key a bone is retargeted by: its Mixamo name when it has one (any rig: Mixamo with or without the
+ * prefix, Unreal-style from BONE_TABLE, the biped rig), else its name without the Mixamo prefix, so EVERY bone
+ * two files name alike is matched (fingers, the Rocketbox face bones). `rig` 'ue' = Unreal-style names first.
+ * @param {string} name
+ * @param {'mixamo' | 'ue'} [rig]
+ */
+export function boneKey(name, rig = 'mixamo') {
+  const raw = String(name ?? '');
+  if (rig === 'ue') {
+    const ue = UE_TO_MIXAMO.get(raw.toLowerCase());
+    if (ue) return ue;
+  }
+  return BIPED_TO_MIXAMO.get(raw) ?? UE_TO_MIXAMO.get(raw.toLowerCase()) ?? normaliseBoneName(raw);
 }
 
 // ── Poses ──
@@ -379,6 +460,38 @@ export const MAX_WALK_RATIO = 6;
 export function walkRatio(speed, clipSpeed) {
   if (!(clipSpeed > 0) || !(speed > 0)) return 1;
   return Math.min(MAX_WALK_RATIO, Math.max(MIN_WALK_RATIO, speed / clipSpeed));
+}
+
+/** v0.16.0: from this speed (m/s) a character with a Run clip runs (walking 2.2, Shift 4.5: play/speeds.js). */
+export const RUN_FROM = 3.3;
+
+/**
+ * v0.16.0: which clip a walking character plays: 'Idle' standing still or flying, 'Run' from RUN_FROM when it has
+ * one, else 'Walk' (no Walk: 'Idle').
+ * @param {number} speed m/s
+ * @param {boolean} flying
+ * @param {{ walk?: boolean, run?: boolean }} has which clips the character has
+ * @returns {'Idle' | 'Walk' | 'Run'}
+ */
+export function chooseGait(speed, flying, { walk = false, run = false } = {}) {
+  if (flying || !(speed >= WALK_MIN_SPEED) || !walk) return 'Idle';
+  return run && speed >= RUN_FROM ? 'Run' : 'Walk';
+}
+
+/** v0.16.0: the extra bend of the forward leg on stairs, at full lift (rad at the hip; the knee bends twice that). */
+export const STAIR_HIP_LIFT = 0.45;
+
+/**
+ * v0.16.0: how much a walker lifts their feet (0…1) when the ground under them rises `climb` m/s (stairs: about
+ * 1.9 m/s at walking speed). Going down: a little (0.4 at most). A step onto a room floor is one frame: the caller
+ * eases it.
+ * @param {number} climb vertical speed, m/s (up > 0)
+ */
+export function stairLift(climb) {
+  const c = Number(climb);
+  if (!Number.isFinite(c)) return 0;
+  if (c > 0) return Math.min(1, Math.max(0, (c - 0.3) / 1.2));
+  return 0.4 * Math.min(1, Math.max(0, (-c - 0.3) / 1.2));
 }
 
 /** The built-in figure's legs (play/character.js: hip to sole, m). */

@@ -34,7 +34,7 @@ import { LayoutViewer } from '../engine/react/LayoutViewer';
 import { layoutBridge } from '../integration/layoutBridge';
 import { anchorsFromStore } from '../integration/anchorsFromStore';
 import { readLayout, modeProblem, actionMatcher, filterAnchors, cleanDepartments, cleanOpenAt } from './embedLayout';
-import { readManifest, resolvePeople, resolvePlayer, walkClipUrlOf } from './characterManifest';
+import { parseManifest, readManifest, resolvePeople, resolvePlayer, walkClipUrlOf } from './characterManifest';
 import css from './embed.css?inline';
 
 /** layoutBridge, for modules on the page (docs/TEAM_INTEGRATION.md): the same object our modules use. */
@@ -117,7 +117,7 @@ function tourEvent(ev) {
  *   characters?: { manifestUrl?: string, manifest?: object, chooseUrl?: string, walkClipUrl?: string },
  *                                     // the manifest: assetReference → { url, rig, height } (setPeople, player);
  *                                     // chooseUrl: where people choose their character; walkClipUrl: the walk clip
- *   player?: { personId?: string, assetReference?: string | null }, // the signed-in person (setPlayer): walking
+ *   player?: { personId?: string, assetReference?: string | null, clothing?: object | null }, // the signed-in person (setPlayer): walking
  *                                     // through they are their own character; "Choose your character" on their card
  *   navigation?: { search?: boolean, tour?: boolean }, // search: the "Find a person, room or place" box; tour: the Tour
  *                                     // button and Find's "Take the company tour" (each default true; false hides it)
@@ -207,15 +207,15 @@ export function mount(element, options = {}) {
     });
   }
 
-  /** The character manifest (option characters), read once: assetReference → { url, rig, height }. */
+  /** The character manifest (option characters), read once: parseManifest's result (v1 or v2). */
   function characterMap() {
     manifest ??= readManifest(options.characters, { headers: options.headers, signal: abort.signal, pageUrl: document.baseURI })
       .then((m) => {
         if (m.problems.length) console.warn(`[AHDUSWorkplace] character manifest: ${m.problems.join('; ')}`);
-        return m.characters;
+        return m;
       }, (err) => {
         if (err?.name !== 'AbortError') console.warn(`[AHDUSWorkplace] ${err.message}: everyone is a simple figure`);
-        return new Map();
+        return parseManifest({});
       });
     return manifest;
   }
@@ -226,7 +226,7 @@ export function mount(element, options = {}) {
     playerGiven = given;
     player = resolvePlayer(given, new Map());
     render();
-    if (typeof given?.assetReference !== 'string') return;
+    if (typeof given?.assetReference !== 'string' && (given?.personId ?? '') === '') return; // (v0.16.0: no character = their neutral one)
     const characters = await characterMap();
     if (closed || playerGiven !== given) return;
     player = resolvePlayer(given, characters);
@@ -418,7 +418,8 @@ export function mount(element, options = {}) {
     },
 
     /**
-     * Who sits at which desk: [{ personId, deskId, name, department, assetReference }]
+     * Who sits at which desk: [{ personId, deskId, name, department, assetReference, clothing }]
+     * (clothing, v0.16.0: what they chose in the Wardrobe, { pantsColor, upperBody, upperColor }: play/outfit.js)
      * (replaces the list before; [] = nobody). A person's character comes from the
      * manifest (option characters) by assetReference; unknown or null = the
      * neutral simple figure. Only name and department are ever shown. Nothing is

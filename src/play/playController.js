@@ -1511,6 +1511,10 @@ export function createPlayController(scene, canvas, {
       case 'KeyG':
         grabKey();
         break;
+      case 'KeyH':
+        // v0.16.0: your own character waves (standing still; the simple figure has no wave)
+        if (typeof character.wave === 'function' && !character.wave()) say('Stand still to wave', 1500);
+        break;
       case 'KeyE': {
         const target = eTarget();
         if (target) onInteract(target);
@@ -1898,7 +1902,7 @@ export function createPlayController(scene, canvas, {
 
     const moved = Math.hypot(collider.position.x - before.x, collider.position.z - before.z);
     character.root.rotation.y = yaw;
-    character.update(dt, moved / Math.max(dt, 1e-4), flying && !grounded);
+    character.update(dt, moved / Math.max(dt, 1e-4), flying && !grounded, { climb: (collider.position.y - before.y) / Math.max(dt, 1e-4) });
 
     // ── Camera ──
     const dir = lookDir();

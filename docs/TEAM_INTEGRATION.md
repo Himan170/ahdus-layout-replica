@@ -184,7 +184,9 @@ each character is:
   picker) so a person who never chose sees "Choose your character" on their own card. In walkthrough the player
   walks as their own character with the clip at `characters.walkClipUrl` (v0.12.0, `docs/EMBED_GUIDE.md` 4c). `<LayoutEditor people={…} />` (resolved:
   `character: { url, rig, height } | null` instead of `assetReference`). `assetReference` null (the person never
-  chose) = the neutral simple figure.
+  chose) = one of the manifest's neutral set (v0.16.0, manifest version 2; a version 1 manifest: the neutral simple
+  figure). Each seat may carry the person's Wardrobe `clothing` (v0.16.0: `{ schemaVersion: 1, pantsColor,
+  upperBody, upperColor }`, as `/api/character/selection` saves it): pass it on in `setPeople` and `player`.
 - **Assigning seats** (v0.11.2): in Workplace Studio inside AHDUS, a desk's Inspector has "Who sits here". Admin and
   HR (`GET /api/workplace/me` → `canAppoint`) see the person with Change / Remove, or "Assign someone" (a name
   search, `GET /api/workplace/people?q=`), saved at once (`PUT` / `DELETE …/seats/{deskId}`): not in the layout, not
@@ -192,21 +194,34 @@ each character is:
   a desk (N)" lists seats whose desk is not in the layout (Assign a desk / Remove), and Publish warns "N people lose
   their desk". Appointed editors see names only. Studio draws the people at their desks with the manifest at
   `/frontend/workplace/characters.json`.
-- **Manifest** (AHDUS, e.g. `/frontend/character/office/manifest.json`), passed as `characters: { manifestUrl }`:
-  `{ "<asset_reference>": { "url": "<file>.glb", "rig": "mixamo" | "ue", "height": 1.75 } }`. File names don't follow
-  the ids (`ch29` → `ch29_nonpbr-slit.glb`), hence a manifest. Moving the files behind a login later only changes
-  these urls.
+- **Manifest** (AHDUS, e.g. `/frontend/workplace/characters.json`), passed as `characters: { manifestUrl }`:
+  version 1 `{ "<asset_reference>": { "url": "<file>.glb", "rig": "mixamo" | "ue", "height": 1.75 } }`, or
+  **version 2** (v0.16.0, `docs/EMBED_GUIDE.md` section 4b): `{ "version": 2, "groups", "clips", "neutral",
+  "characters" }`, each character with `gender`, `group`, `outfit: 'rocketbox'`, `clips` (its clip set) and `seated`
+  (its lighter copy for people at desks). File names don't follow the ids (`ch29` → `ch29_nonpbr-slit.glb`), hence a
+  manifest. Moving the files behind a login later only changes these urls. `"groups": { "imported": false }`
+  switches the five Avatar SDK characters off (their people get a neutral one).
 - **The light office copies** (the manifest points at these; the full files stay for the companion). Each one:
   - glTF binary (`.glb`), **one skinned mesh** (or very few), the character's own skeleton, facing **+Z**, feet at
     y = 0, metres (or a scale node: we measure the height and scale to `height` anyway);
-  - **10 to 15 k triangles**, textures **512 to 1024 px** (WebP, PNG or JPEG; **not** KTX2, and no Draco or meshopt
-    compression: those need decoders we don't load), **1 to 3 MB** per file, about 5 MB of GPU memory. glTF
-    extensions we load: `EXT_texture_webp`, `KHR_materials_specular`, `KHR_materials_unlit` (a file that requires
-    another one fails: the person stays a simple figure). AHDUS makes them with `scripts/make-office-characters.mjs`;
+  - **15 to 25 k triangles**, textures **512 to 1024 px** (WebP, PNG or JPEG; **not** KTX2 or Draco), **about 2 MB**
+    per file. glTF extensions we load: `EXT_texture_webp`, `KHR_materials_specular`, `KHR_materials_unlit`, and
+    (v0.16.0) `EXT_meshopt_compression` + `KHR_mesh_quantization` (the decoder is bundled; a file that requires
+    another extension fails: the person stays a simple figure). AHDUS makes them with
+    `scripts/make-office-characters.mjs` (v0.16.0: `node scripts/make-office-characters.mjs rocketbox imported
+    clips`): the 20 Rocketbox characters and the 5 Avatar SDK ones, one skin each, face shapes and clips removed,
+    all outfit parts kept, colour textures ≤ 1024 px, the rest ≤ 512 px; and a **seated copy** of each
+    (`<id>-seated.glb`: 512 / 256 px, about a quarter of the graphics memory: each 1024 px texture is ~5.6 MB on the
+    graphics card) for the manifest's `seated`. Harsh's own files are only read;
   - bone names as now: Mixamo (any `mixamorigd*:` prefix) or, for Victoria, the Unreal-style names (`pelvis`,
     `spine_01…03`, `neck_01`, `head`, `clavicle_l`, `upperarm_l`, `lowerarm_l`, `hand_l`, `thigh_l`, `calf_l`,
     `foot_l`, `ball_l`, and `_r`): our table is `BONE_TABLE` in `src/play/people.js`;
-  - no animation needed (we pose the bones: seated or standing); the 2-key pose clips may stay (we stop them);
+  - no animation needed in the character file (v0.16.0: the clips come from the manifest's clip sets,
+    `clips-female.glb` / `clips-male.glb`: animation only, Mixamo names, made by the same script from the Rocketbox
+    files' Idle, Walk and Wave; Run, Sit and Type are still to add from Microsoft's Rocketbox repository, MIT). We fit
+    each clip onto each character file once by bone names, also when its rest pose differs (a T-pose arm is turned
+    to the clip's A-pose first) and under the glTF root's mirror. Without a clip we pose the bones (seated or
+    standing);
   - walking (v0.12.0): ONE walk clip for everyone, an animation-only `.glb` (the Mixamo-named skeleton and the
     walk, no mesh, no textures: `frontend/character/office/walk.glb`, made from your walking clip by
     `scripts/make-office-characters.mjs`); we retarget it onto each character by bone names. A character whose

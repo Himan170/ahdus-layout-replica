@@ -9,6 +9,9 @@
  * (hasDesk: the server found the desk in the published layout).
  */
 
+import { charactersOf, fileOf, neutralFor } from '../embed/characterManifest';
+import { cleanClothing } from '../play/outfit';
+
 /** Desks people sit at: DESK* and RECEPTION_DESK (the same rule as play/people.js and the AHDUS server). */
 export function isDesk(assetType) {
   return typeof assetType === 'string' && (assetType.startsWith('DESK') || assetType === 'RECEPTION_DESK');
@@ -122,14 +125,18 @@ export function losingDeskText(losing) {
 }
 
 /** The people Studio draws at their desks: seats on desks of the layout (LayoutEngine / CharacterSystem shape). */
-export function seatedPeople(seats, objects, characters = new Map()) {
+export function seatedPeople(seats, objects, manifest = new Map()) {
+  const characters = charactersOf(manifest);
   const desks = new Set(desksOf(objects).map((o) => String(o.id)));
   return (seats ?? []).filter((s) => desks.has(String(s.deskId))).map((s) => ({
     personId: String(s.userId),
     deskId: String(s.deskId),
     name: s.name ?? '',
     department: s.department ?? '',
-    character: (s.assetReference && characters.get(s.assetReference)) || null,
+    // none: their neutral one; at their desk the manifest's lighter copy when it has one (v0.16.0)
+    character: fileOf((s.assetReference && characters.get(s.assetReference))
+      || characters.get(neutralFor(String(s.userId), manifest)) || null, { seated: true }),
     characterChosen: !!s.assetReference,
+    ...(cleanClothing(s.clothing) ? { clothing: cleanClothing(s.clothing) } : {}),
   }));
 }

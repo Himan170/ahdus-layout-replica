@@ -65,7 +65,8 @@ import { setCameraView, flyTo, boundsOf } from './systems/CameraSystem';
 import type { GroundBox } from './systems/CameraSystem';
 import { HighlightSystem } from './systems/HighlightSystem';
 import { CharacterSystem, validCharacter } from './systems/CharacterSystem';
-import type { Person, PlacedPerson, CharacterFile } from './systems/CharacterSystem';
+import type { Person, PlacedPerson, CharacterFile, Clothing } from './systems/CharacterSystem';
+import { cleanClothing } from '../play/outfit';
 import { createPlayerCharacter } from './systems/PlayerCharacter';
 import { SceneBuilder } from './systems/SceneBuilder';
 import type { BuildProgress } from './systems/SceneBuilder';
@@ -193,7 +194,7 @@ export interface PersonDetailsEvent {
 export type { NavigationEvent, TourEvent };
 
 export type { BuildProgress };
-export type { Person, PlacedPerson, CharacterFile };
+export type { Person, PlacedPerson, CharacterFile, Clothing };
 
 /**
  * The person looking (the signed-in user). Walking through, they are their
@@ -204,6 +205,8 @@ export type { Person, PlacedPerson, CharacterFile };
 export interface Player {
   personId?: string | null;
   character?: CharacterFile | null;
+  /** v0.16.0: what they wear (AHDUS's Wardrobe; play/outfit.js), for a Rocketbox outfit file. */
+  clothing?: Clothing | null;
   walkClipUrl?: string | null;
   walk?: boolean;
 }
@@ -953,7 +956,8 @@ export class LayoutEngine {
     const p = this._player;
     const character = this.characters ? validCharacter(p?.character) : null;
     const key = character
-      ? JSON.stringify([character.url, character.rig, character.height, p?.walkClipUrl ?? null, p?.walk !== false])
+      ? JSON.stringify([character.url, character.rig, character.height, character.outfit ?? null, cleanClothing(p?.clothing),
+        p?.walkClipUrl ?? null, p?.walk !== false])
       : '';
     if (key === this._playerKey) return;
     this._playerKey = key;
@@ -965,8 +969,8 @@ export class LayoutEngine {
     }
     const files = this.characters!;
     this._playerReady = createPlayerCharacter(this.scene, {
-      character, walkClipUrl: p?.walkClipUrl ?? null, walk: p?.walk,
-    }, (url) => files.loadFile(url)).then((made) => {
+      character, clothing: cleanClothing(p?.clothing), walkClipUrl: p?.walkClipUrl ?? null, walk: p?.walk,
+    }, (url) => files.loadFile(url), files.clipLibrary).then((made) => {
       if (token !== this._playerToken || this._walkthrough !== walk) { made.dispose(); return; }
       walk.setCharacter(made);
     }, (err) => {

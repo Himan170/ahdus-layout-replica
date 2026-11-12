@@ -16,6 +16,17 @@
  *   play/people.canonicalBoneName) and aimed into a seated or standing pose
  *   (play/people SEATED_POSE / STANDING_POSE); no animation file is needed.
  *   The nearest few breathe slowly. A file that fails keeps the simple figure.
+ * - v0.16.0: a character with clips (its clip set or its own file: the shared
+ *   ClipLibrary) is posed by its clip instead: 'Type' at a desk with a keyboard,
+ *   laptop or monitor, 'Sit' at another, 'Idle' standing (play/people workClip).
+ *   The nearest MAX_ANIMATED of them play it (an Animator each, starting at
+ *   their own point of the cycle); the others hold its first frame. The hips go
+ *   onto the seat in that pose, so the clip's own sitting height counts.
+ * - v0.16.0, many people: the simple figures are grey (further than the full
+ *   characters, or while a file loads), and a character file nobody near uses
+ *   is unloaded after UNLOAD_AFTER_MS (loaded again when someone is near).
+ *   Files asked for through loadFile() (your character, the walk clip, clip
+ *   sets) stay.
  * - A person shows while their desk does (FloorSystem: per floor) and once it
  *   is built (progressive loading). Nothing here is pickable: a pick goes to
  *   the desk or chair, and pickPerson() finds the person from it.
@@ -35,16 +46,20 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
+import type { Material } from '@babylonjs/core/Materials/material';
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import '@babylonjs/core/Meshes/thinInstanceMesh';
 
 import {
-  deskSeats, seatPose, personNear, chooseFullCharacters, canonicalBoneName, SEATED_POSE, STANDING_POSE,
-  SEAT_HEIGHT, HIPS_ABOVE_SEAT, HIPS_BEHIND_SEAT, breathing, phaseOf, MAX_FULL_CHARACTERS,
+  deskSeats, seatPose, personNear, chooseFullCharacters, canonicalBoneName, boneKey, SEATED_POSE, STANDING_POSE,
+  SEAT_HEIGHT, HIPS_ABOVE_SEAT, HIPS_BEHIND_SEAT, breathing, phaseOf, MAX_FULL_CHARACTERS, MAX_ANIMATED, workClip,
 } from '../../play/people';
 import { levelForY } from '../../play/building';
+import { cleanClothing, outfitLook, partName } from '../../play/outfit';
 import { loadGlbContainer } from '../../utils/modelLoader';
 import type { LayoutRecords } from './RoomSystem';
+import { ClipLibrary, Animator, holdClip } from './ClipLibrary';
+import type { BakedClip } from './ClipLibrary';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -55,6 +70,12 @@ export interface CharacterFile {
   url: string;
   rig?: CharacterRig;
   height?: number;
+  /** v0.16.0 (manifest v2): 'female' | 'male', which clip set fits. */
+  gender?: 'female' | 'male';
+  /** v0.16.0: 'rocketbox' = the file has the Rocketbox outfit parts (play/outfit.js shows / tints them). */
+  outfit?: 'rocketbox';
+  /** v0.16.0: the url of the character's clip set (an animation-only .glb shared by many characters). */
+  clips?: string;
 }
 
 export interface Person {
@@ -67,6 +88,16 @@ export interface Person {
   /** Whether they chose a character in AHDUS (default: whether `character` is given). The viewer's card offers
    *  "Choose your character" to the signed-in person (LayoutViewer `player`) when they haven't. */
   characterChosen?: boolean;
+  /** v0.16.0: what they wear (AHDUS's Wardrobe: play/outfit.js cleanClothing); only a Rocketbox outfit file changes. */
+  clothing?: Clothing | null;
+}
+
+/** What a person chose in the Wardrobe (play/outfit.js). */
+export interface Clothing {
+  schemaVersion?: number;
+  pantsColor?: 'black' | 'blue';
+  upperBody?: 'shirt' | 'tshirt' | null;
+  upperColor?: string | null;
 }
 
 /** A person where they are drawn (world space; y = the floor under them). */
@@ -88,8 +119,12 @@ export interface CharacterSystemOptions {
   getObjectMesh: (objectId: string) => { isEnabled(): boolean; isDisposed(): boolean } | null;
   /** At most this many full characters (default 12). */
   maxFull?: number;
+  /** v0.16.0: at most this many of them (the nearest) play their clip; the rest hold its first frame (default 8). */
+  maxAnimated?: number;
   /** At most this many character files downloading at once (default 3). */
   maxDownloads?: number;
+  /** v0.16.0: a character file nobody near uses is unloaded after this long (ms; default UNLOAD_AFTER_MS). */
+  unloadAfterMs?: number;
   /** Load a character file (tests); default: the glTF loader. */
   loadFile?: (url: string, scene: Scene) => Promise<AssetContainer>;
 }
@@ -99,17 +134,30 @@ export interface LoadedFile {
   container: AssetContainer;
   /** Rest pose, measured on the first copy: height and lowest point (file units). */
   rest?: { height: number; minY: number };
+  /** v0.16.0: the file's materials tinted for an outfit ("material|#hex" → its copy), shared by its copies. */
+  tinted?: Map<string, Material>;
 }
 
 interface FullCharacter {
   url: string;
+  /** What they wear, as made (cleanClothing as JSON): other clothing = made again. */
+  wears: string;
   root: TransformNode;
   meshes: AbstractMesh[];
   skeletons: Skeleton[];
   /** Breathing: the spine's posed rotation and the axis it sways about (its parent's frame). */
   spine: { node: TransformNode; base: Quaternion; axis: Vector3 } | null;
   phase: number;
+  /** v0.16.0: every bone by key (the clips' targets). */
+  bones: Map<string, TransformNode>;
+  /** v0.16.0: the clip that poses them (Type / Sit / Idle), null: the procedural pose. */
+  clip: BakedClip | null;
+  /** v0.16.0: playing it (the nearest few); null: holding its first frame. */
+  animator: Animator | null;
 }
+
+/** The clips a person at a desk may play (play/people workClip). */
+const WORK_CLIPS = ['Type', 'Sit', 'Idle'];
 
 /** How often who is a full character is decided again (ms). */
 const CHOOSE_EVERY_MS = 300;
@@ -117,6 +165,10 @@ const CHOOSE_EVERY_MS = 300;
 const BREATHING = 3;
 /** The simple figure is drawn for a person this tall (m). */
 const FIGURE_HEIGHT = 1.75;
+/** v0.16.0: the simple figures' grey (far away, or while a character file loads). */
+export const FIGURE_GREY = new Color3(0.62, 0.64, 0.67);
+/** v0.16.0: a character file nobody near uses is unloaded after this long (ms). */
+export const UNLOAD_AFTER_MS = 30_000;
 
 // ── CharacterSystem ──────────────────────────────────────────────────────
 
@@ -124,7 +176,20 @@ export class CharacterSystem {
   private scene: Scene;
   private options: CharacterSystemOptions;
   private maxFull: number;
+  private maxAnimated: number;
   private maxDownloads: number;
+  /** v0.16.0: the work clips baked per character file (the library's key): ready, or being baked. */
+  private workClips = new Map<string, Map<string, BakedClip> | 'baking'>();
+  private lastFrame = -1;
+  /** v0.16.0: when each character file was last used by someone near (ms), for unloading. */
+  private lastUsed = new Map<string, number>();
+  /** Files asked for through loadFile() (your character, the walk clip, clip sets): never unloaded. */
+  private pinned = new Set<string>();
+  /** Files whose clips are being baked (url → how many bakes): not unloaded meanwhile. */
+  private bakingFiles = new Map<string, number>();
+  private unloadAfter: number;
+  /** How many character files were unloaded (tests). */
+  unloads = 0;
 
   private people: Person[] = [];
   private placed: PlacedPerson[] = [];
@@ -150,13 +215,18 @@ export class CharacterSystem {
 
   private observer: Observer<Scene> | null;
   private disposed = false;
+  /** v0.16.0: the shared animation library (clips baked once per character file), with this load-once queue. */
+  readonly clipLibrary: ClipLibrary;
 
   constructor(scene: Scene, options: CharacterSystemOptions) {
     this.scene = scene;
     this.options = options;
     this.maxFull = options.maxFull ?? MAX_FULL_CHARACTERS;
+    this.maxAnimated = options.maxAnimated ?? MAX_ANIMATED;
     this.maxDownloads = options.maxDownloads ?? 3;
+    this.unloadAfter = options.unloadAfterMs ?? UNLOAD_AFTER_MS;
     this.observer = scene.onBeforeRenderObservable.add(() => this.update());
+    this.clipLibrary = new ClipLibrary(scene, (url) => this.loadFile(url));
   }
 
   // ── Public ─────────────────────────────────────────────────────────────
@@ -171,7 +241,7 @@ export class CharacterSystem {
       if (!p || typeof p.personId !== 'string' || typeof p.deskId !== 'string' || seen.has(p.deskId)) return false;
       seen.add(p.deskId);
       return true;
-    }).map((p) => ({ ...p, character: validCharacter(p.character) }));
+    }).map((p) => ({ ...p, character: validCharacter(p.character), clothing: cleanClothing(p.clothing) }));
     this.placedFor = null;
     this.lastChoice = -Infinity;
     this.update();
@@ -210,6 +280,24 @@ export class CharacterSystem {
     return this.personAt(point, levelForY(this.options.getLayout().floors, point.y, 0.05));
   }
 
+  /** v0.16.0: how many full characters play their clip now (the rest hold it). */
+  get animatedCount(): number {
+    let n = 0;
+    for (const f of this.full.values()) if (f.animator && f.root.isEnabled()) n++;
+    return n;
+  }
+
+  /** v0.16.0: what a full character does (tests): its clip, whether it plays. Null: not a full character. */
+  fullState(personId: string): { clip: string | null; playing: boolean; root: TransformNode; bones: Map<string, TransformNode> } | null {
+    const f = this.full.get(personId);
+    return f ? { clip: f.clip?.name ?? null, playing: !!f.animator, root: f.root, bones: f.bones } : null;
+  }
+
+  /** v0.16.0: the character files loaded now (tests). */
+  get loadedFiles(): string[] {
+    return [...this.files].filter(([, f]) => f !== 'failed' && !(f instanceof Promise)).map(([url]) => url);
+  }
+
   /** How many people are drawn as full characters now. */
   get fullCount(): number {
     let n = 0;
@@ -234,6 +322,7 @@ export class CharacterSystem {
    */
   loadFile(url: string): Promise<LoadedFile> {
     if (this.disposed) return Promise.reject(new Error('The characters were closed'));
+    this.pinned.add(url);
     const file = this.fileFor(url);
     if (file === 'failed') return Promise.reject(new Error(`could not load ${url}`));
     if (file instanceof Promise) return file;
@@ -260,6 +349,8 @@ export class CharacterSystem {
     this.enabled = !!on;
     if (!on) {
       for (const id of [...this.full.keys()]) this.removeFull(id);
+      this.clipLibrary.dispose();
+      this.workClips.clear();
       this.chosen = [];
     }
     this.figureKey = null;
@@ -277,6 +368,9 @@ export class CharacterSystem {
       this.choose();
     }
     this.syncFigures();
+    const dt = this.lastFrame < 0 ? 0 : Math.min(0.25, (now - this.lastFrame) / 1000);
+    this.lastFrame = now;
+    this.animate(dt);
     this.breathe(now / 1000);
   }
 
@@ -289,7 +383,7 @@ export class CharacterSystem {
     this.figures?.seated.dispose();
     this.figures?.standing.dispose();
     this.figureMaterial?.dispose();
-    for (const f of this.files.values()) if (f !== 'failed' && !(f instanceof Promise)) f.container.dispose();
+    for (const f of this.files.values()) if (f !== 'failed' && !(f instanceof Promise)) disposeFile(f);
     this.files.clear();
     this.queue = [];
     for (const list of this.waiting.values()) for (const w of list) w.reject(new Error('The characters were closed'));
@@ -315,7 +409,7 @@ export class CharacterSystem {
     for (const [id, f] of this.full) {
       const now = this.placed.find((x) => x.personId === id);
       const was = before.get(id);
-      if (!now || !was || now.character?.url !== f.url || !samePlace(now, was)) this.removeFull(id);
+      if (!now || !was || now.character?.url !== f.url || wearsOf(now) !== f.wears || !samePlace(now, was)) this.removeFull(id);
     }
     this.figureKey = null;
   }
@@ -335,7 +429,9 @@ export class CharacterSystem {
     const eye = camera.globalPosition;
     const floor = this.options.getLayout().currentFloor ?? 0;
     const shown = this.placed.filter((p) => this.isShown(p) && this.files.get(p.character?.url ?? '') !== 'failed');
-    this.chosen = chooseFullCharacters(shown, eye, floor, { max: this.maxFull, current: this.full.keys() });
+    // v0.16.0: the point looked at (from above the orbit's target; walking a point ahead of the camera)
+    const looked = (camera as { getTarget?: () => { x: number; y: number; z: number } }).getTarget?.() ?? null;
+    this.chosen = chooseFullCharacters(shown, eye, floor, { max: this.maxFull, current: this.full.keys(), focus: looked });
     const wanted = new Set(this.chosen);
     for (const id of [...this.full.keys()]) if (!wanted.has(id)) this.removeFull(id);
     for (const id of this.chosen) {
@@ -343,6 +439,31 @@ export class CharacterSystem {
       const person = this.placed.find((p) => p.personId === id)!;
       const file = this.fileFor(person.character!.url);
       if (file && file !== 'failed' && !(file instanceof Promise)) this.makeFull(person, file);
+    }
+    this.unloadUnused(performance.now());
+  }
+
+  /** v0.16.0: unload the character files nobody near has used for unloadAfter ms. */
+  private unloadUnused(now: number): void {
+    const used = new Set<string>();
+    for (const f of this.full.values()) used.add(f.url);
+    for (const id of this.chosen) {
+      const url = this.placed.find((p) => p.personId === id)?.character?.url;
+      if (url) used.add(url);
+    }
+    for (const url of used) this.lastUsed.set(url, now);
+    for (const [url, file] of [...this.files]) {
+      if (file === 'failed' || file instanceof Promise || used.has(url) || this.pinned.has(url) || this.bakingFiles.has(url)) continue;
+      const last = this.lastUsed.get(url);
+      if (last === undefined) {
+        this.lastUsed.set(url, now);
+        continue;
+      }
+      if (now - last < this.unloadAfter) continue;
+      disposeFile(file);
+      this.files.delete(url);
+      this.lastUsed.delete(url);
+      this.unloads++;
     }
   }
 
@@ -384,13 +505,16 @@ export class CharacterSystem {
   }
 
   private makeFull(person: PlacedPerson, file: LoadedFile): void {
-    const { root, meshes, skeletons, bones } = copyCharacter(this.scene, file, person.character!, `person_${person.personId}`,
-      { personId: person.personId });
+    const { root, meshes, skeletons, bones, allBones } = copyCharacter(this.scene, file, person.character!, `person_${person.personId}`,
+      { personId: person.personId }, person.clothing);
     root.rotation.y = person.yaw;
     root.position.set(person.x, person.y, person.z);
     refreshTree(root);
 
-    poseBones(root, bones, person.seated ? SEATED_POSE : STANDING_POSE);
+    // v0.16.0: the clip's pose (its first frame) where the character has clips, else the procedural pose
+    const clip = this.workClipFor(person, file);
+    if (clip) holdClip(clip, allBones, 0);
+    else poseBones(root, bones, person.seated ? SEATED_POSE : STANDING_POSE);
 
     // seated: the hips onto the seat, a little behind its centre
     const hips = bones.get('Hips');
@@ -416,7 +540,8 @@ export class CharacterSystem {
       spine = { node: spineNode, base: rotationOf(spineNode).clone(), axis: side };
     }
     this.full.set(person.personId, {
-      url: person.character!.url, root, meshes, skeletons, spine, phase: phaseOf(person.personId),
+      url: person.character!.url, wears: wearsOf(person), root, meshes, skeletons, spine, phase: phaseOf(person.personId),
+      bones: allBones, clip, animator: null,
     });
     this.figureKey = null;
   }
@@ -425,17 +550,72 @@ export class CharacterSystem {
     const f = this.full.get(personId);
     if (!f) return;
     this.full.delete(personId);
+    f.animator?.dispose();
     // materials and textures belong to the file's container (shared): keep them
     f.root.dispose(false, false);
     for (const s of f.skeletons) s.dispose();
     this.figureKey = null;
   }
 
+  /**
+   * v0.16.0: the clip this person is posed by, once it is baked (null meanwhile, or none: the procedural pose).
+   * The first ask starts the baking; when it is done the people of that file are made again in their clip's pose.
+   */
+  private workClipFor(person: PlacedPerson, file: LoadedFile): BakedClip | null {
+    const character = person.character!;
+    const key = [ClipLibrary.sourceOf(character), character.url, character.height ?? '', character.rig ?? 'mixamo'].join('|');
+    const known = this.workClips.get(key);
+    if (known === undefined) {
+      this.workClips.set(key, 'baking');
+      this.bakingFiles.set(character.url, (this.bakingFiles.get(character.url) ?? 0) + 1);
+      this.clipLibrary.clips(character, file, WORK_CLIPS).finally(() => {
+        const n = (this.bakingFiles.get(character.url) ?? 1) - 1;
+        if (n > 0) this.bakingFiles.set(character.url, n);
+        else this.bakingFiles.delete(character.url);
+      }).then((clips) => {
+        if (this.disposed || this.workClips.get(key) !== 'baking') return;
+        this.workClips.set(key, clips);
+        if (!clips.size) return;
+        // those already drawn in the procedural pose: made again in the clip's
+        for (const [id, f] of [...this.full]) {
+          const p = this.placed.find((x) => x.personId === id);
+          if (!f.clip && p?.character && [ClipLibrary.sourceOf(p.character), p.character.url, p.character.height ?? '',
+            p.character.rig ?? 'mixamo'].join('|') === key) this.removeFull(id);
+        }
+        this.lastChoice = -Infinity;
+      });
+      return null;
+    }
+    if (known === 'baking') return null;
+    const want = workClip(person, this.options.getLayout().objects);
+    return known.get(want) ?? (want === 'Type' ? known.get('Sit') : undefined) ?? null;
+  }
+
+  /** v0.16.0: the nearest maxAnimated full characters play their clip, the others hold its first frame. */
+  private animate(dt: number): void {
+    const wanted = new Set(this.chosen.slice(0, this.maxAnimated));
+    for (const [id, f] of this.full) {
+      if (!f.clip) continue;
+      const play = wanted.has(id) && f.root.isEnabled();
+      if (play && !f.animator) {
+        const animator = new Animator(this.scene, f.bones, `person_${id}`);
+        animator.add(f.clip);
+        animator.play(f.clip.name, { fade: 0.3, at: f.phase / (Math.PI * 2) });
+        f.animator = animator;
+      } else if (!play && f.animator) {
+        f.animator.dispose();
+        f.animator = null;
+        holdClip(f.clip, f.bones, 0);
+      }
+      f.animator?.update(dt);
+    }
+  }
+
   private breathe(t: number): void {
     const near = this.chosen.slice(0, BREATHING);
     for (const id of near) {
       const f = this.full.get(id);
-      if (!f?.spine || !f.root.isEnabled()) continue;
+      if (!f?.spine || !f.root.isEnabled() || f.animator) continue;
       const sway = Quaternion.RotationAxis(f.spine.axis, breathing(t, f.phase));
       f.spine.node.rotationQuaternion = sway.multiply(f.spine.base);
     }
@@ -478,7 +658,7 @@ export class CharacterSystem {
   private ensureFigures(): { seated: Mesh; standing: Mesh } {
     if (this.figures) return this.figures;
     const mat = new StandardMaterial('person_figure', this.scene);
-    mat.diffuseColor = Color3.White();
+    mat.diffuseColor = FIGURE_GREY.clone();
     mat.specularColor = new Color3(0.08, 0.08, 0.08);
     this.figureMaterial = mat;
     this.figures = { seated: buildFigure(this.scene, true, mat), standing: buildFigure(this.scene, false, mat) };
@@ -495,6 +675,8 @@ export interface CharacterCopy {
   skeletons: Skeleton[];
   /** Bones by their Mixamo name (Hips, LeftUpLeg, …), whatever the rig. */
   bones: Map<string, TransformNode>;
+  /** v0.16.0: EVERY bone by play/people boneKey (fingers, face bones too): what clips are retargeted onto. */
+  allBones: Map<string, TransformNode>;
 }
 
 /**
@@ -516,7 +698,7 @@ export function restContainer(container: AssetContainer): void {
  * Its meshes aren't pickable and carry `metadata` (e.g. { personId }).
  */
 export function copyCharacter(scene: Scene, file: LoadedFile, character: CharacterFile, name: string,
-  metadata: Record<string, unknown> = {}): CharacterCopy {
+  metadata: Record<string, unknown> = {}, clothing: Clothing | null = null): CharacterCopy {
   const rig = character.rig ?? 'mixamo';
   restContainer(file.container);
   const copy = file.container.instantiateModelsToScene((n) => n, false, { doNotInstantiate: true });
@@ -533,22 +715,27 @@ export function copyCharacter(scene: Scene, file: LoadedFile, character: Charact
   }
 
   const bones = new Map<string, TransformNode>();
+  const allBones = new Map<string, TransformNode>();
   for (const skeleton of copy.skeletons) {
     for (const bone of skeleton.bones) {
       const node = bone.getTransformNode();
+      if (!node) continue;
       const key = canonicalBoneName(bone.name, rig);
-      if (node && key && !bones.has(key)) bones.set(key, node);
+      if (key && !bones.has(key)) bones.set(key, node);
+      const any = boneKey(bone.name, rig);
+      if (any && !allBones.has(any)) allBones.set(any, node);
     }
   }
 
-  // the person's height: the file's rest pose, measured once
+  // the person's height: the file's rest pose, measured once (every part, whatever they wear)
   refreshTree(root);
   if (!file.rest) file.rest = measure(meshes);
+  wearOutfit(file, character, meshes, clothing);
   const scale = (character.height ?? FIGURE_HEIGHT) / file.rest.height;
   fit.scaling.setAll(scale);
   fit.position.y = -file.rest.minY * scale;
   refreshTree(root);
-  return { root, meshes, skeletons: copy.skeletons, bones };
+  return { root, meshes, skeletons: copy.skeletons, bones, allBones };
 }
 
 /** Aim the bones into a pose (play/people SEATED_POSE, STANDING_POSE), parents first. */
@@ -562,11 +749,62 @@ export function poseBones(root: TransformNode, bones: Map<string, TransformNode>
 export function validCharacter(c: CharacterFile | null | undefined): CharacterFile | null {
   if (!c || typeof c.url !== 'string' || !c.url) return null;
   const height = Number(c.height);
-  return {
+  const out: CharacterFile = {
     url: c.url,
     rig: c.rig === 'ue' ? 'ue' : 'mixamo',
     height: Number.isFinite(height) && height >= 1 && height <= 2.3 ? height : FIGURE_HEIGHT,
   };
+  if (c.gender === 'female' || c.gender === 'male') out.gender = c.gender;
+  if (c.outfit === 'rocketbox') out.outfit = c.outfit;
+  if (typeof c.clips === 'string' && c.clips) out.clips = c.clips;
+  return out;
+}
+
+/** What a person wears, as a key (a full character is made again when it changes). */
+function wearsOf(p: Person): string {
+  return JSON.stringify(cleanClothing(p.clothing));
+}
+
+/** A loaded file's container and the outfit tints made from it. */
+export function disposeFile(f: LoadedFile): void {
+  for (const m of f.tinted?.values() ?? []) m.dispose(false, false);
+  f.tinted?.clear();
+  f.container.dispose();
+}
+
+/**
+ * The outfit on a copy (play/outfit.js, the Wardrobe's rules): the parts it doesn't wear hidden, the trousers and
+ * the top tinted (their own colour × the tint, in linear space as glTF colours are). A tinted material is a copy
+ * made once per file and colour, shared by everyone wearing it (the file's own materials are never changed).
+ * Not a Rocketbox outfit file (`outfit` not 'rocketbox'): nothing changes.
+ */
+export function wearOutfit(file: LoadedFile, character: CharacterFile, meshes: AbstractMesh[], clothing: Clothing | null): void {
+  if (character.outfit !== 'rocketbox') return;
+  const partOf = (m: AbstractMesh) => partName(m.name, m.parent?.name ?? null);
+  const look = outfitLook(character.outfit, clothing, meshes.map(partOf));
+  if (!look) return;
+  const hidden = new Set(look.hidden);
+  for (const m of meshes) {
+    const part = partOf(m);
+    if (hidden.has(part)) { m.setEnabled(false); continue; }
+    const hex = look.tints[part];
+    if (hex && m.material) m.material = tintedMaterial(file, m.material, hex);
+  }
+}
+
+function tintedMaterial(file: LoadedFile, source: Material, hex: string): Material {
+  file.tinted ??= new Map();
+  const key = `${source.uniqueId}|${hex}`;
+  let made = file.tinted.get(key);
+  if (!made) {
+    made = source.clone(`${source.name}_${hex}`) ?? source;
+    const tint = Color3.FromHexString(hex).toLinearSpace();
+    const m = made as Material & { albedoColor?: Color3; diffuseColor?: Color3 };
+    if (m.albedoColor) m.albedoColor = m.albedoColor.multiply(tint);
+    else if (m.diffuseColor) m.diffuseColor = m.diffuseColor.multiply(tint);
+    file.tinted.set(key, made);
+  }
+  return made;
 }
 
 function samePlace(a: PlacedPerson, b: PlacedPerson): boolean {

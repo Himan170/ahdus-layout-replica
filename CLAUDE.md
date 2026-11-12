@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1386, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1438, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -41,12 +41,12 @@ npm run e2e:faster   # 44 checks   e2e/faster-building-smoke.mjs (v0.15.5: Plan 
                      #                                       room names over furniture + inside their rooms, the bar's item
                      #                                       name, a room click selects it, filled chips, All floors' stairs,
                      #                                       group icons, 3D frames again after Plan; SHOTS=<dir>: screenshots)
-npm run e2e:planner  # 45 checks   e2e/editor-smoke.mjs    (Workplace Studio + its screenshots, the AHDUS look in local
+npm run e2e:planner  # 46 checks   e2e/editor-smoke.mjs    (Workplace Studio + its screenshots, the AHDUS look in local
                      #                                       mode, the library, the Realistic look switch, no missing
                      #                                       asset files, floor plan PNG / PDF export, room names + hover
                      #                                       card, Settings → Room labels, Plan view: select, drag,
                      #                                       Ctrl+Z, a desk onto its own chair's old spot (v0.15.2),
-                     #                                       a phone's hint at 390 px)
+                     #                                       a phone's hint at 390 px; v0.16.0: H = Reset view, nothing in Walk through)
 npm run e2e:play     # 36 checks   e2e/play-smoke.mjs      (v0.15.2: no mouse capture, W with no click, drag looks, an
                      #                                       empty hand's click walks, M = mouse look, then the old
                      #                                       checks by crosshair; the catalog's pictures + hotbar names;
@@ -110,7 +110,7 @@ npm run e2e:welcome  # 39 checks   e2e/welcome-smoke.mjs   (viewer.html?start=wa
                      #                                       (software / &quality=low), Stay above / Esc / a click, Walk
                      #                                       anyway walks + is remembered, Overview wins again, the note
                      #                                       compact in a 390 × 490 box; SHOTS=<dir>: screenshots)
-npm run e2e:characters # 36     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
+npm run e2e:characters # 39     e2e/characters-smoke.mjs (NO dev server: builds the embed; 21 people at desks
                      #                                       on 2 floors: the view from above (no roof: at the start,
                      #                                       after setFloor, after walking), simple figures, full characters near the
                      #                                       camera (each file once), seated poses, hover card (text,
@@ -118,7 +118,10 @@ npm run e2e:characters # 36     e2e/characters-smoke.mjs (NO dev server: builds 
                      #                                       your own card, a phone's tap, per floor, walking up,
                      #                                       walking as yourself (Mixamo + UE rigs, walk / stand,
                      #                                       eye height, V, your desk figure hidden, fallbacks),
-                     #                                       quality low; SHOTS=<dir>: 1440×900 + 390×844 screenshots)
+                     #                                       quality low; v0.16.0: manifest v2 (the neutral set,
+                     #                                       the "seated" copy, a clip set), Type / Sit, at most 8
+                     #                                       play, clothing, grey figures, Idle / Walk / Run / Wave (H);
+                     #                                       SHOTS=<dir>: 1440×900 + 390×844 screenshots)
 npm run e2e:navigation # 20 checks e2e/navigation-smoke.mjs (viewer.html, the Meridian-shaped layout; MERIDIAN=<layout.json>
                      #                                       MERIDIAN_PEOPLE=<people.json> = the real one: the card's Show route /
                      #                                       Take me there, from above = from the entrance, the line (≤ 2
@@ -141,12 +144,12 @@ npm run e2e:touch   # 15 checks   e2e/touch-smoke.mjs     (viewer.html on a phon
                      #                                       "?"), the HUD one line beside the joystick, the knob pushed
                      #                                       forward never under it,
                      #                                       a mouse = mouse words again; SHOTS=<dir>: phone screenshots)
-npm run e2e:controls # 17 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
+npm run e2e:controls # 16 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
                      #                                       to look (cursor stays), Back to entrance / ? / Find / Clear give
                      #                                       the keys back, click the floor walks there, a key ends it, a
                      #                                       desk = the card, the CNC = its action, double-click / L / Esc,
                      #                                       the pill only in mouse look, no HUD line under the hint, the sky's 6 sides;
-                     #                                       SHOTS=<dir>: 1440×900 + 390×844 screenshots)
+                     #                                       SHOTS=<dir>: 1440×900 + 390×844 screenshots + a 17th check: the phone fits)
 npm run e2e:tour     # 28 checks   e2e/tour-smoke.mjs      (viewer.html, the Meridian-shaped layout with its 13
                      #                                       departments (MERIDIAN=<layout.json> MERIDIAN_PEOPLE=<people.json>
                      #                                       = the real one): planned in idle time, Find's "Take the company
@@ -489,7 +492,13 @@ src/engine/systems/CharacterSystem.ts  People: simple figures (thin instances) +
                                    with its own skeleton per person, posed by bone names), per floor, not pickable
 src/engine/systems/PlayerCharacter.ts  Walking as yourself: your character (copyCharacter) + the walk clip baked onto
                                    its bones (retargeted by name, rest-pose corrected), playController's character
-src/embed/characterManifest.js     PURE: the character manifest (assetReference → { url, rig, height }), setPeople's list
+src/embed/characterManifest.js     PURE: the character manifest (v1 flat map; v2: clip sets, neutral set, groups, outfit,
+                                   seated copies), setPeople's list, neutralFor (the even default by personId)
+src/engine/systems/ClipLibrary.ts  v0.16.0: clips baked once per character file (bakeClip: by bone names, under the glTF
+                                   root's mirror, limbs aligned to the clip's rest), Animator (cross-fades), holdClip
+src/play/outfit.js                 PURE (v0.16.0): the Wardrobe's clothing on Rocketbox parts (cleanClothing, parts, tints)
+src/utils/gltfExtensions.js        The glTF extensions we load (webp, specular, unlit; v0.16.0 meshopt + quantization,
+                                   the npm decoder bundled, never Babylon's CDN)
 src/play/group.js                  PURE (v0.15.5): several items: groupMembers, groupMoves, groupTurn, copyItems, paste
 src/planner/groupActions.js        Studio's group actions + copy / paste (one editor command each)
 src/floorplan/planFloors.js        PURE (v0.15.5): adjacentFloor, floorBelow, planStairs, the Plan's saved zoom / position
@@ -1170,6 +1179,41 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
   figure; no clip, a failed clip or manifest `walk: false` = the standing pose (slides). Our test clip:
   `public/assets/characters/placeholder-walk.glb` (`scripts/make-placeholder-character.mjs`: 1.2 m/s).
 
+## Characters, clips and clothing (v0.16.0, how they work)
+
+`private-docs/CHARACTERS_V016_PLAN.md` (decisions in its section 1). Builds on "People at their desks" below.
+- **Manifest v2** (`embed/characterManifest.js`, EMBED_GUIDE 4b): `{ version: 2, groups, clips, neutral, characters }`;
+  a character: url, rig, height, gender, group, outfit ('rocketbox'), clips (a clip set's name), **seated** (a lighter
+  copy: people at their desks use it, the person walking the full `url`; `fileOf(entry, { seated })`, also Studio's
+  `seatFlow.seatedPeople`). v1 still read. `groups: { imported: false }` leaves a group out.
+- **Even default:** no / unknown / switched-off character = `neutralFor(personId)` = `neutral[idHash(personId) % n]`
+  (FNV-1a, never the name), in the viewer, the embed and Studio.
+- **Clothing** (`play/outfit.js`, PURE): the Wardrobe's `{ schemaVersion: 1, pantsColor, upperBody, upperColor }` on a
+  file with `outfit: 'rocketbox'`: Office formal (Outfit_formal + Skin_formal, or the own suit Outfit_original), shirt
+  (Top_shirt …) or T-shirt (Top_tee …), trousers tinted; other parts hidden. Others wear their own outfit.
+- **Clips** (`engine/systems/ClipLibrary.ts`): a clip set (animation-only .glb, Mixamo names) is baked ONCE per character
+  file (`bakeClip`, matrices only, every bone the two share; the glTF `__root__` MESH and its mirror are part of the
+  chain: leaving it out laid Rocketbox down; `alignLimbs` turns a limb whose rest points another way (a T-pose arm, A-pose
+  clips) first, within 70°). People clone the baked tracks (`instantiateClip`), `Animator` cross-fades (`FADE_S` 0.25 s).
+  Clip names: Idle, Walk, Run, Wave, Sit, Type (`CLIP_NAMES`).
+- **People at desks:** `people.workClip`: seated at a desk with a keyboard, laptop or dual monitor = Type, other desks Sit,
+  standing = Idle. The nearest `MAX_ANIMATED` 8 full characters play it, the rest `holdClip` frame 0; hips on the seat
+  in the clip's pose. Full characters (≤ 12) are the nearest to the point the camera LOOKS at (`chooseFullCharacters`
+  `focus` = camera.getTarget(), while the camera is within `VIEW_REACH` 30 m of it; else the camera; those full already
+  `KEEP_BONUS` 2 m nearer). Simple figures are grey (`FIGURE_GREY`). A file nobody near used for 30 s is unloaded
+  (`unloadAfterMs`).
+- **You** (`PlayerCharacter.ts`, viewer / embed walkthrough): with a clip set Idle / Walk / Run (`people.chooseGait`,
+  `RUN_FROM` 3.3 m/s) / Wave (**H**, standing still; else "Stand still to wave"), the forward leg lifted on stairs
+  (`stairLift`, `liftLegs`). No clip set: the v0.12 walk clip. Studio's Walk through is the simple figure (H does
+  nothing); Studio's editor H = Reset view (e2e:planner checks both).
+- **Files** (AHDUS-FRONTEND `scripts/make-office-characters.mjs`, never in this repo): the 20 Rocketbox + 5 Avatar SDK
+  light copies (~2 MB, one skin, WebP ≤ 1024 / 512 px, meshopt) and `-seated` copies (512 / 256 px, ~¼ of the GPU
+  memory), clip sets `clips-female.glb` / `clips-male.glb` (Idle, Walk, Wave so far). Meridian (319 people, RTX 4060,
+  12 Nov 2026): first frame 1.9 s, nearby characters 0.6 s / all 1.5 s, 129 FPS from above, ~113 walking, GPU 0.7 GB
+  walking (1.6 GB before the seated copies). Script + report: private-docs/screenshots/v0.16.0/meridian-after/.
+- Tests: `engine/__tests__/ClipLibrary.test.ts`, `clipMirror.test.ts`, `workClips.test.ts`, `play/__tests__/outfit.test.js`,
+  `people.test.js`, `embed/__tests__/characterManifest.test.js`, `npm run e2e:characters` (39).
+
 ## Realistic look (how it works)
 
 On by default; Settings → "Realistic look" (Studio, per browser: localStorage `ahdus.realisticLook`), `quality: 'low'`
@@ -1462,13 +1506,16 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 - "Also open in another tab" can stay shown a while if the other tab crashed instead of closing.
 - The storage warning is an estimate (~5 MB per site); browsers differ.
 - Skirting isn't pickable on its own (a click goes to the wall behind it).
-- People: the pose is procedural (no sit / type animation); twist of bones is not set (hands may turn oddly on real
-  characters); hands don't follow the keyboard. A desk with no chair has its person on its local +Z side (a
+- People (v0.16.0): the clip sets have Idle, Walk and Wave only: Run, Sit and Type clips (Microsoft's Rocketbox
+  repository, MIT) are still to add, so on the real files people at desks hold the procedural pose and Shift plays the
+  walk faster; no stairs clip (the forward leg is lifted instead). Hands don't follow the keyboard; the imported
+  (Avatar SDK) hands angle out a little in the clips. Twist of bones in the procedural pose is not set. A desk with no chair has its person on its local +Z side (a
   reception desk: −Z), turned with the desk; a corner desk with no chair has its person outside its +Z side (its open side), not in the L. No
   "Choose your character" hint yet. Full characters' skeletons are not frozen (≤ 12, cheap).
-- Walking as yourself: walk ↔ stand switches at once (no blend); no turn-on-the-spot, running or flying clip (Shift
-  plays the walk faster, flying stands); Studio's Preview still walks as the simple figure. Checked with our
-  placeholder figures only, not yet with AJ / ch12 / Victoria (AHDUS step after the tag).
+- Walking as yourself: with a clip set the gaits cross-fade (v0.16.0); with only the v0.12 walk clip walk ↔ stand
+  switches at once; no turn-on-the-spot or flying clip (flying stands); Studio's Walk through still walks as the
+  simple figure. The 20 Rocketbox and 5 Avatar SDK light copies are checked in the browser; AJ / ch12 / Victoria (v1)
+  only with our placeholder figures.
 - Walk map: a door passage is one cell wide where the door is under ~0.9 m (routes allow it). A desk whose chair
   stands against a wall can't be reached by the body: a route ends at the nearest reachable spot (within 1.5 m). Studio doesn't warn yet about a layout with no door outside or a spawn point inside furniture.
 - E at a person (v0.14.7): only the person a walk arrived at; walking up to someone yourself, E still means what the
@@ -1559,6 +1606,16 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: characters, clips and clothing (v0.16.0, 12 Nov 2026, branch `feature/v0.16.0-characters`)
+
+private-docs/CHARACTERS_V016_PLAN.md parts 1–10: meshopt files load, manifest v2, Wardrobe clothing, the even default,
+clips baked once per file (Idle / Walk / Run / Wave for you, Type / Sit at desks, H = wave), many people stay light
+(grey figures, files unloaded), the light Rocketbox copies + seated copies (AHDUS-FRONTEND branch
+`feature/3d-workplace-v0.16-characters`, not committed there yet), the Meridian measurement (see "Characters, clips
+and clothing"). Fixed on the way: Rocketbox clips laid the character down (the glTF root's mirror), T-pose arms in
+A-pose clips, the full characters from above went to the edge of the view. e2e:characters 39, e2e:controls 16,
+e2e:planner 46. Screenshots: private-docs/screenshots/v0.16.0/ (not in git).
 
 ## DONE: Layers, wall items and snapping (v0.15.6, 12 Nov 2026, branch `feature/v0.15.6-layers-wall-snapping`)
 

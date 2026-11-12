@@ -19,6 +19,11 @@
  *   No clip, a clip that can't be loaded or `walk: false` = the standing pose
  *   all the time (the character slides).
  *
+ * v0.16.0: a character with clips (its clip set, or its own file's: the shared ClipLibrary) stands in its Idle,
+ * walks, runs from RUN_FROM (Shift; play/people chooseGait), cross-fading between them, lifts its feet on stairs
+ * (play/people stairLift: the forward leg bent more, after the clips are applied) and waves (wave(), the H key:
+ * standing still only). Without clips, the walk clip of v0.12 as before.
+ *
  * The result has Preview's character interface (play/character.js):
  * { root, update(dt, speed, flying), setVisible, dispose }, its root at the
  * feet facing +Z, plus the camera height for this person (`eyeHeight`).
@@ -27,20 +32,25 @@
 import type { Scene } from '@babylonjs/core/scene';
 import type { AssetContainer } from '@babylonjs/core/assetContainer';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
-import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { Animation } from '@babylonjs/core/Animations/animation';
-import { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
+import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/core/Animations/animatable';
 
 import {
-  canonicalBoneName, clipSpeed, playerEyeHeight, walkRatio, STANDING_POSE, WALK_MIN_SPEED,
+  playerEyeHeight, walkRatio, STANDING_POSE, WALK_MIN_SPEED, chooseGait, stairLift, STAIR_HIP_LIFT,
 } from '../../play/people';
 import { copyCharacter, poseBones, refreshTree, restContainer } from './CharacterSystem';
+import type { Clothing } from './CharacterSystem';
+import { bakeClip, clipBones, instantiateClip, Animator, refreshChain } from './ClipLibrary';
+import type { BakedClip, ClipLibrary } from './ClipLibrary';
+import type { Observer } from '@babylonjs/core/Misc/observable';
 import type { CharacterFile, CharacterCopy, LoadedFile } from './CharacterSystem';
 
 /** Who walks: their character file, the walk clip, and whether this character may use it. */
 export interface PlayerCharacterSpec {
   character: CharacterFile;
+  /** v0.16.0: what they wear (play/outfit.js), for a Rocketbox outfit file. */
+  clothing?: Clothing | null;
   walkClipUrl?: string | null;
   /** false: never walk (stand and slide), e.g. a character whose skeleton the clip doesn't fit. */
   walk?: boolean;
@@ -49,7 +59,12 @@ export interface PlayerCharacterSpec {
 /** Preview's character interface (play/character.js) and what the walkthrough needs to know. */
 export interface PlayCharacter {
   root: TransformNode;
-  update(dt: number, speed: number, flying: boolean): void;
+  /** `ctx.climb`: how fast the ground under you rises (m/s; stairs), v0.16.0. */
+  update(dt: number, speed: number, flying: boolean, ctx?: { climb?: number }): void;
+  /** v0.16.0: wave (the H key): false = can't now (moving, or no Wave clip). */
+  wave?(): boolean;
+  /** v0.16.0: the clip playing ('Idle', 'Walk', 'Run', 'Wave'), null: none (the standing pose). */
+  readonly gait?: string | null;
   setVisible(visible: boolean): void;
   dispose(): void;
   /** The walkthrough camera's height for this person (m). */
@@ -65,8 +80,6 @@ export interface PlayCharacter {
   walkGroup: AnimationGroup | null;
 }
 
-/** The walk clip is sampled this many times a second. */
-const SAMPLES_PER_SECOND = 30;
 
 /**
  * The player's character from its file (and the walk clip, if any). Rejects
@@ -75,9 +88,17 @@ const SAMPLES_PER_SECOND = 30;
  */
 export async function createPlayerCharacter(
   scene: Scene, spec: PlayerCharacterSpec, loadFile: (url: string) => Promise<LoadedFile>,
+  library: ClipLibrary | null = null,
 ): Promise<PlayCharacter> {
   const { character } = spec;
   const wantsWalk = spec.walk !== false && !!spec.walkClipUrl;
+  // v0.16.0: the character's own clips (its clip set or its file), through the shared library
+  if (library && spec.walk !== false) {
+    const file = await loadFile(character.url);
+    const clips = await library.clips(character, file, PLAYER_CLIPS);
+    if (scene.isDisposed) throw new Error('The scene was closed');
+    if (clips.has('Walk')) return animatedCharacter(scene, file, spec, clips);
+  }
   const [file, clip] = await Promise.all([
     loadFile(character.url),
     wantsWalk
@@ -89,7 +110,7 @@ export async function createPlayerCharacter(
   ]);
   if (scene.isDisposed) throw new Error('The scene was closed');
 
-  const copy = copyCharacter(scene, file, character, 'player_character', { player: true });
+  const copy = copyCharacter(scene, file, character, 'player_character', { player: true }, spec.clothing ?? null);
   const rest = snapshot(copy.bones);
   let walk: BakedWalk | null = null;
   if (clip) {
@@ -142,6 +163,140 @@ export async function createPlayerCharacter(
   };
 }
 
+// ── v0.16.0: a character with its clips ─────────────────────────────────
+
+/** The clips your character plays. */
+const PLAYER_CLIPS = ['Idle', 'Walk', 'Run', 'Wave'];
+
+function animatedCharacter(scene: Scene, file: LoadedFile, spec: PlayerCharacterSpec, clips: Map<string, BakedClip>): PlayCharacter {
+  const { character } = spec;
+  const copy = copyCharacter(scene, file, character, 'player_character', { player: true }, spec.clothing ?? null);
+  // the standing pose under the clips (what a fading clip blends with)
+  poseBones(copy.root, copy.bones, STANDING_POSE as [string, string, number[]][]);
+  refreshAll(copy);
+  const animator = new Animator(scene, copy.allBones, 'player');
+  for (const clip of clips.values()) animator.add(clip);
+  const has = { walk: animator.has('Walk'), run: animator.has('Run') };
+  const idle = () => (animator.has('Idle') ? animator.play('Idle') : animator.stop());
+  if (animator.has('Idle')) animator.play('Idle', { fade: 0 });
+  const legs = legsOf(copy);
+  let gait = 'Idle';
+  let lift = 0;
+  let lastSpeed = 0;
+  const observer: Observer<Scene> | null = scene.onAfterAnimationsObservable.add(() => {
+    if (lift > 0.02 && gait !== 'Idle' && copy.root.isEnabled()) liftLegs(copy, legs, lift);
+  });
+  return {
+    root: copy.root,
+    eyeHeight: playerEyeHeight(character.height ?? 1.75),
+    kind: 'full',
+    get walking() { return gait !== 'Idle'; },
+    get speed() { return lastSpeed; },
+    get gait() { return animator.current; },
+    walkSpeed: animator.speedOf('Walk'),
+    walkGroup: animator.groupOf('Walk'),
+    update(dt, speed, flying, ctx) {
+      lastSpeed = speed;
+      const want = chooseGait(speed, flying, has);
+      lift += (stairLift(ctx?.climb ?? 0) - lift) * Math.min(1, dt * 8); // eased: a step onto a floor is one frame
+      if (want !== gait) {
+        gait = want;
+        if (want === 'Idle') idle();
+        else animator.play(want);
+      }
+      if (gait !== 'Idle') animator.setSpeed(walkRatio(speed, animator.speedOf(gait) ?? speed));
+      animator.update(dt);
+    },
+    wave() {
+      if (gait !== 'Idle' || !animator.has('Wave')) return false;
+      if (animator.current !== 'Wave') animator.play('Wave', { once: true, then: animator.has('Idle') ? 'Idle' : null });
+      return true;
+    },
+    setVisible(visible) {
+      copy.root.setEnabled(visible);
+    },
+    dispose() {
+      scene.onAfterAnimationsObservable.remove(observer);
+      animator.dispose();
+      copy.root.dispose(false, false);
+      for (const s of copy.skeletons) s.dispose();
+    },
+  };
+}
+
+/** A leg for lifting the feet on stairs: its bones and which way turns them forward (found on the copy). */
+export interface Leg {
+  thigh: TransformNode;
+  knee: TransformNode;
+  foot: TransformNode;
+  hipSign: number;
+  kneeSign: number;
+}
+
+/** Turn a node about a world axis (in its parent's frame, after its own rotation). */
+function turnAbout(node: TransformNode, axisWorld: Vector3, angle: number): void {
+  const parent = node.parent as TransformNode;
+  refreshChain(parent);
+  const inv = parent.getWorldMatrix().clone().invert();
+  const axis = Vector3.TransformNormal(axisWorld, inv).normalize();
+  node.rotationQuaternion ??= Quaternion.FromEulerVector(node.rotation);
+  node.rotationQuaternion = Quaternion.RotationAxis(axis, angle).multiply(node.rotationQuaternion);
+}
+
+function sideAxes(copy: Pick<CharacterCopy, 'root'>): { forward: Vector3; right: Vector3 } {
+  copy.root.computeWorldMatrix(true);
+  const w = copy.root.getWorldMatrix();
+  return {
+    forward: Vector3.TransformNormal(new Vector3(0, 0, 1), w).normalize(),
+    right: Vector3.TransformNormal(new Vector3(1, 0, 0), w).normalize(),
+  };
+}
+
+/** Both legs, with the sign that swings the thigh forward and bends the knee backward (tried once on the copy). */
+export function legsOf(copy: Pick<CharacterCopy, 'root' | 'bones'>): Leg[] {
+  const legs: Leg[] = [];
+  const { forward, right } = sideAxes(copy);
+  for (const side of ['Left', 'Right']) {
+    const thigh = copy.bones.get(side + 'UpLeg');
+    const knee = copy.bones.get(side + 'Leg');
+    const foot = copy.bones.get(side + 'Foot');
+    if (!thigh || !knee || !foot) continue;
+    const tryTurn = (node: TransformNode, moved: TransformNode) => {
+      node.rotationQuaternion ??= Quaternion.FromEulerVector(node.rotation);
+      const keep = node.rotationQuaternion.clone();
+      refreshChain(moved);
+      const before = moved.getAbsolutePosition().clone();
+      turnAbout(node, right, 0.3);
+      refreshChain(moved);
+      const d = moved.getAbsolutePosition().subtract(before);
+      node.rotationQuaternion = keep;
+      refreshChain(moved);
+      return Vector3.Dot(d, forward);
+    };
+    const hipSign = tryTurn(thigh, knee) >= 0 ? 1 : -1;
+    const kneeSign = tryTurn(knee, foot) <= 0 ? 1 : -1;
+    legs.push({ thigh, knee, foot, hipSign, kneeSign });
+  }
+  return legs;
+}
+
+/**
+ * On stairs: the leg swinging forward is lifted (more hip and knee bend), so the foot clears the step. `lift` 0…1.
+ * Runs after the clips are applied each frame (they set the bones again next frame).
+ */
+export function liftLegs(copy: Pick<CharacterCopy, 'root' | 'bones'>, legs: Leg[], lift: number): void {
+  const { forward, right } = sideAxes(copy);
+  for (const leg of legs) {
+    refreshChain(leg.knee);
+    const dir = leg.knee.getAbsolutePosition().subtract(leg.thigh.getAbsolutePosition()).normalize();
+    const swing = Math.min(1, Math.max(0, (Vector3.Dot(dir, forward) + 0.05) / 0.35));
+    const bend = lift * STAIR_HIP_LIFT * swing;
+    if (bend <= 0) continue;
+    turnAbout(leg.thigh, right, leg.hipSign * bend);
+    turnAbout(leg.knee, right, leg.kneeSign * 2 * bend);
+  }
+}
+
 // ── Retargeting the walk clip ────────────────────────────────────────────
 
 export interface BakedWalk {
@@ -166,7 +321,7 @@ export function bakeWalk(scene: Scene, clip: AssetContainer, target: Pick<Charac
     const group = src.animationGroups[0];
     if (!group) return null;
     group.stop();
-    const srcBones = bonesByName(top);
+    const srcBones = clipBones(top);
     return bakeGroup(scene, group, top, srcBones, target);
   } finally {
     for (const g of src.animationGroups) g.dispose();
@@ -181,137 +336,15 @@ export function bakeWalk(scene: Scene, clip: AssetContainer, target: Pick<Charac
  */
 export function bakeGroup(
   scene: Scene, group: AnimationGroup, top: TransformNode, srcBones: Map<string, TransformNode>,
-  target: Pick<CharacterCopy, 'root' | 'bones'>,
+  target: Pick<CharacterCopy, 'root' | 'bones'> & { allBones?: Map<string, TransformNode> },
 ): BakedWalk | null {
-  const pairs = [...target.bones]
-    .filter(([key, node]) => srcBones.has(key) && node.parent instanceof TransformNode)
-    .sort((a, b) => depth(a[1]) - depth(b[1]));
-  if (pairs.length < 6 || !pairs.some(([key]) => key === 'Hips')) return null;
-  const animations = group.targetedAnimations;
-  if (!animations.length) return null;
-  const fps = animations[0].animation.framePerSecond || 60;
-  const duration = (group.to - group.from) / fps;
-  if (!(duration > 0)) return null;
-  const n = Math.min(120, Math.max(8, Math.round(duration * SAMPLES_PER_SECOND)));
-
-  // Rest poses: the clip's (as its file has it) and the character's
-  refreshTree(top);
-  refreshTree(target.root);
-  const srcRest = new Map(pairs.map(([key]) => [key, rotationPart(srcBones.get(key)!.getWorldMatrix())]));
-  const tgtRest = new Map(pairs.map(([key, node]) => [key, rotationPart(node.getWorldMatrix())]));
-  const srcHips = srcBones.get('Hips')!;
-  const tgtHips = target.bones.get('Hips')!;
-  const srcHipsRest = srcHips.getAbsolutePosition().clone();
-  const tgtHipsRest = tgtHips.getAbsolutePosition().clone();
-  const ground = Math.min(...[...srcBones.values()].map((b) => b.getAbsolutePosition().y));
-  const feetY = target.root.getAbsolutePosition().y;
-  const size = (tgtHipsRest.y - feetY) / Math.max(1e-3, srcHipsRest.y - ground); // character / clip
-
-  // Sample the clip: each bone's rotation in the clip's frame, the hips and a foot
-  const worlds: Map<string, Matrix>[] = [];
-  const hips: Vector3[] = [];
-  const foot: number[] = [];
-  const srcFoot = srcBones.get('LeftFoot');
-  for (let i = 0; i <= n; i++) {
-    const frame = group.from + ((group.to - group.from) * i) / n;
-    for (const { animation, target: node } of animations) {
-      const value = animation.evaluate(frame);
-      (node as Record<string, unknown>)[animation.targetProperty] = value?.clone ? value.clone() : value;
-    }
-    refreshTree(top);
-    worlds.push(new Map(pairs.map(([key]) => [key, rotationPart(srcBones.get(key)!.getWorldMatrix())])));
-    const h = srcHips.getAbsolutePosition().clone();
-    hips.push(h);
-    if (srcFoot) foot.push(srcFoot.getAbsolutePosition().z - h.z);
-  }
-  const travel = hips[n].z - hips[0].z;
-  const drift = hips[n].x - hips[0].x;
-  const footRange = foot.length ? Math.max(...foot) - Math.min(...foot) : 0;
-  const speed = clipSpeed({ duration, hipsTravel: travel, footRange }) * size;
-  if (!(speed > 0)) return null;
-
-  // Bake: the character's bones turned as much (in its frame) as the clip's turn from their rest pose
-  const keys = new Map<string, { frame: number; value: Quaternion }[]>(pairs.map(([key]) => [key, []]));
-  const hipsKeys: { frame: number; value: Vector3 }[] = [];
-  for (let i = 0; i <= n; i++) {
-    for (const [key, node] of pairs) {
-      const turn = Matrix.Invert(srcRest.get(key)!).multiply(worlds[i].get(key)!);
-      const want = tgtRest.get(key)!.multiply(turn);
-      const parent = node.parent as TransformNode;
-      refreshChain(parent);
-      const local = want.multiply(Matrix.Invert(rotationPart(parent.getWorldMatrix())));
-      const q = Quaternion.FromRotationMatrix(local).normalize();
-      node.rotationQuaternion = q;
-      keys.get(key)!.push({ frame: i, value: q.clone() });
-      if (key === 'Hips') {
-        // the bob and sway, the clip's forward motion taken out (the controls move you)
-        const d = hips[i].subtract(hips[0]);
-        d.x -= (drift * i) / n;
-        d.z -= (travel * i) / n;
-        d.y = hips[i].y - srcHipsRest.y;
-        const world = tgtHipsRest.add(d.scale(size));
-        const local = Vector3.TransformCoordinates(world, Matrix.Invert(parent.getWorldMatrix()));
-        node.position.copyFrom(local);
-        hipsKeys.push({ frame: i, value: local.clone() });
-      }
-      node.computeWorldMatrix(true);
-    }
-  }
-
-  const baked = new AnimationGroup('player_walk', scene);
-  for (const [key, node] of pairs) {
-    const anim = new Animation(`player_walk_${key}`, 'rotationQuaternion', n / duration,
-      Animation.ANIMATIONTYPE_QUATERNION, Animation.ANIMATIONLOOPMODE_CYCLE);
-    anim.setKeys(keys.get(key)!);
-    baked.addTargetedAnimation(anim, node);
-  }
-  const hipsAnim = new Animation('player_walk_hips', 'position', n / duration,
-    Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CYCLE);
-  hipsAnim.setKeys(hipsKeys);
-  baked.addTargetedAnimation(hipsAnim, tgtHips);
-  baked.normalize(0, n);
-  return { group: baked, speed };
+  const clip = bakeClip(scene, group, top, srcBones, target, 'Walk');
+  if (!clip?.speed) return null;
+  const baked = instantiateClip(scene, clip, target.allBones ?? target.bones, 'player_walk');
+  return { group: baked, speed: clip.speed };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
-
-/** The nodes under `top` by Mixamo name (Mixamo or Unreal-style names). */
-function bonesByName(top: TransformNode): Map<string, TransformNode> {
-  const bones = new Map<string, TransformNode>();
-  for (const node of top.getDescendants(false)) {
-    if (!(node instanceof TransformNode)) continue;
-    const key = canonicalBoneName(node.name, 'mixamo') ?? canonicalBoneName(node.name, 'ue');
-    if (key && !bones.has(key)) bones.set(key, node);
-  }
-  return bones;
-}
-
-function depth(node: TransformNode): number {
-  let d = 0;
-  for (let p = node.parent; p; p = p.parent) d++;
-  return d;
-}
-
-/** A world matrix's rotation (and mirroring): no translation, no scale. */
-function rotationPart(m: Matrix): Matrix {
-  const a = m.m;
-  const row = (i: number) => {
-    const v = new Vector3(a[i], a[i + 1], a[i + 2]);
-    const len = v.length() || 1;
-    return v.scaleInPlace(1 / len);
-  };
-  const x = row(0);
-  const y = row(4);
-  const z = row(8);
-  return Matrix.FromValues(x.x, x.y, x.z, 0, y.x, y.y, y.z, 0, z.x, z.y, z.z, 0, 0, 0, 0, 1);
-}
-
-/** A node's world matrix with its ancestors' brought up to date first. */
-function refreshChain(node: TransformNode): void {
-  const chain: TransformNode[] = [];
-  for (let p: TransformNode | null = node; p; p = p.parent as TransformNode | null) chain.unshift(p);
-  for (const p of chain) p.computeWorldMatrix(true);
-}
 
 function refreshAll(copy: Pick<CharacterCopy, 'root' | 'meshes'>): void {
   refreshTree(copy.root);

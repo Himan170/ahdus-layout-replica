@@ -1079,7 +1079,7 @@ describe('walkthrough mode', () => {
     engine.setMode('walkthrough');
     await engine.whenPlayerReady();
     expect(made).toHaveLength(1);
-    expect(made[0].spec).toEqual({ character: me.character, walkClipUrl: 'https://x/walk.glb', walk: undefined });
+    expect(made[0].spec).toEqual({ character: me.character, clothing: null, walkClipUrl: 'https://x/walk.glb', walk: undefined });
     expect(controllers[0].setCharacter).toHaveBeenLastCalledWith(made[0], { eyeHeight: 1.5 });
     expect(hidden).toHaveBeenLastCalledWith('u1');
     // the same player again: nothing made again

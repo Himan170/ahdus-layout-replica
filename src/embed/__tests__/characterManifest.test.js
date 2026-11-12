@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  parseManifest, readManifest, resolvePeople, resolvePlayer, walkClipUrlOf, DEFAULT_HEIGHT, MAX_TEXT,
+  parseManifest, readManifest, resolvePeople, resolvePlayer, walkClipUrlOf, charactersOf, idHash, neutralFor,
+  DEFAULT_HEIGHT, MAX_TEXT,
 } from '../characterManifest';
 
 const BASE = 'https://ahdus.example/frontend/character/manifest.json';
@@ -122,5 +123,167 @@ describe('walking as yourself: the player and the walk clip', () => {
     expect(walkClipUrlOf({ walkClipUrl: 'javascript:alert(1)' }, page)).toBeNull();
     expect(walkClipUrlOf({ walkClipUrl: '  ' }, page)).toBeNull();
     expect(walkClipUrlOf(undefined, page)).toBeNull();
+  });
+});
+
+describe('manifest version 2 (v0.16.0)', () => {
+  const URL2 = 'https://ahdus.example/frontend/workplace/characters.json';
+  const v2 = {
+    version: 2,
+    groups: { imported: false, rocketbox: true },
+    clips: { female: { url: 'office/clips-female.glb' }, male: { url: 'office/clips-male.glb' } },
+    neutral: ['rocketbox:aisha-v1', 'rocketbox:andre-v1', 'imported:nadia-v1'],
+    characters: {
+      'rocketbox:aisha-v1': { url: 'office/aisha.glb', height: 1.74, gender: 'female', group: 'rocketbox', outfit: 'rocketbox', clips: 'female' },
+      'rocketbox:andre-v1': { url: 'office/andre.glb', height: 1.81, gender: 'male', group: 'rocketbox', outfit: 'rocketbox', clips: 'male' },
+      'imported:nadia-v1': { url: 'office/nadia.glb', height: 1.76, gender: 'female', group: 'imported' },
+      'mixamo:aj-v1': { url: 'office/aj.glb', height: 1.8 },
+    },
+  };
+
+  it('reads characters, clip sets and the neutral set; a group switched off is left out', () => {
+    const m = parseManifest(v2, URL2);
+    expect(m.version).toBe(2);
+    expect(m.off).toEqual(['imported']);
+    expect([...m.characters.keys()]).toEqual(['rocketbox:aisha-v1', 'rocketbox:andre-v1', 'mixamo:aj-v1']);
+    expect(m.characters.get('rocketbox:aisha-v1')).toEqual({
+      url: 'https://ahdus.example/frontend/workplace/office/aisha.glb', rig: 'mixamo', height: 1.74, gender: 'female',
+      group: 'rocketbox', outfit: 'rocketbox', clips: 'https://ahdus.example/frontend/workplace/office/clips-female.glb',
+    });
+    expect(m.clips.get('male')).toEqual({ url: 'https://ahdus.example/frontend/workplace/office/clips-male.glb' });
+    // a neutral character of a group switched off is not in the set (and is reported)
+    expect(m.neutral).toEqual(['rocketbox:aisha-v1', 'rocketbox:andre-v1']);
+    expect(m.problems).toEqual(['neutral: imported:nadia-v1 is not a character here']);
+    // switched on again: one flag
+    const on = parseManifest({ ...v2, groups: { imported: true } }, URL2);
+    expect(on.characters.has('imported:nadia-v1')).toBe(true);
+    expect(on.neutral).toHaveLength(3);
+  });
+
+  it('says what is wrong and keeps the rest', () => {
+    const m = parseManifest({
+      version: 2,
+      groups: { x: 'no' },
+      clips: { bad: { url: 'javascript:1' } },
+      neutral: 'all',
+      characters: {
+        a: { url: 'a.glb', gender: 'robot', outfit: 'toga', clips: 'bad' },
+        b: { url: '' },
+      },
+    }, URL2);
+    expect([...m.characters.keys()]).toEqual(['a']);
+    expect(m.characters.get('a')).toEqual({ url: 'https://ahdus.example/frontend/workplace/a.glb', rig: 'mixamo', height: DEFAULT_HEIGHT });
+    expect(m.problems).toEqual([
+      'groups.x: must be true or false', 'clips.bad: only http(s) urls', 'a: unknown gender "robot"',
+      'a: unknown outfit "toga" (shown as it is)', 'a: no clip set "bad"', 'b: no url', '"neutral" must be a list of asset references',
+    ]);
+    expect(parseManifest({ version: 2 }).problems).toEqual(['"characters" must be an object']);
+    expect(parseManifest({ version: 3, a: { url: 'https://x/a.glb' } }).problems).toEqual(['unknown manifest version 3 (read as version 1)']);
+  });
+
+  it('a version 1 manifest reads as before (no clip sets, no neutral set)', () => {
+    const m = parseManifest({ 'mixamo:aj-v1': { url: 'aj.glb' } }, BASE);
+    expect(m).toMatchObject({ version: 1, neutral: [], off: [], problems: [] });
+    expect(m.clips.size).toBe(0);
+  });
+
+  it('people and the player get gender, outfit and clips; the resolvers take the manifest or its Map', () => {
+    const m = parseManifest(v2, URL2);
+    const [p] = resolvePeople([{ personId: 'u1', deskId: 'd1', assetReference: 'rocketbox:andre-v1' }], m);
+    expect(Object.keys(p.character)).toEqual(['url', 'rig', 'height', 'gender', 'outfit', 'clips']);
+    expect(p.character.clips).toBe('https://ahdus.example/frontend/workplace/office/clips-male.glb');
+    // no group in what the view gets
+    expect(p.character.group).toBeUndefined();
+    expect(resolvePlayer({ personId: 'u1', assetReference: 'rocketbox:aisha-v1' }, m).character.outfit).toBe('rocketbox');
+    // a character switched off is unknown: their neutral character (aisha or andre here)
+    expect(resolvePeople([{ personId: 'u2', deskId: 'd2', assetReference: 'imported:nadia-v1' }], m)[0].character.url).toMatch(/(aisha|andre).glb$/);
+    expect(charactersOf(m)).toBe(m.characters);
+    expect(charactersOf(m.characters)).toBe(m.characters);
+    expect(charactersOf(null).size).toBe(0);
+  });
+});
+
+describe('clothing (v0.16.0)', () => {
+  it('people and the player keep their Wardrobe clothing, checked; none given = no field', () => {
+    const [a, b] = resolvePeople([
+      { personId: 'u1', deskId: 'd1', clothing: { pantsColor: 'blue', upperBody: 'shirt', upperColor: '#123ABC', note: 'x' } },
+      { personId: 'u2', deskId: 'd2', clothing: 'formal' },
+    ], new Map());
+    expect(a.clothing).toEqual({ schemaVersion: 1, pantsColor: 'blue', upperBody: 'shirt', upperColor: '#123abc' });
+    expect('clothing' in b).toBe(false);
+    expect(resolvePlayer({ personId: 'u1', clothing: { upperBody: 'tshirt' } }, new Map()).clothing)
+      .toEqual({ schemaVersion: 1, pantsColor: 'black', upperBody: 'tshirt', upperColor: null });
+  });
+});
+
+describe('the even default: the neutral set (v0.16.0)', () => {
+  const NEUTRAL = ['rocketbox:aisha-v1', 'rocketbox:emma-v1', 'rocketbox:olivia-v1', 'rocketbox:andre-v1', 'rocketbox:kenji-v1', 'rocketbox:carlos-v1'];
+  const m = parseManifest({
+    version: 2,
+    groups: { imported: false },
+    neutral: NEUTRAL,
+    characters: {
+      ...Object.fromEntries(NEUTRAL.map((ref) => [ref, { url: `${ref.split(':')[1]}.glb`, outfit: 'rocketbox' }])),
+      'rocketbox:mei-v1': { url: 'mei.glb', outfit: 'rocketbox' },
+      'imported:nadia-v1': { url: 'nadia.glb', group: 'imported' },
+    },
+  }, BASE);
+
+  it('the hash is fixed (the same person looks the same everywhere)', () => {
+    expect(idHash('')).toBe(0x811c9dc5);
+    expect(idHash('a')).toBe(0xe40c292c);
+    expect(idHash('user_14')).toBe(idHash('user_14'));
+    expect(neutralFor('user_14', m)).toBe(neutralFor('user_14', m));
+  });
+
+  it('evenly: 6,000 ids, each of the six about 1,000 times; women and men about half each', () => {
+    const counts = Object.fromEntries(NEUTRAL.map((r) => [r, 0]));
+    for (let i = 0; i < 6000; i++) counts[neutralFor(`user_${i}`, m)]++;
+    for (const n of Object.values(counts)) expect(Math.abs(n - 1000)).toBeLessThan(100);
+    const women = counts[NEUTRAL[0]] + counts[NEUTRAL[1]] + counts[NEUTRAL[2]];
+    expect(Math.abs(women - 3000)).toBeLessThan(150);
+  });
+
+  it('never chose, unknown or switched off = their neutral character; a choice wins; v1 = the simple figure', () => {
+    const people = resolvePeople([
+      { personId: 'u1', deskId: 'd1', assetReference: null },
+      { personId: 'u1', deskId: 'd2', assetReference: 'mixamo:gone-v9' },
+      { personId: 'u1', deskId: 'd3', assetReference: 'imported:nadia-v1' },
+      { personId: 'u1', deskId: 'd4', assetReference: 'rocketbox:mei-v1' },
+    ], m);
+    const mine = `https://ahdus.example/frontend/character/${neutralFor('u1', m).split(':')[1]}.glb`;
+    expect(people.slice(0, 3).map((p) => p.character.url)).toEqual([mine, mine, mine]);
+    expect(people[3].character.url).toBe('https://ahdus.example/frontend/character/mei.glb');
+    // "Choose your character" still only for someone who never chose
+    expect(people.map((p) => p.characterChosen)).toEqual([false, true, true, true]);
+    expect(resolvePlayer({ personId: 'u1' }, m).character.url).toBe(mine); // you walk as you sit
+    const v1 = parseManifest({ a: { url: 'a.glb' } }, BASE);
+    expect(resolvePeople([{ personId: 'u1', deskId: 'd1' }], v1)[0].character).toBeNull();
+    expect(neutralFor('u1', v1.characters)).toBeNull();
+    expect(neutralFor('', m)).toBeNull();
+  });
+});
+
+describe('a lighter copy for people at their desks (v0.16.0)', () => {
+  const base = 'https://ahdus.example/frontend/workplace/characters.json';
+  const m = parseManifest({ version: 2, characters: {
+    'rocketbox:emma-v1': { url: 'emma.glb', seated: 'emma-seated.glb' },
+    'rocketbox:leo-v1': { url: 'leo.glb' },
+    'rocketbox:bad-v1': { url: 'bad.glb', seated: 'ftp://x/bad.glb' },
+  } }, base);
+  it('people at desks get the seated copy, the person walking the full file; none given = the full file', () => {
+    const [emma, leo] = resolvePeople([
+      { personId: 'a', deskId: 'd1', assetReference: 'rocketbox:emma-v1' },
+      { personId: 'b', deskId: 'd2', assetReference: 'rocketbox:leo-v1' },
+    ], m);
+    expect(emma.character.url).toBe('https://ahdus.example/frontend/workplace/emma-seated.glb');
+    expect(leo.character.url).toBe('https://ahdus.example/frontend/workplace/leo.glb');
+    expect('seated' in emma.character).toBe(false);
+    expect(resolvePlayer({ personId: 'a', assetReference: 'rocketbox:emma-v1' }, m).character.url)
+      .toBe('https://ahdus.example/frontend/workplace/emma.glb');
+  });
+  it('a bad seated url is a problem and the full file is used', () => {
+    expect(m.problems.some((p) => p.startsWith('rocketbox:bad-v1: seated'))).toBe(true);
+    expect(m.characters.get('rocketbox:bad-v1').seated).toBeUndefined();
   });
 });

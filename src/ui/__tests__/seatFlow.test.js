@@ -111,3 +111,30 @@ describe('seatedPeople', () => {
     ]);
   });
 });
+
+describe('seatedPeople (v0.16.0)', () => {
+  it('Studio shows the same neutral character and Wardrobe clothing as the viewer', async () => {
+    const { parseManifest, neutralFor } = await import('../../embed/characterManifest');
+    const m = parseManifest({
+      version: 2,
+      neutral: ['rocketbox:aisha-v1', 'rocketbox:andre-v1'],
+      characters: { 'rocketbox:aisha-v1': { url: 'aisha.glb' }, 'rocketbox:andre-v1': { url: 'andre.glb' } },
+    }, 'https://ahdus.example/frontend/workplace/characters.json');
+    const [a, b] = seatedPeople([
+      { ...asha, assetReference: null, clothing: { upperBody: 'shirt', upperColor: '#ffcc00' } },
+      { ...ravi, assetReference: null },
+    ], objects, m);
+    expect(a.character).toEqual(m.characters.get(neutralFor('1', m)));
+    expect(b.character).toEqual(m.characters.get(neutralFor('2', m)));
+    expect(a.clothing).toEqual({ schemaVersion: 1, pantsColor: 'black', upperBody: 'shirt', upperColor: '#ffcc00' });
+    expect('clothing' in b).toBe(false);
+  });
+
+  it('people at their desks are drawn from the lighter "seated" copy when the manifest has one', async () => {
+    const { parseManifest } = await import('../../embed/characterManifest');
+    const m = parseManifest({ version: 2, characters: { 'rocketbox:aisha-v1': { url: 'aisha.glb', seated: 'aisha-seated.glb' } } },
+      'https://ahdus.example/frontend/workplace/characters.json');
+    const [a] = seatedPeople([{ ...asha, assetReference: 'rocketbox:aisha-v1' }], objects, m);
+    expect(a.character.url).toBe('https://ahdus.example/frontend/workplace/aisha-seated.glb');
+  });
+});
