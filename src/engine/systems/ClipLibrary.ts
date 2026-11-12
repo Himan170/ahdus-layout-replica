@@ -81,6 +81,7 @@ export function bakeClip(
   refreshTree(target.root);
   const srcRest = new Map(pairs.map(([key]) => [key, rotationPart(srcBones.get(key)!.getWorldMatrix())]));
   const tgtRest = new Map(pairs.map(([key, node]) => [key, rotationPart(node.getWorldMatrix())]));
+  alignLimbs(tgtRest, bones, srcBones);
   const srcHips = srcBones.get('Hips')!;
   const tgtHips = bones.get('Hips')!;
   const srcHipsRest = srcHips.getAbsolutePosition().clone();
@@ -91,9 +92,10 @@ export function bakeClip(
 
   // Sample the clip: each bone's rotation in the clip's frame, the hips and a foot. The clip's world matrices are
   // composed here (scale, rotation, position × the parent's), not by Babylon's computeWorldMatrix per node and
-  // sample (that was most of a bake): only nodes, parents first (getDescendants is depth-first), no meshes.
-  const srcNodes = top.getDescendants(false).filter((d): d is TransformNode =>
-    d instanceof TransformNode && !('getTotalVertices' in d));
+  // sample (that was most of a bake): parents first (getDescendants is depth-first). Meshes count too: a glTF's
+  // __root__ is a mesh, and its turn + mirror (rotation Y π, scaling z −1) is above every bone (v0.16.0: Rocketbox
+  // lay down when it was left out).
+  const srcNodes = top.getDescendants(false).filter((d): d is TransformNode => d instanceof TransformNode);
   const slot = new Map(srcNodes.map((node, k) => [node, k]));
   const parentSlot = srcNodes.map((node) => slot.get(node.parent as TransformNode) ?? -1);
   const topWorld = top.getWorldMatrix().clone();
@@ -175,6 +177,38 @@ export function bakeClip(
   hipsAnim.setKeys(hipsKeys);
   tracks.push({ key: 'Hips', animation: hipsAnim });
   return { name, tracks, frames: n, duration, speed: speed > 0 ? speed : null };
+}
+
+/** Each limb bone and the bone it points at (both sides). */
+export const LIMB_CHILD: [string, string][] = ['Left', 'Right'].flatMap((s) => [
+  [`${s}Shoulder`, `${s}Arm`], [`${s}Arm`, `${s}ForeArm`], [`${s}ForeArm`, `${s}Hand`], [`${s}Hand`, `${s}HandMiddle1`],
+  [`${s}UpLeg`, `${s}Leg`], [`${s}Leg`, `${s}Foot`],
+] as [string, string][]);
+
+/**
+ * Rest poses that differ (v0.16.0: an imported character in a T-pose, Rocketbox's clips made in an A-pose): a clip
+ * turns each bone from ITS rest, so a T-pose arm came only part way down. Each limb's rest (`tgtRest`, world) is
+ * swung, as if the character stood the clip's way, so the bone points where the clip's bone points at rest. Bones
+ * that already point the same way (the clip's own file) are left alone.
+ */
+export function alignLimbs(tgtRest: Map<string, Matrix>, tgt: Map<string, TransformNode>, src: Map<string, TransformNode>): void {
+  const swing = new Matrix();
+  for (const [bone, child] of LIMB_CHILD) {
+    const rest = tgtRest.get(bone);
+    const t0 = tgt.get(bone); const t1 = tgt.get(child); const s0 = src.get(bone); const s1 = src.get(child);
+    if (!rest || !t0 || !t1 || !s0 || !s1) continue;
+    const a = t1.getAbsolutePosition().subtract(t0.getAbsolutePosition());
+    const b = s1.getAbsolutePosition().subtract(s0.getAbsolutePosition());
+    if (a.lengthSquared() < 1e-10 || b.lengthSquared() < 1e-10) continue;
+    a.normalize(); b.normalize();
+    const cos = Math.min(1, Math.max(-1, Vector3.Dot(a, b)));
+    // within ~1°: the same; more than 70° apart: not a T- vs A-pose (another rig, another way round): left alone
+    if (cos > 0.9998 || cos < 0.34) continue;
+    const axis = Vector3.Cross(a, b).normalize();
+    Matrix.FromQuaternionToRef(Quaternion.RotationAxis(axis, Math.acos(cos)), swing);
+    // row vectors: bone → world (rest), then the swing in world
+    tgtRest.set(bone, rest.multiply(swing));
+  }
 }
 
 /** A baked clip on a person's bones (by key): its own AnimationGroup, the Animation objects shared. */
