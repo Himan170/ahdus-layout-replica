@@ -117,7 +117,7 @@ function tourEvent(ev) {
  *   characters?: { manifestUrl?: string, manifest?: object, chooseUrl?: string, walkClipUrl?: string },
  *                                     // the manifest: assetReference → { url, rig, height } (setPeople, player);
  *                                     // chooseUrl: where people choose their character; walkClipUrl: the walk clip
- *   player?: { personId?: string, assetReference?: string | null }, // the signed-in person (setPlayer): walking
+ *   player?: { personId?: string, assetReference?: string | null, clothing?: object | null }, // the signed-in person (setPlayer): walking
  *                                     // through they are their own character; "Choose your character" on their card
  *   navigation?: { search?: boolean, tour?: boolean }, // search: the "Find a person, room or place" box; tour: the Tour
  *                                     // button and Find's "Take the company tour" (each default true; false hides it)
@@ -418,7 +418,8 @@ export function mount(element, options = {}) {
     },
 
     /**
-     * Who sits at which desk: [{ personId, deskId, name, department, assetReference }]
+     * Who sits at which desk: [{ personId, deskId, name, department, assetReference, clothing }]
+     * (clothing, v0.16.0: what they chose in the Wardrobe, { pantsColor, upperBody, upperColor }: play/outfit.js)
      * (replaces the list before; [] = nobody). A person's character comes from the
      * manifest (option characters) by assetReference; unknown or null = the
      * neutral simple figure. Only name and department are ever shown. Nothing is

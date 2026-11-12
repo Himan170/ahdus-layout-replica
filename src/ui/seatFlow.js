@@ -10,6 +10,7 @@
  */
 
 import { charactersOf } from '../embed/characterManifest';
+import { cleanClothing } from '../play/outfit';
 
 /** Desks people sit at: DESK* and RECEPTION_DESK (the same rule as play/people.js and the AHDUS server). */
 export function isDesk(assetType) {
@@ -134,5 +135,6 @@ export function seatedPeople(seats, objects, manifest = new Map()) {
     department: s.department ?? '',
     character: (s.assetReference && characters.get(s.assetReference)) || null,
     characterChosen: !!s.assetReference,
+    ...(cleanClothing(s.clothing) ? { clothing: cleanClothing(s.clothing) } : {}),
   }));
 }

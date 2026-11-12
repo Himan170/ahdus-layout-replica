@@ -36,11 +36,14 @@ import {
   canonicalBoneName, clipSpeed, playerEyeHeight, walkRatio, STANDING_POSE, WALK_MIN_SPEED,
 } from '../../play/people';
 import { copyCharacter, poseBones, refreshTree, restContainer } from './CharacterSystem';
+import type { Clothing } from './CharacterSystem';
 import type { CharacterFile, CharacterCopy, LoadedFile } from './CharacterSystem';
 
 /** Who walks: their character file, the walk clip, and whether this character may use it. */
 export interface PlayerCharacterSpec {
   character: CharacterFile;
+  /** v0.16.0: what they wear (play/outfit.js), for a Rocketbox outfit file. */
+  clothing?: Clothing | null;
   walkClipUrl?: string | null;
   /** false: never walk (stand and slide), e.g. a character whose skeleton the clip doesn't fit. */
   walk?: boolean;
@@ -89,7 +92,7 @@ export async function createPlayerCharacter(
   ]);
   if (scene.isDisposed) throw new Error('The scene was closed');
 
-  const copy = copyCharacter(scene, file, character, 'player_character', { player: true });
+  const copy = copyCharacter(scene, file, character, 'player_character', { player: true }, spec.clothing ?? null);
   const rest = snapshot(copy.bones);
   let walk: BakedWalk | null = null;
   if (clip) {

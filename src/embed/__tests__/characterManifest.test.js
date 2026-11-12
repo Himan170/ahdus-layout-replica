@@ -201,3 +201,16 @@ describe('manifest version 2 (v0.16.0)', () => {
     expect(charactersOf(null).size).toBe(0);
   });
 });
+
+describe('clothing (v0.16.0)', () => {
+  it('people and the player keep their Wardrobe clothing, checked; none given = no field', () => {
+    const [a, b] = resolvePeople([
+      { personId: 'u1', deskId: 'd1', clothing: { pantsColor: 'blue', upperBody: 'shirt', upperColor: '#123ABC', note: 'x' } },
+      { personId: 'u2', deskId: 'd2', clothing: 'formal' },
+    ], new Map());
+    expect(a.clothing).toEqual({ schemaVersion: 1, pantsColor: 'blue', upperBody: 'shirt', upperColor: '#123abc' });
+    expect('clothing' in b).toBe(false);
+    expect(resolvePlayer({ personId: 'u1', clothing: { upperBody: 'tshirt' } }, new Map()).clothing)
+      .toEqual({ schemaVersion: 1, pantsColor: 'black', upperBody: 'tshirt', upperColor: null });
+  });
+});

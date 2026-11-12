@@ -35,6 +35,7 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
+import type { Material } from '@babylonjs/core/Materials/material';
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import '@babylonjs/core/Meshes/thinInstanceMesh';
 
@@ -43,6 +44,7 @@ import {
   SEAT_HEIGHT, HIPS_ABOVE_SEAT, HIPS_BEHIND_SEAT, breathing, phaseOf, MAX_FULL_CHARACTERS,
 } from '../../play/people';
 import { levelForY } from '../../play/building';
+import { cleanClothing, outfitLook, partName } from '../../play/outfit';
 import { loadGlbContainer } from '../../utils/modelLoader';
 import type { LayoutRecords } from './RoomSystem';
 
@@ -73,6 +75,16 @@ export interface Person {
   /** Whether they chose a character in AHDUS (default: whether `character` is given). The viewer's card offers
    *  "Choose your character" to the signed-in person (LayoutViewer `player`) when they haven't. */
   characterChosen?: boolean;
+  /** v0.16.0: what they wear (AHDUS's Wardrobe: play/outfit.js cleanClothing); only a Rocketbox outfit file changes. */
+  clothing?: Clothing | null;
+}
+
+/** What a person chose in the Wardrobe (play/outfit.js). */
+export interface Clothing {
+  schemaVersion?: number;
+  pantsColor?: 'black' | 'blue';
+  upperBody?: 'shirt' | 'tshirt' | null;
+  upperColor?: string | null;
 }
 
 /** A person where they are drawn (world space; y = the floor under them). */
@@ -105,10 +117,14 @@ export interface LoadedFile {
   container: AssetContainer;
   /** Rest pose, measured on the first copy: height and lowest point (file units). */
   rest?: { height: number; minY: number };
+  /** v0.16.0: the file's materials tinted for an outfit ("material|#hex" → its copy), shared by its copies. */
+  tinted?: Map<string, Material>;
 }
 
 interface FullCharacter {
   url: string;
+  /** What they wear, as made (cleanClothing as JSON): other clothing = made again. */
+  wears: string;
   root: TransformNode;
   meshes: AbstractMesh[];
   skeletons: Skeleton[];
@@ -177,7 +193,7 @@ export class CharacterSystem {
       if (!p || typeof p.personId !== 'string' || typeof p.deskId !== 'string' || seen.has(p.deskId)) return false;
       seen.add(p.deskId);
       return true;
-    }).map((p) => ({ ...p, character: validCharacter(p.character) }));
+    }).map((p) => ({ ...p, character: validCharacter(p.character), clothing: cleanClothing(p.clothing) }));
     this.placedFor = null;
     this.lastChoice = -Infinity;
     this.update();
@@ -295,7 +311,7 @@ export class CharacterSystem {
     this.figures?.seated.dispose();
     this.figures?.standing.dispose();
     this.figureMaterial?.dispose();
-    for (const f of this.files.values()) if (f !== 'failed' && !(f instanceof Promise)) f.container.dispose();
+    for (const f of this.files.values()) if (f !== 'failed' && !(f instanceof Promise)) disposeFile(f);
     this.files.clear();
     this.queue = [];
     for (const list of this.waiting.values()) for (const w of list) w.reject(new Error('The characters were closed'));
@@ -321,7 +337,7 @@ export class CharacterSystem {
     for (const [id, f] of this.full) {
       const now = this.placed.find((x) => x.personId === id);
       const was = before.get(id);
-      if (!now || !was || now.character?.url !== f.url || !samePlace(now, was)) this.removeFull(id);
+      if (!now || !was || now.character?.url !== f.url || wearsOf(now) !== f.wears || !samePlace(now, was)) this.removeFull(id);
     }
     this.figureKey = null;
   }
@@ -391,7 +407,7 @@ export class CharacterSystem {
 
   private makeFull(person: PlacedPerson, file: LoadedFile): void {
     const { root, meshes, skeletons, bones } = copyCharacter(this.scene, file, person.character!, `person_${person.personId}`,
-      { personId: person.personId });
+      { personId: person.personId }, person.clothing);
     root.rotation.y = person.yaw;
     root.position.set(person.x, person.y, person.z);
     refreshTree(root);
@@ -422,7 +438,7 @@ export class CharacterSystem {
       spine = { node: spineNode, base: rotationOf(spineNode).clone(), axis: side };
     }
     this.full.set(person.personId, {
-      url: person.character!.url, root, meshes, skeletons, spine, phase: phaseOf(person.personId),
+      url: person.character!.url, wears: wearsOf(person), root, meshes, skeletons, spine, phase: phaseOf(person.personId),
     });
     this.figureKey = null;
   }
@@ -522,7 +538,7 @@ export function restContainer(container: AssetContainer): void {
  * Its meshes aren't pickable and carry `metadata` (e.g. { personId }).
  */
 export function copyCharacter(scene: Scene, file: LoadedFile, character: CharacterFile, name: string,
-  metadata: Record<string, unknown> = {}): CharacterCopy {
+  metadata: Record<string, unknown> = {}, clothing: Clothing | null = null): CharacterCopy {
   const rig = character.rig ?? 'mixamo';
   restContainer(file.container);
   const copy = file.container.instantiateModelsToScene((n) => n, false, { doNotInstantiate: true });
@@ -547,9 +563,10 @@ export function copyCharacter(scene: Scene, file: LoadedFile, character: Charact
     }
   }
 
-  // the person's height: the file's rest pose, measured once
+  // the person's height: the file's rest pose, measured once (every part, whatever they wear)
   refreshTree(root);
   if (!file.rest) file.rest = measure(meshes);
+  wearOutfit(file, character, meshes, clothing);
   const scale = (character.height ?? FIGURE_HEIGHT) / file.rest.height;
   fit.scaling.setAll(scale);
   fit.position.y = -file.rest.minY * scale;
@@ -577,6 +594,53 @@ export function validCharacter(c: CharacterFile | null | undefined): CharacterFi
   if (c.outfit === 'rocketbox') out.outfit = c.outfit;
   if (typeof c.clips === 'string' && c.clips) out.clips = c.clips;
   return out;
+}
+
+/** What a person wears, as a key (a full character is made again when it changes). */
+function wearsOf(p: Person): string {
+  return JSON.stringify(cleanClothing(p.clothing));
+}
+
+/** A loaded file's container and the outfit tints made from it. */
+export function disposeFile(f: LoadedFile): void {
+  for (const m of f.tinted?.values() ?? []) m.dispose(false, false);
+  f.tinted?.clear();
+  f.container.dispose();
+}
+
+/**
+ * The outfit on a copy (play/outfit.js, the Wardrobe's rules): the parts it doesn't wear hidden, the trousers and
+ * the top tinted (their own colour × the tint, in linear space as glTF colours are). A tinted material is a copy
+ * made once per file and colour, shared by everyone wearing it (the file's own materials are never changed).
+ * Not a Rocketbox outfit file (`outfit` not 'rocketbox'): nothing changes.
+ */
+export function wearOutfit(file: LoadedFile, character: CharacterFile, meshes: AbstractMesh[], clothing: Clothing | null): void {
+  if (character.outfit !== 'rocketbox') return;
+  const partOf = (m: AbstractMesh) => partName(m.name, m.parent?.name ?? null);
+  const look = outfitLook(character.outfit, clothing, meshes.map(partOf));
+  if (!look) return;
+  const hidden = new Set(look.hidden);
+  for (const m of meshes) {
+    const part = partOf(m);
+    if (hidden.has(part)) { m.setEnabled(false); continue; }
+    const hex = look.tints[part];
+    if (hex && m.material) m.material = tintedMaterial(file, m.material, hex);
+  }
+}
+
+function tintedMaterial(file: LoadedFile, source: Material, hex: string): Material {
+  file.tinted ??= new Map();
+  const key = `${source.uniqueId}|${hex}`;
+  let made = file.tinted.get(key);
+  if (!made) {
+    made = source.clone(`${source.name}_${hex}`) ?? source;
+    const tint = Color3.FromHexString(hex).toLinearSpace();
+    const m = made as Material & { albedoColor?: Color3; diffuseColor?: Color3 };
+    if (m.albedoColor) m.albedoColor = m.albedoColor.multiply(tint);
+    else if (m.diffuseColor) m.diffuseColor = m.diffuseColor.multiply(tint);
+    file.tinted.set(key, made);
+  }
+  return made;
 }
 
 function samePlace(a: PlacedPerson, b: PlacedPerson): boolean {

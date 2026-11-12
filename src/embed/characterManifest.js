@@ -23,6 +23,8 @@
  * clips = the name of one of "clips" (resolved to its url here).
  */
 
+import { cleanClothing } from '../play/outfit';
+
 export const DEFAULT_HEIGHT = 1.75;
 const MIN_HEIGHT = 1;
 const MAX_HEIGHT = 2.3;
@@ -201,6 +203,7 @@ export function resolvePeople(list, manifest) {
       department: text(p.department),
       character: fileOf(ref && characters.get(ref)),
       characterChosen: ref !== null,
+      ...clothingOf(p.clothing),
     });
   }
   return out;
@@ -232,7 +235,13 @@ export function resolvePlayer(value, manifest) {
   const ref = typeof value.assetReference === 'string' ? value.assetReference : null;
   const entry = (ref && characters.get(ref)) || null;
   if (!personId && !entry) return null;
-  return { personId, character: fileOf(entry), walk: entry?.walk !== false };
+  return { personId, character: fileOf(entry), walk: entry?.walk !== false, ...clothingOf(value.clothing) };
+}
+
+/** { clothing } when the page gave usable clothing (play/outfit.js cleanClothing), else nothing. */
+function clothingOf(value) {
+  const clothing = cleanClothing(value);
+  return clothing ? { clothing } : {};
 }
 
 /**

@@ -62,7 +62,7 @@ import type { CSSProperties } from 'react';
 import { LayoutEngine } from '../LayoutEngine';
 import type {
   EngineMode, QualityLevel, InteractEvent, EnterRoomEvent, ExitRoomEvent, BuildProgress, Person, PlacedPerson,
-  CharacterFile, NavigationEvent,
+  CharacterFile, Clothing, NavigationEvent,
 } from '../LayoutEngine';
 import { progressPercent } from '../../play/buildSchedule';
 import { connectEngine } from '../../integration/layoutBridge';
@@ -115,7 +115,7 @@ export interface LayoutViewerProps {
    * The person looking (the signed-in user): their own card can offer "Choose your character"; walking through,
    * they are `character` ({ url, rig, height }; null: the simple figure). `walk: false`: they don't walk (slide).
    */
-  player?: { personId?: string | number | null; character?: CharacterFile | null; walk?: boolean } | null;
+  player?: { personId?: string | number | null; character?: CharacterFile | null; walk?: boolean; clothing?: Clothing | null } | null;
   /** The walk clip (an animation-only .glb, Mixamo bone names) your character walks with; none: the standing pose. */
   walkClipUrl?: string;
   /** Where people choose their character (http(s) or relative to the page); none = no link. */
@@ -555,12 +555,13 @@ export function LayoutViewer(props: LayoutViewerProps) {
   // You, walking through: your own character (the engine makes it when walking starts)
   const playerKey = JSON.stringify([
     props.player?.personId ?? null, props.player?.character ?? null, props.walkClipUrl ?? null, props.player?.walk ?? true,
+    props.player?.clothing ?? null,
   ]);
   useEffect(() => {
     if (!engine) return;
-    const [personId, character, walkClipUrl, walk] = JSON.parse(playerKey);
+    const [personId, character, walkClipUrl, walk, clothing] = JSON.parse(playerKey);
     engine.setPlayer(personId === null && !character ? null
-      : { personId: personId === null ? null : String(personId), character, walkClipUrl, walk });
+      : { personId: personId === null ? null : String(personId), character, walkClipUrl, walk, clothing });
   }, [engine, playerKey]);
 
   // The person card: pointing at a desk (view mode), walking up to it (walkthrough)
