@@ -3,7 +3,7 @@ import {
   DESK_SIZES, SEAT_REACH, deskSeat, deskSeats, seatPose, personNear, chooseFullCharacters, MAX_FULL_CHARACTERS,
   normaliseBoneName, canonicalBoneName, BONE_TABLE, SEATED_POSE, STANDING_POSE, breathing, phaseOf,
   playerEyeHeight, walkRatio, clipSpeed, MIN_WALK_RATIO, MAX_WALK_RATIO, visitorSpot, COUNTER_GAP, figureWalkCycle, FIGURE_LEG,
-  visitorSpots, CORNER_DESK_ARM, OPEN_SIDE_GAP,
+  visitorSpots, CORNER_DESK_ARM, OPEN_SIDE_GAP, boneKey,
 } from '../people';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 
@@ -288,5 +288,20 @@ describe('walking as yourself', () => {
     }
     expect(figureWalkCycle(4.5).rate).toBeGreaterThan(figureWalkCycle(2.2).rate);
     expect(figureWalkCycle(50).swing).toBeLessThanOrEqual(0.75);
+  });
+});
+
+describe('boneKey (v0.16.0): every bone two files name alike', () => {
+  it('Mixamo with or without its prefix, Unreal-style, the Rocketbox biped rig', () => {
+    expect(boneKey('mixamorig:LeftHandIndex2')).toBe('LeftHandIndex2');
+    expect(boneKey('LeftHandIndex2')).toBe('LeftHandIndex2');
+    expect(boneKey('thigh_l', 'ue')).toBe('LeftUpLeg');
+    expect(boneKey('Bip01 Pelvis')).toBe('Hips');
+    expect(boneKey('Bip01 L Thigh')).toBe('LeftUpLeg');
+    expect(boneKey('Bip01 R Forearm')).toBe('RightForeArm');
+    expect(boneKey('Bip01 L Finger0')).toBe('LeftHandThumb1');
+    expect(boneKey('Bip01 R Finger42')).toBe('RightHandPinky3');
+    // a face bone keeps its own name (matched only by a file with the same one)
+    expect(boneKey('Bip01 MJaw')).toBe('Bip01 MJaw');
   });
 });

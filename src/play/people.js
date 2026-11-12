@@ -309,6 +309,47 @@ export function canonicalBoneName(name, rig = 'mixamo') {
   return MIXAMO_BONES.has(n) ? n : null;
 }
 
+/**
+ * v0.16.0: the 3ds Max biped rig of Microsoft's Rocketbox clips ('Bip01 Pelvis', 'Bip01 L Thigh', …) → Mixamo
+ * names, so its clips play on Mixamo-named characters (the retargeting's rest-pose correction does the rest).
+ * Fingers: Finger0 = thumb, 1 index, 2 middle, 3 ring, 4 pinky; FingerN1 / N2 the next joints.
+ */
+const BIPED_TO_MIXAMO = new Map([
+  ['Bip01 Pelvis', 'Hips'], ['Bip01 Spine', 'Spine'], ['Bip01 Spine1', 'Spine1'], ['Bip01 Spine2', 'Spine2'],
+  ['Bip01 Neck', 'Neck'], ['Bip01 Head', 'Head'],
+  ...['L', 'R'].flatMap((s) => {
+    const side = s === 'L' ? 'Left' : 'Right';
+    const fingers = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'].flatMap((f, i) => [
+      [`Bip01 ${s} Finger${i}`, `${side}Hand${f}1`],
+      [`Bip01 ${s} Finger${i}1`, `${side}Hand${f}2`],
+      [`Bip01 ${s} Finger${i}2`, `${side}Hand${f}3`],
+    ]);
+    return [
+      [`Bip01 ${s} Clavicle`, `${side}Shoulder`], [`Bip01 ${s} UpperArm`, `${side}Arm`],
+      [`Bip01 ${s} Forearm`, `${side}ForeArm`], [`Bip01 ${s} Hand`, `${side}Hand`],
+      [`Bip01 ${s} Thigh`, `${side}UpLeg`], [`Bip01 ${s} Calf`, `${side}Leg`],
+      [`Bip01 ${s} Foot`, `${side}Foot`], [`Bip01 ${s} Toe0`, `${side}ToeBase`],
+      ...fingers,
+    ];
+  }),
+]);
+
+/**
+ * v0.16.0: the key a bone is retargeted by: its Mixamo name when it has one (any rig: Mixamo with or without the
+ * prefix, Unreal-style from BONE_TABLE, the biped rig), else its name without the Mixamo prefix, so EVERY bone
+ * two files name alike is matched (fingers, the Rocketbox face bones). `rig` 'ue' = Unreal-style names first.
+ * @param {string} name
+ * @param {'mixamo' | 'ue'} [rig]
+ */
+export function boneKey(name, rig = 'mixamo') {
+  const raw = String(name ?? '');
+  if (rig === 'ue') {
+    const ue = UE_TO_MIXAMO.get(raw.toLowerCase());
+    if (ue) return ue;
+  }
+  return BIPED_TO_MIXAMO.get(raw) ?? UE_TO_MIXAMO.get(raw.toLowerCase()) ?? normaliseBoneName(raw);
+}
+
 // ── Poses ──
 
 /**

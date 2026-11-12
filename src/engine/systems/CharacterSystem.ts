@@ -40,13 +40,14 @@ import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import '@babylonjs/core/Meshes/thinInstanceMesh';
 
 import {
-  deskSeats, seatPose, personNear, chooseFullCharacters, canonicalBoneName, SEATED_POSE, STANDING_POSE,
+  deskSeats, seatPose, personNear, chooseFullCharacters, canonicalBoneName, boneKey, SEATED_POSE, STANDING_POSE,
   SEAT_HEIGHT, HIPS_ABOVE_SEAT, HIPS_BEHIND_SEAT, breathing, phaseOf, MAX_FULL_CHARACTERS,
 } from '../../play/people';
 import { levelForY } from '../../play/building';
 import { cleanClothing, outfitLook, partName } from '../../play/outfit';
 import { loadGlbContainer } from '../../utils/modelLoader';
 import type { LayoutRecords } from './RoomSystem';
+import { ClipLibrary } from './ClipLibrary';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -172,6 +173,8 @@ export class CharacterSystem {
 
   private observer: Observer<Scene> | null;
   private disposed = false;
+  /** v0.16.0: the shared animation library (clips baked once per character file), with this load-once queue. */
+  readonly clipLibrary: ClipLibrary;
 
   constructor(scene: Scene, options: CharacterSystemOptions) {
     this.scene = scene;
@@ -179,6 +182,7 @@ export class CharacterSystem {
     this.maxFull = options.maxFull ?? MAX_FULL_CHARACTERS;
     this.maxDownloads = options.maxDownloads ?? 3;
     this.observer = scene.onBeforeRenderObservable.add(() => this.update());
+    this.clipLibrary = new ClipLibrary(scene, (url) => this.loadFile(url));
   }
 
   // ── Public ─────────────────────────────────────────────────────────────
@@ -282,6 +286,7 @@ export class CharacterSystem {
     this.enabled = !!on;
     if (!on) {
       for (const id of [...this.full.keys()]) this.removeFull(id);
+    this.clipLibrary.dispose();
       this.chosen = [];
     }
     this.figureKey = null;
@@ -517,6 +522,8 @@ export interface CharacterCopy {
   skeletons: Skeleton[];
   /** Bones by their Mixamo name (Hips, LeftUpLeg, …), whatever the rig. */
   bones: Map<string, TransformNode>;
+  /** v0.16.0: EVERY bone by play/people boneKey (fingers, face bones too): what clips are retargeted onto. */
+  allBones: Map<string, TransformNode>;
 }
 
 /**
@@ -555,11 +562,15 @@ export function copyCharacter(scene: Scene, file: LoadedFile, character: Charact
   }
 
   const bones = new Map<string, TransformNode>();
+  const allBones = new Map<string, TransformNode>();
   for (const skeleton of copy.skeletons) {
     for (const bone of skeleton.bones) {
       const node = bone.getTransformNode();
+      if (!node) continue;
       const key = canonicalBoneName(bone.name, rig);
-      if (node && key && !bones.has(key)) bones.set(key, node);
+      if (key && !bones.has(key)) bones.set(key, node);
+      const any = boneKey(bone.name, rig);
+      if (any && !allBones.has(any)) allBones.set(any, node);
     }
   }
 
@@ -571,7 +582,7 @@ export function copyCharacter(scene: Scene, file: LoadedFile, character: Charact
   fit.scaling.setAll(scale);
   fit.position.y = -file.rest.minY * scale;
   refreshTree(root);
-  return { root, meshes, skeletons: copy.skeletons, bones };
+  return { root, meshes, skeletons: copy.skeletons, bones, allBones };
 }
 
 /** Aim the bones into a pose (play/people SEATED_POSE, STANDING_POSE), parents first. */
