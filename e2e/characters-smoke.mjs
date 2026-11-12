@@ -9,6 +9,9 @@
 // after setFloor and after walking (on the floor walked to). Walking as yourself (setPlayer + characters.walkClipUrl):
 // your own character walks with our placeholder clip (Mixamo and Unreal-style rigs), stands when you stop, the camera
 // at your eye height, V hides your body, your seated figure hides; no character = the simple figure.
+// v0.16.0 (manifest v2, our placeholder suit + its clip set): people who never chose get the neutral character, people at
+// desks are drawn from the manifest's "seated" copy (you walk with the full file), a desk with a keyboard = Type, others
+// Sit, at most 8 play, the clothing a person chose, grey simple figures; your character's Idle / Walk / Run / Wave (H).
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run e2e:characters      (builds the embed; serves the files itself)
@@ -87,7 +90,8 @@ const site = createServer((req, res) => {
   const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   if (path === '/favicon.ico') { res.writeHead(204); res.end(); return; }
   if (path === '/people-test.html') { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(PAGE); return; }
-  const file = normalize(join(root, path));
+  // v0.16.0: a manifest's "seated" copy (<name>-seated.glb) is served from the same file (requests show which was asked)
+  const file = normalize(join(root, path.replace(/-seated\.glb$/, '.glb')));
   if (!file.startsWith(root) || /node_modules|[\\/]\.git/.test(file) || !statSync(file, { throwIfNoEntry: false })?.isFile()) {
     res.writeHead(404); res.end('Not found'); return;
   }
@@ -551,6 +555,129 @@ log('no warnings about the manifest', !warnings.some((w) => /character manifest/
   log('phone: a tap elsewhere hides it', hidden);
   await t.evaluate(() => window.workplace.destroy());
   await ctx.close();
+}
+
+// ── 6c. v0.16.0: manifest v2 (clip sets, the neutral set, "seated" copies), work clips, clothing, your gait, H ──
+{
+  const v = await b.newPage({ viewport: { width: 1280, height: 720 } });
+  await v.addInitScript(() => { try { localStorage.setItem('ahdus.walkHintSeen', '1'); } catch { /* none */ } });
+  v.on('pageerror', (e) => errs.push('pageerror (v2): ' + e.message));
+  const asked = [];
+  v.on('request', (r) => asked.push(r.url()));
+  const dir = new URL('dist-embed/assets/characters/', base).href;
+  const manifest = {
+    version: 2,
+    clips: { office: { url: 'placeholder-clips.glb' } },
+    neutral: ['placeholder:suit-v1'],
+    characters: {
+      'placeholder:suit-v1': { url: 'placeholder-suit.glb', seated: 'placeholder-suit-seated.glb', rig: 'mixamo', height: 1.74,
+        gender: 'female', group: 'placeholder', outfit: 'rocketbox', clips: 'office' },
+    },
+  };
+  // keyboards on desks 1 to 4 (the front row): their people type; the others sit
+  const layout = structuredClone(LAYOUT);
+  for (let i = 1; i <= 4; i++) {
+    const desk = layout.layout.objects.find((o) => o.id === `obj_desk_${i}`);
+    layout.layout.objects.push({ id: `obj_kb_${i}`, assetType: 'KEYBOARD', floor: 0, roomId: 'room_open', x: desk.x, y: 0.75, z: desk.z + 0.15, rotationY: 0 });
+  }
+  // nobody chose a character (the neutral set for all); user_6 wears a blue shirt
+  const people = PEOPLE.map((x) => ({ ...x, assetReference: null,
+    ...(x.personId === 'user_6' ? { clothing: { schemaVersion: 1, pantsColor: 'blue', upperBody: 'shirt', upperColor: '#8fb8de' } } : {}) }));
+  await v.goto(new URL('people-test.html', base).href);
+  await v.evaluate(async ({ layout, manifest, dir, people }) => {
+    window.workplace = AHDUSWorkplace.mount(document.getElementById('workplace'), {
+      layout, mode: 'view', player: { personId: 'user_1', assetReference: null },
+      characters: { manifest, manifestUrl: dir + 'manifest.json' },
+    });
+    await window.workplace.ready;
+    window.workplace._engine.babylonEngine.setHardwareScalingLevel(2);
+    await window.workplace.setPeople(people);
+  }, { layout, manifest, dir, people });
+  await v.evaluate(() => window.workplace.setFloor(0));
+  // from above, close to the front rows
+  await look(0, -3.2, 9, 0.75, -Math.PI / 2, v);
+  await settleOn(v);
+  await frames(6, v);
+  await v.evaluate(() => new Promise((r) => setTimeout(r, 600)));
+  await frames(4, v);
+  const state = await v.evaluate(() => {
+    const c = window.workplace._engine.characters;
+    const placed = c.getPlaced();
+    const of = (id) => c.fullState(id);
+    const parts = (id) => {
+      const st = of(id);
+      if (!st) return null;
+      return [...new Set(st.root.getChildMeshes(false).filter((m) => m.isEnabled() && m.getTotalVertices() > 0)
+        .map((m) => m.name.replace(/^.*\./, '').replace(/_primitive\d+$/, '')))].sort();
+    };
+    const grey = window.workplace._engine.scene.getMeshByName('people_seated')?.material?.diffuseColor;
+    return {
+      urls: [...new Set(placed.map((x) => x.character?.url?.replace(/^.*\//, '') ?? null))],
+      full: c.fullCount, animated: c.animatedCount,
+      clips: Object.fromEntries(['user_1', 'user_2', 'user_3', 'user_4', 'user_5', 'user_6', 'user_7', 'user_8']
+        .map((id) => [id, of(id) ? `${of(id).clip}${of(id).playing ? '' : ' (held)'}` : null])),
+      shirt: parts('user_6'), suit: parts('user_7'),
+      grey: grey ? [grey.r, grey.g, grey.b].map((n) => +n.toFixed(2)) : null,
+    };
+  });
+  const seatedAsked = asked.filter((u) => u.endsWith('/placeholder-suit-seated.glb')).length;
+  const fullAsked = asked.filter((u) => u.endsWith('/placeholder-suit.glb')).length;
+  const clipsAsked = asked.filter((u) => u.endsWith('/placeholder-clips.glb')).length;
+  log('v0.16.0: nobody chose: everyone is the neutral character, drawn from the manifest\'s "seated" copy (downloaded once, with its clip set)',
+    state.urls.length === 1 && state.urls[0] === 'placeholder-suit-seated.glb' && state.full >= 6 && seatedAsked === 1 && fullAsked === 0 && clipsAsked === 1,
+    JSON.stringify({ urls: state.urls, full: state.full, seatedAsked, fullAsked, clipsAsked }));
+  const front = ['user_1', 'user_2', 'user_3', 'user_4'].map((id) => state.clips[id]).filter(Boolean);
+  const back = ['user_5', 'user_6', 'user_7', 'user_8'].map((id) => state.clips[id]).filter(Boolean);
+  log('v0.16.0: at a desk with a keyboard people type, at the others they sit; at most 8 play their clip, the rest hold it',
+    front.length >= 2 && front.every((c) => c.startsWith('Type')) && back.length >= 2 && back.every((c) => c.startsWith('Sit'))
+      && state.animated >= 1 && state.animated <= 8 && Object.values(state.clips).filter((c) => c && !c.endsWith('(held)')).length <= 8,
+    JSON.stringify({ clips: state.clips, animated: state.animated }));
+  log('v0.16.0: the clothing a person chose (user_6: shirt + trousers), the others in the suit; far people are grey figures',
+    !!state.shirt && state.shirt.includes('Top_shirt') && state.shirt.includes('Trousers') && !state.shirt.includes('Outfit_formal')
+      && !!state.suit && state.suit.includes('Outfit_formal') && !state.suit.includes('Top_shirt')
+      && JSON.stringify(state.grey) === JSON.stringify([0.62, 0.64, 0.67]),
+    JSON.stringify({ shirt: state.shirt, suit: state.suit, grey: state.grey }));
+  if (SHOTS) {
+    await v.evaluate(() => window.workplace._engine.babylonEngine.setHardwareScalingLevel(1 / window.devicePixelRatio));
+    await look(-2.5, -4, 4.2, 0.95, -Math.PI / 2 - 0.4, v);
+    await settleOn(v);
+    await v.screenshot({ path: `${SHOTS}/v016-typing-and-sitting.png`, timeout: 180000 });
+    await v.evaluate(() => window.workplace._engine.babylonEngine.setHardwareScalingLevel(2));
+  }
+
+  // walking: you (never chose: your neutral character) from the FULL file; Idle, Walk, Run (Shift), Wave (H)
+  await v.evaluate(() => window.workplace.setMode('walkthrough'));
+  await v.evaluate(() => window.workplace._engine.whenPlayerReady());
+  await v.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -5.6, yaw: Math.PI / 2, pitch: -0.15 }));
+  await frames(4, v);
+  const gait = () => v.evaluate(() => window.workplace._engine.walkthrough.getCharacter()?.gait ?? null);
+  const idle = await gait();
+  await v.focus('#workplace [tabindex="0"]');
+  await v.keyboard.down('KeyW');
+  await frames(4, v);
+  const walking = await gait();
+  await v.keyboard.down('ShiftLeft');
+  await frames(4, v);
+  const running = await gait();
+  await v.keyboard.up('ShiftLeft');
+  await v.keyboard.up('KeyW');
+  await frames(6, v);
+  const stopped = await gait();
+  await v.keyboard.press('KeyH');
+  await frames(2, v);
+  const waving = await gait();
+  if (SHOTS) {
+    await v.evaluate(() => window.workplace._engine.babylonEngine.setHardwareScalingLevel(1 / window.devicePixelRatio));
+    await frames(2, v);
+    await v.screenshot({ path: `${SHOTS}/v016-waving.png`, timeout: 180000 });
+    await v.evaluate(() => window.workplace._engine.babylonEngine.setHardwareScalingLevel(2));
+  }
+  const fullNow = asked.filter((u) => u.endsWith('/placeholder-suit.glb')).length;
+  log('v0.16.0: walking you are your character from the full file (not the seated copy): Idle, W = Walk, Shift = Run, H = Wave',
+    idle === 'Idle' && walking === 'Walk' && running === 'Run' && stopped === 'Idle' && waving === 'Wave' && fullNow === 1,
+    JSON.stringify({ idle, walking, running, stopped, waving, fullFile: fullNow }));
+  await v.evaluate(() => window.workplace.destroy());
+  await v.close();
 }
 
 // ── 7. Screenshots (SHOTS=dir): desk with a seated figure, the hover card, a busy office ──

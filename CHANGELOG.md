@@ -3,6 +3,34 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.16.0 (12 Nov 2026): characters, clips and clothing
+
+- **Your character moves:** walking through the 3D Company page you stand in an idle pose, walk, run with
+  Shift, lift your feet on stairs and **wave with H** (standing still). Clips cross-fade. In Workplace Studio's
+  editor H is still Reset view, and Studio's Walk through is unchanged (the simple figure).
+- **People at their desks work:** at a desk with a keyboard, laptop or dual monitor they type, at other desks
+  they sit, at a desk with no chair they stand. The 8 nearest play their clip, the rest hold its first frame.
+- **Clothing from the Wardrobe:** Rocketbox characters wear what the person chose (Office formal, shirt or
+  T-shirt in their colour, black or blue trousers), at their desk and walking. Other characters keep their own
+  outfit. Pass `clothing` in `setPeople` and `player`.
+- **An even default:** people who never chose a character get one of six neutral Rocketbox characters in
+  Office formal (three women, three men), always the same one for the same person (by their id, never the name).
+- **Character manifest version 2:** clip sets shared by many characters, the neutral set, groups that can be
+  switched off (`"groups": { "imported": false }`), outfits, and a lighter **seated** copy for people at their
+  desks (about a quarter of the graphics memory; the person walking through uses the full file). Version 1
+  manifests still work.
+- **Many people stay light:** at most 12 full characters, the ones round the point you look at (from above: the
+  middle of the view, not the edge under the camera); everyone else is a grey simple figure; a character file
+  nobody near has used for 30 s is unloaded.
+- Character files compressed with meshopt now load (the decoder is inside the app: nothing from a CDN).
+- **Fixed:** clips of the Rocketbox files laid the character down (the file's mirrored root was left out when
+  fitting a clip); a character standing in a T-pose kept its arms half raised in clips made in an A-pose.
+- AHDUS side (AHDUS-FRONTEND `scripts/make-office-characters.mjs`): light copies of the 20 Rocketbox and 5
+  Avatar SDK characters (about 2 MB each, from 5–15 MB), their seated copies, and two clip sets (Idle, Walk,
+  Wave). Run, Sit and Type clips are still to add.
+- Measured on Meridian (319 people, laptop RTX 4060): first frame 1.9 s, nearby characters within 1.5 s,
+  ~129 FPS from above, ~113 FPS walking, 0.7 GB of graphics memory walking.
+
 ## 0.15.6 (12 Nov 2026): Layers, wall items and snapping
 
 - **Layers: hide and show.** The eye next to a room or an item in Layers hides it in Studio's 3D, 2D and Plan

@@ -157,20 +157,31 @@ workplace.setPeople([
 ]);
 ```
 
-- **A person** = `{ personId, deskId, name, department, assetReference }`. `deskId` is the desk's item id
-  (`obj_…`, a `DESK_STANDARD`, `DESK_CORNER` or `RECEPTION_DESK`). Only these fields are kept; anything else you
-  pass (an email, a user id) is dropped and never reaches the 3D view. A desk not in the layout is skipped; one desk
+- **A person** = `{ personId, deskId, name, department, assetReference, clothing }`. `deskId` is the desk's item id
+  (`obj_…`, a `DESK_STANDARD`, `DESK_CORNER` or `RECEPTION_DESK`). `clothing` (v0.16.0, optional) is what they chose
+  in AHDUS's Wardrobe, as AHDUS saves it: `{ schemaVersion: 1, pantsColor: 'black' | 'blue', upperBody: null |
+  'shirt' | 'tshirt', upperColor: '#rrggbb' | null }` (`upperBody` null = Office formal, the suit). Only these fields
+  are kept; anything else you pass (an email, a user id) is dropped and never reaches the 3D view. A desk not in the layout is skipped; one desk
   shows one person (the first in the list).
 - **Where they are:** seated on the desk's chair: a `CHAIR_…` within 1.2 m of the desk, facing it (within 60°; each
   chair belongs to the desk it fits best). A desk with no chair: standing where its chair would be (the desk's own +Z side,
   turned with the desk; a reception desk: behind the counter), facing it. People follow
   their desk: per floor (`setFloor`), and when the layout changes.
 - **What they look like:** their character comes from the manifest by `assetReference`. Unknown, missing or `null`
-  = the **neutral simple figure** (no face, no clothes). Characters are drawn only for the people nearest the camera
-  (at most 12, on the current floor, within ~15 m); everyone else is a simple figure (hundreds cost two draw calls).
-  Each character file is downloaded once (at most 3 at once), only when someone near needs it; until then, or if it
-  fails (a warning in the console), that person is a simple figure. Seated / standing is a pose made from the bone
-  names: no animation file is needed.
+  = one of the manifest's **neutral set** (v0.16.0, a version 2 manifest: picked evenly by `personId`, never the
+  name, so the same person looks the same everywhere), else (a version 1 manifest) the neutral simple figure.
+  Characters are drawn only for the people nearest the point you look at (v0.16.0; at most 12, on the current floor,
+  within ~15 m of it, while the camera is within 30 m of it; walking: round you); everyone else is a **grey simple
+  figure** (hundreds cost two draw calls). Each character file is downloaded once (at most 3 at once), only when
+  someone near needs it, and unloaded again 30 s after nobody near uses it; until it has loaded, or if it fails (a
+  warning in the console), that person is a simple figure.
+- **What they do** (v0.16.0, a character with a clip set): at a desk with a keyboard, laptop or dual monitor on it
+  they **type**, at another desk they **sit**, at a desk with no chair they **stand idle**. The 8 nearest play their
+  clip; the others hold its first frame. With no clip set: a seated / standing pose made from the bone names, as
+  before.
+- **Clothing** (v0.16.0): only a character with the Rocketbox outfit parts (manifest `outfit: 'rocketbox'`) changes:
+  Office formal (the suit), shirt or T-shirt (its colour), trousers black or blue, as in the Wardrobe. Other
+  characters wear their own outfit.
 - **The card:** pointing at a desk with a person (`view`), or walking up to one (`walkthrough`, within 1.8 m),
   shows a small card with their **name and department**, as plain text. No labels float over the desks.
   **A click or a tap** on a desk (or a person) keeps the card open until the next click or tap elsewhere (phones
@@ -181,7 +192,7 @@ workplace.setPeople([
 - People are not pickable: a click, the crosshair and E go to the desk or chair as before.
 - `quality: 'low'`: no people at all, nothing downloaded.
 
-**The manifest** (JSON, served by AHDUS): asset reference → file.
+**The manifest** (JSON, served by AHDUS): asset reference → file. Version 1, a flat map (still read):
 
 ```json
 {
@@ -198,9 +209,37 @@ workplace.setPeople([
 | `height` | The person's height in metres (1 to 2.3; default 1.75): the model is scaled to it. |
 | `walk` | Optional, `false`: walking through, this character doesn't use the walk clip (it stands and slides). For a skeleton the clip doesn't fit. |
 
+**Version 2** (v0.16.0): clip sets, the neutral set, groups, outfits and lighter copies for people at their desks.
+
+```json
+{
+  "version": 2,
+  "groups": { "imported": true },
+  "clips": { "female": { "url": "clips-female.glb" }, "male": { "url": "clips-male.glb" } },
+  "neutral": ["rocketbox:aisha-v1", "rocketbox:emma-v1", "rocketbox:olivia-v1", "rocketbox:andre-v1", "rocketbox:kenji-v1", "rocketbox:carlos-v1"],
+  "characters": {
+    "rocketbox:emma-v1": { "url": "emma.glb", "seated": "emma-seated.glb", "rig": "mixamo", "height": 1.74,
+                           "gender": "female", "group": "rocketbox", "outfit": "rocketbox", "clips": "female" },
+    "imported:avatar-02-v1": { "url": "avatar-02.glb", "seated": "avatar-02-seated.glb", "height": 1.7, "group": "imported", "clips": "female" },
+    "mixamo:aj-v1": { "url": "aj.glb", "rig": "mixamo", "height": 1.78 }
+  }
+}
+```
+
+| Field | What |
+|---|---|
+| `clips` | Named clip sets: animation-only `.glb` files (Mixamo bone names) with clips called `Idle`, `Walk`, `Run`, `Wave`, `Sit`, `Type` (any of them; case doesn't matter). Each clip is fitted onto each character file once, by bone names. |
+| `neutral` | The characters of people who never chose one (or whose character isn't here, or is in a group switched off): one of these, by `personId`. |
+| `groups` | `{ "<group>": false }` leaves that group's characters out (their people get a neutral one). |
+| character `clips` | The name of its clip set. None: its own file's clips, else the walk clip (v1 behaviour). |
+| character `outfit` | `'rocketbox'`: the file has the Rocketbox outfit parts (`Outfit_formal`, `Top_shirt`, `Trousers`, …), so `clothing` applies. |
+| character `seated` | A lighter copy of the same character (half the texture size: about a quarter of the graphics memory) used for the people at their desks; the person walking through is drawn from `url`. None: `url` for both. |
+| character `gender`, `group` | `'female'` / `'male'`; any group name (for `groups`). |
+
 The file must be a skinned glTF binary facing +Z with its feet at 0 (as Mixamo exports). Office copies should be
 light (`docs/TEAM_INTEGRATION.md` section 4, "Harsh"). glTF extensions it may use: `EXT_texture_webp`,
-`KHR_materials_specular`, `KHR_materials_unlit` (no Draco, meshopt or KTX2 compression). A file that requires any
+`KHR_materials_specular`, `KHR_materials_unlit`, and (v0.16.0) `EXT_meshopt_compression` + `KHR_mesh_quantization`
+(the decoder is inside `ahdus-workplace.js`: nothing is fetched from a CDN). No Draco or KTX2. A file that requires any
 other extension can't be loaded: that person stays a simple figure (a warning in the console). Entries that can't be used are left out (a warning).
 Test files: `assets/characters/manifest.json` next to `ahdus-workplace.js` (self-made placeholder figures).
 
@@ -219,7 +258,11 @@ const workplace = AHDUSWorkplace.mount(el, {
 
 - In `walkthrough` you are **your own character** (from the manifest by `assetReference`) instead of the simple
   figure. It is made when walking starts (each file is downloaded once, shared with the people at their desks).
-- **The walk:** the clip at `walkClipUrl` (an animation-only `.glb`, Mixamo bone names, one cycle) is put onto your
+- **With a clip set** (v0.16.0, manifest v2): your character stands in its **Idle**, **walks**, **runs** with Shift,
+  lifts its feet on stairs, and **waves** with **H** (standing still; walking, the hint says "Stand still to wave").
+  Clips cross-fade (0.25 s) and play as fast as you move. H only waves in a viewer's walkthrough: in Workplace
+  Studio's editor H is still Reset view.
+- **The walk** (a character with no clip set): the clip at `walkClipUrl` (an animation-only `.glb`, Mixamo bone names, one cycle) is put onto your
   character by bone names: Mixamo and Unreal-style skeletons (`rig: 'ue'`), with a correction for a skeleton whose
   bones point another way. It plays as fast as you move, so the feet keep up with the floor (its own speed is read
   from the clip: its forward motion, else its steps); the clip's forward motion is taken out. Standing still or flying:
@@ -455,7 +498,7 @@ If your Content-Security-Policy blocks added `<style>` elements, link the file i
 |---|---|
 | `view` | Drag to orbit, right-drag to pan, wheel to zoom |
 | `walkthrough`, touch screens (v0.14.1) | A **joystick** at the bottom left walks (push further = faster, let go = stop; it pauses a "Take me there" and ends a walk you tapped, as a key does); **drag** anywhere else to look around (a second finger looks while the joystick walks); **tap the floor** to walk there (the route line shows), tap a person (or their desk) for their card, tap a machine in reach to use it. The toolbar's buttons, Find and its cards work by tap. The first walk shows "Joystick to walk · drag to look · tap the floor to go there" once (per browser, apart from the mouse one); the HUD line and the "?" help ("Touch controls") use the same touch words. The words follow how the user last pointed: a finger = touch words and the joystick, a mouse = the keys and mouse words (a laptop with a touch screen gets both) |
-| `walkthrough` | The keys work **as soon as walking starts** (no click needed): W A S D (or the arrows) walk, Shift runs, **drag** (left or right button) to look around (the cursor stays visible, nothing is captured), **click the floor** to walk there, click a person (or their desk) for their card, click a machine in reach to use it (as E), Space jumps, F flies (Space up, C down), V first / third person, Page Up / Page Down change floor, **E** uses what you look at, **Home** (or the "Back to entrance" button) goes back to the start, G walks on after a paused "Take me there", P pauses / resumes the company tour (section 4f). **Double-click or L** = mouse look (the mouse is captured, a crosshair shows); **Esc** releases the mouse, the next Esc gives the keys back to the page. The "?" button lists every key; the first walk shows "W A S D to walk · drag to look · click the floor to go there" once (per browser). Every walk starts on the ground floor, outside the main entrance and facing it (or at the layout's spawn point); you never start or land inside a wall or furniture |
+| `walkthrough` | The keys work **as soon as walking starts** (no click needed): W A S D (or the arrows) walk, Shift runs, **drag** (left or right button) to look around (the cursor stays visible, nothing is captured), **click the floor** to walk there, click a person (or their desk) for their card, click a machine in reach to use it (as E), Space jumps, F flies (Space up, C down), V first / third person, **H** waves (v0.16.0: your own character, standing still), Page Up / Page Down change floor, **E** uses what you look at, **Home** (or the "Back to entrance" button) goes back to the start, G walks on after a paused "Take me there", P pauses / resumes the company tour (section 4f). **Double-click or L** = mouse look (the mouse is captured, a crosshair shows); **Esc** releases the mouse, the next Esc gives the keys back to the page. The "?" button lists every key; the first walk shows "W A S D to walk · drag to look · click the floor to go there" once (per browser). Every walk starts on the ground floor, outside the main entrance and facing it (or at the layout's spawn point); you never start or land inside a wall or furniture |
 
 ---
 
@@ -473,5 +516,5 @@ If your Content-Security-Policy blocks added `<style>` elements, link the file i
 
 - `npm run build:embed`, then open `embed-test.html` through any web server, e.g. `npm run dev` → <http://localhost:3000/embed-test.html>. It loads only the embed file, shows a sample office (`embed-sample.ahdus.json`: reception, 2 offices, a training room with a CNC machine, 2 floors with stairs), lists every `onEvent` call, registers "E · Watch CNC training video", and has a text field, a button and content below the view to try the keys with. `?mode=view` orbits; `?layoutUrl=missing.json` shows the page's own fallback.
 - `npm run e2e:embed` (24 checks, `e2e/embed-smoke.mjs`) builds the file and tests all of the above from a plain static server, with no dev server needed.
-- `npm run e2e:characters` (`e2e/characters-smoke.mjs`): 21 people with the placeholder figures (section 4b): full characters near the camera, each file once, seated poses, the card (text only, no email), a click keeps it, a tap on a phone shows it, "Choose your character" on your own card, per floor, walking up to a desk, `quality: 'low'`. No dev server needed either.
+- `npm run e2e:characters` (`e2e/characters-smoke.mjs`): 21 people with the placeholder figures (section 4b): full characters near the camera, each file once, seated poses, the card (text only, no email), a click keeps it, a tap on a phone shows it, "Choose your character" on your own card, per floor, walking up to a desk, `quality: 'low'`; v0.16.0: a version 2 manifest (the neutral set, the `seated` copy, a clip set), typing and sitting, clothing, grey figures, Idle / Walk / Run / Wave. No dev server needed either.
 - Code: `src/embed/index.jsx` (`mount`), `src/embed/embedLayout.js` (loading, matching; unit tests in `src/embed/__tests__/`), `src/embed/characterManifest.js` (the manifest, `setPeople`'s list), `vite.embed.config.js`. People: `src/engine/systems/CharacterSystem.ts`, `src/play/people.js`.
