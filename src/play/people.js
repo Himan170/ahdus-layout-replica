@@ -259,15 +259,21 @@ export const FULL_RADIUS = 15;
 /** …and they stay full until this far (so walking past doesn't swap them back and forth). */
 export const KEEP_RADIUS = 18;
 
+/** v0.16.0: those full already rank this much nearer the point looked at (m), so a small turn doesn't swap them. */
+export const KEEP_BONUS = 2;
+
 /**
  * Who is drawn as a full character: people with a character file, on the
  * current floor, within FULL_RADIUS of the camera (KEEP_RADIUS for those full
- * already), the nearest first, at most MAX_FULL_CHARACTERS.
+ * already), at most MAX_FULL_CHARACTERS: the nearest to `options.focus` (v0.16.0: the
+ * point the camera looks at: from above, the people in the middle of the view, not
+ * those under the camera at the edge; those full already KEEP_BONUS nearer), else to the camera.
  * @param {{ personId: string, floor: number, x: number, y: number, z: number, character?: object | null }[]} people
  * @param {{ x: number, y: number, z: number }} camera
  * @param {number} floor
- * @param {{ max?: number, radius?: number, keepRadius?: number, current?: Iterable<string> }} [options]
- * @returns {string[]} personIds, nearest first
+ * @param {{ max?: number, radius?: number, keepRadius?: number, current?: Iterable<string>,
+ *   focus?: { x: number, y: number, z: number } | null }} [options]
+ * @returns {string[]} personIds, nearest (to the focus) first
  */
 export function chooseFullCharacters(people, camera, floor, options = {}) {
   const { max = MAX_FULL_CHARACTERS, radius = FULL_RADIUS, keepRadius = KEEP_RADIUS } = options;
@@ -276,7 +282,11 @@ export function chooseFullCharacters(people, camera, floor, options = {}) {
   for (const p of people) {
     if (p.floor !== floor || !p.character?.url) continue;
     const d = Math.hypot(p.x - camera.x, (p.y ?? 0) - camera.y, p.z - camera.z);
-    if (d <= (current.has(p.personId) ? keepRadius : radius)) near.push({ id: p.personId, d });
+    const full = current.has(p.personId);
+    if (d > (full ? keepRadius : radius)) continue;
+    const f = options.focus;
+    const rank = f ? Math.hypot(p.x - f.x, (p.y ?? 0) - f.y, p.z - f.z) - (full ? KEEP_BONUS : 0) : d;
+    near.push({ id: p.personId, d: rank });
   }
   near.sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
   return near.slice(0, Math.max(0, max)).map((n) => n.id);

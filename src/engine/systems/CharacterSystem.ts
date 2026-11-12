@@ -429,7 +429,9 @@ export class CharacterSystem {
     const eye = camera.globalPosition;
     const floor = this.options.getLayout().currentFloor ?? 0;
     const shown = this.placed.filter((p) => this.isShown(p) && this.files.get(p.character?.url ?? '') !== 'failed');
-    this.chosen = chooseFullCharacters(shown, eye, floor, { max: this.maxFull, current: this.full.keys() });
+    // v0.16.0: the point looked at (from above the orbit's target; walking a point ahead of the camera)
+    const looked = (camera as { getTarget?: () => { x: number; y: number; z: number } }).getTarget?.() ?? null;
+    this.chosen = chooseFullCharacters(shown, eye, floor, { max: this.maxFull, current: this.full.keys(), focus: looked });
     const wanted = new Set(this.chosen);
     for (const id of [...this.full.keys()]) if (!wanted.has(id)) this.removeFull(id);
     for (const id of this.chosen) {

@@ -195,6 +195,21 @@ describe('chooseFullCharacters', () => {
     expect(chooseFullCharacters(people, cam, 0)).toEqual([]);
     expect(chooseFullCharacters(people, cam, 0, { current: ['far'] })).toEqual(['far']);
   });
+
+  it('v0.16.0: with a focus (the point looked at) the people round it, not those under the camera', () => {
+    const people = row(14); // x 0 … 13, the camera over x 0
+    const looked = { x: 11, y: 0, z: 0 };
+    const full = chooseFullCharacters(people, cam, 0, { focus: looked });
+    expect(full).toHaveLength(MAX_FULL_CHARACTERS);
+    expect(full[0]).toBe('p0_11');
+    expect(full).toContain('p0_13');
+    expect(full).not.toContain('p0_0');
+    // still only within reach of the camera
+    expect(chooseFullCharacters(row(30), cam, 0, { focus: { x: 25, y: 0, z: 0 }, max: 100 }).every((id) => Number(id.split('_')[1]) <= 14)).toBe(true);
+    // those full already stay when the focus moves a little (2 m nearer)
+    const turned = chooseFullCharacters(people, cam, 0, { focus: { x: 10, y: 0, z: 0 }, current: full });
+    expect(new Set(turned)).toEqual(new Set(full));
+  });
 });
 
 describe('bone names', () => {
