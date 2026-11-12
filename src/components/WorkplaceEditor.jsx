@@ -194,6 +194,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   /** Short message in the footer after a change (red when something was blocked). */
   const showStudioMessage = useCallback((text, bad = false) => {
     clearTimeout(plannerMessageTimer.current);
+    if (!text) { setPlannerMessage(null); return; } // null: clear it now (a drag starts: its own hint shows)
     setPlannerMessage({ text, bad });
     plannerMessageTimer.current = setTimeout(() => setPlannerMessage(null), 3500);
   }, []);

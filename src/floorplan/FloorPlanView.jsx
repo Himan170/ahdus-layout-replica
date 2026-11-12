@@ -149,7 +149,7 @@ export default function FloorPlanView({
     return planDrop(object, {
       x: d.originalX + d.current.x - d.start.x,
       z: d.originalZ + d.current.z - d.start.z,
-    }, { objects, rooms, snap, ground });
+    }, { objects, rooms, snap, ground, lineUp: true, free: !!d.alt });
   }, [objects, rooms, snap, ground]);
 
   // ── A group being dragged: how far (snapped to the grid step, as one item's drag) ──
@@ -276,7 +276,7 @@ export default function FloorPlanView({
     // 1. Moving an item
     if (dragRef.current) {
       const current = pointerWorld(event.clientX, event.clientY);
-      startDrag({ ...dragRef.current, current, moved: true });
+      startDrag({ ...dragRef.current, current, moved: true, alt: event.altKey }); // Alt: no snapping (v0.15.6)
       return;
     }
 
@@ -324,12 +324,12 @@ export default function FloorPlanView({
     }
     if (d?.moved) justDraggedRef.current = true;
     if (d) {
-      const to = d.moved ? dropOf(d) : null;
+      const { guides: _guides, ...to } = (d.moved ? dropOf(d) : null) ?? {};
       const object = objects.find((o) => o.id === d.id);
       const same = to && object && to.x === object.x && to.z === object.z && to.y === (object.y ?? 0)
         && (to.rotationY === undefined || to.rotationY === object.rotationY);
-      if (to?.problem) onProblem(to.problem);
-      else if (to && !same) onMoveObject(d.id, to);
+      if (to.problem) onProblem(to.problem);
+      else if (d.moved && to.x !== undefined && !same) onMoveObject(d.id, to);
       startDrag(null);
     }
 
@@ -855,6 +855,22 @@ export default function FloorPlanView({
             })}
           </g>
         )}
+
+        {/* ── What the dragged item lined up with (v0.15.6): thin guide lines; Alt = none ── */}
+        {(() => {
+          const lined = drag && !drag.group && drag.moved ? dropOf(drag) : null;
+          if (!lined?.guides?.length) return null;
+          return (
+            <g data-plan-guides={lined.guides.length} pointerEvents="none">
+              {lined.guides.map((g, i) => {
+                const a = at({ x: g.ax, z: g.az });
+                const b = at({ x: g.bx, z: g.bz });
+                return <line key={i} data-plan-guide={g.kind} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                  stroke={g.kind === 'wall' ? '#e8590c' : '#d6336c'} strokeWidth={0.04} strokeDasharray="0.15 0.1" />;
+              })}
+            </g>
+          );
+        })()}
 
         {/* ── Shift+drag: the selecting box ── */}
         {box && (

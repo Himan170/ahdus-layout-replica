@@ -290,6 +290,76 @@ log('Walk through: you walk past the TV along the wall', !!pose && pose.x > hung
   pose ? `at ${pose.x.toFixed(2)}, ${pose.z.toFixed(2)} (TV at ${hungTv.x}, ${hungTv.z})` : 'no position');
 await p.click('[aria-label="Back to Studio"]'); await frames(4); await wait(500);
 
+// ── Part 3: snapping while dragging, with guide lines; Alt = none ──
+await p.click('[aria-label="2D view"]'); await frames(3); await wait(400);
+st = await store();
+const d0 = st.objects.find((o) => o.id === desk.id);
+const westFace = room.x - room.width / 2 + (room.wallThickness ?? 0.15) / 2;
+const box0 = await p.evaluate(async (o) => {
+  const { itemBox } = await import('/src/play/dragSnap.js');
+  const { ASSET_TYPES } = await import('/src/utils/assetCatalog.js');
+  return itemBox(o, ASSET_TYPES);
+}, d0);
+const hw = (box0.x1 - box0.x0) / 2;
+const guidesNow = () => p.evaluate(() => window.__ahdusScene.getMeshByName('snap_guides')?.metadata?.guides ?? []);
+// select it first: the Inspector opening narrows the view (a drag of an unselected item moves under the mouse)
+await hover(d0.x, 0, d0.z); await p.mouse.down(); await p.mouse.up(); await frames(3); await wait(500);
+// 8 cm from the meeting room's west wall, level with the middle of its table
+await hover(d0.x, 0, d0.z);
+await p.mouse.down();
+let to = await toScreen(westFace + hw + 0.08, 0, room.z + 0.06);
+await p.mouse.move(to.x, to.y, { steps: 14 });
+await frames(3); await wait(200);
+const guides = await guidesNow();
+const dragHint = await hint();
+log('dragging: guide lines show what it lines up with (the wall, the table\'s middle)',
+  guides.some((g) => g.kind === 'wall') && guides.some((g) => g.kind === 'centre' || g.kind === 'edge'), JSON.stringify(guides.map((g) => g.kind)));
+log('…and the hint says so, with Alt for no snapping', /Against the wall/.test(dragHint) && /Alt/.test(dragHint), dragHint.replace(/\s+/g, ' ').slice(0, 90));
+await shot('lw-guides.png');
+await p.mouse.up(); await frames(3);
+let d1 = (await store()).objects.find((o) => o.id === desk.id);
+log('let go: its side is on the wall face', Math.abs(d1.x - hw - westFace) < 0.005, `x ${d1.x} (face ${westFace}, half width ${hw.toFixed(3)})`);
+log('no guide lines after the drag', (await guidesNow()).length === 0);
+
+// Alt held: no snapping at all
+await hover(d1.x, 0, d1.z);
+await p.mouse.down();
+to = await toScreen(d1.x + 0.77, 0, d1.z - 0.43);
+await p.mouse.move(to.x - 6, to.y - 6, { steps: 6 });
+await p.keyboard.down('Alt');
+await p.mouse.move(to.x, to.y, { steps: 4 });
+await frames(3); await wait(200);
+const altGuides = await guidesNow();
+const altHint = await hint();
+await p.mouse.up(); await frames(3);
+await p.keyboard.up('Alt');
+const d2 = (await store()).objects.find((o) => o.id === desk.id);
+const offGrid = (v) => Math.abs(v / 0.5 - Math.round(v / 0.5)) > 0.02;
+log('Alt held: no guide lines, no grid', altGuides.length === 0 && /No snapping/.test(altHint) && (offGrid(d2.x) || offGrid(d2.z)),
+  `${d2.x}, ${d2.z}; ${altHint.replace(/\s+/g, ' ').slice(0, 60)}`);
+await key('Control+z');
+
+// Plan view: the same lines while dragging
+await p.click('[aria-label="Plan view"]'); await frames(2); await wait(700);
+const roomBox = await p.locator(`[data-room-id="${meeting.id}"]`).first().boundingBox();
+const planAt = (x, z) => ({
+  x: roomBox.x + ((x - (room.x - room.width / 2)) / room.width) * roomBox.width,
+  y: roomBox.y + (((room.z + room.depth / 2) - z) / room.depth) * roomBox.height, // north up
+});
+const deskBox = await p.locator(`[data-object-id="${desk.id}"]`).boundingBox();
+await p.mouse.move(deskBox.x + deskBox.width / 2, deskBox.y + deskBox.height / 2);
+await p.mouse.down();
+const target = planAt(westFace + hw + 0.06, room.z - 0.05);
+await p.mouse.move(target.x, target.y, { steps: 12 });
+await wait(300);
+const planGuides = await p.locator('[data-plan-guide]').evaluateAll((els) => els.map((e) => e.getAttribute('data-plan-guide')));
+log('Plan view: guide lines while dragging', planGuides.includes('wall'), JSON.stringify(planGuides));
+await shot('lw-guides-plan.png');
+await p.mouse.up(); await wait(400);
+const d3 = (await store()).objects.find((o) => o.id === desk.id);
+log('Plan view: let go against the wall, no lines left', Math.abs(d3.x - hw - westFace) < 0.005 && await p.locator('[data-plan-guide]').count() === 0, `x ${d3.x}`);
+await p.click('[aria-label="2D view"]'); await frames(3);
+
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length} / ${results.length} checks passed`);
 await b.close();

@@ -26,7 +26,7 @@
 import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import { Color3 } from '@babylonjs/core/Maths/math.color';
+import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
 import { createBuildPreview } from '../utils/buildPreview';
 import { wallTargetOf, itemOverFloorPoint } from '../utils/pickHelpers';
 import { ROOM_TYPES } from '../utils/roomStore';
@@ -45,6 +45,7 @@ import { carriedBy, carryMoves } from '../play/carry';
 import { ridersOf as itemRiders, KEEP_HEIGHT } from '../utils/itemRiders';
 import { isWallItem, mountOnWall, mountText } from '../play/wallMount';
 import { createFloorWalls } from '../play/floorWalls';
+import { snapTargets, snapDrag, snapText } from '../play/dragSnap';
 import { livePosition } from '../utils/livePosition';
 import { isDesk } from '../play/people';
 import { groupMembers, lockedNote } from '../play/group';
@@ -77,6 +78,40 @@ export function createPlannerTools(scene, canvas, {
   let pointerId = null; // the pointer pressed last: captured by the canvas while it drags something
   const pv = createBuildPreview(scene, 'planner');
   const floorWalls = createFloorWalls(); // v0.15.6: the walls wall items hang on
+
+  // ── Snapping guides (v0.15.6): thin lines showing what a dragged item lined up with; Alt = no snapping ──
+  let altDown = false;
+  let guideMesh = null;
+  const GUIDE_COLOURS = { wall: new Color4(0.91, 0.35, 0.05, 1), edge: new Color4(0.84, 0.2, 0.42, 1), centre: new Color4(0.84, 0.2, 0.42, 1) };
+  function showGuides(guides = []) {
+    const key = JSON.stringify(guides);
+    if (guideMesh && guideMesh.metadata?.key === key) return;
+    guideMesh?.dispose();
+    guideMesh = null;
+    if (!guides.length) return;
+    const y = elev() + 0.03;
+    guideMesh = MeshBuilder.CreateLineSystem('snap_guides', {
+      lines: guides.map((g) => [new Vector3(g.ax, y, g.az), new Vector3(g.bx, y, g.bz)]),
+      colors: guides.map((g) => [GUIDE_COLOURS[g.kind], GUIDE_COLOURS[g.kind]]),
+    }, scene);
+    guideMesh.isPickable = false;
+    guideMesh.renderingGroupId = 1; // drawn over the furniture and the floor
+    guideMesh.metadata = { key, guides };
+  }
+  const onAltKey = (e) => {
+    if (e.key !== 'Alt') return;
+    const down = e.type === 'keydown';
+    if (drag?.kind === 'item') e.preventDefault(); // Alt alone would put the browser's menu in focus
+    if (down === altDown) return;
+    altDown = down;
+    if (drag?.kind === 'item') hint(updateDrag());
+  };
+  const onAltPointer = (e) => { altDown = !!e.altKey; };
+  const onAltBlur = () => { altDown = false; };
+  window.addEventListener('keydown', onAltKey, true);
+  window.addEventListener('keyup', onAltKey, true);
+  window.addEventListener('pointermove', onAltPointer, true);
+  window.addEventListener('blur', onAltBlur);
 
   // ── Helpers ──
   const st = () => getState();
@@ -391,6 +426,13 @@ export function createPlannerTools(scene, canvas, {
       if (mesh) mesh.rotation.y = obj.rotationY ?? 0;
       return null;
     }
+    // a guide along the wall it hangs on
+    const f = m.face;
+    const reach = ((ASSET_TYPES[obj.assetType]?.defaultWidth ?? 1) * Math.abs(obj.scaleX ?? 1)) / 2 + 0.4;
+    const on = (a) => ({ x: f.ux * a + f.nx * f.c, z: f.uz * a + f.nz * f.c });
+    const a = on(f.along - reach);
+    const b = on(f.along + reach);
+    showGuides([{ ax: a.x, az: a.z, bx: b.x, bz: b.z, kind: 'wall' }]);
     if (mesh) {
       mesh.position.set(m.x, elev() + m.y, m.z);
       mesh.rotation.y = m.rotationY;
@@ -409,8 +451,28 @@ export function createPlannerTools(scene, canvas, {
       const h = updateWallItemDrag(obj, p);
       if (h) return h;
     }
-    const x = snapV(drag.items[0].x + p.x - drag.start.x);
-    const z = snapV(drag.items[0].z + p.z - drag.start.z);
+    const rawX = drag.items[0].x + p.x - drag.start.x;
+    const rawZ = drag.items[0].z + p.z - drag.start.z;
+    // v0.15.6: one item lines up with the walls and the items near it, else the grid (Alt: neither)
+    let x = snapV(rawX);
+    let z = snapV(rawZ);
+    let snapNote = null;
+    if (drag.group) {
+      showGuides([]);
+    } else {
+      if (!drag.targets) {
+        const floor = obj.floor ?? 0;
+        const onFloor = Object.values(st().objects).filter((o) => (o.floor ?? 0) === floor);
+        drag.targets = snapTargets(onFloor, floorWalls(st(), floor), { catalog: ASSET_TYPES, ignore: drag.items.map((it) => it.id) });
+      }
+      const snapped = snapDrag(obj, { x: rawX, z: rawZ }, drag.targets, { grid: getSnapStep(), free: altDown });
+      x = snapped.x;
+      z = snapped.z;
+      showGuides(snapped.guides);
+      const lined = snapText(snapped.snapped);
+      // the footer shows the title and detail only: say how to drag freely where it matters
+      snapNote = altDown ? 'No snapping (Alt)' : lined && `${lined} · hold Alt for no snapping`;
+    }
     // a group (v0.15.5) keeps every item's height: it slides over the floor as it is
     const s = drag.group ? { y: drag.items[0].y ?? 0, on: null } : dragSurface(drag, x, z);
     const name = drag.group ? `${drag.group} items` : nameOf(obj);
@@ -444,9 +506,9 @@ export function createPlannerTools(scene, canvas, {
     const where = s.on ? `On ${nameOf(s.on)}` : room ? `In ${room.name}` : 'Outside the rooms';
     return saveDragHint({
       title: `Move ${name}`,
-      detail: [where, chair && 'with its chair', riders && `with ${riders === 1 ? 'the item' : `the ${riders} items`} on it`]
+      detail: [where, snapNote, chair && 'with its chair', riders && `with ${riders === 1 ? 'the item' : `the ${riders} items`} on it`]
         .filter(Boolean).join(' · '),
-      keys: [['Release', 'Put it here'], ['Esc', 'Cancel']],
+      keys: [['Release', 'Put it here'], ['Alt', 'No snapping'], ['Esc', 'Cancel']],
     });
   }
 
@@ -903,6 +965,7 @@ export function createPlannerTools(scene, canvas, {
 
   function startDrag(d) {
     drag = d;
+    onMessage(null); // the last change's message would hide this drag's hint
     pv.hide('box');
     hideHandles();
     getCamera()?.detachControl();
@@ -912,6 +975,7 @@ export function createPlannerTools(scene, canvas, {
 
   function endDrag() {
     drag = null;
+    showGuides([]);
     livePosition.clear();
     pv.hideAll();
     window.removeEventListener('pointerup', onWindowPointerUp);
@@ -1269,6 +1333,11 @@ export function createPlannerTools(scene, canvas, {
 
     dispose() {
       cancelDrag();
+      showGuides([]);
+      window.removeEventListener('keydown', onAltKey, true);
+      window.removeEventListener('keyup', onAltKey, true);
+      window.removeEventListener('pointermove', onAltPointer, true);
+      window.removeEventListener('blur', onAltBlur);
       boxEl?.remove();
       pv.dispose();
       handles?.forEach((m) => m.dispose());
