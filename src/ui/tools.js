@@ -210,8 +210,8 @@ export const SHORTCUT_GROUPS = [
     keys: [
       [['Drag'], 'Move it (a desk takes its chair)'], [['W'], 'Show the move arrows'],
       [['R'], 'Turn 90°'], [['Shift', 'R'], 'Turn 15°'], [['S'], 'Resize handles'],
-      [['F'], 'Focus on it'], [['Double-click'], 'Focus on it'], [['L'], 'Lock or unlock'],
-      [['Ctrl', 'D'], 'Duplicate'], [['Delete'], 'Delete'],
+      [['F'], 'Focus on it'], [['Double-click'], 'Focus on it'], [['L'], 'Lock or unlock (a room too)'],
+      [['Alt', 'Drag'], 'Move it with no snapping'], [['Ctrl', 'D'], 'Duplicate'], [['Delete'], 'Delete'],
     ],
   },
   {

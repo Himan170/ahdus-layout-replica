@@ -3,6 +3,36 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.15.6 (12 Nov 2026): Layers, wall items and snapping
+
+- **Layers: hide and show.** The eye next to a room or an item in Layers hides it in Studio's 3D, 2D and Plan
+  views. It is a Studio view setting only: never saved in the layout, never hidden in Walk through, the 3D
+  Company page or the embed. Remembered per workplace in this browser (localStorage `ahdus.hiddenLayers`).
+  The footer says "3 hidden · Show all".
+- **Layers: lock rooms.** A room can be locked like an item (the Layers lock, the Inspector's Lock button, L):
+  a locked room can't be moved, resized, turned, have its wall height changed or be deleted. Locking is one
+  undo step. Saved as `locked: true` on the room (v2; missing = unlocked, so old layouts and AHDUS's
+  `layout.schema.json` copy still work: the schema only gains this optional field).
+- **Wall items.** The whiteboard, TV, projector screen, exit sign and fire extinguisher, plus three new items,
+  the **wall clock**, **wall shelf** and **AC unit** (simple built-in shapes, noted in the catalogue), snap to
+  the nearest wall when placed or dragged (Studio's library, drag, Plan view, Walk through's placing, G and
+  Edit item): back against the wall, facing into the room, at their own height (TV 1.4 m, whiteboard 1.35 m,
+  clock 2.0 m, AC 2.3 m, extinguisher 1.0 m, exit sign just above the door under it). They slide along the
+  wall in 5 cm steps and never go into it or across a door or window.
+- Hung items are no floor obstacles (walk map, Walk through's collisions); one standing on the floor still is.
+  An exit sign above a door never blocks the door.
+- Nothing in old layouts moves by itself: a selected wall item standing on the floor gets **Mount on wall**
+  (one undo step), and **Check my layout** warns "TV is not on a wall: select it, then Mount on wall".
+- The TV is now drawn by its own flat panel (the Kenney model stood on a foot); the whiteboard lost its legs;
+  the Factory Floor template's whiteboard hangs on its wall.
+- **Snapping while dragging items** (3D, 2D and Plan view): an item lines up with a wall in reach (it wins),
+  else with other items' edges and middles, else the grid. Thin guide lines show what it snapped to (orange: a
+  wall, pink: an item) and the hint says "Against the wall · hold Alt for no snapping". **Hold Alt** for no
+  snapping. Measured on Meridian (2 floors, 720 items): the targets take a few ms, each move well under 1 ms.
+- Lint ignores `private-docs/`; the tour and route timing tests allow slow machines (no more false failures).
+- Shortcuts help: L locks a room too, Alt+Drag moves with no snapping. New e2e script `npm run e2e:layers`
+  (38 checks).
+
 ## 0.15.5 (12 Nov 2026): Faster building
 
 - **Plan view floors:** the floor switcher and Add floor are no longer covered (checked at 1366 × 768 and

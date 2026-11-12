@@ -30,6 +30,12 @@ describe('Studio shortcuts', () => {
     expect(Object.keys(paste)).toEqual(['Ctrl+C', 'Ctrl+V', 'Ctrl+Shift+V']);
   });
 
+  it('v0.15.6: L locks a room too, Alt+Drag moves with no snapping', () => {
+    const item = Object.fromEntries(keysOf('Selected item'));
+    expect(item.L).toMatch(/room/);
+    expect(item['Alt+Drag']).toMatch(/no snapping/);
+  });
+
   it('no key means two things in one group', () => {
     for (const g of SHORTCUT_GROUPS) {
       const keys = g.keys.map(([k]) => k.join('+'));
