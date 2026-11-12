@@ -22,6 +22,11 @@
  *   The nearest MAX_ANIMATED of them play it (an Animator each, starting at
  *   their own point of the cycle); the others hold its first frame. The hips go
  *   onto the seat in that pose, so the clip's own sitting height counts.
+ * - v0.16.0, many people: the simple figures are grey (further than the full
+ *   characters, or while a file loads), and a character file nobody near uses
+ *   is unloaded after UNLOAD_AFTER_MS (loaded again when someone is near).
+ *   Files asked for through loadFile() (your character, the walk clip, clip
+ *   sets) stay.
  * - A person shows while their desk does (FloorSystem: per floor) and once it
  *   is built (progressive loading). Nothing here is pickable: a pick goes to
  *   the desk or chair, and pickPerson() finds the person from it.
@@ -118,6 +123,8 @@ export interface CharacterSystemOptions {
   maxAnimated?: number;
   /** At most this many character files downloading at once (default 3). */
   maxDownloads?: number;
+  /** v0.16.0: a character file nobody near uses is unloaded after this long (ms; default UNLOAD_AFTER_MS). */
+  unloadAfterMs?: number;
   /** Load a character file (tests); default: the glTF loader. */
   loadFile?: (url: string, scene: Scene) => Promise<AssetContainer>;
 }
@@ -158,6 +165,10 @@ const CHOOSE_EVERY_MS = 300;
 const BREATHING = 3;
 /** The simple figure is drawn for a person this tall (m). */
 const FIGURE_HEIGHT = 1.75;
+/** v0.16.0: the simple figures' grey (far away, or while a character file loads). */
+export const FIGURE_GREY = new Color3(0.62, 0.64, 0.67);
+/** v0.16.0: a character file nobody near uses is unloaded after this long (ms). */
+export const UNLOAD_AFTER_MS = 30_000;
 
 // ── CharacterSystem ──────────────────────────────────────────────────────
 
@@ -170,6 +181,15 @@ export class CharacterSystem {
   /** v0.16.0: the work clips baked per character file (the library's key): ready, or being baked. */
   private workClips = new Map<string, Map<string, BakedClip> | 'baking'>();
   private lastFrame = -1;
+  /** v0.16.0: when each character file was last used by someone near (ms), for unloading. */
+  private lastUsed = new Map<string, number>();
+  /** Files asked for through loadFile() (your character, the walk clip, clip sets): never unloaded. */
+  private pinned = new Set<string>();
+  /** Files whose clips are being baked (url → how many bakes): not unloaded meanwhile. */
+  private bakingFiles = new Map<string, number>();
+  private unloadAfter: number;
+  /** How many character files were unloaded (tests). */
+  unloads = 0;
 
   private people: Person[] = [];
   private placed: PlacedPerson[] = [];
@@ -204,6 +224,7 @@ export class CharacterSystem {
     this.maxFull = options.maxFull ?? MAX_FULL_CHARACTERS;
     this.maxAnimated = options.maxAnimated ?? MAX_ANIMATED;
     this.maxDownloads = options.maxDownloads ?? 3;
+    this.unloadAfter = options.unloadAfterMs ?? UNLOAD_AFTER_MS;
     this.observer = scene.onBeforeRenderObservable.add(() => this.update());
     this.clipLibrary = new ClipLibrary(scene, (url) => this.loadFile(url));
   }
@@ -272,6 +293,11 @@ export class CharacterSystem {
     return f ? { clip: f.clip?.name ?? null, playing: !!f.animator, root: f.root, bones: f.bones } : null;
   }
 
+  /** v0.16.0: the character files loaded now (tests). */
+  get loadedFiles(): string[] {
+    return [...this.files].filter(([, f]) => f !== 'failed' && !(f instanceof Promise)).map(([url]) => url);
+  }
+
   /** How many people are drawn as full characters now. */
   get fullCount(): number {
     let n = 0;
@@ -296,6 +322,7 @@ export class CharacterSystem {
    */
   loadFile(url: string): Promise<LoadedFile> {
     if (this.disposed) return Promise.reject(new Error('The characters were closed'));
+    this.pinned.add(url);
     const file = this.fileFor(url);
     if (file === 'failed') return Promise.reject(new Error(`could not load ${url}`));
     if (file instanceof Promise) return file;
@@ -411,6 +438,31 @@ export class CharacterSystem {
       const file = this.fileFor(person.character!.url);
       if (file && file !== 'failed' && !(file instanceof Promise)) this.makeFull(person, file);
     }
+    this.unloadUnused(performance.now());
+  }
+
+  /** v0.16.0: unload the character files nobody near has used for unloadAfter ms. */
+  private unloadUnused(now: number): void {
+    const used = new Set<string>();
+    for (const f of this.full.values()) used.add(f.url);
+    for (const id of this.chosen) {
+      const url = this.placed.find((p) => p.personId === id)?.character?.url;
+      if (url) used.add(url);
+    }
+    for (const url of used) this.lastUsed.set(url, now);
+    for (const [url, file] of [...this.files]) {
+      if (file === 'failed' || file instanceof Promise || used.has(url) || this.pinned.has(url) || this.bakingFiles.has(url)) continue;
+      const last = this.lastUsed.get(url);
+      if (last === undefined) {
+        this.lastUsed.set(url, now);
+        continue;
+      }
+      if (now - last < this.unloadAfter) continue;
+      disposeFile(file);
+      this.files.delete(url);
+      this.lastUsed.delete(url);
+      this.unloads++;
+    }
   }
 
   /** The file, loaded or loading; queued (at most maxDownloads at once) if not asked for yet. */
@@ -513,7 +565,12 @@ export class CharacterSystem {
     const known = this.workClips.get(key);
     if (known === undefined) {
       this.workClips.set(key, 'baking');
-      this.clipLibrary.clips(character, file, WORK_CLIPS).then((clips) => {
+      this.bakingFiles.set(character.url, (this.bakingFiles.get(character.url) ?? 0) + 1);
+      this.clipLibrary.clips(character, file, WORK_CLIPS).finally(() => {
+        const n = (this.bakingFiles.get(character.url) ?? 1) - 1;
+        if (n > 0) this.bakingFiles.set(character.url, n);
+        else this.bakingFiles.delete(character.url);
+      }).then((clips) => {
         if (this.disposed || this.workClips.get(key) !== 'baking') return;
         this.workClips.set(key, clips);
         if (!clips.size) return;
@@ -599,7 +656,7 @@ export class CharacterSystem {
   private ensureFigures(): { seated: Mesh; standing: Mesh } {
     if (this.figures) return this.figures;
     const mat = new StandardMaterial('person_figure', this.scene);
-    mat.diffuseColor = Color3.White();
+    mat.diffuseColor = FIGURE_GREY.clone();
     mat.specularColor = new Color3(0.08, 0.08, 0.08);
     this.figureMaterial = mat;
     this.figures = { seated: buildFigure(this.scene, true, mat), standing: buildFigure(this.scene, false, mat) };

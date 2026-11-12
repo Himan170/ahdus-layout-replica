@@ -11,7 +11,7 @@ import '@babylonjs/loaders/glTF/2.0/glTFLoader';
 
 import { registerGltfExtensions } from '../../utils/gltfExtensions';
 import { GLB_LOAD_OPTIONS } from '../../utils/modelLoader';
-import { CharacterSystem } from '../systems/CharacterSystem';
+import { CharacterSystem, FIGURE_GREY } from '../systems/CharacterSystem';
 import type { Person } from '../systems/CharacterSystem';
 import { HIPS_ABOVE_SEAT, SEAT_HEIGHT } from '../../play/people';
 
@@ -128,6 +128,58 @@ describe('people at desks with clips (v0.16.0)', () => {
     cs.update();
     expect(cs.fullCount).toBe(1);
     expect(cs.fullState('old')).toMatchObject({ clip: null, playing: false });
+    cs.dispose();
+  });
+});
+
+describe('many people (v0.16.0)', () => {
+  it('a file nobody near uses is unloaded after a while, and loaded again when someone is near', async () => {
+    const loads: string[] = [];
+    const cs = system({
+      maxFull: 1,
+      unloadAfterMs: 0,
+      loadFile: (url, sc) => {
+        loads.push(url);
+        return registerGltfExtensions().then(() => LoadAssetContainerAsync(FILES[url.replace(/^.*\//, '')], sc, GLB_LOAD_OPTIONS));
+      },
+    });
+    cs.setPeople([person('near', 'd1'), person('far', 'd3', { url: '/c/mixamo.glb', height: 1.75 })]);
+    await settled(cs, ['near']); // the suit near the camera (z −3)
+    expect(cs.loadedFiles).toContain('/c/suit.glb');
+    // the camera moves to the other desk: the suit is no one's any more
+    scene.activeCamera!.position.set(0, 1.6, 6);
+    (scene.activeCamera as FreeCamera).computeWorldMatrix();
+    for (let i = 0; i < 100 && (cs.loadedFiles.includes('/c/suit.glb') || !cs.fullState('far')); i++) {
+      (cs as any).lastChoice = -Infinity;
+      cs.update();
+      await cs.whenSettled();
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(cs.fullState('far')).not.toBeNull();
+    expect(cs.loadedFiles).not.toContain('/c/suit.glb');
+    expect(cs.unloads).toBe(1);
+    // the clip set (asked for through loadFile) stays
+    expect(cs.loadedFiles).toContain('/c/clips.glb');
+    // back again: loaded again, posed by the clip baked before (not baked again)
+    const bakes = cs.clipLibrary.bakes;
+    scene.activeCamera!.position.set(0, 1.6, -3);
+    (scene.activeCamera as FreeCamera).computeWorldMatrix();
+    await settled(cs, ['near']);
+    expect(loads.filter((u) => u === '/c/suit.glb')).toHaveLength(2);
+    expect(cs.fullState('near')!.clip).toBe('Type');
+    expect(cs.clipLibrary.bakes).toBe(bakes);
+    cs.dispose();
+  });
+
+  it('the simple figures are grey', async () => {
+    const cs = system();
+    cs.setPeople([person('nobody', 'd1', null)]);
+    cs.update();
+    const figure = scene.getMeshByName('people_seated')!;
+    expect(figure.isEnabled()).toBe(true);
+    const c = (figure.material as any).diffuseColor;
+    expect(c.r).toBeCloseTo(FIGURE_GREY.r, 5);
+    expect(c.r).toBeLessThan(0.8);
     cs.dispose();
   });
 });
