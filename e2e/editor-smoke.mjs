@@ -471,6 +471,32 @@ const inPreview = await visible('[aria-label="Back to Studio"]');
 await page.keyboard.press('Tab'); await page.waitForTimeout(800); await frames(2);
 log('Tab goes to Preview and back', inPreview && await visible('[aria-label="Floor switcher"]'));
 
+// ── H (v0.16.0): Studio's editor = Reset view; Walk through = wave (Studio walks as the simple figure: nothing) ──
+const camNow = () => page.evaluate(() => {
+  const c = window.__ahdusScene.activeCamera;
+  return { a: +c.alpha.toFixed(3), b: +c.beta.toFixed(3), r: +c.radius.toFixed(2) };
+});
+await key('h'); await page.waitForTimeout(900); await frames(3);
+const home = await camNow();
+await page.evaluate(() => { const c = window.__ahdusScene.activeCamera; c.alpha += 1.1; c.radius *= 1.6; });
+await frames(2);
+const turned = await camNow();
+await page.mouse.move(640, 360);
+await key('h'); await page.waitForTimeout(900); await frames(3);
+const afterH = await camNow();
+const near = (p, q) => Math.abs(p.a - q.a) < 0.05 && Math.abs(p.r - q.r) < 0.5;
+await click('[aria-label="Walk through"]');
+await page.waitForTimeout(800);
+await key('h'); await page.waitForTimeout(300);
+const hintAfter = await page.locator('.preview-hud, [data-hud]').allTextContents().catch(() => []);
+const stillWalking = await visible('[aria-label="Back to Studio"]');
+await page.evaluate(() => document.exitPointerLock());
+await page.waitForTimeout(300);
+await click('[aria-label="Back to Studio"]');
+log('H: Studio\'s editor resets the view; in Walk through (the simple figure) it does nothing',
+  !near(turned, home) && near(afterH, home) && stillWalking && !hintAfter.join(' ').includes('wave'),
+  JSON.stringify({ home, turned, afterH, stillWalking }));
+
 // ── Layout at 1920×1080 ──
 await page.setViewportSize({ width: 1920, height: 1080 });
 await frames(3);

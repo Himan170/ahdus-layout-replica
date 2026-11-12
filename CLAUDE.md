@@ -41,12 +41,12 @@ npm run e2e:faster   # 44 checks   e2e/faster-building-smoke.mjs (v0.15.5: Plan 
                      #                                       room names over furniture + inside their rooms, the bar's item
                      #                                       name, a room click selects it, filled chips, All floors' stairs,
                      #                                       group icons, 3D frames again after Plan; SHOTS=<dir>: screenshots)
-npm run e2e:planner  # 45 checks   e2e/editor-smoke.mjs    (Workplace Studio + its screenshots, the AHDUS look in local
+npm run e2e:planner  # 46 checks   e2e/editor-smoke.mjs    (Workplace Studio + its screenshots, the AHDUS look in local
                      #                                       mode, the library, the Realistic look switch, no missing
                      #                                       asset files, floor plan PNG / PDF export, room names + hover
                      #                                       card, Settings → Room labels, Plan view: select, drag,
                      #                                       Ctrl+Z, a desk onto its own chair's old spot (v0.15.2),
-                     #                                       a phone's hint at 390 px)
+                     #                                       a phone's hint at 390 px; v0.16.0: H = Reset view, nothing in Walk through)
 npm run e2e:play     # 36 checks   e2e/play-smoke.mjs      (v0.15.2: no mouse capture, W with no click, drag looks, an
                      #                                       empty hand's click walks, M = mouse look, then the old
                      #                                       checks by crosshair; the catalog's pictures + hotbar names;
@@ -141,12 +141,12 @@ npm run e2e:touch   # 15 checks   e2e/touch-smoke.mjs     (viewer.html on a phon
                      #                                       "?"), the HUD one line beside the joystick, the knob pushed
                      #                                       forward never under it,
                      #                                       a mouse = mouse words again; SHOTS=<dir>: phone screenshots)
-npm run e2e:controls # 17 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
+npm run e2e:controls # 16 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
                      #                                       to look (cursor stays), Back to entrance / ? / Find / Clear give
                      #                                       the keys back, click the floor walks there, a key ends it, a
                      #                                       desk = the card, the CNC = its action, double-click / L / Esc,
                      #                                       the pill only in mouse look, no HUD line under the hint, the sky's 6 sides;
-                     #                                       SHOTS=<dir>: 1440×900 + 390×844 screenshots)
+                     #                                       SHOTS=<dir>: 1440×900 + 390×844 screenshots + a 17th check: the phone fits)
 npm run e2e:tour     # 28 checks   e2e/tour-smoke.mjs      (viewer.html, the Meridian-shaped layout with its 13
                      #                                       departments (MERIDIAN=<layout.json> MERIDIAN_PEOPLE=<people.json>
                      #                                       = the real one): planned in idle time, Find's "Take the company
