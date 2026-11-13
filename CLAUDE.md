@@ -1196,6 +1196,7 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
 ## Live presence (v0.16.1, how it works)
 
 Part A of Himan's v0.16.1 request (13 Nov 2026); Part B (AHDUS-FRONTEND: the WebSocket, Hide me) comes after the tag.
+AHDUS's socket closes a page with 4401 (no retry) when its login token expires or the account is deactivated (v0.16.2).
 The viewer / embed only; **the engine never connects anywhere**: the page adds the others and sends on your pose.
 Nothing is saved. Studio is unchanged.
 - **API:** `engine.live` (`systems/LiveSystem.ts`): `add(raw)`, `update(id, patch)` (false: unknown), `remove`, `clear`,
@@ -1660,6 +1661,13 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: small fixes (v0.16.2, 13 Nov 2026, branches `fix/ime-safe-enter`, `fix/v0.16.2-small-fixes`)
+
+Enter / Esc in text fields wait for an input tool (IME) to finish (`utils/keys.js`: `isCommitEnter`, `isComposing`;
+tests `ui/__tests__/imeEnter.test.jsx`). The Meridian route timing test takes each route's fastest of 3 (middle ≤ 100
+ms, CI 250; slowest ≤ 400 ms, CI 800), as the tour test. With it, AHDUS-FRONTEND's live WebSocket closes a page (4401)
+when its token expires or the account is deactivated (checked every 2 min and at the token's expiry).
 
 ## DONE: live presence, Part A (v0.16.1, 13 Nov 2026, branch `feature/v0.16.1-live-presence`)
 
