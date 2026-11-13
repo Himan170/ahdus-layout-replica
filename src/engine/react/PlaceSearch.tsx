@@ -36,6 +36,7 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import type { LayoutEngine } from '../LayoutEngine';
 import type { BrowseMenu, PlaceResult, SearchGroups, ShowResult, NavigationEvent, WalkMode } from '../systems/NavigationSystem';
 import { addRecent, RECENT_MAX } from '../../play/navigation/browse';
+import { isCommitEnter, isComposing } from '../../utils/keys';
 
 const GROUP_TITLES = { people: 'People', rooms: 'Rooms', facilities: 'Facilities' } as const;
 export const SEARCH_LABEL = 'Find a person, room or place';
@@ -408,12 +409,14 @@ export function PlaceSearch({
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    // an IME composing a word (Hindi, Japanese, …) owns Enter, the arrows, Backspace and Esc
+    if (isComposing(e)) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (!optionCount) return;
       const step = e.key === 'ArrowDown' ? 1 : -1;
       setActive((a) => (a + step + optionCount) % optionCount);
-    } else if (e.key === 'Enter') {
+    } else if (isCommitEnter(e)) {
       e.preventDefault();
       if (typed) pick(options[active] ?? options[0]);
       else activate(entries[active] ?? entries[0]);

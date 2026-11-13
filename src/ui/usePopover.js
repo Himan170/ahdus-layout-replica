@@ -7,6 +7,7 @@
  */
 
 import { useEffect } from 'react';
+import { isComposing } from '../utils/keys';
 
 /**
  * @param {boolean} open
@@ -17,7 +18,7 @@ export function usePopover(open, onClose, insideRefs) {
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' || isComposing(e)) return; // an IME's Esc drops its word, not the popover
       e.stopPropagation();
       e.preventDefault();
       onClose();

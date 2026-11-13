@@ -9,6 +9,7 @@
 
 import { useEffect, useId, useRef } from 'react';
 import './overlays.css';
+import { isComposing } from '../utils/keys';
 
 const FOCUSABLE = 'button:not(:disabled), [href], input:not(:disabled), select, textarea, [tabindex]:not([tabindex="-1"])';
 
@@ -27,7 +28,7 @@ export default function Dialog({ title, children, actions, onCancel, label }) {
 
     const onKey = (e) => {
       e.stopPropagation(); // Studio's shortcuts (Tab = Preview, 1–6, Delete…) wait until it closes
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !isComposing(e)) { // an IME's Esc drops its word, not the dialog
         e.preventDefault();
         cancelRef.current?.();
         return;

@@ -10,6 +10,7 @@ import { useRef, useState } from 'react';
 import { ChevronDown, Layers, Plus, Pencil, Trash2, Check, Copy, Square, EyeOff } from 'lucide-react';
 import { MIN_FLOOR_HEIGHT, MAX_FLOOR_HEIGHT, STOREY_HEIGHT, GROUND_FLOOR_STAYS } from '../play/building';
 import { usePopover } from './usePopover';
+import { isCommitEnter, isComposing } from '../utils/keys';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 const rooms = (n) => `${n} room${n === 1 ? '' : 's'}`;
@@ -45,8 +46,8 @@ function FloorHeightField({ floor, onSetHeight }) {
           onChange={(e) => { setDraft(e.target.value); apply(e.target.value, false); }}
           onBlur={() => { if (draft !== null) apply(draft, true); setDraft(null); }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') e.currentTarget.blur();
-            if (e.key === 'Escape') { e.stopPropagation(); setDraft(null); }
+            if (isCommitEnter(e)) e.currentTarget.blur();
+            if (e.key === 'Escape' && !isComposing(e)) { e.stopPropagation(); setDraft(null); }
           }}
         />
         <span className="ui-muted">m</span>
@@ -119,8 +120,8 @@ function FloorMenu({
               onFocus={(e) => e.target.select()}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') saveName();
-                if (e.key === 'Escape') { e.stopPropagation(); setMode(null); }
+                if (isCommitEnter(e)) saveName();
+                if (e.key === 'Escape' && !isComposing(e)) { e.stopPropagation(); setMode(null); }
               }}
             />
             <button className="ui-btn is-primary" onClick={saveName}>Save</button>

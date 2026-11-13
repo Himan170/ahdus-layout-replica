@@ -19,6 +19,7 @@ import { publishButton, statusPill } from './publishFlow';
 import { usePhone } from './look';
 import { MAX_SITE_NAME } from '../services/ahdusBackend';
 import './overlays.css';
+import { isCommitEnter, isComposing } from '../utils/keys';
 
 const ICON = { size: 18, strokeWidth: 1.75 };
 
@@ -71,8 +72,8 @@ function LayoutName({ name, onRename, site = false }) {
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => save(false)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') { e.preventDefault(); save(true); }
-          if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); end(true); }
+          if (isCommitEnter(e)) { e.preventDefault(); save(true); }
+          if (e.key === 'Escape' && !isComposing(e)) { e.stopPropagation(); e.preventDefault(); end(true); }
         }}
       />
     );

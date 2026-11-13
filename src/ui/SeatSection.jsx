@@ -12,6 +12,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { UserPlus, UserMinus, Search, Repeat } from 'lucide-react';
+import { isComposing } from '../utils/keys';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 export const SEARCH_DELAY_MS = 250;
@@ -99,7 +100,7 @@ export default function SeatSection({ access, seat, busy, onAssign, onRemove, se
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => {
                 e.stopPropagation(); // Studio's shortcuts (Delete, 1–6, W / E / R) stay out of typing
-                if (e.key === 'Escape') stopSearch();
+                if (e.key === 'Escape' && !isComposing(e)) stopSearch();
               }}
             />
           </label>
