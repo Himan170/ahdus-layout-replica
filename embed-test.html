@@ -115,6 +115,8 @@
 
       function logEvent(name, data) {
         window.embedEvents.push({ name, data });
+        // v0.16.1: your pose (≤ 5 a second while walking) is for sending to the others, not for this list
+        if (name === 'pose') return;
         if (list.querySelector('.muted')) list.replaceChildren();
         const li = document.createElement('li');
         const code = document.createElement('code');

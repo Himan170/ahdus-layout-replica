@@ -3,6 +3,28 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.16.1 (13 Nov 2026): live presence
+
+- **See who else is here:** the page can tell the 3D view who has it open right now (AHDUS: its WebSocket,
+  coming in AHDUS-FRONTEND). They get up from their desk and are drawn where they walk, with their name over
+  their head; everyone else sits at their desk as before. Someone looking from above stands beside their desk.
+  When they leave (or nothing is heard from them for 10 s) they sit back down. Nothing is saved.
+- **Smooth, never through walls:** each person is drawn about 250 ms behind what their browser sent, gliding
+  between the samples (never ahead of them); a jump over 5 m, or to another floor, snaps there at once.
+- **Their clips:** Idle, Walk, Run and Wave as their browser says (others see your wave, H), in their own
+  character and clothing (the full file, not the lighter seated copy).
+- **Many people stay light:** the nearest 30 on the floor shown are drawn, the rest wait; name tags are hidden
+  behind walls, further than 25 m and off screen, kept inside the view near its sides.
+- **More full characters on a strong device:** the limit of full characters (12) is now measured from the
+  frame rate: windows of 3 s of frame times; smooth (50 fps or more) twice in a row while more people are near
+  = 4 more, up to 24; under 35 fps = 4 fewer, then it holds 30 s. A weak device (software graphics or quality
+  `low`) keeps 12. Live people come first.
+- **Your own walk for the others:** the `pose` event gives the page your position, facing, floor and clip at
+  most 5 times a second, only when it changes, with a keepalive every 4 s (from above: `{ state: 'overview',
+  floor }`), small enough to send as is.
+- Embed: `workplace.live.add / update / remove / clear / list / count`, the `pose` event and `workplace.pose`
+  (docs/EMBED_GUIDE.md 4h). `npm run e2e:live` (23 checks, no server: fake live people).
+
 ## 0.16.0 (12 Nov 2026): characters, clips and clothing
 
 - **Your character moves:** walking through the 3D Company page you stand in an idle pose, walk, run with
