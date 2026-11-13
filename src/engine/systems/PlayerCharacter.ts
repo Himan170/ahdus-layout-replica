@@ -59,8 +59,11 @@ export interface PlayerCharacterSpec {
 /** Preview's character interface (play/character.js) and what the walkthrough needs to know. */
 export interface PlayCharacter {
   root: TransformNode;
-  /** `ctx.climb`: how fast the ground under you rises (m/s; stairs), v0.16.0. */
-  update(dt: number, speed: number, flying: boolean, ctx?: { climb?: number }): void;
+  /**
+   * `ctx.climb`: how fast the ground under you rises (m/s; stairs), v0.16.0. `ctx.gait` (v0.16.1, a live
+   * person): the clip they play ('Idle' | 'Walk' | 'Run'), as their own browser says, instead of from the speed.
+   */
+  update(dt: number, speed: number, flying: boolean, ctx?: { climb?: number; gait?: string | null }): void;
   /** v0.16.0: wave (the H key): false = can't now (moving, or no Wave clip). */
   wave?(): boolean;
   /** v0.16.0: the clip playing ('Idle', 'Walk', 'Run', 'Wave'), null: none (the standing pose). */
@@ -165,16 +168,21 @@ export async function createPlayerCharacter(
 
 // ── v0.16.0: a character with its clips ─────────────────────────────────
 
-/** The clips your character plays. */
-const PLAYER_CLIPS = ['Idle', 'Walk', 'Run', 'Wave'];
+/** The clips your character plays (and a live person's, v0.16.1). */
+export const PLAYER_CLIPS = ['Idle', 'Walk', 'Run', 'Wave'];
 
-function animatedCharacter(scene: Scene, file: LoadedFile, spec: PlayerCharacterSpec, clips: Map<string, BakedClip>): PlayCharacter {
+/**
+ * A walking character with its clips: you (createPlayerCharacter), or v0.16.1 someone else on the page
+ * (LiveSystem: `name` = live_<id>, `metadata` = { livePersonId }).
+ */
+export function animatedCharacter(scene: Scene, file: LoadedFile, spec: PlayerCharacterSpec, clips: Map<string, BakedClip>,
+  { name = 'player_character', metadata = { player: true } as Record<string, unknown> } = {}): PlayCharacter {
   const { character } = spec;
-  const copy = copyCharacter(scene, file, character, 'player_character', { player: true }, spec.clothing ?? null);
+  const copy = copyCharacter(scene, file, character, name, metadata, spec.clothing ?? null);
   // the standing pose under the clips (what a fading clip blends with)
   poseBones(copy.root, copy.bones, STANDING_POSE as [string, string, number[]][]);
   refreshAll(copy);
-  const animator = new Animator(scene, copy.allBones, 'player');
+  const animator = new Animator(scene, copy.allBones, name === 'player_character' ? 'player' : name);
   for (const clip of clips.values()) animator.add(clip);
   const has = { walk: animator.has('Walk'), run: animator.has('Run') };
   const idle = () => (animator.has('Idle') ? animator.play('Idle') : animator.stop());
@@ -197,7 +205,9 @@ function animatedCharacter(scene: Scene, file: LoadedFile, spec: PlayerCharacter
     walkGroup: animator.groupOf('Walk'),
     update(dt, speed, flying, ctx) {
       lastSpeed = speed;
-      const want = chooseGait(speed, flying, has);
+      const asked = ctx?.gait; // a live person: what their own browser says they do
+      const want = asked === 'Idle' ? 'Idle' : asked === 'Walk' || asked === 'Run' ? chooseGait(asked === 'Run' ? 99 : 1, false, has)
+        : chooseGait(speed, flying, has);
       lift += (stairLift(ctx?.climb ?? 0) - lift) * Math.min(1, dt * 8); // eased: a step onto a floor is one frame
       if (want !== gait) {
         gait = want;

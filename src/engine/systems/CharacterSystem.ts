@@ -205,6 +205,10 @@ export class CharacterSystem {
   private files = new Map<string, Promise<LoadedFile> | LoadedFile | 'failed'>();
   /** The person walking through (LayoutEngine): their seated figure isn't drawn meanwhile. */
   private hiddenPerson: string | null = null;
+  /** v0.16.1: people on the page now (LiveSystem): not at their desk, drawn where they are instead. */
+  private livePeople = new Set<string>();
+  /** v0.16.1: how many seated people would be full characters with no cap (the cap's measurement). */
+  private wanted = 0;
   private queue: string[] = [];
   /** loadFile calls for a file still in the queue: settled when its download starts and ends. */
   private waiting = new Map<string, { resolve: (f: LoadedFile) => void; reject: (e: Error) => void }[]>();
@@ -343,6 +347,55 @@ export class CharacterSystem {
     this.update();
   }
 
+  /**
+   * v0.16.1: people on the page now (LiveSystem draws them where they walk): their seated figure isn't drawn.
+   * Replaces the set before; [] = everyone at their desk again.
+   */
+  setLivePeople(personIds: Iterable<string>): void {
+    const next = new Set([...personIds].map(String));
+    if (next.size === this.livePeople.size && [...next].every((id) => this.livePeople.has(id))) return;
+    this.livePeople = next;
+    this.figureKey = null;
+    this.lastChoice = -Infinity;
+  }
+
+  /** v0.16.1: at most this many seated full characters (LayoutEngine: the device's cap less the live ones drawn full). */
+  setMaxFull(n: number): void {
+    const next = Math.max(0, Math.floor(Number(n) || 0));
+    if (next === this.maxFull) return;
+    this.maxFull = next;
+    this.lastChoice = -Infinity;
+  }
+
+  get maxFullCharacters(): number {
+    return this.maxFull;
+  }
+
+  /** v0.16.1: how many seated people near would be full characters with no cap. */
+  get wantedFull(): number {
+    return this.wanted;
+  }
+
+  /**
+   * v0.16.1: a character file for someone drawn elsewhere (a live person): loaded = the file, else null and it
+   * is queued (as a person's: unloaded again when nobody near has used it for a while, unlike loadFile's).
+   * 'failed': it can't be loaded.
+   */
+  useFile(url: string): LoadedFile | 'failed' | null {
+    if (this.disposed || !url) return null;
+    this.lastUsed.set(url, performance.now());
+    const file = this.fileFor(url);
+    if (file === 'failed') return 'failed';
+    return file && !(file instanceof Promise) ? file : null;
+  }
+
+  /** v0.16.1: a character file's state, without asking for it: 'loaded' | 'loading' | 'failed' | null (not asked for). */
+  fileState(url: string): 'loaded' | 'loading' | 'failed' | null {
+    const f = this.files.get(url);
+    if (!f) return this.queue.includes(url) ? 'loading' : null;
+    return f === 'failed' ? 'failed' : f instanceof Promise ? 'loading' : 'loaded';
+  }
+
   /** Show people (true) or nothing at all (false: the simple look). */
   setEnabled(on: boolean): void {
     if (this.enabled === !!on) return;
@@ -415,7 +468,7 @@ export class CharacterSystem {
   }
 
   private isShown(p: PlacedPerson): boolean {
-    if (!this.enabled || p.personId === this.hiddenPerson) return false;
+    if (!this.enabled || p.personId === this.hiddenPerson || this.livePeople.has(p.personId)) return false;
     const desk = this.options.getObjectMesh(p.deskId);
     return !!desk && !desk.isDisposed() && desk.isEnabled();
   }
@@ -432,6 +485,8 @@ export class CharacterSystem {
     // v0.16.0: the point looked at (from above the orbit's target; walking a point ahead of the camera)
     const looked = (camera as { getTarget?: () => { x: number; y: number; z: number } }).getTarget?.() ?? null;
     this.chosen = chooseFullCharacters(shown, eye, floor, { max: this.maxFull, current: this.full.keys(), focus: looked });
+    this.wanted = this.chosen.length < this.maxFull ? this.chosen.length
+      : chooseFullCharacters(shown, eye, floor, { max: Infinity, current: this.full.keys(), focus: looked }).length;
     const wanted = new Set(this.chosen);
     for (const id of [...this.full.keys()]) if (!wanted.has(id)) this.removeFull(id);
     for (const id of this.chosen) {
@@ -859,7 +914,7 @@ function aimBone(root: TransformNode, bone: TransformNode | undefined, toward: T
 }
 
 /** The neutral simple figure (no face, no clothes), facing +Z, its feet / the seat's foot at the origin. */
-function buildFigure(scene: Scene, seated: boolean, mat: StandardMaterial): Mesh {
+export function buildFigure(scene: Scene, seated: boolean, mat: StandardMaterial): Mesh {
   const parts: Mesh[] = [];
   const BODY = [0.48, 0.53, 0.6, 1];
   const HEAD = [0.79, 0.81, 0.85, 1];

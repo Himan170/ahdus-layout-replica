@@ -287,6 +287,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const owned = startMode !== null;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+  /** v0.16.1: the live people's name tags (engine.live draws them here, over the canvas). */
+  const tagLayerRef = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
   const keysHintId = useId();
   const [engine, setEngine] = useState<LayoutEngine | null>(null);
@@ -470,6 +472,13 @@ export function LayoutViewer(props: LayoutViewerProps) {
     // mode and quality are applied below / fixed at creation
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // v0.16.1: the live people's name tags go into our layer over the canvas
+  useEffect(() => {
+    if (!engine) return undefined;
+    engine.live.setTagLayer(tagLayerRef.current);
+    return () => engine.live.setTagLayer(null);
+  }, [engine]);
 
   // Load (or reload) the layout when it changes
   const { layout, companyId, layoutId } = props;
@@ -874,6 +883,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
         aria-label={walking ? 'Layout walkthrough' : 'Layout view'}
         style={{ width: '100%', height: '100%', display: 'block', outline: 'none', touchAction: 'none' }}
       />
+      <div ref={tagLayerRef} data-live-tags="" aria-hidden="true" style={styles.tagLayer} />
       {error && <div role="alert" style={styles.center}>{error}</div>}
       {!error && progress && !progress.currentFloorReady && (
         <div role="status" data-build-progress="start" style={styles.center}>
@@ -1098,6 +1108,8 @@ const panel: CSSProperties = {
 };
 const styles: Record<string, CSSProperties> = {
   center: { ...panel, top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
+  // v0.16.1: name tags of the live people (LiveSystem), under every panel and button of the viewer
+  tagLayer: { position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' },
   crosshair: {
     position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
     color: '#fff', font: '22px/1 system-ui, sans-serif', textShadow: '0 0 3px #000', pointerEvents: 'none',
