@@ -8,7 +8,7 @@
  * shown): building slices and a hidden tab say nothing about drawing people.
  */
 
-import { nextFullCap, windowFps, CAP_WINDOW_MS, FULL_CAP_MIN } from '../../play/live';
+import { nextFullCap, windowFps, CAP_WINDOW_MS, FULL_CAP_MIN, FULL_CAP_MAX } from '../../play/live';
 
 export interface FullCapOptions {
   weak: () => boolean;
@@ -17,7 +17,7 @@ export interface FullCapOptions {
   /** Frames count now? */
   measuring: () => boolean;
   windowMs?: number;
-  /** A fixed cap (tests, a page's choice): no measuring. */
+  /** A fixed cap (tests, a page's choice): no measuring; at most FULL_CAP_MAX. */
   fixed?: number | null;
 }
 
@@ -31,7 +31,9 @@ export class FullCapMonitor {
 
   constructor(options: FullCapOptions) {
     this.options = options;
-    if (typeof options.fixed === 'number') this.state.cap = Math.max(0, Math.floor(options.fixed));
+    if (typeof options.fixed === 'number') {
+      this.state.cap = Number.isFinite(options.fixed) ? Math.min(FULL_CAP_MAX, Math.max(0, Math.floor(options.fixed))) : FULL_CAP_MIN;
+    }
   }
 
   get cap(): number {

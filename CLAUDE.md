@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1470, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1481, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -1202,7 +1202,9 @@ Nothing is saved. Studio is unchanged.
   `list()` → `{ personId, name, floor, state, drawn: 'full' | 'figure' | null, at, atDesk }`, `count`. The embed's
   `workplace.live` (+ `characterManifest.resolveLive`: name, department, character (`fileOf` the FULL file) and
   clothing default to setPeople's entry; only those fields are kept, never an email); its `update` adds again someone
-  dropped by silence. States `LIVE_STATES`: idle, walk, run, wave, overview.
+  dropped by silence. States `LIVE_STATES`: idle, walk, run, wave, overview. Bad data (no id, NaN / huge positions, a
+  floor id that isn't one, unknown states, names > 120 characters) is cleaned or left out (`cleanLive`); names reach the
+  page only as `textContent`. Someone with no desk just disappears when removed / silent.
 - **Desks:** `CharacterSystem.setLivePeople(ids)` hides their seated figures (`isShown`), except the player's own
   (`getMe`). Removed, `clear()` or silent `SILENT_MS` 10 s = seated again.
 - **Where they are drawn** (`play/live.js`, PURE): `createTrack`: the samples' path `LIVE_DELAY_MS` 250 ms behind,
@@ -1222,7 +1224,7 @@ Nothing is saved. Studio is unchanged.
   `FULL_CAP_MIN` 12; per `CAP_WINDOW_MS` 3 s window of frame times (p90, `windowFps`; only once allBuilt and the page is
   visible): ≥ `CAP_RAISE_FPS` 50 twice (`CAP_RAISE_AFTER`) while more are wanted = +4 (`FULL_CAP_STEP`) up to
   `FULL_CAP_MAX` 24, < `CAP_LOWER_FPS` 35 = −4, then held `CAP_HOLD_MS` 30 s. Weak device (`engine.weakDevice`) = 12;
-  option `fullCharacters` = fixed. Each frame CharacterSystem gets `setMaxFull(cap − live.fullCount)`. `history` (≤ 50).
+  option `fullCharacters` = fixed (≤ 24; any state given is clamped to 12–24). Each frame CharacterSystem gets `setMaxFull(cap − live.fullCount)`. `history` (≤ 50).
 - **Your pose** (`LayoutEngine.getPose()`, the `pose` event, the embed's `onEvent('pose')` + `workplace.pose`): view =
   `{ state: 'overview', floor }`; walking = `poseOf` (cm, 0.01 rad; y relative to the floor) with `liveStateOf(gait,
   speed, flying)`; `createPoseThrottle`: ≤ `POSE_RATE` 5 / s, only when moved 5 cm / turned 0.035 rad / state changed,

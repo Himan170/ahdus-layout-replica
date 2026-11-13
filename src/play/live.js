@@ -316,7 +316,9 @@ export function windowFps(frameMs) {
  * @param {{ fps: number | null, now: number, weak?: boolean, wanted?: number }} window
  */
 export function nextFullCap(state, { fps, now, weak = false, wanted = Infinity }) {
-  const s = { cap: state?.cap ?? FULL_CAP_MIN, good: state?.good ?? 0, holdUntil: state?.holdUntil ?? 0 };
+  // never above FULL_CAP_MAX nor below FULL_CAP_MIN, whatever state it is given
+  const was = Number.isFinite(state?.cap) ? state.cap : FULL_CAP_MIN;
+  const s = { cap: Math.min(FULL_CAP_MAX, Math.max(FULL_CAP_MIN, was)), good: state?.good ?? 0, holdUntil: state?.holdUntil ?? 0 };
   if (weak) return { cap: FULL_CAP_MIN, good: 0, holdUntil: s.holdUntil };
   if (fps === null || !Number.isFinite(fps)) return s;
   if (fps < CAP_LOWER_FPS) {

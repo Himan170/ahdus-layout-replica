@@ -3,6 +3,7 @@ import {
   cleanLive, cleanSample, createTrack, chooseLiveDrawn, standingSpot, createPoseThrottle, poseOf, liveStateOf,
   nextFullCap, windowFps, wrapAngle, lerpAngle,
   LIVE_DELAY_MS, SNAP_DISTANCE, MAX_LIVE_DRAWN, KEEPALIVE_MS, FULL_CAP_MIN, FULL_CAP_MAX, CAP_HOLD_MS, STAND_BEHIND_SEAT,
+  LIVE_TEXT_MAX,
 } from '../live';
 
 /** Run a track's frames from t0 to t1 every 16 ms; the last drawn spot. */
@@ -213,5 +214,71 @@ describe('the full-character cap, from the frame rate', () => {
     expect(s.cap).toBe(12);
     expect(nextFullCap(s, { fps: null, now: 0, wanted: 30 })).toEqual(s);
     expect(nextFullCap(s, { fps: 10, now: 0, wanted: 30 }).cap).toBe(12);
+  });
+});
+
+describe('bad live data is ignored safely (v0.16.1 review)', () => {
+  it('no person id, not an object: not a live person', () => {
+    for (const raw of [null, undefined, 42, 'asha', [], {}, { personId: '' }, { personId: '   ' }, { personId: {} }]) {
+      expect(cleanLive(raw)).toBeNull();
+    }
+  });
+
+  it('missing, NaN, infinite or huge positions: no position (never drawn at NaN)', () => {
+    for (const bad of [
+      {}, { x: 1 }, { z: 1 }, { x: NaN, z: 1 }, { x: 1, z: Infinity }, { x: '1', z: 'a' }, { x: 1e9, z: 0 },
+      { x: null, z: null }, { x: {}, z: [] },
+    ]) {
+      const s = cleanSample({ floor: 0, state: 'walk', ...bad });
+      expect(s.x).toBeUndefined();
+      expect(s.z).toBeUndefined();
+    }
+    const s = cleanSample({ floor: 0, x: 1, z: 2, y: NaN, yaw: Infinity, state: 'walk' });
+    expect(s).toEqual({ floor: 0, state: 'walk', x: 1, z: 2, yaw: 0 }); // no y, facing 0
+    expect(cleanSample({ floor: 0, x: 1, z: 2, y: 1e6 }).y).toBeUndefined();
+  });
+
+  it('a floor that is not a floor id, a state it does not know: left out', () => {
+    for (const floor of [-1, 1.5, NaN, Infinity, 'up', null, {}]) expect(cleanSample({ floor }).floor).toBeNull();
+    expect(cleanSample({ floor: '2' }).floor).toBe(2);
+    for (const state of ['dance', '', 3, null, {}, 'WALK']) expect(cleanSample({ state }).state).toBeNull();
+  });
+
+  it('very long or odd names: cut to the limit, never anything but text', () => {
+    const p = cleanLive({ personId: 'p'.repeat(500), name: 'A'.repeat(5000), department: { html: '<b>' }, clothing: 'red' });
+    expect(p.personId).toHaveLength(LIVE_TEXT_MAX);
+    expect(p.name).toHaveLength(LIVE_TEXT_MAX);
+    expect(p.department).toBe('');
+    expect(p.clothing).toBeNull();
+    expect(cleanLive({ personId: 'x', name: '<img src=x onerror=alert(1)>' }).name).toBe('<img src=x onerror=alert(1)>');
+  });
+});
+
+describe('the full-character cap does not flip up and down (v0.16.1 review)', () => {
+  const step = (s, fps, now) => nextFullCap(s, { fps, now, wanted: 99 });
+
+  it('smooth and slow windows in turn: it never rises (a raise needs two smooth windows in a row)', () => {
+    let s = { cap: FULL_CAP_MIN };
+    for (let i = 0; i < 20; i++) s = step(s, i % 2 ? 40 : 60, i * 3000);
+    expect(s.cap).toBe(FULL_CAP_MIN);
+  });
+
+  it('one step after two smooth windows, at once down when slow, then it waits 30 s', () => {
+    let s = step(step({ cap: FULL_CAP_MIN }, 60, 0), 60, 3000);
+    expect(s.cap).toBe(16);
+    s = step(s, 20, 6000); // one slow window: down at once
+    expect(s.cap).toBe(12);
+    for (let t = 9000; t < 6000 + CAP_HOLD_MS; t += 3000) s = step(s, 120, t);
+    expect(s.cap).toBe(12); // held
+  });
+
+  it('never above 24, never below 12: many smooth windows, or a state given from outside', () => {
+    let s = { cap: FULL_CAP_MIN };
+    for (let i = 0; i < 100; i++) s = step(s, 144, i * 3000);
+    expect(s.cap).toBe(FULL_CAP_MAX);
+    expect(step({ cap: 400 }, 60, 0).cap).toBe(FULL_CAP_MAX);
+    expect(step({ cap: 400 }, 20, 0).cap).toBe(FULL_CAP_MAX - 4);
+    expect(step({ cap: -5 }, 40, 0).cap).toBe(FULL_CAP_MIN);
+    expect(step({ cap: NaN }, 40, 0).cap).toBe(FULL_CAP_MIN);
   });
 });

@@ -287,3 +287,82 @@ describe('name tags near the side of the view (v0.16.1)', () => {
     expect(clampTagX(50, 40, 0)).toBe(50);
   });
 });
+
+describe('the v0.16.1 review', () => {
+  it('a name with HTML in it is shown as plain text, never as markup', () => {
+    const { live } = systems({ characters: false });
+    const layer = document.createElement('div');
+    live.setTagLayer(layer);
+    const evil = '<img src=x onerror=alert(1)>';
+    live.add({ personId: 'mallory', name: evil, floor: 0, x: 0, z: 4, state: 'idle' });
+    runTo(live, clock + 400);
+    (live as any).placeTags();
+    expect(layer.textContent).toBe(evil);
+    expect(layer.querySelector('img')).toBeNull();
+    expect(layer.querySelector('[data-live-tag="mallory"]')!.innerHTML).toContain('&lt;img');
+    // a new name later: the same, as text
+    live.update('mallory', { name: '<script>alert(2)</script>' });
+    (live as any).placeTags();
+    expect(layer.querySelector('script')).toBeNull();
+    expect(layer.textContent).toBe('<script>alert(2)</script>');
+    live.dispose();
+  });
+
+  it('a live person with no desk: removed or silent 10 s, they simply disappear (no desk to sit at)', () => {
+    const { characters, live } = systems();
+    characters!.setPeople([person('asha', 'd1')]);
+    const layer = document.createElement('div');
+    live.setTagLayer(layer);
+    live.add({ personId: 'visitor', name: 'Visitor', floor: 0, x: 1, z: 5, state: 'idle' });
+    live.add({ personId: 'guest', name: 'Guest', floor: 0, x: -1, z: 5, state: 'idle' });
+    live.add({ personId: 'deskless', name: 'Deskless', floor: 0, state: 'overview' }); // from above, no desk
+    runTo(live, clock + 400);
+    (live as any).placeTags();
+    expect(live.list().filter((p) => p.drawn).map((p) => p.personId).sort()).toEqual(['guest', 'visitor']);
+    expect(at(live, 'deskless')).toMatchObject({ drawn: null, at: null }); // nowhere to stand up from
+    expect(seatedShown(characters!)).toEqual(['asha']); // nobody else is seated, Asha untouched
+    expect(live.remove('visitor')).toBe(true);
+    runTo(live, clock + 400);
+    (live as any).placeTags();
+    expect(live.list().map((p) => p.personId).sort()).toEqual(['deskless', 'guest']);
+    expect(layer.querySelector('[data-live-tag="visitor"]')).toBeNull();
+    expect(seatedShown(characters!)).toEqual(['asha']);
+    // the others go silent
+    runTo(live, clock + SILENT_MS + 500);
+    (live as any).placeTags();
+    expect(live.list()).toEqual([]);
+    expect(layer.querySelectorAll('[data-live-tag]')).toHaveLength(0);
+    expect((scene.getMeshByName('live_people') as Mesh | null)?.isEnabled() ?? false).toBe(false);
+    expect(seatedShown(characters!)).toEqual(['asha']);
+    live.dispose();
+    characters!.dispose();
+  });
+
+  it('bad live data is ignored safely: nothing thrown, nothing drawn at NaN, nobody on a floor that does not exist', () => {
+    const { characters, live } = systems();
+    characters!.setPeople([person('asha', 'd1')]);
+    for (const raw of [null, undefined, 7, 'x', {}, { personId: '' }]) expect(live.add(raw as any)).toBe(false);
+    expect(live.add({ personId: 'nan', floor: 0, x: NaN, z: 1, yaw: NaN, state: 'walk' } as any)).toBe(true);
+    expect(live.add({ personId: 'far', floor: 99, x: 1, z: 1, state: 'walk' })).toBe(true);
+    expect(live.add({ personId: 'odd', floor: -3 as any, x: Infinity, z: 'a' as any, state: 'fly' as any, name: 'N'.repeat(9999) })).toBe(true);
+    expect(live.update('nan', null as any)).toBe(true);
+    expect(live.update('nan', { x: Infinity, z: -Infinity, y: NaN } as any)).toBe(true);
+    expect(live.update('nobody', { x: 1, z: 1 })).toBe(false);
+    expect(() => runTo(live, clock + 1000)).not.toThrow();
+    const list = live.list();
+    expect(list.map((p) => p.personId).sort()).toEqual(['far', 'nan', 'odd']);
+    expect(list.every((p) => !p.drawn)).toBe(true); // no position here, or a floor that isn't shown
+    expect(list.find((p) => p.personId === 'odd')!.name).toHaveLength(120);
+    for (const p of list) if (p.at) expect([p.at.x, p.at.y, p.at.z].every(Number.isFinite)).toBe(true);
+    const figure = scene.getMeshByName('live_people') as Mesh | null;
+    if (figure?.thinInstanceCount) expect([...figure.thinInstanceGetWorldMatrices().flatMap((m) => [...m.m])].every(Number.isFinite)).toBe(true);
+    expect(seatedShown(characters!)).toEqual(['asha']);
+    live.dispose();
+    characters!.dispose();
+  });
+
+  it('the cap never goes above 24, even when a page asks for more', () => {
+    expect(new FullCapMonitor({ weak: () => false, wanted: () => 99, measuring: () => true, fixed: 100 }).cap).toBe(24);
+    expect(new FullCapMonitor({ weak: () => false, wanted: () => 99, measuring: () => true, fixed: NaN }).cap).toBe(12);
+  });
+});
