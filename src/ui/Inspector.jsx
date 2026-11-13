@@ -32,6 +32,7 @@ import { describeRoom, describeObject, describeAccessibilityRoutes } from '../ut
 import SeatSection from './SeatSection';
 import { itemSize, scaleForSize, sizeLimits } from './itemSize';
 import { departmentOptions, departmentPatch, MAX_DEPARTMENT_NAME } from './roomDepartment';
+import { isCommitEnter, isComposing } from '../utils/keys';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 
@@ -78,7 +79,7 @@ function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2,
               ? Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v)) : v);
           }}
           onBlur={() => setDraft(null)}
-          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+          onKeyDown={(e) => { if (isCommitEnter(e)) e.currentTarget.blur(); }}
         />
         {suffix && <span className="insp-field__suffix">{suffix}</span>}
       </span>
@@ -95,7 +96,7 @@ function NameInput({ value, placeholder, onChange }) {
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur(); }}
+      onKeyDown={(e) => { if (isCommitEnter(e) || (e.key === 'Escape' && !isComposing(e))) e.currentTarget.blur(); }}
     />
   );
 }
@@ -514,7 +515,7 @@ function LayersBody({
           aria-label="Search layers"
           value={query}
           onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.stopPropagation(); setSearch(''); } }}
+          onKeyDown={(e) => { if (e.key === 'Escape' && query && !isComposing(e)) { e.stopPropagation(); setSearch(''); } }}
         />
       </div>
       {searching && (

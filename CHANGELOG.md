@@ -3,6 +3,14 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## Unreleased (v0.16.2)
+
+- **Typing names with an input tool (Hindi, Japanese, Chinese …):** the Enter that picks a word no longer saves
+  the name half typed, and the Esc that drops a word no longer cancels the edit or closes the menu: the layout and
+  workplace name, company and floor names, the Inspector's name and number fields, Floor height, Layers / library /
+  catalog / people search, the viewer's Find box, popovers and dialogs (`utils/keys.js`: `isCommitEnter`,
+  `isComposing`).
+
 ## 0.16.1 (13 Nov 2026): live presence
 
 - **See who else is here:** the page can tell the 3D view who has it open right now (AHDUS: its WebSocket,

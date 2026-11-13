@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
+import { isComposing } from '../utils/keys';
 
 const ALL = '__all__';
 
@@ -61,7 +62,7 @@ export default function CatalogPicker({
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             // Esc clears the search first
-            if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); }
+            if (e.key === 'Escape' && query && !isComposing(e)) { e.stopPropagation(); setQuery(''); }
           }}
         />
         {query && (

@@ -22,6 +22,7 @@ import {
 import { LAYOUT_TEMPLATES } from '../templates';
 import RoomPicture from './RoomPicture';
 import ItemPicture from './ItemPicture';
+import { isComposing } from '../utils/keys';
 
 
 const PAGES = {
@@ -38,7 +39,7 @@ function SearchBox({ value, onChange, placeholder, label }) {
       <Search size={16} strokeWidth={1.75} aria-hidden />
       <input type="text" placeholder={placeholder} aria-label={label} value={value}
         onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Escape' && value) { e.stopPropagation(); onChange(''); } }} />
+        onKeyDown={(e) => { if (e.key === 'Escape' && value && !isComposing(e)) { e.stopPropagation(); onChange(''); } }} />
       {value && (
         <button className="ui-icon-btn catalog__clear" aria-label="Clear search" title="Clear search" onClick={() => onChange('')}>
           <X size={14} strokeWidth={1.75} />

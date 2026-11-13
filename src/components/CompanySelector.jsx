@@ -28,6 +28,7 @@ import {
 } from '../services/apiService';
 import { downloadText } from '../ui/download';
 import '../ui/selector.css';
+import { isCommitEnter, isComposing } from '../utils/keys';
 
 const ICON = { size: 16, strokeWidth: 1.75, 'aria-hidden': true };
 
@@ -103,7 +104,7 @@ function CreateRow({ placeholder, value, onChange, onCreate, disabled, canCreate
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && canCreate && onCreate()}
+        onKeyDown={(e) => isCommitEnter(e) && canCreate && onCreate()}
         disabled={disabled}
       />
       <button className="ui-btn is-primary" onClick={onCreate} disabled={disabled || !canCreate}>
@@ -310,8 +311,8 @@ export default function CompanySelector({ onEnterEditor, initialCompany = null }
                           onFocus={(e) => e.target.select()}
                           onChange={(e) => setRenaming({ ...renaming, name: e.target.value })}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleRenameCompany();
-                            if (e.key === 'Escape') setRenaming(null);
+                            if (isCommitEnter(e)) handleRenameCompany();
+                            if (e.key === 'Escape' && !isComposing(e)) setRenaming(null);
                           }}
                         />
                         <button className="ui-btn is-primary" onClick={handleRenameCompany}>Save</button>
