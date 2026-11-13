@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1438, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1481, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -122,6 +122,14 @@ npm run e2e:characters # 39     e2e/characters-smoke.mjs (NO dev server: builds 
                      #                                       the "seated" copy, a clip set), Type / Sit, at most 8
                      #                                       play, clothing, grey figures, Idle / Walk / Run / Wave (H);
                      #                                       SHOTS=<dir>: 1440×900 + 390×844 screenshots)
+npm run e2e:live     # 23 checks   e2e/live-smoke.mjs      (NO dev server: builds the embed; fake live people, no server:
+                     #                                       a live person's desk empty, drawn where they walk ~250 ms
+                     #                                       behind (never ahead), a 5 m jump snaps, from above = beside
+                     #                                       their desk, name tags (no email), full character from the
+                     #                                       FULL file, Walk / Wave, remove / silent 10 s = seated, heard
+                     #                                       again = live, the nearest 30, per floor, clear(); your pose
+                     #                                       ≤ 5 / s + keepalive + wave; the cap = 12 on SwiftShader;
+                     #                                       phone tags inside the view; SHOTS=<dir>: screenshots)
 npm run e2e:navigation # 20 checks e2e/navigation-smoke.mjs (viewer.html, the Meridian-shaped layout; MERIDIAN=<layout.json>
                      #                                       MERIDIAN_PEOPLE=<people.json> = the real one: the card's Show route /
                      #                                       Take me there, from above = from the entrance, the line (≤ 2
@@ -496,6 +504,12 @@ src/embed/characterManifest.js     PURE: the character manifest (v1 flat map; v2
                                    seated copies), setPeople's list, neutralFor (the even default by personId)
 src/engine/systems/ClipLibrary.ts  v0.16.0: clips baked once per character file (bakeClip: by bone names, under the glTF
                                    root's mirror, limbs aligned to the clip's rest), Animator (cross-fades), holdClip
+src/play/live.js                   PURE (v0.16.1): live presence: cleanLive / cleanSample, createTrack (the 250 ms
+                                   glide + snap), chooseLiveDrawn (nearest 30), standingSpot, createPoseThrottle / poseOf
+                                   (your pose ≤ 5 / s), nextFullCap / windowFps (the full-character limit from frames)
+src/engine/systems/LiveSystem.ts   engine.live (v0.16.1): live people drawn (figures `live_people`, full characters
+                                   `live_<id>` via animatedCharacter), their desks emptied, name tags (DOM, `[data-live-tag]`)
+src/engine/systems/FullCap.ts      FullCapMonitor (v0.16.1): the full-character limit measured from the frame rate
 src/play/outfit.js                 PURE (v0.16.0): the Wardrobe's clothing on Rocketbox parts (cleanClothing, parts, tints)
 src/utils/gltfExtensions.js        The glTF extensions we load (webp, specular, unlit; v0.16.0 meshopt + quantization,
                                    the npm decoder bundled, never Babylon's CDN)
@@ -1179,6 +1193,46 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
   figure; no clip, a failed clip or manifest `walk: false` = the standing pose (slides). Our test clip:
   `public/assets/characters/placeholder-walk.glb` (`scripts/make-placeholder-character.mjs`: 1.2 m/s).
 
+## Live presence (v0.16.1, how it works)
+
+Part A of Himan's v0.16.1 request (13 Nov 2026); Part B (AHDUS-FRONTEND: the WebSocket, Hide me) comes after the tag.
+The viewer / embed only; **the engine never connects anywhere**: the page adds the others and sends on your pose.
+Nothing is saved. Studio is unchanged.
+- **API:** `engine.live` (`systems/LiveSystem.ts`): `add(raw)`, `update(id, patch)` (false: unknown), `remove`, `clear`,
+  `list()` → `{ personId, name, floor, state, drawn: 'full' | 'figure' | null, at, atDesk }`, `count`. The embed's
+  `workplace.live` (+ `characterManifest.resolveLive`: name, department, character (`fileOf` the FULL file) and
+  clothing default to setPeople's entry; only those fields are kept, never an email); its `update` adds again someone
+  dropped by silence. States `LIVE_STATES`: idle, walk, run, wave, overview. Bad data (no id, NaN / huge positions, a
+  floor id that isn't one, unknown states, names > 120 characters) is cleaned or left out (`cleanLive`); names reach the
+  page only as `textContent`. Someone with no desk just disappears when removed / silent.
+- **Desks:** `CharacterSystem.setLivePeople(ids)` hides their seated figures (`isShown`), except the player's own
+  (`getMe`). Removed, `clear()` or silent `SILENT_MS` 10 s = seated again.
+- **Where they are drawn** (`play/live.js`, PURE): `createTrack`: the samples' path `LIVE_DELAY_MS` 250 ms behind,
+  never ahead, a spring (`FOLLOW_RATE`), the yaw the short way round; > `SNAP_DISTANCE` 5 m or another floor = snap
+  at that sample. `overview` = `standingSpot(seat)`: `STAND_BEHIND_SEAT` 0.55 m behind their chair, facing the desk
+  (`seatPose` of their desk when CharacterSystem has not placed them). No position = not drawn (another floor).
+- **Who is drawn** (every 300 ms): `chooseLiveDrawn`: the nearest `MAX_LIVE_DRAWN` 30 on the floor shown (to the walker,
+  else the camera's target); full characters by `chooseFullCharacters` with the live share of the cap (files through
+  `CharacterSystem.useFile` / `fileState`, clips by `ClipLibrary`, `PlayerCharacter.animatedCharacter(…, { name:
+  'live_<id>', metadata: { livePersonId } })`, `update(dt, speed, false, { gait })`, `wave()` on 'wave'); the rest one
+  thin-instance mesh `live_people` (material `live_figure`, a little green).
+- **Name tags:** `LiveSystem.setTagLayer(el)` (LayoutViewer's `[data-live-tags]`, pointer-events none, aria-hidden):
+  `div[data-live-tag=<id>]` = a green dot + the name, placed after each render; hidden further than `TAG_RANGE` 25 m,
+  off screen, or behind a room mesh (a ray every 250 ms; doors and pick panes don't count); `clampTagX` keeps a tag
+  `TAG_EDGE` 4 px inside the view.
+- **The cap** (`systems/FullCap.ts` `FullCapMonitor`, `play/live.js` `nextFullCap`): `engine.fullCap.cap` starts at
+  `FULL_CAP_MIN` 12; per `CAP_WINDOW_MS` 3 s window of frame times (p90, `windowFps`; only once allBuilt and the page is
+  visible): ≥ `CAP_RAISE_FPS` 50 twice (`CAP_RAISE_AFTER`) while more are wanted = +4 (`FULL_CAP_STEP`) up to
+  `FULL_CAP_MAX` 24, < `CAP_LOWER_FPS` 35 = −4, then held `CAP_HOLD_MS` 30 s. Weak device (`engine.weakDevice`) = 12;
+  option `fullCharacters` = fixed (≤ 24; any state given is clamped to 12–24). Each frame CharacterSystem gets `setMaxFull(cap − live.fullCount)`. `history` (≤ 50).
+- **Your pose** (`LayoutEngine.getPose()`, the `pose` event, the embed's `onEvent('pose')` + `workplace.pose`): view =
+  `{ state: 'overview', floor }`; walking = `poseOf` (cm, 0.01 rad; y relative to the floor) with `liveStateOf(gait,
+  speed, flying)`; `createPoseThrottle`: ≤ `POSE_RATE` 5 / s, only when moved 5 cm / turned 0.035 rad / state changed,
+  a keepalive every `KEEPALIVE_MS` 4 s; only while someone listens and the current floor is built.
+- Tests: `play/__tests__/live.test.js`, `engine/__tests__/LiveSystem.test.ts` (NullEngine + jsdom, the placeholder
+  files), `LayoutEngine.test.ts` ("live presence"), `embed/__tests__/characterManifest.test.js` (resolveLive),
+  `npm run e2e:live`.
+
 ## Characters, clips and clothing (v0.16.0, how they work)
 
 `private-docs/CHARACTERS_V016_PLAN.md` (decisions in its section 1). Builds on "People at their desks" below.
@@ -1606,6 +1660,13 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: live presence, Part A (v0.16.1, 13 Nov 2026, branch `feature/v0.16.1-live-presence`)
+
+The embed's `live` API (people who have the page open now, drawn where they walk, ~250 ms behind, gliding, a 5 m jump
+snaps, beside their desk from above, name tags, the nearest 30), the `pose` event (your walk ≤ 5 / s), the
+full-character limit measured from the frame rate (12 to 24; weak devices 12): see "Live presence". e2e:live 23 checks.
+Part B (AHDUS-FRONTEND WebSocket + Hide me) after the v0.16.1 tag.
 
 ## DONE: characters, clips and clothing (v0.16.0, 12 Nov 2026, branch `feature/v0.16.0-characters`)
 

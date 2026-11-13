@@ -106,6 +106,8 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `stopRoute()` | Ends Show route / Take me there (`false`: there was none). |
 | `startTour({ follow? })` | The company tour (section 4f), from the main entrance (from `view` it starts walking there). `follow: 'auto'` (default) = **Walk me**, `'self'` = **I'll walk**. Returns `{ count, minutes, length }` or `{ problem, message }`. |
 | `stopTour()` | Ends the tour (`false`: none); the user stays where they are, walking. |
+| `live` | v0.16.1: the people who have the page open now: `add`, `update`, `remove`, `clear`, `list()`, `count` (section 4h). |
+| `pose` | v0.16.1: your own pose now, `{ state, floor, x?, y?, z?, yaw? }` (the `pose` event sends it as it changes; section 4h). |
 | `destroy()` | Removes the viewer: the element is as you gave it, the 3D engine, its keys and its actions are gone. Safe to call twice. |
 
 Calls made before `ready` (`setFloor`, `focusOn`, `highlight`) wait for it and return `undefined`. After `destroy()` every call returns `false` (or `[]`).
@@ -411,6 +413,67 @@ const workplace = AHDUSWorkplace.mount(el, {
 });
 ```
 
+### 4h. Live presence: who has the page open now (`live`, the `pose` event)
+
+v0.16.1. The people who have the page open right now are drawn where they walk, with their name over their head;
+everyone else sits at their desk (section 4b). **The viewer never connects anywhere itself**: your page brings the
+others (AHDUS: its WebSocket) and sends on your own walk. Nothing is saved.
+
+**The others** (`workplace.live`; can be called before `ready`):
+
+| Call | What it does |
+|---|---|
+| `live.add({ personId, floor, x, z, y?, yaw, state, name?, department?, assetReference?, clothing? })` | Someone opened the page (or again: their samples start again). Their seated figure leaves their desk. `name`, `department`, `assetReference` and `clothing` default to `setPeople`'s entry with the same `personId` (their character comes from the manifest, the full file, not the seated copy). Only these fields are kept. |
+| `live.update(personId, { floor, x, z, y?, yaw, state })` | A new sample (all fields optional; an empty `{}` is a keepalive). `false`: never added. Someone who sat back down after 10 s of silence is live again with it. |
+| `live.remove(personId)` | They left: back at their desk, their tag gone. |
+| `live.clear()` | Everyone back at their desk (the connection dropped: show no error, connect again quietly). |
+| `live.list()` | `[{ personId, name, floor, state, drawn: 'full' \| 'figure' \| null, at, atDesk }]`. |
+| `live.count` | How many are live. |
+
+- `state`: `'idle'`, `'walk'`, `'run'`, `'wave'` (their clip), or `'overview'` = looking from above: they **stand up
+  beside their desk** (behind their chair), no `x` / `z` needed. A sample with no `x` / `z` and another state = on
+  the page but on a floor you can't see: their desk stays empty, they are not drawn.
+- `x`, `z` in metres (the layout's), `y` relative to their `floor` (0 when they stand on it; more on stairs), `yaw`
+  in radians, `floor` the floor's id (0 = ground).
+- Each person is drawn **about 250 ms behind** the samples, gliding between them (never ahead of them); a jump over
+  5 m, or to another floor, snaps there at once. Send what their browser sent, as soon as it arrives.
+- **Silent for 10 s** (no `add` / `update`): they sit back down by themselves. Send a keepalive (any update) at least
+  every few seconds; the `pose` event below already does every 4 s.
+- The nearest **30** on the floor shown are drawn (the rest wait their turn); the nearest are full characters (with
+  people at their desks: see the limit below), the others simple figures. Name tags: the name only, hidden behind
+  walls, further than 25 m and off screen. Never pass the signed-in user (`player`): you are never drawn twice.
+
+**Your own walk** (to send to the others):
+
+- `onEvent('pose', { state, floor, x?, y?, z?, yaw? })`: walking, at most **5 times a second** and only when you moved
+  (5 cm), turned (2°) or your clip changed (`idle`, `walk`, `run`, `wave`: H), and a keepalive every 4 s standing
+  still. From above: `{ state: 'overview', floor }` (the floor shown), when it changes and every 4 s. Positions are
+  rounded to 1 cm, `yaw` to 0.01 rad: a pose is well under 100 bytes as JSON. No event until the floor you are on is
+  built.
+- `workplace.pose`: your pose now (null before `ready`).
+- A page that lists its events on screen should leave `pose` out: it comes often, and changing the page that often
+  can stop the page's own smooth scrolling (embed-test.html skips it).
+
+**Full characters:** at most 12 at first. The limit is measured from the frame rate, never guessed from the device:
+windows of 3 s; smooth twice in a row (50 fps or more) while more people are near = 4 more, up to 24; under 35 fps =
+4 fewer, then it holds 30 s. A weak device (software WebGL, `quality: 'low'`, `weakDevice: true`) keeps 12. Live
+people get theirs first.
+
+```js
+// AHDUS's 3D Company page: the WebSocket's messages → the view; your walk → the WebSocket
+socket.onmessage = ({ data }) => {
+  const m = JSON.parse(data);
+  if (m.type === 'join') workplace.live.add({ personId: m.personId, ...m.pose });
+  if (m.type === 'pose') workplace.live.update(m.personId, m.pose);
+  if (m.type === 'leave') workplace.live.remove(m.personId);
+};
+socket.onclose = () => workplace.live.clear(); // everyone seated, retry quietly
+const workplace = AHDUSWorkplace.mount(el, {
+  layoutUrl, characters: { manifestUrl },
+  onEvent: (name, data) => { if (name === 'pose' && !hideMe) socket.send(JSON.stringify({ type: 'pose', pose: data })); },
+});
+```
+
 ---
 
 ## 5. Events (`onEvent(name, data)`)
@@ -427,6 +490,7 @@ const workplace = AHDUSWorkplace.mount(el, {
 | `start` | v0.14.8, with `startMode`: how it started and why, once (section 4g) | `{ mode, reason, weak }`; `reason`: `start`, `remembered`, `weak`, `link`; `weak`: `software`, `low` or `null` |
 | `card` | The viewer showed a card (E with no action for it) | `{ title, body }` |
 | `tour` | The company tour (section 4f) | `{ type, state, follow, index, count, visited, remaining, message, mention, stop }`; `type`: `started`, `walking`, `arrived`, `paused`, `resumed`, `follow`, `mention`, `progress`, `done`, `ended`, `problem`; `state`: `idle`, `walking`, `stop`, `paused`, `done`; `stop`: `{ id, n, kind, name, floor, floorName, text }` |
+| `pose` | v0.16.1: your own walk, to send to the others (section 4h): at most 5 a second, only when it changes, a keepalive every 4 s | `{ state, floor, x?, y?, z?, yaw? }`; `state`: `idle`, `walk`, `run`, `wave`, `overview` (from above: no position) |
 | `navigation` | Show route / Take me there (section 4e) | `{ state, walk, place, remaining, length?, seconds?, floor?, paused?, rerouted?, problem?, message? }`; `state`: `started`, `progress` (about every metre or second; `paused: true` after a movement key), `arrived`, `stopped`, `failed` |
 
 `room` is `{ id, name, type, typeLabel, floorId, center: { x, z }, width, depth }`. Floors are numbered `0` (ground), `1`, `2`, … Positions are in metres, `y` is up.

@@ -55,6 +55,7 @@ vi.mock('../../play/playController', () => ({
       pos: { ...walkerStart },
       getLevel: () => c.pos.floor ?? 0,
       getYaw: () => 0.5,
+      isFlying: () => false,
       getPosition: () => ({ x: c.pos.x, y: c.pos.y, z: c.pos.z }),
       setAutopilot: vi.fn((p: any) => { c.pilot = p; }),
       setKeyHandler: vi.fn((h: any) => { c.keys = h; }),
@@ -72,6 +73,8 @@ vi.mock('../../play/playController', () => ({
 // The player's character: systems/PlayerCharacter is tested with real files in PlayerCharacter.test.ts
 const made = vi.hoisted(() => [] as any[]);
 vi.mock('../systems/PlayerCharacter', () => ({
+  PLAYER_CLIPS: ['Idle', 'Walk', 'Run', 'Wave'],
+  animatedCharacter: vi.fn(),
   createPlayerCharacter: vi.fn(async (_scene: unknown, spec: any) => {
     if (spec.character.url.includes('broken')) throw new Error('404');
     const c = { spec, eyeHeight: 1.5, kind: 'full', root: {}, dispose: vi.fn() };
@@ -1208,5 +1211,49 @@ describe('Overview and Walk (v0.14.6)', () => {
     expect(engine.weakDevice).toBe(true);
     info.mockReturnValue({ vendor: 'Intel', renderer: 'ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)', version: '' });
     expect(engine.weakDevice).toBe(false);
+  });
+});
+
+describe('live presence (v0.16.1)', () => {
+  it('your pose for the page: from above "overview", walking at most 5 a second and only when moving', () => {
+    const engine = makeEngine({ mode: 'view' });
+    engine.loadLayout(save());
+    const poses: any[] = [];
+    engine.on('pose', (p) => poses.push(p));
+    let now = 10_000;
+    const spy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      const frame = (ms = 16) => { now += ms; engine.scene.onBeforeRenderObservable.notifyObservers(engine.scene); };
+      frame();
+      expect(poses).toEqual([{ state: 'overview', floor: 0 }]);
+      engine.setMode('walkthrough');
+      const c = controllers[controllers.length - 1];
+      // 2 s walking along +x at 2 m/s
+      for (let i = 0; i < 125; i++) { c.pos.x += 0.032; frame(); }
+      const walking = poses.slice(1);
+      expect(walking.length).toBeGreaterThanOrEqual(9);
+      expect(walking.length).toBeLessThanOrEqual(11);
+      expect(walking.at(-1)).toMatchObject({ state: 'walk', floor: 0, yaw: 0.5, z: c.pos.z });
+      // standing still: nothing but a keepalive after 4 s
+      const before = poses.length;
+      for (let i = 0; i < 100; i++) frame(); // 1.6 s
+      expect(poses.length - before).toBeLessThanOrEqual(2); // where you stopped, then 'idle'
+      expect(poses.at(-1).state).toBe('idle');
+      expect(engine.getPose()).toMatchObject({ state: 'idle', floor: 0 });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('live people: the seated figure of a live person is hidden; the cap is shared, live people first', () => {
+    const engine = makeEngine({ mode: 'view', fullCharacters: 12 });
+    engine.loadLayout(save());
+    expect(engine.fullCap.cap).toBe(12);
+    expect(engine.live.add({ personId: 'p1', name: 'Asha', floor: 0, x: 1, z: 1, state: 'idle' })).toBe(true);
+    expect(engine.live.update('p1', { floor: 0, x: 1.2, z: 1 })).toBe(true);
+    expect(engine.live.update('nobody', { floor: 0, x: 1, z: 1 })).toBe(false);
+    expect(engine.live.count).toBe(1);
+    engine.loadLayout(save()); // another layout: positions mean nothing there
+    expect(engine.live.count).toBe(0);
   });
 });

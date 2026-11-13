@@ -68,6 +68,11 @@ import { CharacterSystem, validCharacter } from './systems/CharacterSystem';
 import type { Person, PlacedPerson, CharacterFile, Clothing } from './systems/CharacterSystem';
 import { cleanClothing } from '../play/outfit';
 import { createPlayerCharacter } from './systems/PlayerCharacter';
+import { LiveSystem } from './systems/LiveSystem';
+import type { LivePersonInput, LiveInfo } from './systems/LiveSystem';
+import { FullCapMonitor } from './systems/FullCap';
+import { createPoseThrottle, poseOf, liveStateOf } from '../play/live';
+import { seatPose } from '../play/people';
 import { SceneBuilder } from './systems/SceneBuilder';
 import type { BuildProgress } from './systems/SceneBuilder';
 import { elevationOf } from '../play/building';
@@ -108,6 +113,25 @@ export interface EngineOptions {
    * it at once.
    */
   buildBudgetMs?: number;
+  /**
+   * v0.16.1: at most this many full characters (seated + live). Default: measured from the frame rate
+   * (FullCapMonitor: 12, up to 24 while frames stay smooth; weak devices 12).
+   */
+  fullCharacters?: number;
+}
+
+/**
+ * v0.16.1: your own pose for the page to send to the others (live presence): walking { state: 'idle' | 'walk' |
+ * 'run' | 'wave', floor, x, y (above the floor), z, yaw }, from above { state: 'overview', floor }. At most 5 a
+ * second, only when it changed, and a keepalive every 4 s (play/live.js createPoseThrottle).
+ */
+export interface PoseEvent {
+  state: 'idle' | 'walk' | 'run' | 'wave' | 'overview';
+  floor: number;
+  x?: number;
+  y?: number;
+  z?: number;
+  yaw?: number;
 }
 
 export interface SelectEvent {
@@ -168,6 +192,8 @@ type EventMap = {
   personDetails: PersonDetailsEvent;
   /** The company tour (v0.14.4): started, walking, arrived, paused, resumed, follow, mention, progress, done, ended, problem. */
   tour: TourEvent;
+  /** v0.16.1: your own pose, for the page to send to the others (PoseEvent). */
+  pose: PoseEvent;
 };
 
 /**
@@ -195,6 +221,7 @@ export type { NavigationEvent, TourEvent };
 
 export type { BuildProgress };
 export type { Person, PlacedPerson, CharacterFile, Clothing };
+export type { LivePersonInput, LiveInfo };
 
 /**
  * The person looking (the signed-in user). Walking through, they are their
@@ -269,6 +296,17 @@ export class LayoutEngine {
   readonly highlights: HighlightSystem;
   /** People at their desks (null with quality 'low': no people at all). */
   readonly characters: CharacterSystem | null;
+  /**
+   * v0.16.1: the people on the page now, drawn where they walk (add / update / remove: LiveSystem). With
+   * quality 'low' too (simple figures and name tags only).
+   */
+  readonly live: LiveSystem;
+  /** v0.16.1: how many full characters this device draws (measured from its frame rate). */
+  readonly fullCap: FullCapMonitor;
+  private _liveTick: (() => void) | null = null;
+  private _capTick: (() => void) | null = null;
+  private _pose = createPoseThrottle();
+  private _poseWas: { x: number; z: number; t: number; speed: number } | null = null;
   /** Search, show and go to places (find, show, clear: v0.13.3; routeTo, stop: v0.13.4). */
   readonly navigation: NavigationSystem;
   /** The company tour (v0.14.4): start({ follow }), pause, resume, next, previous, skip, stop; the 'tour' event. */
@@ -369,6 +407,42 @@ export class LayoutEngine {
       getLayout: () => this._store.getState(),
       getObjectMesh: (id) => this.objects.getObjectMesh(id),
     });
+    this.live = new LiveSystem(this.scene, {
+      getLayout: () => this._store.getState(),
+      characters: this.characters,
+      seatOf: (personId) => {
+        const placed = this.characters?.getPlaced().find((p) => p.personId === personId);
+        if (placed) return placed;
+        const deskId = this._people.find((p) => p.personId === personId)?.deskId;
+        const s = this._store.getState();
+        return deskId ? seatPose(deskId, s.objects, s.floors) : null;
+      },
+      getWalker: () => {
+        const walk = this._walkthrough;
+        if (this._mode !== 'walkthrough' || !walk?.isActive()) return null;
+        const p = walk.getPosition();
+        return { x: p.x, z: p.z, floor: walk.getLevel() };
+      },
+      getMe: () => (this._player?.personId != null ? String(this._player.personId) : null),
+    });
+    this.fullCap = new FullCapMonitor({
+      weak: () => this.weakDevice,
+      wanted: () => (this.characters?.wantedFull ?? 0) + this.live.wantedFull,
+      measuring: () => !!this._builder?.progress.allBuilt && !(typeof document !== 'undefined' && document.hidden),
+      fixed: options.fullCharacters ?? null,
+    });
+    this.characters?.setMaxFull(this.fullCap.cap);
+    this.live.setFullCap(this.fullCap.cap);
+    // the cap shared: the live people first (they move), the seated ones the rest; your pose for the page
+    this._liveTick = () => {
+      this.characters?.setMaxFull(Math.max(0, this.fullCap.cap - this.live.fullCount));
+      this._poseTick();
+    };
+    this.scene.onBeforeRenderObservable.add(this._liveTick);
+    this._capTick = () => {
+      if (this.fullCap.frame(this.babylonEngine.getDeltaTime?.() ?? 16, performance.now())) this.live.setFullCap(this.fullCap.cap);
+    };
+    this.scene.onAfterRenderObservable.add(this._capTick);
     this.navigation = new NavigationSystem({
       getLayout: () => this._store.getState(),
       getWalker: () => {
@@ -482,6 +556,8 @@ export class LayoutEngine {
     }
     this.tour.stop(); // nor does a tour of it
     this.navigation.stop(); // a route through the old layout means nothing in this one
+    this.live.clear(); // positions in the old layout mean nothing in this one (the page adds them again)
+    this._pose.reset();
     this._loaded = v2;
     this._cachedLayout = null;
     this._walkPlace = null; // a place in the old layout means nothing in this one
@@ -651,6 +727,38 @@ export class LayoutEngine {
   setPlayer(player: Player | null): void {
     this._player = player ? { ...player } : null;
     this._syncPlayer();
+  }
+
+  /**
+   * v0.16.1: your pose now, as sent (PoseEvent; the 'pose' event gives it at most 5 a second): walking, where
+   * you are; else { state: 'overview', floor }. null before a layout is loaded.
+   */
+  getPose(): PoseEvent | null {
+    if (!this._loaded) return null;
+    const walk = this._walkthrough;
+    const s = this._store.getState();
+    if (this._mode !== 'walkthrough' || !walk?.isActive()) return { state: 'overview', floor: s.currentFloor ?? 0 };
+    const p = walk.getPosition();
+    const floor = walk.getLevel();
+    const now = performance.now();
+    const was = this._poseWas;
+    let speed = was?.speed ?? 0;
+    if (was && now > was.t) {
+      const v = Math.hypot(p.x - was.x, p.z - was.z) / ((now - was.t) / 1000);
+      speed += (v - speed) * Math.min(1, (now - was.t) / 200);
+    }
+    if (!was || now > was.t) this._poseWas = { x: p.x, z: p.z, t: now, speed };
+    const gait = (walk.getCharacter() as { gait?: string | null } | null)?.gait ?? null;
+    const state = liveStateOf(gait, speed, walk.isFlying()) as PoseEvent['state'];
+    return poseOf({ x: p.x, y: p.y - elevationOf(s.floors, floor), z: p.z, yaw: walk.getYaw(), floor, state }) as PoseEvent;
+  }
+
+  /** Each frame: your pose to the page when it is time to send it (the 'pose' event, only while someone listens). */
+  private _poseTick(): void {
+    if (!this._loaded || !this._builder.progress.currentFloorReady || !this._listeners.get('pose')?.size) return;
+    const pose = this.getPose();
+    const out = pose && this._pose.next(pose, performance.now());
+    if (out) this.emit('pose', out as PoseEvent);
   }
 
   /** Resolves when the walkthrough's character is made (or the simple figure stays): tests. */
@@ -904,6 +1012,9 @@ export class LayoutEngine {
     this._walkthrough = null;
     this._routeLine?.dispose();
     this._routeLine = null;
+    if (this._liveTick) this.scene.onBeforeRenderObservable.removeCallback(this._liveTick);
+    if (this._capTick) this.scene.onAfterRenderObservable.removeCallback(this._capTick);
+    this.live.dispose();
     this.characters?.dispose();
     this._unsubscribe();
     this._unsubscribeFloor();
