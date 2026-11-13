@@ -27,6 +27,7 @@
  */
 
 import { cleanClothing } from '../play/outfit';
+import { cleanLive } from '../play/live';
 
 export const DEFAULT_HEIGHT = 1.75;
 const MIN_HEIGHT = 1;
@@ -279,6 +280,37 @@ export function resolvePlayer(value, manifest) {
   const entry = entryFor(ref, personId, manifest);
   if (!personId && !entry) return null;
   return { personId, character: fileOf(entry), walk: entry?.walk !== false, ...clothingOf(value.clothing) };
+}
+
+/**
+ * v0.16.1: a live person (handle.live.add / update) as the viewer takes it (engine.live, systems/LiveSystem):
+ * { personId, name, department, character, clothing } + the sample fields given ({ floor, x, z, y, yaw, state }).
+ * Who they are comes from the page's message, else from setPeople's entry of the same personId (name,
+ * department, assetReference, clothing): AHDUS only sends ids and positions. Their character is the FULL file
+ * (they walk; the seated copy is for people at desks); unknown = their neutral one. Nothing else is kept.
+ * null: no personId.
+ * @param {unknown} value
+ * @param {Map<string, object> | { characters: Map<string, object> }} manifest
+ * @param {Map<string, object>} [known] setPeople's entries by personId (as the page gave them)
+ * @param {{ sampleOnly?: boolean }} [opts] sampleOnly: an update (who they are is set only when given)
+ */
+export function resolveLive(value, manifest, known = new Map(), { sampleOnly = false } = {}) {
+  const clean = cleanLive(value);
+  if (!clean) return null;
+  const seat = known.get(clean.personId) ?? null;
+  const out = { personId: clean.personId };
+  const given = (k) => value[k] !== undefined && value[k] !== null && value[k] !== '';
+  if (!sampleOnly || given('name')) out.name = clean.name || text(seat?.name);
+  if (!sampleOnly || given('department')) out.department = clean.department || text(seat?.department);
+  if (!sampleOnly || given('assetReference')) {
+    const ref = clean.assetReference ?? (typeof seat?.assetReference === 'string' ? seat.assetReference : null);
+    out.character = fileOf(entryFor(ref, clean.personId, manifest));
+  }
+  if (!sampleOnly || given('clothing')) out.clothing = cleanClothing(clean.clothing ?? seat?.clothing ?? null);
+  for (const k of ['floor', 'x', 'z', 'y', 'yaw', 'state']) {
+    if (clean[k] !== undefined && clean[k] !== null) out[k] = clean[k];
+  }
+  return out;
 }
 
 /** { clothing } when the page gave usable clothing (play/outfit.js cleanClothing), else nothing. */

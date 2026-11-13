@@ -20,6 +20,9 @@
  *   mount(element, { startMode: 'walkthrough', openAt: { personId } }) // v0.14.6: walk by default with the
  *                                      // welcome card, the Overview / Walk button top right, the last choice
  *                                      // remembered, weak devices from above; openAt = a deep link (no card)
+ *   workplace.live.add({ personId, floor, x, z, yaw, state }); // v0.16.1: someone on the page now, walking there
+ *   workplace.live.update(personId, { floor, x, z, yaw, state }); workplace.live.remove(personId); // back to their desk
+ *   onEvent('pose', { state, floor, x, y, z, yaw })     // your own walk, ≤ 5 a second: the page sends it on
  *
  * `npm run build:embed` (vite.embed.config.js) makes one IIFE file with React
  * and Babylon inside. It shows <LayoutViewer /> and works through layoutBridge
@@ -34,7 +37,7 @@ import { LayoutViewer } from '../engine/react/LayoutViewer';
 import { layoutBridge } from '../integration/layoutBridge';
 import { anchorsFromStore } from '../integration/anchorsFromStore';
 import { readLayout, modeProblem, actionMatcher, filterAnchors, cleanDepartments, cleanOpenAt } from './embedLayout';
-import { parseManifest, readManifest, resolvePeople, resolvePlayer, walkClipUrlOf } from './characterManifest';
+import { parseManifest, readManifest, resolvePeople, resolvePlayer, resolveLive, walkClipUrlOf } from './characterManifest';
 import css from './embed.css?inline';
 
 /** layoutBridge, for modules on the page (docs/TEAM_INTEGRATION.md): the same object our modules use. */
@@ -149,7 +152,10 @@ export function mount(element, options = {}) {
   const actions = new Set(); // removers of this viewer's "Press E" actions
   const abort = new AbortController();
   let people = []; // who sits where (setPeople), resolved through the manifest
+  let peopleGiven = new Map(); // setPeople's entries as the page gave them, by personId (who a live person is)
+  const liveGiven = new Map(); // v0.16.1: the live people as the page gave them (added again when the viewer is ready)
   let manifest = null; // Promise of the character manifest, read on the first setPeople / player's character
+  let manifestRead = null; // …and its result, once read
   let playerGiven = options.player ?? null; // the signed-in person (setPlayer), as the page gave it
   let player = resolvePlayer(playerGiven, new Map()); // …as the viewer takes it ({ personId, character, walk })
   const walkClipUrl = walkClipUrlOf(options.characters, document.baseURI);
@@ -216,8 +222,19 @@ export function mount(element, options = {}) {
       }, (err) => {
         if (err?.name !== 'AbortError') console.warn(`[AHDUSWorkplace] ${err.message}: everyone is a simple figure`);
         return parseManifest({});
+      }).then((m) => {
+        manifestRead = m;
+        // the live people added before it was read get their characters now
+        if (engine && !closed) for (const raw of liveGiven.values()) addLive(raw);
+        return m;
       });
     return manifest;
+  }
+
+  /** v0.16.1: a live person into the viewer (their character from the manifest once it is read). */
+  function addLive(raw) {
+    const person = resolveLive(raw, manifestRead ?? new Map(), peopleGiven);
+    return !!person && !!engine?.live.add(person);
   }
 
   /** The signed-in person: at once by personId, then with their character once the manifest is read. */
@@ -299,6 +316,8 @@ export function mount(element, options = {}) {
       e.on('navigation', (ev) => emit('navigation', { ...ev })),
       // the company tour (v0.14.4): what changed, and where the tour is (the plan itself stays inside)
       e.on('tour', (ev) => emit('tour', tourEvent(ev))),
+      // v0.16.1: your own walk for the page to send to the others (≤ 5 a second, a keepalive every 4 s)
+      e.on('pose', (pose) => emit('pose', { ...pose })),
       // ("Take me there" from above starts walking: the page's mode follows through onModeChange)
     );
     const s = store.getState();
@@ -309,6 +328,11 @@ export function mount(element, options = {}) {
       rooms: Object.keys(s.rooms).map(room),
     });
     for (const fn of pending.splice(0)) fn();
+    // v0.16.1: the live people given while it was loading
+    if (liveGiven.size) {
+      characterMap();
+      for (const raw of liveGiven.values()) addLive(raw);
+    }
     resolveReady(handle);
   }
 
@@ -429,6 +453,7 @@ export function mount(element, options = {}) {
     async setPeople(list) {
       if (closed) return 0;
       const given = resolvePeople(list, new Map()).length; // a bad list is refused before waiting
+      peopleGiven = new Map(list.filter((p) => p && typeof p === 'object' && p.personId != null).map((p) => [String(p.personId).trim(), p]));
       const characters = await characterMap();
       if (closed) return 0;
       people = resolvePeople(list, characters);
@@ -506,6 +531,64 @@ export function mount(element, options = {}) {
     /** End the tour (false: none). You stay where you are, walking. */
     stopTour() {
       return whenReady(() => engine.tour.stop());
+    },
+
+    /**
+     * v0.16.1, live presence: the people who have the page open now (AHDUS: its WebSocket), drawn where they walk,
+     * ~250 ms behind and gliding, with a name tag; everyone else sits at their desk. Nothing is saved.
+     * - add({ personId, floor, x, z, y?, yaw, state, name?, department?, assetReference?, clothing? }): someone came
+     *   (or again: their samples start again). state: 'idle' | 'walk' | 'run' | 'wave', or 'overview' (looking from
+     *   above: they stand up beside their desk). No x / z: on the page, but not on a floor you can see (not drawn).
+     *   name, department, assetReference and clothing default to setPeople's entry of the same personId.
+     * - update(personId, { floor, x, z, y, yaw, state }): a new sample (false: never added). Someone who sat back
+     *   down after 10 s of silence is live again with it.
+     * - remove(personId): they left: back to their desk. clear(): everyone (the connection dropped).
+     * Silent for 10 s (no update): they sit back down by themselves. The nearest 30 on the floor shown are drawn.
+     */
+    live: {
+      add(person) {
+        if (closed) return false;
+        const id = person && typeof person === 'object' ? String(person.personId ?? '').trim() : '';
+        if (!id) return false;
+        liveGiven.set(id, { ...person, personId: id });
+        if (!engine) return true; // added when the viewer is ready
+        if (!manifestRead) characterMap();
+        return addLive(liveGiven.get(id));
+      },
+      update(personId, sample) {
+        const id = String(personId ?? '').trim();
+        const was = liveGiven.get(id);
+        if (closed || !was || !sample || typeof sample !== 'object') return false;
+        liveGiven.set(id, { ...was, ...sample, personId: id });
+        if (!engine) return true;
+        const patch = resolveLive({ ...sample, personId: id }, manifestRead ?? new Map(), peopleGiven, { sampleOnly: true });
+        if (patch && engine.live.update(id, patch)) return true;
+        // silent for 10 s, they sat back down: heard again = live again
+        return addLive(liveGiven.get(id));
+      },
+      remove(personId) {
+        const id = String(personId ?? '').trim();
+        const had = liveGiven.delete(id);
+        engine?.live.remove(id);
+        return had;
+      },
+      clear() {
+        liveGiven.clear();
+        engine?.live.clear();
+      },
+      /** Who is live now: [{ personId, name, floor, state, drawn: 'full' | 'figure' | null, atDesk }]. */
+      list() {
+        if (!engine) return [...liveGiven.keys()].map((personId) => ({ personId, name: '', floor: null, state: null, drawn: null, at: null, atDesk: false }));
+        return engine.live.list();
+      },
+      get count() {
+        return engine ? engine.live.count : liveGiven.size;
+      },
+    },
+
+    /** v0.16.1: your own pose now ({ state, floor, x?, y?, z?, yaw? }; the 'pose' event sends it as it changes), or null. */
+    get pose() {
+      return engine?.getPose() ?? null;
     },
 
     /** Remove the viewer: the element, the 3D engine, its actions and listeners. */

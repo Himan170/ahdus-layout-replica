@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  parseManifest, readManifest, resolvePeople, resolvePlayer, walkClipUrlOf, charactersOf, idHash, neutralFor,
+  parseManifest, readManifest, resolvePeople, resolvePlayer, resolveLive, walkClipUrlOf, charactersOf, idHash, neutralFor,
   DEFAULT_HEIGHT, MAX_TEXT,
 } from '../characterManifest';
 
@@ -285,5 +285,40 @@ describe('a lighter copy for people at their desks (v0.16.0)', () => {
   it('a bad seated url is a problem and the full file is used', () => {
     expect(m.problems.some((p) => p.startsWith('rocketbox:bad-v1: seated'))).toBe(true);
     expect(m.characters.get('rocketbox:bad-v1').seated).toBeUndefined();
+  });
+});
+
+describe('resolveLive (v0.16.1)', () => {
+  const manifest = parseManifest({
+    version: 2,
+    neutral: ['n:one'],
+    characters: {
+      'r:aisha': { url: 'aisha.glb', seated: 'aisha-seated.glb', height: 1.7 },
+      'n:one': { url: 'one.glb' },
+    },
+  }, BASE);
+  const known = new Map([['p1', { personId: 'p1', name: 'Asha Patel', department: 'Sales', assetReference: 'r:aisha', email: 'x@y.z' }]]);
+
+  it('who they are from setPeople, their FULL file (they walk), only the fields drawn', () => {
+    const p = resolveLive({ personId: 'p1', floor: 0, x: 1, z: 2, yaw: 0.3, state: 'walk', email: 'a@b.c' }, manifest, known);
+    expect(p).toEqual({
+      personId: 'p1', name: 'Asha Patel', department: 'Sales',
+      character: { url: 'https://ahdus.example/frontend/character/aisha.glb', rig: 'mixamo', height: 1.7 },
+      clothing: null, floor: 0, x: 1, z: 2, yaw: 0.3, state: 'walk',
+    });
+    expect(JSON.stringify(p)).not.toContain('@');
+  });
+
+  it('someone with no seat: their message, else their neutral character', () => {
+    const p = resolveLive({ personId: 'p9', name: 'Ravi', state: 'overview', floor: 1 }, manifest, known);
+    expect(p).toMatchObject({ personId: 'p9', name: 'Ravi', department: '', state: 'overview', floor: 1 });
+    expect(p.character.url).toMatch(/one\.glb$/);
+    expect(p).not.toHaveProperty('x');
+  });
+
+  it('an update: the sample only (who they are only when given); no id = null', () => {
+    expect(resolveLive({ personId: 'p1', floor: 0, x: 3, z: 4, state: 'idle' }, manifest, known, { sampleOnly: true }))
+      .toEqual({ personId: 'p1', floor: 0, x: 3, z: 4, yaw: 0, state: 'idle' });
+    expect(resolveLive({ x: 1 }, manifest, known)).toBeNull();
   });
 });
