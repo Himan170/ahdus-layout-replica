@@ -165,6 +165,48 @@ const place = (id) => p.evaluate((id) => {
   return o ? { x: o.x, z: o.z, floor: o.floor } : null;
 }, id);
 
+/**
+ * v0.17.1 (review): after Take me there arrives, the camera goes over a shoulder (the arrival view): is the person on
+ * screen and not covered by your own character? Three points of her (chest to head) projected with the camera's own
+ * matrices: each inside the view, no mesh of your character and no wall between the camera and it.
+ */
+const targetSeen = (pg, personId) => pg.evaluate(async (personId) => {
+  const e = window.__ahdusViewer;
+  const w = e.walkthrough;
+  const t0 = performance.now();
+  while (performance.now() - t0 < 30000 && !(w.getArrivalView()?.t >= 1)) await new Promise((r) => setTimeout(r, 100));
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const view = w.getArrivalView();
+  const her = e.characters?.getPlaced().find((q) => String(q.personId) === personId);
+  if (!her) return { found: false, t: view?.t ?? null };
+  const cam = e.scene.activeCamera;
+  const rect = e.scene.getEngine().getRenderingCanvas().getBoundingClientRect();
+  const m = cam.getTransformationMatrix().m;
+  const c = cam.globalPosition;
+  const points = (her.seated ? [0.8, 1.05, 1.25] : [1.0, 1.35, 1.6]).map((h) => {
+    const p = { x: her.x, y: her.y + h, z: her.z };
+    const cx = p.x * m[0] + p.y * m[4] + p.z * m[8] + m[12];
+    const cy = p.x * m[1] + p.y * m[5] + p.z * m[9] + m[13];
+    const cw = p.x * m[3] + p.y * m[7] + p.z * m[11] + m[15];
+    const nx = cx / cw;
+    const ny = cy / cw;
+    const px = ((nx + 1) / 2) * rect.width;
+    const py = ((1 - ny) / 2) * rect.height;
+    const dist = Math.hypot(p.x - c.x, p.y - c.y, p.z - c.z);
+    const onScreen = cw > 0 && nx > -0.95 && nx < 0.95 && ny > -0.95 && ny < 0.95;
+    const me = e.scene.pick(px, py, (mesh) => mesh.isEnabled() && mesh.isVisible && mesh.visibility > 0 && w.isPlayerMesh(mesh));
+    const wall = e.scene.pick(px, py, (mesh) => mesh.isEnabled() && mesh.metadata?.part === 'wall');
+    return {
+      px: Math.round(px), py: Math.round(py), onScreen,
+      covered: !!me?.hit && me.distance < dist - 0.05, wall: !!wall?.hit && wall.distance < dist - 0.3,
+    };
+  });
+  return {
+    found: true, t: view?.t ?? null, hidden: !!view?.hidden, points,
+    ok: points.every((q) => q.onScreen && !q.covered && !q.wall), box: [Math.round(rect.width), Math.round(rect.height)],
+  };
+}, personId);
+
 // ── 1. Kavya Iyer at reception: Show route from above ──
 await clearNav();
 await find(p, 'Kavya', 'person:' + people.find((x) => x.name === 'Kavya Iyer').personId);
@@ -243,6 +285,9 @@ const card = await p.evaluate(() => ({
 log('…and says so in ONE box (v0.17.1): "You have arrived" + her name, no person card or HUD box beside it', card.strip === 'arrived'
   && /You have arrived/.test(card.text) && /Kavya Iyer/.test(card.text) && card.person === '' && card.boxes === 1,
   `${card.text} | ${card.person} | boxes ${card.boxes}`);
+const seen = await targetSeen(p, String(kavya.personId));
+log('v0.17.1 (review): arrived, the camera goes over a shoulder: Kavya on screen, not covered by your character, no wall in between',
+  seen.found && seen.t >= 1 && seen.ok, JSON.stringify(seen));
 if (SHOTS) await shot('arrived-desktop');
 // v0.14.7: there, E means her (seen at a corner desk by a window: the hint said "E Details: Window"); v0.17.1: the
 // line is in the arrived strip, and her card takes the strip's place
@@ -403,8 +448,11 @@ const fitsStrip = await ph.evaluate(() => [...document.querySelectorAll('[data-n
   && document.documentElement.scrollWidth <= innerWidth);
 if (SHOTS) await ph.screenshot({ path: join(shotDir, 'navigation-walking-phone.png') });
 await ph.waitForFunction(() => document.querySelector('[data-nav-strip]')?.dataset.navStrip === 'arrived', null, { timeout: 300000, polling: 1000 }).catch(() => {});
-if (SHOTS) { await ph.waitForTimeout(1500); await ph.screenshot({ path: join(shotDir, 'navigation-arrived-phone.png') }); }
+const seenPhone = await targetSeen(ph, people.find((x) => x.name === 'Kavya Iyer').personId);
+if (SHOTS) { await ph.waitForTimeout(500); await ph.screenshot({ path: join(shotDir, 'navigation-arrived-phone.png') }); }
 log('a phone: the card\'s buttons and the strip fit at 390 px', fitsCard && fitsStrip, `card ${fitsCard}, strip ${fitsStrip}`);
+log('a phone (v0.17.1 review): arrived, Kavya on screen, not covered by your character, no wall in between',
+  seenPhone.found && seenPhone.t >= 1 && seenPhone.ok, JSON.stringify(seenPhone));
 await phoneCtx.close();
 
 await ctx.close();

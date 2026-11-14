@@ -49,7 +49,7 @@ import type { Layout, Anchor, LayoutObject, AnchorKind } from './model/schema';
 import { loadLayout as parseLayout } from './model/migrate';
 import { toV1, storeFloorIds, mergeV2Extras } from './model/toV1';
 import { NavigationSystem } from './systems/NavigationSystem';
-import type { NavigationEvent, DepartmentInfo } from './systems/NavigationSystem';
+import type { NavigationEvent, DepartmentInfo, PlaceResult } from './systems/NavigationSystem';
 import { RouteLineSystem } from './systems/RouteLineSystem';
 import { TourSystem, TOUR_HIGHLIGHT } from './systems/TourSystem';
 import type { TourEvent } from './systems/TourSystem';
@@ -509,6 +509,7 @@ export class LayoutEngine {
       getMe: () => (this._player?.personId != null ? String(this._player.personId) : null),
       emit: (event) => {
         this._noteArrival(event);
+        this._arrivalView(event);
         this.tour.onNavigation(event); // the tour's own walks, or another one taking over
         this.emit('navigation', event);
       },
@@ -845,6 +846,40 @@ export class LayoutEngine {
       return null;
     }
     return { personId: a.personId, name: a.name };
+  }
+
+  /**
+   * v0.17.1: Take me there / My desk arrived (walk 'auto', not the tour's or a click's walk): the camera goes over a
+   * shoulder and looks at the person or place (the walker faces it, and the usual camera had them behind your body).
+   * A new walk starts: back to the usual camera.
+   */
+  private _arrivalView(event: NavigationEvent): void {
+    const walk = this._walkthrough;
+    if (!walk?.isActive()) return;
+    if (event.state === 'started') { walk.setArrivalView(null); return; }
+    if (event.state !== 'arrived' || event.walk !== 'auto' || (event as { source?: string }).source) return;
+    const target = this._arrivalTarget(event.place as PlaceResult | undefined);
+    if (!target) return;
+    const reduced = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    walk.setArrivalView(target, reduced);
+  }
+
+  /** Where the arrival view looks (world): a person's chest (where they sit / stand), else the item or room's middle. */
+  private _arrivalTarget(place: PlaceResult | undefined): { x: number; y: number; z: number } | null {
+    if (!place) return null;
+    const s = this._store.getState();
+    const floors = s.floors;
+    if (place.personId != null) {
+      const p = this.characters?.getPlaced().find((q) => String(q.personId) === String(place.personId));
+      if (p) return { x: p.x, y: p.y + (p.seated ? 1.05 : 1.4), z: p.z };
+    }
+    const id = place.personId != null ? place.deskId ?? place.entityId : place.entityId;
+    const obj = id ? (s.objects as Record<string, { x: number; z: number; floor?: number }>)[id] : undefined;
+    if (obj) return { x: obj.x, y: elevationOf(floors, obj.floor ?? place.floorId) + 1.0, z: obj.z };
+    const room = id ? (s.rooms as Record<string, { x: number; z: number; floor?: number }>)[id] : undefined;
+    if (room) return { x: room.x, y: elevationOf(floors, room.floor ?? place.floorId) + 1.0, z: room.z };
+    return null;
   }
 
   /** A walk arrived at a person: remember them (and where); a new walk forgets them. */
