@@ -18,6 +18,8 @@ export default defineConfig((env) => {
     build: {
       outDir: 'dist-ahdus/workplace-studio',
       emptyOutDir: true,
+      // .vite/manifest.json: scripts/build-ahdus.mjs makes prefetch.json from it (v0.17.2), then removes it
+      manifest: true,
       rollupOptions: {
         input: { main: resolve(__dirname, 'index.html') },
       },
