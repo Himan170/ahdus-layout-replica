@@ -79,6 +79,7 @@ import { WelcomeCard, WeakDeviceNote } from './WelcomeCard';
 import type { WelcomeAction } from './WelcomeCard';
 import { tourDetail } from './PlaceSearch';
 import { chooseStart, readStartMode, rememberStartMode } from '../startMode';
+import { storedLowGraphics, storeLowGraphics } from '../../play/quality';
 import type { StartMode, StartChoice, StartReason, WeakKind } from '../startMode';
 
 export interface LayoutViewerProps {
@@ -303,6 +304,12 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [person, setPerson] = useState<{ who: PlacedPerson; at: { x: number; y: number } | null; pinned?: boolean } | null>(null);
   // walking: the "?" help, and the one-time hint ('shown' → 'fading' → gone)
   const [helpOpen, setHelpOpen] = useState(false);
+  // v0.17.0: "Low graphics" (remembered per browser): the simple look at once (engine.setLowGraphics); none when the
+  // page already asked for quality 'low'
+  const [lowGraphics, setLowGraphics] = useState(() => quality !== 'low' && storedLowGraphics());
+  useEffect(() => {
+    engine?.setLowGraphics(lowGraphics);
+  }, [engine, lowGraphics]);
   const [hint, setHint] = useState<'shown' | 'fading' | null>(null);
   // the Find box is open: the one-time hint waits under it (v0.14.2)
   const [findOpen, setFindOpen] = useState(false);
@@ -959,6 +966,22 @@ export function LayoutViewer(props: LayoutViewerProps) {
                 </div>
               ))}
             </dl>
+            {quality !== 'low' ? (
+              <div style={styles.helpOption}>
+                <span id={`${keysHintId}-low`}>
+                  Low graphics
+                  <span style={styles.helpOptionNote}>Simpler look, smoother on slow devices</span>
+                </span>
+                <button type="button" role="switch" aria-checked={lowGraphics} aria-labelledby={`${keysHintId}-low`}
+                  data-low-graphics={lowGraphics ? 'on' : 'off'}
+                  style={{ ...styles.helpSwitch, ...(lowGraphics ? styles.helpSwitchOn : null) }}
+                  onClick={() => {
+                    const on = !lowGraphics;
+                    storeLowGraphics(on);
+                    setLowGraphics(on);
+                  }}>{lowGraphics ? 'On' : 'Off'}</button>
+              </div>
+            ) : null}
           </div>
         ) : null;
         if (search && engine && !error) {
@@ -1158,6 +1181,18 @@ const styles: Record<string, CSSProperties> = {
   helpRow: { display: 'flex', gap: 10, justifyContent: 'space-between' },
   helpKey: { fontWeight: 600, whiteSpace: 'nowrap' },
   helpWhat: { margin: 0, textAlign: 'right', opacity: 0.9 },
+  helpOption: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 8, paddingTop: 8,
+    borderTop: '1px solid rgba(255, 255, 255, 0.18)', fontSize: 13, fontWeight: 600,
+  },
+  helpOptionNote: { display: 'block', fontWeight: 400, opacity: 0.8, fontSize: 12 },
+  helpSwitch: {
+    // separate border fields: helpSwitchOn changes only the colour (React warns when a shorthand meets one of its parts)
+    minWidth: 52, minHeight: 32, borderRadius: 16, borderWidth: 1, borderStyle: 'solid',
+    borderColor: 'rgba(255, 255, 255, 0.4)', cursor: 'pointer',
+    background: 'transparent', color: '#fff', font: '600 13px system-ui, sans-serif',
+  },
+  helpSwitchOn: { background: '#28664f', borderColor: '#28664f' },
   // the one-time hint: over the middle of the view, near the bottom
   walkHint: {
     ...panel, left: '50%', bottom: 64, transform: 'translateX(-50%)', textAlign: 'center', padding: '8px 14px',

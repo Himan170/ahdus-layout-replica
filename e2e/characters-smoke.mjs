@@ -148,15 +148,12 @@ const settleOn = async (pg) => {
   await pg.evaluate(() => window.workplace._engine.characters.whenSettled());
   await frames(3, pg);
   await pg.evaluate(() => new Promise((r) => setTimeout(r, 400)));
+  // v0.17.0: they are made one at a time (one per 200 ms): until everyone chosen is made
+  await pg.waitForFunction(() => !window.workplace._engine.characters.makingMore, null, { timeout: 60000 });
   await frames(2, pg);
 };
 /** Wait for the character files, then for the choice to swap them in. */
-const settle = async () => {
-  await p.evaluate(() => window.workplace._engine.characters.whenSettled());
-  await frames(3);
-  await p.evaluate(() => new Promise((r) => setTimeout(r, 400)));
-  await frames(2);
-};
+const settle = () => settleOn(p);
 /** Camera on the orbit: look at (x, z) from `radius` m. */
 const look = (x, z, radius, beta = 1.05, alpha = -Math.PI / 2, pg = p) => pg.evaluate(({ x, z, radius, beta, alpha }) => {
   const cam = window.workplace._engine.scene.activeCamera;

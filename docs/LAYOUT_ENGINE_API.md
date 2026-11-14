@@ -230,6 +230,14 @@ engine.overview();                   // v0.14.6: from above on the floor you wal
                                      // your place is kept (engine.walkPlace)
 engine.resumeWalk();                 // walk again where Overview left you (true), else at the entrance (false)
 engine.weakDevice;                   // quality 'low', or WebGL drawn by software: <LayoutViewer startMode> starts from above
+// v0.17.0: the drawing quality follows the frame rate (option autoQuality, default true): one slow 3 s window
+// (under 30 FPS) drops a step (pixel ratio 2 → 1.5 → 1, then no shadows, then at most 6 full characters); 5 smooth
+// windows (50 FPS or more) raise one, never within a minute of a drop. The pixel ratio is never above 2.
+engine.drawQuality.step;             // { pixelRatio, shadows, maxFull } now; engine.drawQuality.level (0 = best)
+engine.on('quality', ({ level, pixelRatio, shadows, maxFull }) => { ... }); // level -1 = Low graphics
+engine.setLowGraphics(true);         // the simple look, no full characters, no shadows, ratio 1 (the viewer's "?"
+                                     // help has the switch, remembered per browser: localStorage ahdus.lowGraphics)
+engine.lowGraphics;                  // true while on
 engine.editor.addRoom({ ... });      // every Studio edit (store/editorHistory.js); outside edit mode
                                      // each one changes nothing and returns { problem }
 engine.undo(); engine.redo();        // false outside edit mode

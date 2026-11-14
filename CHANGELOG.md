@@ -3,6 +3,33 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.17.0 (14 Nov 2026): smooth
+
+The 3D view on slow laptops and phones (the viewer and the embed; Workplace Studio is unchanged unless said).
+
+- **Smoother walking and stairs:** walking, the camera and aiming test only what is within 8 m of you, and the
+  layout's lists are made again only when the layout changes. Stairs no longer stutter.
+- **The building first:** the people's full characters (and your own) come only once the floor you start on is
+  drawn, then one at a time, the nearest first. Room surfaces wait for their photo textures instead of being
+  painted twice. Character skinning runs on the graphics card (it always did; a box we measured from the bones on
+  the processor is now fixed).
+- **Quality that follows the device:** never sharper than a pixel ratio of 2 (a phone at 3 drew 2.25 × the pixels).
+  When frames are slow for 3 s the view drops a step at once (sharpness, then shadows, then fewer full characters);
+  it rises again slowly (5 smooth windows, never within a minute of a drop).
+- **Low graphics:** a switch in the "?" help (the simple look, no full characters, no shadows), remembered in this
+  browser.
+- **Less work every frame:** the sun's shadows are drawn once and again only when the layout or the floor shown
+  changes; no pick under the mouse on every move; the picture isn't copied after each frame (Studio still is, for
+  its exports).
+- **A smaller embed file:** no WebGPU shaders and no editing code in it: 2,959 → 2,643 kB (762 → 705 kB gzipped).
+- **Memory:** walking for a long time no longer keeps every character file's baked clips after the file is
+  unloaded. The heap growth seen during a walk was not a leak: it comes back down.
+- **Measured** (Meridian, 319 people, the processor slowed 4 ×): walking 5.7 → 12.5 FPS on a laptop
+  (9.0 with the best quality held), 6.7 → 14.2 FPS on a phone (10.3); stairs 7.1 → 25 FPS; the start floor shows
+  after 9.7 s instead of 17.7 s.
+- Engine: `engine.drawQuality`, option `autoQuality`, the `quality` event, `engine.setLowGraphics` /
+  `lowGraphics` (docs/LAYOUT_ENGINE_API.md). e2e:controls 17 checks, e2e:embed 39.
+
 ## 0.16.2 (14 Nov 2026): small fixes
 
 - **Typing names with an input tool (Hindi, Japanese, Chinese …):** the Enter that picks a word no longer saves

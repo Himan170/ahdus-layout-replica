@@ -26,6 +26,7 @@ import { createPlayController } from '../../play/playController';
 import type { LayoutRecords, V1Room } from './RoomSystem';
 import type { PlayCharacter } from './PlayerCharacter';
 import type { Pilot } from './NavigationSystem';
+import { cachedLayoutState } from '../../play/stateCache';
 
 /** What E was pressed on: an item, or a door / window of a room (playController's target). */
 export interface WalkthroughTarget {
@@ -248,15 +249,8 @@ export class WalkthroughSystem {
     this.scene = scene;
     this.focusTarget = focusTarget ?? canvas;
     this.controller = createController(scene, canvas, {
-      getState: () => {
-        const s = getState();
-        return {
-          rooms: Object.values(s.rooms),
-          objects: Object.values(s.objects),
-          currentFloor: s.currentFloor,
-          floors: s.floors,
-        };
-      },
+      // v0.17.0: the arrays made again only when the layout changes (asked dozens of times a frame)
+      getState: cachedLayoutState(getState),
       actions: refuseAll,
       getObjectMesh,
       readOnly: true,

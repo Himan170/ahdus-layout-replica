@@ -11,6 +11,7 @@ import { Engine } from '@babylonjs/core/Engines/engine';
 import { Scene } from '@babylonjs/core/scene';
 import { Color4 } from '@babylonjs/core/Maths/math.color';
 import { Camera } from '@babylonjs/core/Cameras/camera';
+import { MAX_PIXEL_RATIO } from '../../play/quality';
 import type { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 // Side-effect imports: Babylon tree-shakes aggressively
 import '@babylonjs/core/Meshes/meshBuilder';
@@ -57,6 +58,11 @@ export interface LayoutSceneOptions {
   quality?: 'high' | 'low';
   /** Where the real assets are (models/, textures/, env/). Default: the app's public/assets/. */
   assetBaseUrl?: string;
+  /**
+   * v0.17.0: keep the drawn picture after each frame (default true: Studio's exports and thumbnails read the canvas).
+   * The viewer passes false: the browser may then swap buffers instead of copying them.
+   */
+  preserveDrawingBuffer?: boolean;
 }
 
 /**
@@ -65,10 +71,11 @@ export interface LayoutSceneOptions {
  */
 export function createLayoutScene(canvas: HTMLCanvasElement, options: LayoutSceneOptions = {}): LayoutScene {
   const engine = new Engine(canvas, true, {
-    preserveDrawingBuffer: true,
+    preserveDrawingBuffer: options.preserveDrawingBuffer ?? true,
     stencil: true,
   });
-  engine.setHardwareScalingLevel(1 / window.devicePixelRatio);
+  // v0.17.0: never above MAX_PIXEL_RATIO (2): a phone at 3 drew 2.25 × the pixels for a difference hardly seen
+  engine.setHardwareScalingLevel(1 / Math.min(MAX_PIXEL_RATIO, window.devicePixelRatio || 1));
 
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.06, 0.08, 0.12, 1);

@@ -44,6 +44,7 @@ import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
+import { BoundingInfo } from '@babylonjs/core/Culling/boundingInfo';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import type { Material } from '@babylonjs/core/Materials/material';
@@ -127,6 +128,13 @@ export interface CharacterSystemOptions {
   unloadAfterMs?: number;
   /** Load a character file (tests); default: the glTF loader. */
   loadFile?: (url: string, scene: Scene) => Promise<AssetContainer>;
+  /**
+   * v0.17.0: false while the building is still being drawn: simple figures only (no character files, no clips),
+   * so the building comes first. Default: always ready.
+   */
+  ready?: () => boolean;
+  /** v0.17.0: at most one full character made per this many ms (default MAKE_EVERY_MS): no hitch when many come near. */
+  makeEveryMs?: number;
 }
 
 /** A character (or walk clip) file, loaded once per scene. */
@@ -161,6 +169,11 @@ const WORK_CLIPS = ['Type', 'Sit', 'Idle'];
 
 /** How often who is a full character is decided again (ms). */
 const CHOOSE_EVERY_MS = 300;
+/**
+ * v0.17.0: at most one full character made per this many ms. Making one (a copy of the file with its own skeleton,
+ * posed) took 30 to 100 ms on a slow laptop; twelve at once was a frame of over half a second.
+ */
+export const MAKE_EVERY_MS = 200;
 /** This many of the full characters (the nearest) breathe. */
 const BREATHING = 3;
 /** The simple figure is drawn for a person this tall (m). */
@@ -181,6 +194,13 @@ export class CharacterSystem {
   /** v0.16.0: the work clips baked per character file (the library's key): ready, or being baked. */
   private workClips = new Map<string, Map<string, BakedClip> | 'baking'>();
   private lastFrame = -1;
+  /** v0.17.0: when the last full character was made (performance.now()). */
+  private lastMade = -Infinity;
+  private makeEvery: number;
+  private pendingMake = false;
+  /** v0.17.0: a chosen person waits for their file, or the building is not drawn yet (makingMore). */
+  private pendingFile = false;
+  private notReady = true;
   /** v0.16.0: when each character file was last used by someone near (ms), for unloading. */
   private lastUsed = new Map<string, number>();
   /** Files asked for through loadFile() (your character, the walk clip, clip sets): never unloaded. */
@@ -226,6 +246,7 @@ export class CharacterSystem {
     this.scene = scene;
     this.options = options;
     this.maxFull = options.maxFull ?? MAX_FULL_CHARACTERS;
+    this.makeEvery = options.makeEveryMs ?? MAKE_EVERY_MS;
     this.maxAnimated = options.maxAnimated ?? MAX_ANIMATED;
     this.maxDownloads = options.maxDownloads ?? 3;
     this.unloadAfter = options.unloadAfterMs ?? UNLOAD_AFTER_MS;
@@ -300,6 +321,11 @@ export class CharacterSystem {
   /** v0.16.0: the character files loaded now (tests). */
   get loadedFiles(): string[] {
     return [...this.files].filter(([, f]) => f !== 'failed' && !(f instanceof Promise)).map(([url]) => url);
+  }
+
+  /** v0.17.0: people chosen whose file is loaded but who wait their turn to be made (one per makeEvery ms). */
+  get makingMore(): boolean {
+    return this.enabled && (this.pendingMake || this.pendingFile || (this.notReady && this.people.length > 0));
   }
 
   /** How many people are drawn as full characters now. */
@@ -416,9 +442,11 @@ export class CharacterSystem {
     if (this.disposed || this.scene.isDisposed) return;
     this.place();
     const now = performance.now();
-    if (now - this.lastChoice >= CHOOSE_EVERY_MS) {
+    // v0.17.0: none until the building is drawn (the figures show meanwhile)
+    this.notReady = !(this.options.ready?.() ?? true);
+    if (now - this.lastChoice >= CHOOSE_EVERY_MS && !this.notReady) {
       this.lastChoice = now;
-      this.choose();
+      this.choose(now);
     }
     this.syncFigures();
     const dt = this.lastFrame < 0 ? 0 : Math.min(0.25, (now - this.lastFrame) / 1000);
@@ -475,7 +503,7 @@ export class CharacterSystem {
 
   // ── Full characters ────────────────────────────────────────────────────
 
-  private choose(): void {
+  private choose(now = performance.now()): void {
     if (!this.enabled) return;
     const camera = this.scene.activeCamera;
     if (!camera) return;
@@ -489,13 +517,23 @@ export class CharacterSystem {
       : chooseFullCharacters(shown, eye, floor, { max: Infinity, current: this.full.keys(), focus: looked }).length;
     const wanted = new Set(this.chosen);
     for (const id of [...this.full.keys()]) if (!wanted.has(id)) this.removeFull(id);
+    let more = false;
+    let loading = false;
     for (const id of this.chosen) {
       if (this.full.has(id)) continue;
       const person = this.placed.find((p) => p.personId === id)!;
-      const file = this.fileFor(person.character!.url);
-      if (file && file !== 'failed' && !(file instanceof Promise)) this.makeFull(person, file);
+      const file = this.fileFor(person.character!.url); // every file asked for at once (the downloads)
+      if (file instanceof Promise) loading = true;
+      if (!file || file === 'failed' || file instanceof Promise) continue;
+      // v0.17.0: one at a time, the nearest first (chosen is nearest first); the next one in makeEvery ms
+      if (now - this.lastMade < this.makeEvery) { more = true; continue; }
+      this.makeFull(person, file);
+      this.lastMade = now;
     }
-    this.unloadUnused(performance.now());
+    this.pendingMake = more;
+    this.pendingFile = loading;
+    if (more) this.lastChoice = Math.min(this.lastChoice, this.lastMade + this.makeEvery - CHOOSE_EVERY_MS); // not 300 ms later
+    this.unloadUnused(now);
   }
 
   /** v0.16.0: unload the character files nobody near has used for unloadAfter ms. */
@@ -518,6 +556,9 @@ export class CharacterSystem {
       disposeFile(file);
       this.files.delete(url);
       this.lastUsed.delete(url);
+      // v0.17.0: its baked clips go too (they stayed for the whole visit)
+      this.clipLibrary.forget(url);
+      for (const key of [...this.workClips.keys()]) if (key.split('|')[1] === url) this.workClips.delete(key);
       this.unloads++;
     }
   }
@@ -585,7 +626,7 @@ export class CharacterSystem {
       root.position.addInPlace(target.subtract(hips.getAbsolutePosition()));
     }
     refreshTree(root);
-    for (const m of meshes) m.refreshBoundingInfo({ applySkeleton: true });
+    skipSkinnedBounds(meshes);
 
     const spineNode = bones.get('Spine') ?? null;
     let spine: FullCharacter['spine'] = null;
@@ -865,6 +906,28 @@ function tintedMaterial(file: LoadedFile, source: Material, hex: string): Materi
 function samePlace(a: PlacedPerson, b: PlacedPerson): boolean {
   return a.x === b.x && a.y === b.y && a.z === b.z && a.yaw === b.yaw && a.seated === b.seated && a.seatHeight === b.seatHeight;
 }
+
+/**
+ * v0.17.0: a character's box without skinning it on the CPU. The box of a skinned mesh in its pose needs every
+ * vertex skinned on the CPU (refreshBoundingInfo({ applySkeleton: true }): 2 s of a slow walk's profile); drawing
+ * itself skins on the GPU (Babylon stores the bones in a texture). Instead: its rest box (cheap) made a cube as
+ * big as its largest side × SKIN_BOX_GROW, about its middle, so a seated pose, a walk or a wave stays inside it.
+ * (Never culling them instead cost more: the bones of people behind you were posed every frame.)
+ */
+export function skipSkinnedBounds(meshes: AbstractMesh[]): void {
+  for (const m of meshes) {
+    if (!m.getTotalVertices()) continue;
+    m.refreshBoundingInfo({});
+    const box = m.getBoundingInfo().boundingBox;
+    const c = box.center;
+    const e = box.extendSize;
+    const r = Math.max(e.x, e.y, e.z) * SKIN_BOX_GROW;
+    m.setBoundingInfo(new BoundingInfo(new Vector3(c.x - r, c.y - r, c.z - r), new Vector3(c.x + r, c.y + r, c.z + r)));
+  }
+}
+
+/** v0.17.0: a character's cube box: its largest side × this (the rest pose's half-size → the cube's half-size). */
+export const SKIN_BOX_GROW = 1.25;
 
 /** World matrices from the top down (a child's uses its parent's). */
 export function refreshTree(top: TransformNode): void {

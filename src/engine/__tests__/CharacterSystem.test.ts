@@ -46,6 +46,7 @@ let most: number;
 
 function system(extra: Partial<ConstructorParameters<typeof CharacterSystem>[1]> = {}) {
   return new CharacterSystem(scene, {
+    makeEveryMs: 0, // v0.17.0: these check who is made; the pacing is characterPacing.test.ts
     getLayout: () => ({ objects, floors, currentFloor: 0 }),
     getObjectMesh: (id) => (id in shown ? { isEnabled: () => shown[id], isDisposed: () => false } : null),
     loadFile: async (url, sc) => {
