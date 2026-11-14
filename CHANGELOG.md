@@ -3,13 +3,17 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
-## Unreleased (v0.16.2)
+## 0.16.2 (14 Nov 2026): small fixes
 
 - **Typing names with an input tool (Hindi, Japanese, Chinese …):** the Enter that picks a word no longer saves
   the name half typed, and the Esc that drops a word no longer cancels the edit or closes the menu: the layout and
   workplace name, company and floor names, the Inspector's name and number fields, Floor height, Layers / library /
   catalog / people search, the viewer's Find box, popovers and dialogs (`utils/keys.js`: `isCommitEnter`,
   `isComposing`).
+- **Steadier route timing test:** each Meridian route counts its fastest of 3 runs (as the tour test), the middle
+  route is held to 100 ms (CI 250 ms), the slowest to 400 ms (CI 800 ms): no false failures on a busy machine.
+- AHDUS (AHDUS-FRONTEND, with this update): the live WebSocket closes a page (code 4401, no retry) when its login
+  token expires or the account is deactivated, checked every 2 minutes and at the token's expiry.
 
 ## 0.16.1 (13 Nov 2026): live presence
 
