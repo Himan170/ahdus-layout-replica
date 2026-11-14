@@ -174,15 +174,32 @@ describe('many people (v0.16.0)', () => {
     cs.dispose();
   });
 
-  it('the simple figures are grey', async () => {
+  it('v0.17.2: the simple figures wear their colours (top, trousers); only the head is grey; no shine', async () => {
     const cs = system();
-    cs.setPeople([person('nobody', 'd1', null)]);
+    cs.setPeople([
+      { ...person('tee', 'd1', null), clothing: { schemaVersion: 1, upperBody: 'tshirt', upperColor: '#cc2200', pantsColor: 'blue' } },
+      person('nobody', 'd2', null),
+    ]);
     cs.update();
-    const figure = scene.getMeshByName('people_seated')!;
-    expect(figure.isEnabled()).toBe(true);
-    const c = (figure.material as any).diffuseColor;
-    expect(c.r).toBeCloseTo(FIGURE_GREY.r, 5);
-    expect(c.r).toBeLessThan(0.8);
+    const top = scene.getMeshByName('people_seated') as any;
+    const legs = scene.getMeshByName('people_seated_legs') as any;
+    const head = scene.getMeshByName('people_seated_head') as any;
+    for (const m of [top, legs, head]) {
+      expect(m.isEnabled()).toBe(true);
+      expect(m.thinInstanceCount).toBe(1); // tee sits at d1; nobody stands at d2 (no chair)
+    }
+    const colours = (m: any) => [...m._userThinInstanceBuffersStorage.data.instanceColor].map((n: number) => +n.toFixed(3));
+    const placed = cs.getPlaced();
+    const i = placed.filter((p) => p.seated).findIndex((p) => p.personId === 'tee');
+    expect(colours(top).slice(i * 4, i * 4 + 4)).toEqual([0.8, 0.133, 0, 1]);
+    expect(colours(legs).slice(i * 4, i * 4 + 3)).toEqual([0.173, 0.243, 0.42]); // TROUSER_TINTS.blue
+    expect(head._userThinInstanceBuffersStorage?.data?.instanceColor).toBeUndefined();
+    const standing = scene.getMeshByName('people_standing') as any;
+    expect(standing.thinInstanceCount).toBe(1);
+    expect(colours(standing)).not.toEqual(colours(top)); // nobody: a colour of their own
+    const vc = head.getVerticesData('color');
+    expect(vc[0]).toBeGreaterThan(FIGURE_GREY.r); // a light mannequin grey
+    expect(top.material.specularColor.r).toBe(0);
     cs.dispose();
   });
 });

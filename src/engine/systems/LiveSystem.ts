@@ -34,7 +34,7 @@ import {
 import { chooseFullCharacters } from '../../play/people';
 import { elevationOf } from '../../play/building';
 import { cleanClothing } from '../../play/outfit';
-import { buildFigure, validCharacter } from './CharacterSystem';
+import { buildFigure, validCharacter, SETTLE_AFTER_MAKE_MS } from './CharacterSystem';
 import type { CharacterSystem, CharacterFile, Clothing } from './CharacterSystem';
 import { animatedCharacter, PLAYER_CLIPS } from './PlayerCharacter';
 import type { PlayCharacter } from './PlayerCharacter';
@@ -136,6 +136,8 @@ export class LiveSystem {
   private tagWidths = new Map<string, number>();
   private lastTagCheck = -Infinity;
   private token = 0;
+  /** v0.17.2: when the last live full character was made (performance.now()): settling(). */
+  private lastMade = -Infinity;
   private silentMs: number;
   private maxDrawn: number;
 
@@ -216,6 +218,13 @@ export class LiveSystem {
     if (next === this.fullCap) return;
     this.fullCap = next;
     this.lastChoice = -Infinity;
+  }
+
+  /** v0.17.2: a live person's character is being made, or was just made: the frame-rate monitors wait. */
+  settling(now = performance.now()): boolean {
+    if (now - this.lastMade < SETTLE_AFTER_MAKE_MS) return true;
+    for (const e of this.entries.values()) if (e.making) return true;
+    return false;
   }
 
   /** How many live people are full characters (or being made): the seated ones get the rest of the cap. */
@@ -343,6 +352,7 @@ export class LiveSystem {
         { name: `live_${e.info.personId}`, metadata: { livePersonId: e.info.personId } });
       e.walkerKey = key;
       e.waved = false;
+      this.lastMade = performance.now();
     }, (err) => {
       if (e.making === token) e.making = 0;
       console.warn(`[live] could not draw ${e.info.personId} as their character: a simple figure`, err?.message ?? err);

@@ -27,6 +27,7 @@
  */
 
 import { cleanClothing } from '../play/outfit';
+import { cleanColors } from '../play/figureLook';
 import { cleanLive } from '../play/live';
 
 export const DEFAULT_HEIGHT = 1.75;
@@ -122,6 +123,12 @@ export function parseManifest(data, baseUrl) {
       if (entry.outfit !== undefined) {
         if (OUTFITS.includes(entry.outfit)) character.outfit = entry.outfit;
         else problems.push(`${ref}: unknown outfit "${entry.outfit}" (shown as it is)`);
+      }
+      // v0.17.2: the outfit's main colours, for the simple figure (play/figureLook.js); a wrong value is left out
+      if (entry.colors !== undefined) {
+        const colors = cleanColors(entry.colors);
+        if (colors) character.colors = colors;
+        else problems.push(`${ref}: "colors" needs { top: '#rrggbb', bottom? } (left out)`);
       }
       if (entry.seated !== undefined) {
         const s = resolveUrl(entry.seated, baseUrl);
@@ -261,7 +268,7 @@ export function resolvePeople(list, manifest) {
 export function fileOf(entry, { seated = false } = {}) {
   if (!entry) return null;
   const file = { url: (seated && entry.seated) || entry.url, rig: entry.rig, height: entry.height };
-  for (const key of ['gender', 'outfit', 'clips']) if (entry[key]) file[key] = entry[key];
+  for (const key of ['gender', 'outfit', 'clips', 'colors']) if (entry[key]) file[key] = entry[key];
   return file;
 }
 

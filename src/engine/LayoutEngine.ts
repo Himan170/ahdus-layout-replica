@@ -462,7 +462,9 @@ export class LayoutEngine {
     this.fullCap = new FullCapMonitor({
       weak: () => this.weakDevice,
       wanted: () => (this.characters?.wantedFull ?? 0) + this.live.wantedFull,
-      measuring: () => !!this._builder?.progress.allBuilt && !(typeof document !== 'undefined' && document.hidden),
+      // v0.17.2: not while characters are being made (their first frames compile shaders: CharacterSystem.settling)
+      measuring: () => !!this._builder?.progress.allBuilt && !(typeof document !== 'undefined' && document.hidden)
+        && !this._charactersSettling(),
       fixed: options.fullCharacters ?? null,
     });
     this.drawQuality = new QualityMonitor({
@@ -470,7 +472,7 @@ export class LayoutEngine {
       auto: options.autoQuality !== false,
       // v0.17.1: not while the shadows switch (those frames are the switch's, not the device's)
       measuring: () => !!this._builder?.progress.allBuilt && !(typeof document !== 'undefined' && document.hidden)
-        && !this._shadowSwitch?.busy,
+        && !this._shadowSwitch?.busy && !this._charactersSettling(),
       apply: (step) => this._applyQuality(step),
     });
     this.characters?.setMaxFull(this._fullCapNow());
@@ -1104,6 +1106,11 @@ export class LayoutEngine {
   }
 
   /** v0.17.0: the full-character cap now: the measured cap, at most the quality step's. */
+  /** v0.17.2: full characters (seated or live) being made now: the frame-rate monitors wait. */
+  private _charactersSettling(): boolean {
+    return !!this.characters?.settling() || !!this.live?.settling();
+  }
+
   private _fullCapNow(): number {
     return Math.min(this.fullCap.cap, this._qualityStep?.maxFull ?? Infinity);
   }

@@ -240,6 +240,7 @@ workplace.setPeople([
 | character `outfit` | `'rocketbox'`: the file has the Rocketbox outfit parts (`Outfit_formal`, `Top_shirt`, `Trousers`, …), so `clothing` applies. |
 | character `seated` | A lighter copy of the same character (half the texture size: about a quarter of the graphics memory) used for the people at their desks; the person walking through is drawn from `url`. None: `url` for both. |
 | character `gender`, `group` | `'female'` / `'male'`; any group name (for `groups`). |
+| character `colors` | (v0.17.2, optional) `{ "top": "#rrggbb", "bottom": "#rrggbb" }`: the main colours of its outfit, for the simple figure drawn when the full-character limit is reached (`bottom` optional). None: a person's Wardrobe `clothing` gives them, else a suit colour for a Rocketbox outfit, else a colour from a small palette by `personId`. A bad value is left out (a warning). |
 
 The file must be a skinned glTF binary facing +Z with its feet at 0 (as Mixamo exports). Office copies should be
 light (`docs/TEAM_INTEGRATION.md` section 4, "Harsh"). glTF extensions it may use: `EXT_texture_webp`,

@@ -11,7 +11,7 @@ import '@babylonjs/loaders/glTF/2.0/glTFLoader';
 
 import { registerGltfExtensions } from '../../utils/gltfExtensions';
 import { GLB_LOAD_OPTIONS } from '../../utils/modelLoader';
-import { CharacterSystem } from '../systems/CharacterSystem';
+import { CharacterSystem, SETTLE_AFTER_MAKE_MS } from '../systems/CharacterSystem';
 import type { Person } from '../systems/CharacterSystem';
 
 // v0.17.0: the building first, then the people one at a time, with no CPU skinning for their boxes.
@@ -76,6 +76,24 @@ describe('people after the building, one at a time (v0.17.0)', () => {
     }
     expect(loads).toEqual(['/c/mixamo.glb']);
     expect(cs.fullCount).toBe(3);
+    cs.dispose();
+  });
+
+  it('v0.17.2: settling while characters are made and SETTLE_AFTER_MAKE_MS after the last one (the monitors wait)', async () => {
+    const cs = system({ makeEveryMs: 0 });
+    expect(cs.settling()).toBe(false); // nobody: nothing to make
+    cs.setPeople(people);
+    for (let i = 0; i < 100 && cs.fullCount < 3; i++) {
+      (cs as any).lastChoice = -Infinity;
+      cs.update();
+      await cs.whenSettled();
+      await tick(5);
+    }
+    expect(cs.fullCount).toBe(3);
+    expect(cs.makingMore).toBe(false);
+    const made = (cs as any).lastMade as number;
+    expect(cs.settling(made + 10)).toBe(true);
+    expect(cs.settling(made + SETTLE_AFTER_MAKE_MS + 1)).toBe(false);
     cs.dispose();
   });
 
