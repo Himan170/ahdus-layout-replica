@@ -1,20 +1,22 @@
 /**
  * ui/StudioSplash.jsx
  *
- * The full-screen loading screen of Workplace Studio (all modes): the name, a spinner
- * and "Opening Workplace Studio…" (inside AHDUS the brand reads "AHDUS", as in the top
- * bar). App shows it until the layout is loaded AND the editor has drawn its first
- * full frame (ui/firstFrame.js), then it fades out over FADE_MS (at once with
- * prefers-reduced-motion). If opening fails it becomes the error card, with "Try
- * again" (and a way back), never an endless spinner. Styles: ui/overlays.css.
+ * The full-screen loading screen of Workplace Studio (all modes), v0.17.2: ONE screen from the click to Studio
+ * ready. index.html draws the same markup from the first paint (#boot-splash, before this JS has arrived), the
+ * 3D Company page draws it while it creates a workplace, and this component takes over in the same place. The
+ * name, then the steps (ui/splashSteps.js): "Creating your workplace" (after Create a workplace) → "Loading
+ * Studio…" → "Ready". App shows it until the layout is loaded AND the editor has drawn its first full frame
+ * (ui/firstFrame.js), then it fades out over FADE_MS (at once with prefers-reduced-motion). If opening fails it
+ * becomes the error card, with "Try again" (and a way back), never an endless spinner. Styles: ui/splash.css
+ * (light AHDUS look; dark only when AHDUS is in dark mode: `theme`).
  *
  * phase: 'loading' | 'done' | 'error'
  */
 
 import { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Building2, RotateCcw } from 'lucide-react';
-import './overlays.css';
-import './ahdus.css';
+import { splashSteps, splashStatus } from './splashSteps';
+import './splash.css';
 
 export const FADE_MS = 300;
 
@@ -27,7 +29,7 @@ export function splashFadeMs(win = typeof window !== 'undefined' ? window : null
 }
 
 export default function StudioSplash({
-  phase, ahdus = false, text = 'Opening Workplace Studio…',
+  phase, ahdus = false, created = false, theme = 'light', text = null, newName = null,
   errorTitle = 'Workplace Studio could not be opened', error, onRetry, onBack, backLabel,
 }) {
   const [gone, setGone] = useState(false);
@@ -43,22 +45,33 @@ export default function StudioSplash({
 
   if (leaving && gone) return null;
 
+  const brand = (
+    <div className="studio-splash__brand">
+      <span className="studio-splash__logo" aria-hidden><Building2 strokeWidth={1.75} /></span>
+      <div className="studio-splash__name">
+        {ahdus && <span className="studio-splash__ahdus">AHDUS</span>}
+        <span>Workplace Studio</span>
+      </div>
+    </div>
+  );
+
   if (phase === 'error') {
     return (
-      <div className="studio-splash is-error" role="alert" data-splash="error">
-        <div className="editor-error__card">
-          <AlertTriangle size={28} strokeWidth={1.75} aria-hidden className="editor-error__icon" />
-          <h1 className="editor-error__title">{errorTitle}</h1>
-          {error && <p className="editor-error__text">{error}</p>}
-          <div className="studio-splash__actions">
+      <div className="studio-splash is-error" role="alert" data-splash="error" data-splash-theme={theme}>
+        {brand}
+        <div className="studio-splash__card">
+          <AlertTriangle strokeWidth={1.75} aria-hidden />
+          <h1 className="studio-splash__title">{errorTitle}</h1>
+          {error && <p className="studio-splash__text">{error}</p>}
+          <div className="studio-splash__buttons">
             {onRetry && (
-              <button className="ui-btn is-primary" onClick={onRetry} autoFocus>
-                <RotateCcw size={16} strokeWidth={1.75} aria-hidden /> Try again
+              <button type="button" className="studio-splash__button is-primary" onClick={onRetry} autoFocus>
+                <RotateCcw strokeWidth={1.75} aria-hidden /> Try again
               </button>
             )}
             {onBack && (
-              <button className="ui-btn" onClick={onBack}>
-                <ArrowLeft size={16} strokeWidth={1.75} aria-hidden /> {backLabel}
+              <button type="button" className="studio-splash__button" onClick={onBack}>
+                <ArrowLeft strokeWidth={1.75} aria-hidden /> {backLabel}
               </button>
             )}
           </div>
@@ -67,6 +80,7 @@ export default function StudioSplash({
     );
   }
 
+  const steps = splashSteps({ created, phase: leaving ? 'done' : 'loading' });
   return (
     <div
       className={`studio-splash${leaving ? ' is-leaving' : ''}`}
@@ -74,17 +88,31 @@ export default function StudioSplash({
       role="status"
       aria-live="polite"
       aria-busy={!leaving}
+      aria-label={text ?? splashStatus(steps)}
       data-splash={leaving ? 'leaving' : 'loading'}
+      data-splash-theme={theme}
     >
-      <div className="studio-splash__brand">
-        <span className="ahdus-logo ahdus-logo--big" aria-hidden><Building2 size={30} strokeWidth={1.75} /></span>
-        <div className="studio-splash__name">
-          {ahdus && <span className="studio-splash__ahdus">AHDUS</span>}
-          <span>Workplace Studio</span>
-        </div>
-      </div>
-      <div className="studio-splash__spinner" aria-hidden />
-      <p className="studio-splash__text">{leaving ? 'Ready' : text}</p>
+      {brand}
+      {text ? (
+        <ol className="studio-splash__steps">
+          <li className="studio-splash__step" data-step="login" data-step-state="active">
+            <span className="studio-splash__mark" aria-hidden />{text}
+          </li>
+        </ol>
+      ) : (
+        <ol className="studio-splash__steps">
+          {steps.map((s) => (
+            <li key={s.key} className="studio-splash__step" data-step={s.key} data-step-state={s.state}>
+              <span className="studio-splash__mark" aria-hidden />{s.label}
+            </li>
+          ))}
+        </ol>
+      )}
+      {created && newName && (
+        <p className="studio-splash__hint" data-splash-hint>
+          <strong>{newName}</strong> is ready. To rename it, click its name in Studio&apos;s top bar.
+        </p>
+      )}
     </div>
   );
 }

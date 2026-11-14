@@ -1,6 +1,27 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
+import { readFileSync } from 'fs';
+
+/**
+ * index.html's loading screen (v0.17.2): ui/splash.css inlined, so it is drawn from the first paint, before
+ * Studio's JS and CSS have arrived, with the same rules as ui/StudioSplash.jsx; and whether this is the AHDUS
+ * build (its brand, AHDUS's dark mode). Only index.html has the markers (viewer.html is left alone).
+ */
+export function splashPlugin(backend) {
+  return {
+    name: 'ahdus-splash-css',
+    transformIndexHtml: {
+      order: 'pre',
+      handler(html) {
+        if (!html.includes('/* splash.css */')) return html;
+        const css = readFileSync(resolve(__dirname, 'src/ui/splash.css'), 'utf8');
+        return html.replace('/* splash.css */', () => css)
+          .replace('%AHDUS_BACKEND%', backend === 'ahdus' ? 'ahdus' : 'local');
+      },
+    },
+  };
+}
 
 /** Where `npm run dev` sends /api in AHDUS mode, unless VITE_AHDUS_API says otherwise. */
 const AHDUS_API_DEFAULT = 'http://127.0.0.1:8000';
@@ -13,7 +34,7 @@ export default defineConfig(({ mode }) => {
   const ahdusApi = env.VITE_LAYOUT_BACKEND === 'ahdus' ? env.VITE_AHDUS_API || AHDUS_API_DEFAULT : null;
 
   return {
-    plugins: [react()],
+    plugins: [react(), splashPlugin(env.VITE_LAYOUT_BACKEND)],
     resolve: {
       alias: {
         '@engine': resolve(__dirname, 'src/engine'),
