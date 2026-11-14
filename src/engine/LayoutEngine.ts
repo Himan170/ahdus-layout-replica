@@ -85,6 +85,8 @@ import { softwareRenderer } from './startMode';
 
 /** Item types only Studio shows (markers for the editor): hidden in view and walkthrough mode (v0.13.1). */
 export const STUDIO_ONLY_TYPES = ['SPAWN_POINT'];
+/** v0.17.0: full characters start this many frames after the start floor is drawn (the building first). */
+export const CHARACTERS_AFTER_FRAMES = 10;
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -406,6 +408,9 @@ export class LayoutEngine {
     this.characters = this._quality === 'low' ? null : new CharacterSystem(this.scene, {
       getLayout: () => this._store.getState(),
       getObjectMesh: (id) => this.objects.getObjectMesh(id),
+      // v0.17.0: the building first: full characters (files, clips) only once the start floor is drawn and has had
+      // a few frames (the simple figures show meanwhile)
+      ready: () => this._charactersReady(),
     });
     this.live = new LiveSystem(this.scene, {
       getLayout: () => this._store.getState(),
@@ -986,6 +991,20 @@ export class LayoutEngine {
   }
 
   // ── Cleanup ────────────────────────────────────────────────────────────
+
+  /** v0.17.0: the frame the start floor was first drawn in (null: not yet, or a new layout is being built). */
+  private _floorReadyFrame: number | null = null;
+
+  /** v0.17.0: full characters may come: the start floor is built and CHARACTERS_AFTER_FRAMES frames were drawn since. */
+  private _charactersReady(): boolean {
+    if (!this._builder?.progress.currentFloorReady) {
+      this._floorReadyFrame = null;
+      return false;
+    }
+    const frame = this.scene.getFrameId();
+    this._floorReadyFrame ??= frame;
+    return frame - this._floorReadyFrame >= CHARACTERS_AFTER_FRAMES;
+  }
 
   /** How far building the layout is: { done, total, floor, currentFloorReady, allBuilt }. */
   get buildProgress(): BuildProgress {
