@@ -321,6 +321,8 @@ export class ClipLibrary {
   private scene: Scene;
   private loadFile: (url: string) => Promise<LoadedFile>;
   private baked = new Map<string, Promise<BakedClip | null>>();
+  /** v0.17.0: the baked keys of each character file, so they go when the file is unloaded (forget). */
+  private keysOfFile = new Map<string, Set<string>>();
   /** Bakes run one at a time with a pause between them, so a frame can be drawn (~10–50 ms each). */
   private turn: Promise<unknown> = Promise.resolve();
   /** The copies of a character + source being baked from, and how many bakes still want them. */
@@ -367,8 +369,31 @@ export class ClipLibrary {
         return null;
       });
       this.baked.set(key, made);
+      let keys = this.keysOfFile.get(character.url);
+      if (!keys) this.keysOfFile.set(character.url, (keys = new Set()));
+      keys.add(key);
     }
     return made;
+  }
+
+  /** How many clips are baked and kept now (tests). */
+  get bakedCount(): number {
+    return this.baked.size;
+  }
+
+  /** How many clips are kept for this character file (tests). */
+  bakedFor(characterUrl: string): number {
+    return this.keysOfFile.get(characterUrl)?.size ?? 0;
+  }
+
+  /**
+   * v0.17.0: drop the clips baked for this character file (CharacterSystem unloads the file when nobody near has used
+   * it for a while). They were kept for the whole visit: ~3 MB each, 79 after one walk through Meridian. People
+   * still playing one keep their own reference; the next person with this file bakes it again.
+   */
+  forget(characterUrl: string): void {
+    for (const key of this.keysOfFile.get(characterUrl) ?? []) this.baked.delete(key);
+    this.keysOfFile.delete(characterUrl);
   }
 
   /** Several clips at once, those that exist (name → clip). */
@@ -381,6 +406,7 @@ export class ClipLibrary {
 
   dispose(): void {
     this.baked.clear();
+    this.keysOfFile.clear();
     for (const b of this.benches.values()) b.bench?.dispose();
     this.benches.clear();
   }

@@ -518,6 +518,9 @@ export class CharacterSystem {
       disposeFile(file);
       this.files.delete(url);
       this.lastUsed.delete(url);
+      // v0.17.0: its baked clips go too (they stayed for the whole visit)
+      this.clipLibrary.forget(url);
+      for (const key of [...this.workClips.keys()]) if (key.split('|')[1] === url) this.workClips.delete(key);
       this.unloads++;
     }
   }
