@@ -459,6 +459,14 @@ windows of 3 s; smooth twice in a row (50 fps or more) while more people are nea
 4 fewer, then it holds 30 s. A weak device (software WebGL, `quality: 'low'`, `weakDevice: true`) keeps 12. Live
 people get theirs first.
 
+**Drawing quality (v0.17.0):** the view lowers its own quality when frames are slow and raises it again when they
+are smooth for a while: one slow 3 s window (under 30 fps) = one step down (sharpness, then shadows, then at most 6
+full characters); 5 smooth windows = one step up, never within a minute of a drop. Sharpness is never above a pixel
+ratio of 2 (a phone at 3 drew 2.25 × the pixels for a difference hardly seen). The "?" help has a **Low graphics**
+switch (the simple look, no full characters, no shadows), remembered per browser. Shadows are drawn once and again
+only when the layout or the floor shown changes. The file has no WebGPU shaders and no editing code (v0.17.0:
+2,643 kB, 705 kB gzipped).
+
 ```js
 // AHDUS's 3D Company page: the WebSocket's messages → the view; your walk → the WebSocket
 socket.onmessage = ({ data }) => {
