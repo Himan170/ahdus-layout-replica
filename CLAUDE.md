@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1525, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1534, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -131,12 +131,13 @@ npm run e2e:live     # 24 checks   e2e/live-smoke.mjs      (NO dev server: build
                      #                                       again = live, the nearest 30, per floor, clear(); your pose
                      #                                       ≤ 5 / s + keepalive + wave; the cap = 12 on SwiftShader;
                      #                                       phone tags inside the view; SHOTS=<dir>: screenshots)
-npm run e2e:navigation # 20 checks e2e/navigation-smoke.mjs (viewer.html, the Meridian-shaped layout; MERIDIAN=<layout.json>
+npm run e2e:navigation # 22 checks e2e/navigation-smoke.mjs (viewer.html, the Meridian-shaped layout; MERIDIAN=<layout.json>
                      #                                       MERIDIAN_PEOPLE=<people.json> = the real one: the card's Show route /
                      #                                       Take me there, from above = from the entrance, the line (≤ 2
                      #                                       meshes), re-route 3 m off, Kavya at reception (in front of the counter, facing her), Floor 1 by the
                      #                                       stairs, nearest washroom, every frame clear of walls / furniture,
                      #                                       E there = "E Details: Kavya Iyer" + her card (v0.14.7),
+                     #                                       v0.17.1: arrived, Kavya on screen + not covered by you (desktop, phone),
                      #                                       W pauses + G, the time, Esc / Stop, free walking, phone; run it
                      #                                       ALONE; SHOTS=<dir>: screenshots + a .webm recording)
 npm run e2e:seats    # 26 checks   e2e/seats-smoke.mjs     (NO dev server: starts its own in AHDUS mode on port 3100,
@@ -1216,11 +1217,23 @@ screen-reader label stays; e2e scripts that used a moved button now open More fi
   (`[data-help-all]`) shows every row (`WALK_HELP` 16 / `WALK_HELP_TOUCH`), opaque. No keys line stays on screen: the
   pill shows only in mouse look, and on a first visit (`walkHintSeen`) the welcome card carries the hint's words
   (`[data-welcome-keys]`, then marked seen: no separate hint) + `startMode.welcomeTip` (`[data-welcome-tip]`: "Find a
-  person or place with Find. The company tour is under More."). The welcome card has one action, `explore`; opening
-  Find or More, or a tour starting, closes it.
+  person or place with Find. The tour is also under More."). The welcome card's main action is `explore`, a second
+  smaller one `tour` ("Start the tour", `[data-welcome-tour-detail]` "5 stops · about 1 min", from `tourPlanReady`
+  once `whenNavigationReady`; none without stops; compact: no detail); opening Find or More, or a tour starting,
+  closes it.
 - **One box after arriving:** PlaceSearch's arrived strip takes the E prompt (`endExtra` → `[data-nav-extra]
   [data-hud="prompt"]`) and the HUD box (`[data-hud="room"]`) is hidden meanwhile (`onBoxChange`, `quiet`); E or a
   click pins the person's card and the strip closes (`dismissRequest`).
+- **The arrival view** (`play/arrivalView.js` PURE + tested; `playController` `setArrivalView(point, { instant })` /
+  `getArrivalView()` → { t, hidden, spot, target, leaving }, `isPlayerMesh`; WalkthroughSystem passes them on):
+  LayoutEngine `_arrivalView`: an 'auto' walk (Take me there, My desk; not a click's walk, not the tour) 'arrived' =
+  the camera eases (`ARRIVAL_EASE_S` 0.6) to a raised spot over a shoulder looking AT the place (`_arrivalTarget`: a
+  person's chest from `characters.getPlaced()`, else the desk / item, else the room's middle, 1 m up). Spots
+  `SPOTS_WIDE` / `SPOTS_NARROW` (aspect < 1), the first that walls leave ≥ `MIN_DISTANCE` 1 m from the eye, nothing
+  in the way to the place (a cast stopping `TARGET_MARGIN` 0.7 m short) and whose line to it misses your torso by
+  `BODY_CLEAR` 0.4 m and your head by `HEAD_CLEAR` 0.25; none = your character hidden. Moving, turning, flying, a new
+  walk, `setPose` / the entrance end it. e2e:navigation projects Kavya's points: on screen, a pick through them never
+  hits your character or a wall.
 - **Phone:** toolbar buttons `tallButton` 44 × 44 px at least, one row (e2e:touch checks it).
 - **Hide me:** `<LayoutViewer hideMe={{ hidden, onChange }}>`; the embed's option `hideMe: { hidden }`, `handle.hideMe`,
   `setHideMe(hidden)`, `onEvent('hideMe', { hidden })`. Text `HIDE_ME_LABEL` / `HIDE_ME_NOTE`. The page (AHDUS) stops
@@ -1240,8 +1253,16 @@ screen-reader label stays; e2e scripts that used a moved button now open More fi
   `sun.shadowEnabled`), `engine.shadowsSwitching` while busy (QualityMonitor doesn't measure then). Measured with
   the scratchpad's real-GPU script (Intel UHD, CPU 4 × slower, Meridian, walking, after the tour is planned): off
   250–270 ms → ≤ 95 ms, on 120 → ~70 ms. On SwiftShader one material's shader alone takes ~1 s: no fix there.
-  Measuring there: the company tour's plan is ONE idle task of ~1.25 s on that setup, ~1 s after loading: wait for
-  `navigation.tourPlanReady` before timing anything.
+  Measuring there: wait for `navigation.tourPlanReady` before timing anything.
+- **The tour planned in slices** (`tour.js` `planTourSteps`: a generator yielding between pieces (one cost field, one
+  room's spots, one leg's route, one stop's words; Meridian ~105 steps, the longest one leg's route ~12 %);
+  `planTour` runs it at once, the same plan). `NavigationSystem.warm()`: each floor's walk map, then its route-finder
+  parts (`route.prepareMap(map, 'areas' | 'nearWalls' | 'obstacles')`), the index, the entrance route, then the tour
+  in `TOUR_SLICE_MS` 8 ms slices (its `ms` = the working time). The first step waits for an idle callback, the rest
+  follow in new tasks (hook `soon`, default a MessageChannel; tests' `idle` is used for both): on a busy slow laptop
+  idle callbacks come only at their 1 s timeout (the tour took a minute). Measured (Intel UHD, CPU 4 × slower,
+  Meridian, walking): worst frame after loading 1,293 ms (+ one of 385: the first route made the maps' parts) →
+  176 ms, none over 200; the plan ready ~5 s after the building.
 
 ## Smooth (v0.17.0, how it works)
 
@@ -1756,7 +1777,8 @@ Search followed as v0.13.3 (below).
 
 Part 2 of Himan's v0.17 plan: one toolbar (Find · Overview / Walk · My desk · More), the help in 6 rows + All
 shortcuts, the keys explained once, one box after arriving, 44 px phone buttons, Hide me with its meaning, name tags
-under menus, shadows switched without a freeze (see "Simple"; CHANGELOG.md). Screenshots before / after (1280 × 720,
+under menus, shadows switched without a freeze; after the review: "Start the tour" on the welcome card, the arrival
+view over your shoulder, the tour planned in slices (see "Simple"; CHANGELOG.md). Screenshots before / after (1280 × 720,
 390 × 844: first visit, Find → arrived, More, help): private-docs/screenshots/v0.17.1/ (not in git). The AHDUS part
 (Hide me wired to the live socket) waits for this merge.
 

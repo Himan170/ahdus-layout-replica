@@ -14,10 +14,18 @@ works, and every button keeps a name for screen readers.
   name shows in one place (the box at the bottom left).
 - **My desk:** walks you to your own desk (as Take me there). Only shown when you have a desk.
 - **Help:** 6 rows, with "All shortcuts" for the rest. No line of keys stays on screen. The keys are explained
-  once: in the welcome card on the first visit (then no separate hint). The welcome card has one button, Explore.
-  Opening Find or More, or starting the tour, closes it.
+  once: in the welcome card on the first visit (then no separate hint). The welcome card's main button is Explore,
+  with a second, smaller **Start the tour** ("5 stops · about 1 min"); the tour is in More too. Opening Find or More,
+  or starting the tour, closes the card.
 - **One box at a time after arriving:** the "You have arrived" strip holds the E prompt ("E Details: Kavya Iyer"),
   and the room / floor box is hidden meanwhile. E (or a click) opens the person's card in place of the strip.
+- **You never hide who you came to:** when Take me there or My desk arrives, the camera moves over your shoulder,
+  higher, looking at the person or place (desktop and phone; a wall on one side: the other shoulder; no room for the
+  camera at all: your character is hidden). Moving or turning brings the usual camera back.
+- **No freeze while the company tour is planned:** the plan (made in the background after loading) runs in slices
+  of a few milliseconds, and so do the route finder's first parts. Measured (Meridian-shaped layout, walking; Intel
+  UHD graphics, the processor slowed 4 ×): the worst frame after loading went from 1,293 ms (and one of 385 ms) to
+  176 ms, with no frame over 200 ms; the plan is ready ~5 s after the building.
 - **Phones:** the toolbar's buttons are 44 px high, in one row (More shows only "···").
 - **Hide me** (More) says what it does: "Others on this page won't see you walk". The page decides what it means:
   the embed's option `hideMe`, `setHideMe`, the `hideMe` event (docs/EMBED_GUIDE.md).
@@ -28,8 +36,10 @@ works, and every button keeps a name for screen readers.
   UHD graphics, the processor slowed 4 ×): shadows off went from one 250–270 ms frame (and one of ~160 ms) to at most
   ~95 ms over ~17 frames; on, 120 ms → ~70 ms. Software WebGL (no graphics driver) still has ~1 s frames there: one
   material's new shader takes that long to compile.
-- Engine: `engine.shadowsOn`, `engine.shadowsSwitching` (`systems/ShadowSwitch.ts`); `<LayoutViewer hideMe>`.
-  e2e:controls 19 checks, e2e:touch 16, e2e:welcome 40, e2e:embed 40, e2e:live 24.
+- Engine: `engine.shadowsOn`, `engine.shadowsSwitching` (`systems/ShadowSwitch.ts`); `<LayoutViewer hideMe>`;
+  `walkthrough.setArrivalView` / `getArrivalView` (`play/arrivalView.js`); `planTourSteps` (`play/navigation/tour.js`),
+  `prepareMap` (`route.js`). e2e:controls 19 checks, e2e:touch 16, e2e:welcome 40, e2e:embed 40, e2e:live 24,
+  e2e:navigation 22 (Kavya on screen, not covered by you, desktop and phone).
 
 ## 0.17.0 (14 Nov 2026): smooth
 
