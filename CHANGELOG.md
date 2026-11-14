@@ -3,7 +3,7 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
-## 0.16.2 (13 Nov 2026): small fixes
+## 0.16.2 (14 Nov 2026): small fixes
 
 - **Typing names with an input tool (Hindi, Japanese, Chinese …):** the Enter that picks a word no longer saves
   the name half typed, and the Esc that drops a word no longer cancels the edit or closes the menu: the layout and

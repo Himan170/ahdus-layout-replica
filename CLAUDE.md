@@ -1662,7 +1662,7 @@ and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
 
-## DONE: small fixes (v0.16.2, 13 Nov 2026, branches `fix/ime-safe-enter`, `fix/v0.16.2-small-fixes`)
+## DONE: small fixes (v0.16.2, 14 Nov 2026, branches `fix/ime-safe-enter`, `fix/v0.16.2-small-fixes`)
 
 Enter / Esc in text fields wait for an input tool (IME) to finish (`utils/keys.js`: `isCommitEnter`, `isComposing`;
 tests `ui/__tests__/imeEnter.test.jsx`). The Meridian route timing test takes each route's fastest of 3 (middle ≤ 100
