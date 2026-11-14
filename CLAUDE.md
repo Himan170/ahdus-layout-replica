@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1518, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1525, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -91,7 +91,7 @@ npm run e2e:viewer   # 34 checks   e2e/viewer-smoke.mjs    (viewer.html: <Layout
                      #                                       departments, kinds, floors; ↓ Enter / Esc), recent
                      #                                       searches, walking chips "Nearest stairs · 7 m");
                      #                                       v0.14.3: ?debug=tour (the plan, its panel, its route)
-npm run e2e:embed    # 39 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
+npm run e2e:embed    # 40 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
                      #                                       (v0.17.0: no WebGPU shaders, no editor commands either)
                      #                                       in it (no Supabase), serves embed-test.html itself; keys at once, the page's own field / button, hover, Esc, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
@@ -102,7 +102,7 @@ npm run e2e:embed    # 39 checks   e2e/embed-smoke.mjs     (NO dev server needed
                      #                                       v0.14.6: startMode (the card, Overview, onEvent 'mode'),
                      #                                       quality low = from above + its note, onEvent 'start'
                      #                                       (v0.14.8), startMode 'edit' refused)
-npm run e2e:welcome  # 39 checks   e2e/welcome-smoke.mjs   (viewer.html?start=walk, v0.14.6: walking at the entrance with
+npm run e2e:welcome  # 40 checks   e2e/welcome-smoke.mjs   (viewer.html?start=walk, v0.14.6: walking at the entrance with
                      #                                       the welcome card, W walks at once and closes it, the hint
                      #                                       waits, Explore / Esc, Find someone, Start the tour, Overview
                      #                                       keeps your place + Walk back, the last choice remembered,
@@ -123,7 +123,7 @@ npm run e2e:characters # 39     e2e/characters-smoke.mjs (NO dev server: builds 
                      #                                       the "seated" copy, a clip set), Type / Sit, at most 8
                      #                                       play, clothing, grey figures, Idle / Walk / Run / Wave (H);
                      #                                       SHOTS=<dir>: 1440×900 + 390×844 screenshots)
-npm run e2e:live     # 23 checks   e2e/live-smoke.mjs      (NO dev server: builds the embed; fake live people, no server:
+npm run e2e:live     # 24 checks   e2e/live-smoke.mjs      (NO dev server: builds the embed; fake live people, no server:
                      #                                       a live person's desk empty, drawn where they walk ~250 ms
                      #                                       behind (never ahead), a 5 m jump snaps, from above = beside
                      #                                       their desk, name tags (no email), full character from the
@@ -144,7 +144,7 @@ npm run e2e:seats    # 26 checks   e2e/seats-smoke.mjs     (NO dev server: start
                      #                                       search, move / replace questions, not in undo, People
                      #                                       without a desk, the Publish warning, editors read-only,
                      #                                       phone; SHOTS=<dir>: screenshots)
-npm run e2e:touch   # 15 checks   e2e/touch-smoke.mjs     (viewer.html on a phone: 390 × 844, hasTouch + isMobile,
+npm run e2e:touch   # 16 checks   e2e/touch-smoke.mjs     (viewer.html on a phone: 390 × 844, hasTouch + isMobile,
                      #                                       fingers through CDP touch events: the joystick (push =
                      #                                       walk, further = faster, let go = stop), drag to look, two
                      #                                       thumbs, tap the floor (the line), the joystick ends it, tap
@@ -153,7 +153,7 @@ npm run e2e:touch   # 15 checks   e2e/touch-smoke.mjs     (viewer.html on a phon
                      #                                       "?"), the HUD one line beside the joystick, the knob pushed
                      #                                       forward never under it,
                      #                                       a mouse = mouse words again; SHOTS=<dir>: phone screenshots)
-npm run e2e:controls # 17 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
+npm run e2e:controls # 19 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
                      #                                       (v0.17.0: "Low graphics" in the help, kept after a reload)
                      #                                       to look (cursor stays), Back to entrance / ? / Find / Clear give
                      #                                       the keys back, click the floor walks there, a key ends it, a
@@ -1199,6 +1199,50 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
   figure; no clip, a failed clip or manifest `walk: false` = the standing pose (slides). Our test clip:
   `public/assets/characters/placeholder-walk.glb` (`scripts/make-placeholder-character.mjs`: 1.2 m/s).
 
+## Simple (v0.17.1, how it works)
+
+Fewer things on screen in the viewer / embed (Himan's v0.17 plan, part 2). Studio is unchanged. Every key and every
+screen-reader label stays; e2e scripts that used a moved button now open More first (`more(item)` in controls-smoke).
+- **Toolbar** (`LayoutViewer`, `[data-viewer-toolbar]`): Find · Overview / Walk (only with `startMode`) · **My desk**
+  (`[data-my-desk-button]`, aria-label `MY_DESK_LABEL` "Walk to my desk": `navigation.routeTo('person:' + me, { walk:
+  'auto' })`; shown only when `player.personId` has a desk in the layout) · **More** (`[data-viewer-more]`, aria-label
+  `More`; a phone: "···" only). The menu `[data-more-menu]` (role menu) items `[data-more-item]` = entrance (also
+  `data-hud="entrance"`), tour (`data-tour-button`, the plan's stops / minutes / visited in `data-tour-offer-detail`;
+  "Show the stops" while touring), help (`data-hud="help"`), low (`data-low-graphics`, menuitemcheckbox), hideme
+  (`data-hide-me`, only with the `hideMe` prop). Esc or a press outside closes it. The tour is ONLY there (PlaceSearch
+  gets `tour={false}`: no `[data-tour-offer]` in Find's menu); Find only from its button. The floor's name: only the
+  HUD box (bottom left).
+- **Help** (`[data-walk-help]`): `WALK_HELP_MORE` / `WALK_HELP_TOUCH_MORE` = 6 rows; "All shortcuts"
+  (`[data-help-all]`) shows every row (`WALK_HELP` 16 / `WALK_HELP_TOUCH`), opaque. No keys line stays on screen: the
+  pill shows only in mouse look, and on a first visit (`walkHintSeen`) the welcome card carries the hint's words
+  (`[data-welcome-keys]`, then marked seen: no separate hint) + `startMode.welcomeTip` (`[data-welcome-tip]`: "Find a
+  person or place with Find. The company tour is under More."). The welcome card has one action, `explore`; opening
+  Find or More, or a tour starting, closes it.
+- **One box after arriving:** PlaceSearch's arrived strip takes the E prompt (`endExtra` → `[data-nav-extra]
+  [data-hud="prompt"]`) and the HUD box (`[data-hud="room"]`) is hidden meanwhile (`onBoxChange`, `quiet`); E or a
+  click pins the person's card and the strip closes (`dismissRequest`).
+- **Phone:** toolbar buttons `tallButton` 44 × 44 px at least, one row (e2e:touch checks it).
+- **Hide me:** `<LayoutViewer hideMe={{ hidden, onChange }}>`; the embed's option `hideMe: { hidden }`, `handle.hideMe`,
+  `setHideMe(hidden)`, `onEvent('hideMe', { hidden })`. Text `HIDE_ME_LABEL` / `HIDE_ME_NOTE`. The page (AHDUS) stops
+  sending its pose; the engine never connects anywhere. viewer.html: `&me=<personId>` (the player), `&hideme=1`
+  (`window.__viewerHideMe`).
+- **Name tags** (`[data-live-tags]`, `tagLayer` zIndex 0) sit under every panel and menu (e2e:live: a tag moved under
+  More → `elementFromPoint` is the menu).
+- **Shadows without a freeze** (`systems/ShadowSwitch.ts`, the viewer's quality step and Low graphics; tests
+  `engine/__tests__/ShadowSwitch.test.ts`): flipping `sun.shadowEnabled` marks every material dirty: one long frame
+  whatever receives. So the light's flag is never touched (it stays true); "off" = no mesh receives: the receivers
+  change a batch of MATERIALS per frame (the meshes of one material share its new shader) and are HELD off; "on" =
+  the held ones again. The next batch waits until the last one's meshes are `isReady(true)` (Babylon compiles in the
+  background: the changing frame looks quick, the cost comes 1–2 frames later; at most `WAIT_FRAMES` 30), then its
+  size doubles if the slowest frame meanwhile was ≤ `FAST_MS` 45 ms over the usual one, halves over `SLOW_MS` 135
+  (usual = an average while idle, so software WebGL's ~400 ms frames still finish). Off: a scan every `SCAN_FRAMES`
+  30 holds meshes built meanwhile. A switch asked for during one turns it round. `engine.shadowsOn` is the truth (not
+  `sun.shadowEnabled`), `engine.shadowsSwitching` while busy (QualityMonitor doesn't measure then). Measured with
+  the scratchpad's real-GPU script (Intel UHD, CPU 4 × slower, Meridian, walking, after the tour is planned): off
+  250–270 ms → ≤ 95 ms, on 120 → ~70 ms. On SwiftShader one material's shader alone takes ~1 s: no fix there.
+  Measuring there: the company tour's plan is ONE idle task of ~1.25 s on that setup, ~1 s after loading: wait for
+  `navigation.tourPlanReady` before timing anything.
+
 ## Smooth (v0.17.0, how it works)
 
 The viewer / embed on weak devices (part 1 of Himan's v0.17 plan; "simple" UI changes are v0.17.1). Measured with a
@@ -1707,6 +1751,14 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: simple (v0.17.1, 14 Nov 2026, branch `feature/v0.17.1-simple`)
+
+Part 2 of Himan's v0.17 plan: one toolbar (Find · Overview / Walk · My desk · More), the help in 6 rows + All
+shortcuts, the keys explained once, one box after arriving, 44 px phone buttons, Hide me with its meaning, name tags
+under menus, shadows switched without a freeze (see "Simple"; CHANGELOG.md). Screenshots before / after (1280 × 720,
+390 × 844: first visit, Find → arrived, More, help): private-docs/screenshots/v0.17.1/ (not in git). The AHDUS part
+(Hide me wired to the live socket) waits for this merge.
 
 ## DONE: smooth (v0.17.0, 14 Nov 2026, branch `feature/v0.17.0-smooth`)
 

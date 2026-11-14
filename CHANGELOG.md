@@ -3,6 +3,34 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.17.1 (14 Nov 2026): simple
+
+Fewer things on screen in the 3D view (the viewer and the embed; Workplace Studio is unchanged). Every key still
+works, and every button keeps a name for screen readers.
+
+- **One toolbar:** Find · Overview / Walk · **My desk** · **More**. More holds Back to entrance, the company tour (its
+  stops and minutes), the help, Low graphics and Hide me. The tour starts from More only (no Tour button, not in
+  Find's menu), Find from its own button only. Overview / Walk is the one view switch inside the view. The floor's
+  name shows in one place (the box at the bottom left).
+- **My desk:** walks you to your own desk (as Take me there). Only shown when you have a desk.
+- **Help:** 6 rows, with "All shortcuts" for the rest. No line of keys stays on screen. The keys are explained
+  once: in the welcome card on the first visit (then no separate hint). The welcome card has one button, Explore.
+  Opening Find or More, or starting the tour, closes it.
+- **One box at a time after arriving:** the "You have arrived" strip holds the E prompt ("E Details: Kavya Iyer"),
+  and the room / floor box is hidden meanwhile. E (or a click) opens the person's card in place of the strip.
+- **Phones:** the toolbar's buttons are 44 px high, in one row (More shows only "···").
+- **Hide me** (More) says what it does: "Others on this page won't see you walk". The page decides what it means:
+  the embed's option `hideMe`, `setHideMe`, the `hideMe` event (docs/EMBED_GUIDE.md).
+- **Name tags** of live people stay under the help, More and Find: never on top of them.
+- **No freeze when the quality turns shadows off or on:** the meshes stop (or start) receiving shadows a batch of
+  materials per frame, each batch waiting until its shaders are ready. The light's own switch is never flipped any
+  more: that froze a frame whatever received shadows. Measured (Meridian-shaped layout, 319 people, walking; Intel
+  UHD graphics, the processor slowed 4 ×): shadows off went from one 250–270 ms frame (and one of ~160 ms) to at most
+  ~95 ms over ~17 frames; on, 120 ms → ~70 ms. Software WebGL (no graphics driver) still has ~1 s frames there: one
+  material's new shader takes that long to compile.
+- Engine: `engine.shadowsOn`, `engine.shadowsSwitching` (`systems/ShadowSwitch.ts`); `<LayoutViewer hideMe>`.
+  e2e:controls 19 checks, e2e:touch 16, e2e:welcome 40, e2e:embed 40, e2e:live 24.
+
 ## 0.17.0 (14 Nov 2026): smooth
 
 The 3D view on slow laptops and phones (the viewer and the embed; Workplace Studio is unchanged unless said).
