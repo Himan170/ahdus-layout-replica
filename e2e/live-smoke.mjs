@@ -256,6 +256,33 @@ log('the tag layer takes no clicks and is hidden from screen readers', await p.e
   const l = document.querySelector('[data-live-tags]');
   return getComputedStyle(l).pointerEvents === 'none' && l.getAttribute('aria-hidden') === 'true';
 }));
+// v0.17.1: a name tag never shows on top of a menu (More) or the toolbar: put one where the menu is and look what is on top
+await p.click('[data-viewer-more]');
+await p.waitForSelector('[data-more-menu]', { timeout: 10000 }).catch(() => {});
+const underMenu = await p.evaluate(() => {
+  const menu = document.querySelector('[data-more-menu]');
+  const layer = document.querySelector('[data-live-tags]');
+  const tag = document.querySelector('[data-live-tag="user_2"]');
+  if (!menu || !layer || !tag) return null;
+  const m = menu.getBoundingClientRect();
+  const l = layer.getBoundingClientRect();
+  const was = { tag: tag.style.cssText, layer: layer.style.pointerEvents };
+  // the tag over the menu's middle, and hit-testable for this one look (the layer takes no clicks otherwise)
+  layer.style.pointerEvents = 'auto';
+  tag.style.left = `${m.left + m.width / 2 - l.left}px`;
+  tag.style.top = `${m.top + m.height / 2 - l.top}px`;
+  tag.style.transform = 'translate(-50%, -50%)';
+  tag.style.display = '';
+  tag.style.pointerEvents = 'auto';
+  const r = tag.getBoundingClientRect();
+  const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  const onTop = hit && tag.contains(hit) ? 'tag' : hit && menu.contains(hit) ? 'menu' : hit?.tagName ?? null;
+  tag.style.cssText = was.tag;
+  layer.style.pointerEvents = was.layer;
+  return onTop;
+});
+await p.click('[data-viewer-more]');
+log('v0.17.1: name tags stay under the More menu (and the toolbar): the menu is on top where they meet', underMenu === 'menu', String(underMenu));
 
 // ── 4. Near: full characters from their FULL file, walking, waving ──
 await look(p, -3, -1, 4, 1.1);

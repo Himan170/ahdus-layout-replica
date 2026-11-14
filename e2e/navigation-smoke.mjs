@@ -237,17 +237,23 @@ const card = await p.evaluate(() => ({
   strip: document.querySelector('[data-nav-strip]')?.dataset.navStrip,
   text: document.querySelector('[data-nav-strip]')?.textContent ?? '',
   person: document.querySelector('[data-person-card]')?.textContent ?? '',
+  // v0.17.1, one box at a time: the HUD's own box is not drawn under the strip (its E line is in the strip)
+  boxes: document.querySelectorAll('[data-person-card], [data-nav-strip], [data-hud="room"]').length,
 }));
-log('…and shows their card ("You have arrived" + the person card)', card.strip === 'arrived' && /You have arrived/.test(card.text)
-  && /Kavya Iyer/.test(card.person), `${card.text} | ${card.person}`);
+log('…and says so in ONE box (v0.17.1): "You have arrived" + her name, no person card or HUD box beside it', card.strip === 'arrived'
+  && /You have arrived/.test(card.text) && /Kavya Iyer/.test(card.text) && card.person === '' && card.boxes === 1,
+  `${card.text} | ${card.person} | boxes ${card.boxes}`);
 if (SHOTS) await shot('arrived-desktop');
-// v0.14.7: there, E means her (seen at a corner desk by a window: the hint said "E Details: Window")
-await p.waitForFunction(() => /Kavya Iyer/.test(document.querySelector('[data-hud="prompt"]')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
-const ePrompt = await p.evaluate(() => document.querySelector('[data-hud="prompt"]')?.textContent ?? '');
+// v0.14.7: there, E means her (seen at a corner desk by a window: the hint said "E Details: Window"); v0.17.1: the
+// line is in the arrived strip, and her card takes the strip's place
+await p.waitForFunction(() => /Kavya Iyer/.test(document.querySelector('[data-nav-extra] [data-hud="prompt"]')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
+const ePrompt = await p.evaluate(() => document.querySelector('[data-nav-extra] [data-hud="prompt"]')?.textContent ?? '');
 await p.keyboard.press('e');
 const pinned = await p.waitForSelector('[data-person-card][data-pinned]', { timeout: 10000 }).then((el) => el.textContent(), () => '');
-log('…E there means her: the hint "E Details: Kavya Iyer", and E keeps her card', /^E\s*Details: Kavya Iyer$/.test(ePrompt.trim())
-  && /Kavya Iyer/.test(pinned ?? ''), `hint "${ePrompt.trim()}" | card ${pinned}`);
+await wait(300);
+const stripAfterE = await p.locator('[data-nav-strip]').count();
+log('…E there means her: the strip\'s line "E Details: Kavya Iyer"; E keeps her card, in place of the strip', /^E\s*Details: Kavya Iyer$/.test(ePrompt.trim())
+  && /Kavya Iyer/.test(pinned ?? '') && stripAfterE === 0, `hint "${ePrompt.trim()}" | card ${pinned} | strip ${stripAfterE}`);
 
 // ── 2. From above, a person on Floor 1 by the stairs: Take me there starts at the entrance ──
 const upstairs = await p.evaluate((people) => {

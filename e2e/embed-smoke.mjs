@@ -137,7 +137,7 @@ const mountExtra = (options, { waitReady = true } = {}) => p.evaluate(async ({ o
   document.body.append(el);
   const seen = [];
   let error = null;
-  const handle = AHDUSWorkplace.mount(el, { ...options, onEvent: (n) => seen.push(n), onError: (e) => { error = e.message; } });
+  const handle = AHDUSWorkplace.mount(el, { ...options, onEvent: (n, d) => { seen.push(n); (window.extraEvents ??= []).push({ name: n, data: d }); }, onError: (e) => { error = e.message; } });
   window.extra = handle;
   if (waitReady) await handle.ready.catch(() => {});
   else await new Promise((r) => setTimeout(r, 300));
@@ -537,6 +537,24 @@ log('startMode with quality "low" (a weak device): from above, no card, a Walk b
   !startWeak.error && weakStart.mode === 'view' && !weakStart.card && weakStart.button === 'walk' && weakStart.note === 'low'
   && weakStart.text === 'Started from above to keep things fast on this device.' && startWeak.seen.includes('start')
   && JSON.stringify(weakStart.start) === JSON.stringify({ mode: 'view', reason: 'weak', weak: 'low' }), JSON.stringify(weakStart));
+await removeExtra();
+// v0.17.1: option hideMe: "Hide me" in More says what it does; a press = onEvent('hideMe'), handle.hideMe; setHideMe
+await p.evaluate(() => { window.extraEvents = []; });
+const hideMount = await mountExtra({ layout: v2, mode: 'walkthrough', hideMe: { hidden: false } });
+await p.click('#extra [data-viewer-more]');
+const hideBefore = await p.evaluate(() => ({ attr: document.querySelector('#extra [data-hide-me]')?.getAttribute('data-hide-me'),
+  label: document.querySelector('#extra [data-hide-me]')?.getAttribute('aria-label'), handle: window.extra.hideMe }));
+await p.click('#extra [data-hide-me]');
+const hideOn = await p.evaluate(() => ({ attr: document.querySelector('#extra [data-hide-me]')?.getAttribute('data-hide-me'),
+  handle: window.extra.hideMe, events: window.extraEvents.filter((e) => e.name === 'hideMe').map((e) => e.data) }));
+const setBack = await p.evaluate(() => window.extra.setHideMe(false));
+await p.waitForTimeout(300);
+const hideOff = await p.evaluate(() => ({ attr: document.querySelector('#extra [data-hide-me]')?.getAttribute('data-hide-me'),
+  handle: window.extra.hideMe, events: window.extraEvents.filter((e) => e.name === 'hideMe').length }));
+log('v0.17.1 option hideMe: More → "Hide me: others on this page won\'t see you walk"; a press = onEvent("hideMe", { hidden: true }), handle.hideMe; setHideMe(false) moves the switch (no event)',
+  !hideMount.error && hideBefore.attr === 'off' && hideBefore.label === 'Hide me: others on this page won\'t see you walk' && hideBefore.handle === false
+  && hideOn.attr === 'on' && hideOn.handle === true && JSON.stringify(hideOn.events) === '[{"hidden":true}]'
+  && setBack === true && hideOff.attr === 'off' && hideOff.handle === false && hideOff.events === 1, JSON.stringify({ hideBefore, hideOn, setBack, hideOff }));
 await removeExtra();
 const startEdit = await mountExtra({ layout: v2, startMode: 'edit' });
 log('startMode "edit" is refused: onError, the element is empty', /edit/i.test(startEdit.error ?? '') && startEdit.children === 0,

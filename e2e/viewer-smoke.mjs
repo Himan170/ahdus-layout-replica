@@ -116,9 +116,13 @@ const startEvents = (await events('enterRoom')).length + (await events('exitRoom
 const start = await p.evaluate(() => {
   const w = window.__ahdusViewer.walkthrough; const v = w.getPosition();
   return { level: w.getLevel(), x: +v.x.toFixed(3), z: +v.z.toFixed(3), yaw: +w.getYaw().toFixed(3), free: w.isFree(v.x, v.z, 0),
-    source: w.spawnPoint().source, button: !!document.querySelector('[data-hud="entrance"]') };
+    source: w.spawnPoint().source };
 });
-log('walking starts on the ground floor, 3 m outside the Reception door, facing it; "Back to entrance" shows',
+// v0.17.1: "Back to entrance" is in the toolbar's More menu
+await p.click('[data-viewer-more]');
+start.button = await p.locator('[data-more-item="entrance"]').count() === 1;
+await p.click('[data-viewer-more]');
+log('walking starts on the ground floor, 3 m outside the Reception door, facing it; More has "Back to entrance"',
   start.level === 0 && Math.abs(start.x) < 0.05 && Math.abs(start.z + 6.075) < 0.05 && Math.abs(start.yaw) < 0.01 &&
   start.free && start.source === 'entrance' && start.button && startEvents === 0, `${JSON.stringify(start)} | room events ${startEvents}`);
 await pose(12, 1.5, Math.PI, 0);
@@ -245,13 +249,13 @@ const browse = await p.evaluate(() => ({
   groups: [...document.querySelectorAll('[data-browse-group]')].map((g) => g.dataset.browseGroup).filter((g) => g !== 'recent'),
   open: [...document.querySelectorAll('[data-browse-open]')].map((o) => `${o.dataset.browseOpen}=${o.innerText.split('\n').slice(0, 2).join(' · ')}`),
 }));
-log('an empty box is a browse menu: the company tour first (v0.14.4), departments (from the seats), places by kind, by floor; nothing this layout lacks',
-  browse.view === 'home' && browse.groups.join() === 'tour,quick,departments,kinds,floors' && browse.open.join() === [
+log('an empty box is a browse menu (v0.17.1: no tour here, it starts from More): departments (from the seats), places by kind, by floor; nothing this layout lacks',
+  browse.view === 'home' && browse.groups.join() === 'quick,departments,kinds,floors' && browse.open.join() === [
     // v0.14.9: Asha is the only one seated in the Engineering room, so it is the department's room
     'department:engineering=Engineering · 1 room · Ground Floor · 1 person', 'department:hr=HR · Ground Floor · 1 person',
     'kind:OFFICE=Offices · Ground Floor', 'kind:MEETING=Meeting rooms · Floor 1', 'kind:RECEPTION=Reception · Ground Floor',
     'kind:STAIRCASE=Stairs · Ground Floor', 'floor:0=Ground Floor · 2 rooms', 'floor:1=Floor 1 · 1 room'].join(), JSON.stringify(browse));
-for (let i = 0; i < 4; i++) await p.keyboard.press('ArrowDown'); // past the tour and the 3 chips: Engineering
+for (let i = 0; i < 3; i++) await p.keyboard.press('ArrowDown'); // past the 3 chips: Engineering
 await p.keyboard.press('Enter');
 const dept = await p.evaluate(() => {
   const input = document.querySelector('[data-place-search] input');

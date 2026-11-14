@@ -23,6 +23,8 @@
  *   workplace.live.add({ personId, floor, x, z, yaw, state }); // v0.16.1: someone on the page now, walking there
  *   workplace.live.update(personId, { floor, x, z, yaw, state }); workplace.live.remove(personId); // back to their desk
  *   onEvent('pose', { state, floor, x, y, z, yaw })     // your own walk, ≤ 5 a second: the page sends it on
+ *   mount(element, { hideMe: { hidden: false } })        // v0.17.1: "Hide me" in the viewer's More menu (the page
+ *                                      // keeps it: onEvent('hideMe', { hidden }); setHideMe(hidden) from the page)
  *
  * `npm run build:embed` (vite.embed.config.js) makes one IIFE file with React
  * and Babylon inside. It shows <LayoutViewer /> and works through layoutBridge
@@ -125,6 +127,8 @@ function tourEvent(ev) {
  *   navigation?: { search?: boolean, tour?: boolean }, // search: the "Find a person, room or place" box; tour: the Tour
  *                                     // button and Find's "Take the company tour" (each default true; false hides it)
  *   departments?: { name: string, description?: string }[], // descriptions in the Find box's menu (setDepartments)
+ *   hideMe?: { hidden?: boolean },    // v0.17.1: show "Hide me" in More (the page's live presence decides what it
+ *                                     // means; a press = onEvent('hideMe', { hidden }), the switch moves at once)
  *   onEvent?: (name: string, data: object) => void,
  *   onError?: (error: Error) => void,
  * }} [options]
@@ -162,6 +166,14 @@ export function mount(element, options = {}) {
   const search = options.navigation?.search !== false;
   const tour = options.navigation?.tour !== false;
   let departments = cleanDepartments(options.departments); // descriptions in the Find box's menu (setDepartments)
+  // v0.17.1: "Hide me" in More, when the page asks for it (null: no switch); the page hears each change
+  let hideMe = options.hideMe && typeof options.hideMe === 'object' ? { hidden: options.hideMe.hidden === true } : null;
+  const onHideMe = (hidden) => {
+    if (closed || !hideMe) return;
+    hideMe = { hidden: !!hidden };
+    render();
+    emit('hideMe', { hidden: hideMe.hidden });
+  };
 
   let resolveReady;
   let rejectReady;
@@ -259,6 +271,7 @@ export function mount(element, options = {}) {
         quality={quality} assetBaseUrl={assetBaseUrl} people={people}
         player={player} chooseCharacterUrl={options.characters?.chooseUrl} walkClipUrl={walkClipUrl ?? undefined}
         search={search} tour={tour} departments={departments} onReady={onReady} onError={fail} onProgress={onProgress}
+        hideMe={hideMe ? { hidden: hideMe.hidden, onChange: onHideMe } : null}
         onCard={(card) => emit('card', { title: card.title, body: card.body ?? card.text ?? '' })}
         style={{ width: '100%', height: '100%' }}
       />,
@@ -370,6 +383,19 @@ export function mount(element, options = {}) {
     /** How it started and why (v0.14.8): { mode, reason, weak }, or null (no startMode, or not started yet). */
     get start() {
       return started ? { ...started } : null;
+    },
+
+    /** v0.17.1: "Hide me" now: true / false, or null (the option was not given: no switch). */
+    get hideMe() {
+      return hideMe ? hideMe.hidden : null;
+    },
+
+    /** v0.17.1: the page changed "Hide me" itself (e.g. its own setting): the switch follows (no 'hideMe' event). */
+    setHideMe(hidden) {
+      if (closed || !hideMe) return false;
+      hideMe = { hidden: !!hidden };
+      render();
+      return true;
     },
 
     /** 'view' or 'walkthrough' (false: refused, e.g. 'edit'). */

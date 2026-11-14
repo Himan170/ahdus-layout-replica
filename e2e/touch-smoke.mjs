@@ -4,7 +4,8 @@
 // held too); a tap on the floor walks there (the route line); a tap on a person's desk keeps their card; the
 // toolbar's buttons, Find and its card work by tap. The one-time hint, the screen readers' line and the "?"
 // help use touch words (joystick, drag, tap); the HUD is one short line beside the joystick, never under its
-// knob (v0.14.2); a mouse brings back the keys and mouse words.
+// knob (v0.14.2); a mouse brings back the keys and mouse words. v0.17.1: the toolbar's buttons are 44 px high in one
+// row; Back to entrance and the help are in its More menu.
 // The mouse and keys on a computer: e2e:controls (unchanged). Studio's Preview: e2e:play (unchanged).
 //
 // One-time setup:   npx playwright install chromium
@@ -74,7 +75,6 @@ const stick = () => p.evaluate(() => window.__ahdusViewer.walkthrough.getStick()
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const nav = () => p.evaluate(() => (window.__viewerNav ?? []).map((e) => ({ state: e.state, source: e.source ?? null, paused: !!e.paused })));
 const walkingNow = () => p.evaluate(() => window.__ahdusViewer.navigation.walking);
-const hudLine = () => p.locator('[data-hud="hint"]').textContent({ timeout: 5000 }).catch(() => '');
 const keysState = () => p.locator('[data-hud="keys-state"]').textContent({ timeout: 5000 }).catch(() => '');
 const rect = (sel) => p.evaluate((s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom, cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width, h: r.height } : null; }, sel);
 /** Where a world point is on the page (px). */
@@ -123,11 +123,10 @@ const start = await p.evaluate(() => ({
   joystick: document.querySelector('[data-touch-joystick]')?.getAttribute('data-touch-joystick') ?? null,
   texts: window.__hintTexts ?? [], words: window.__hintWords ?? null,
   seen: localStorage.getItem('ahdus.walkHintSeen.touch'), mouseSeen: localStorage.getItem('ahdus.walkHintSeen'),
-  help: document.querySelector('[data-hud="help"]')?.getAttribute('aria-label') ?? null,
 }));
 log('walking starts on a phone with the joystick; the one-time hint says "Joystick to walk · drag to look · tap the floor to go there"',
   start.joystick === 'idle' && start.texts.length === 1 && start.texts[0] === 'Joystick to walk · drag to look · tap the floor to go there' &&
-  start.words === 'touch' && start.seen === '1' && start.mouseSeen === null && start.help === 'Touch controls',
+  start.words === 'touch' && start.seen === '1' && start.mouseSeen === null,
   JSON.stringify(start));
 await p.waitForSelector('[data-walk-hint]', { state: 'detached', timeout: 30000 }).catch(() => {});
 await p.waitForFunction(() => !document.querySelector('[data-hud-line] [data-hud="hint"]'), null, { timeout: 15000 }).catch(() => {});
@@ -143,6 +142,14 @@ const fits = await p.evaluate(() => [...document.querySelectorAll('[data-viewer-
 log('the joystick sits at the bottom left, the HUD one line to its right (no overlap), nothing goes off-screen at 390 px',
   !!layout.stick && layout.stick.left < 40 && layout.stick.bottom > 844 - 40 && layout.stick.w >= 100 &&
   !!layout.hud && layout.hud.left >= layout.stick.right && layout.hud.h <= 34 && fits, JSON.stringify(layout));
+
+// v0.17.1: a phone's toolbar: every button at least 44 px high (and wide), all in one row
+const row = await p.evaluate(() => [...document.querySelectorAll('[data-viewer-toolbar] button')]
+  .filter((el) => el.offsetParent !== null && !el.closest('[data-more-menu], [data-walk-help], [data-place-search] [role="listbox"]'))
+  .map((el) => { const r = el.getBoundingClientRect(); return { name: el.getAttribute('aria-label'), w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top) }; }));
+log('v0.17.1: the phone toolbar (Find · More): every button ≥ 44 × 44 px, one row',
+  row.length >= 2 && row.every((r) => r.h >= 44 && r.w >= 44) && new Set(row.map((r) => r.top)).size === 1 &&
+  row.some((r) => r.name === 'More'), JSON.stringify(row));
 
 // ── 2. The joystick: push = walk that way, further = faster, let go = stop ──
 await pose(0, -14, 0, -0.2); // in the open, facing +Z (the building)
@@ -245,11 +252,15 @@ log('a tap on a person\'s desk keeps their card (name and department), on screen
 
 // ── 6. The toolbar's buttons, Find and its card by tap ──
 await pose(6, -10, 0, 0);
+await tapOn('[data-viewer-more]');
+await p.waitForSelector('[data-more-item="entrance"]', { timeout: 10000 }).catch(() => {});
 await tapOn('[data-hud="entrance"]');
 await frames(3);
 const home = await pos();
-log('a tap on "Back to entrance" works', Math.abs(home.x) < 0.1 && Math.abs(home.z + 6.075) < 0.1, JSON.stringify(home));
+log('a tap on More → "Back to entrance" works', Math.abs(home.x) < 0.1 && Math.abs(home.z + 6.075) < 0.1, JSON.stringify(home));
 
+await tapOn('[data-viewer-more]');
+await p.waitForSelector('[data-more-item="help"]', { timeout: 10000 }).catch(() => {});
 await tapOn('[data-hud="help"]');
 await p.waitForSelector('[data-walk-help]', { timeout: 10000 }).catch(() => {});
 const help = await p.evaluate(() => {
@@ -261,7 +272,7 @@ const help = await p.evaluate(() => {
 if (SHOTS) await shot('touch-help.png');
 await tapOn('button[aria-label="Close touch controls"]').catch(() => {});
 await wait(300);
-log('"?" by tap: the touch help (joystick, drag, tap the floor, tap a person; no W A S D, Page Up or Esc), fits, closes',
+log('More → help by tap: the touch help (joystick, drag, tap the floor, tap a person; no W A S D, Page Up or Esc), fits, closes',
   help?.words === 'touch' && help.title === 'Touch controls' && help.rows >= 6 && /Joystick/.test(help.text) && /Drag/.test(help.text) &&
   /Tap the floor/.test(help.text) && /Tap a person/.test(help.text) && !/W A S D|Page Up|Esc|Double-click/.test(help.text) && help.fits &&
   (await p.locator('[data-walk-help]').count()) === 0, JSON.stringify({ ...help, text: undefined }));
@@ -302,18 +313,23 @@ log('Find by tap: a result (Asha) shows its card; Take me there walks; the joyst
 await p.mouse.move(200, 300);
 await p.mouse.move(220, 310);
 await frames(2);
-// (a short HUD message, e.g. "Back at the entrance", can still be showing: wait for the line)
-await p.waitForFunction(() => /^W A S D walk/.test(document.querySelector('[data-hud="hint"]')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
-const mouseWords = { joystick: await p.locator('[data-touch-joystick]').count(), line: await hudLine(), help: await p.locator('[data-hud="help"]').getAttribute('aria-label') };
-// a finger again: a tap on the "?" button (opens the help), and another (closes it)
-await tapOn('[data-hud="help"]');
+await p.waitForFunction(() => !document.querySelector('[data-hud-line]'), null, { timeout: 15000 }).catch(() => {});
+// v0.17.1: the help's name in More ("Keys and mouse"), opened and closed with the mouse
+await p.click('[data-viewer-more]');
+const mouseHelp = await p.locator('[data-hud="help"]').getAttribute('aria-label', { timeout: 10000 }).catch(() => null);
+await p.click('[data-viewer-more]');
+const mouseWords = { joystick: await p.locator('[data-touch-joystick]').count(), touchLine: await p.locator('[data-hud-line]').count(),
+  room: await p.locator('[data-hud="room"]').count(), keysLine: await p.evaluate(() => /W A S D/.test(document.querySelector('[data-layout-viewer]').innerText)),
+  help: mouseHelp };
+// a finger again: a tap on More (opens it), and another (closes it)
+await tapOn('[data-viewer-more]');
 await wait(300);
-await tapOn('[data-hud="help"]');
+await tapOn('[data-viewer-more]');
 await frames(2);
 await p.waitForFunction(() => !!document.querySelector('[data-hud-line]'), null, { timeout: 15000 }).catch(() => {});
 const touchAgain = { joystick: await p.locator('[data-touch-joystick]').count(), line: await p.locator('[data-hud-line]').count() };
 log('a mouse: no joystick, the keys and mouse words; a finger again: the joystick and touch words',
-  mouseWords.joystick === 0 && /^W A S D walk/.test(mouseWords.line) && mouseWords.help === 'Keys and mouse' &&
+  mouseWords.joystick === 0 && mouseWords.touchLine === 0 && mouseWords.room === 1 && !mouseWords.keysLine && mouseWords.help === 'Keys and mouse' &&
   touchAgain.joystick === 1 && touchAgain.line === 1, JSON.stringify({ mouseWords, touchAgain }));
 
 // ── 8. The hint only once per browser (a reload) ──
