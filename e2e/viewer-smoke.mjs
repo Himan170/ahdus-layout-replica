@@ -304,8 +304,8 @@ const keyMs = await p.evaluate(async () => {
 });
 const meeting = await p.evaluate(() => [...document.querySelectorAll('[data-place-search] [role="group"]')]
   .map((g) => `${g.dataset.group}: ${[...g.querySelectorAll('[role="option"]')].map((o) => o.innerText.replace(/\n/g, ' | ')).join(' ; ')}`));
-log('"meeting" lists the meeting room under Facilities; each keystroke well under 50 ms',
-  meeting.join() === 'facilities: Meeting room | Meeting room · Floor 1' && keyMs < 50, `${meeting.join()} | slowest key ${keyMs.toFixed(1)} ms`);
+log('"meeting" lists the meeting room under Facilities; no "Meeting room · Meeting room" (v0.17.2); each keystroke well under 50 ms',
+  meeting.join() === 'facilities: Meeting room | Floor 1' && keyMs < 50, `${meeting.join()} | slowest key ${keyMs.toFixed(1)} ms`);
 await p.keyboard.press('Enter');
 await frames(8);
 const shownMeeting = await p.evaluate(() => ({
@@ -314,7 +314,7 @@ const shownMeeting = await p.evaluate(() => ({
   focus: document.activeElement?.getAttribute('aria-label'),
 }));
 log('Enter shows it: its floor (Floor 1), outlined; the box closes, the focus back on the button',
-  shownMeeting.shown === 'Meeting room | Meeting room · Floor 1 | Show route | Take me there' && !shownMeeting.panel && shownMeeting.floor === 1 &&
+  shownMeeting.shown === 'Meeting room | Floor 1 | Show route | Take me there' && !shownMeeting.panel && shownMeeting.floor === 1 &&
   shownMeeting.lit.join() === 'room_meeting' && shownMeeting.focus === 'Find a person, room or place', JSON.stringify(shownMeeting));
 await p.click(`button${SEARCH}`);
 await p.fill('[data-place-search] input', 'Engineering');

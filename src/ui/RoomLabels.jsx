@@ -19,6 +19,7 @@ import { sizeLabel } from './tools';
 import { roomArea } from '../utils/measurements';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { DEFAULT_WALL_HEIGHT } from '../play/building';
+import { roomTypeShown } from '../play/roomNames';
 
 const STORAGE_KEY = 'ahdus.roomLabels';
 
@@ -40,10 +41,12 @@ export function RoomDetails({ room, withArea = true }) {
   const area = roomArea(room);
   const doors = room.doors?.length ?? 0;
   const windows = room.windows?.length ?? 0;
+  // v0.17.2: the type only when it says something the name doesn't (play/roomNames.js)
+  const type = roomTypeShown(room.name, ROOM_TYPES[room.type]?.label ?? room.type);
   return (
     <>
       <span className="room-card__name">{room.name}</span>
-      <span className="room-card__type">{ROOM_TYPES[room.type]?.label ?? room.type}</span>
+      {type && <span className="room-card__type">{type}</span>}
       <span className="room-card__row">
         {sizeLabel(room.width, room.depth)}{withArea && area !== null && ` · ${area.toFixed(1)} m²`}
       </span>
