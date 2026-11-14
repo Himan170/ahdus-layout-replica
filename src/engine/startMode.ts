@@ -65,9 +65,15 @@ export function welcomeTitle(name: unknown): string {
   return n ? `Welcome to ${n}` : 'Welcome';
 }
 
-/** The welcome card's buttons, in order: the tour and Find only where the viewer has them. */
-export function welcomeActions({ tour = true, search = true }: { tour?: boolean; search?: boolean } = {}): ('tour' | 'explore' | 'find')[] {
-  return [...(tour ? ['tour' as const] : []), 'explore', ...(search ? ['find' as const] : [])];
+/**
+ * v0.17.1: the welcome card's pointer to Find and the tour, which start from ONE place each (the toolbar's Find, and
+ * More → Company tour): no buttons of their own on the card. null: the viewer has neither.
+ */
+export function welcomeTip({ tour = true, search = true }: { tour?: boolean; search?: boolean } = {}): string | null {
+  if (search && tour) return 'Find a person or place with Find. The tour is also under More.';
+  if (search) return 'Find a person or place with Find.';
+  if (tour) return 'The tour is also under More.';
+  return null;
 }
 
 /** The last choice (null: none, or storage blocked). */

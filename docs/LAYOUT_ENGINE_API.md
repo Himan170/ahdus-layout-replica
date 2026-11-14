@@ -82,7 +82,16 @@ import { LayoutEditor, LayoutViewer } from '@engine/react';   // later: '@ahdus/
                                   // Walk button top right; the last choice (per browser), a weak device (from above)
   openAt={{ personId: 'p_42' }}   // v0.14.6: open at a person or room (a deep link): no welcome card
   onModeChange={(mode) => { ... }} // the mode changed (the start, Overview / Walk, Take me there from above)
+  hideMe={{ hidden, onChange: (hidden) => { ... } }} // v0.17.1: "Hide me" in its More menu (the page keeps it;
+                                  // null / left out: no switch). My desk shows when player's personId has a desk
 />
+```
+
+The viewer's toolbar (v0.17.1): **Find · Overview / Walk · My desk · More**. More holds Back to entrance, the company
+tour, the help ("Keys and mouse": 6 rows + "All shortcuts"), Low graphics and Hide me. After arriving somewhere one box
+shows at a time (the arrived strip, with the E prompt in it; a pinned person card replaces it).
+
+```jsx
 ```
 
 Instead of `layout`, both take `companyId` + `layoutId`: a layout saved in this browser (our test page uses it). Giving `<LayoutEditor />` back the layout `onChange` gave you doesn't reload Studio. Both connect to `layoutBridge` for you.
@@ -238,6 +247,9 @@ engine.on('quality', ({ level, pixelRatio, shadows, maxFull }) => { ... }); // l
 engine.setLowGraphics(true);         // the simple look, no full characters, no shadows, ratio 1 (the viewer's "?"
                                      // help has the switch, remembered per browser: localStorage ahdus.lowGraphics)
 engine.lowGraphics;                  // true while on
+engine.shadowsOn;                    // v0.17.1: shadows wanted now (the quality step, Low graphics). Off = no mesh
+                                     // receives them; the light's own flag stays on (flipping it froze a frame)
+engine.shadowsSwitching;             // v0.17.1: true while the meshes change over, a batch of materials per frame
 engine.editor.addRoom({ ... });      // every Studio edit (store/editorHistory.js); outside edit mode
                                      // each one changes nothing and returns { problem }
 engine.undo(); engine.redo();        // false outside edit mode

@@ -67,9 +67,23 @@ export interface PlaceSearchProps {
   after?: ReactNode;
   /** Open the box (v0.14.6: the welcome card's Find someone): each new number opens it, the box focused. */
   openRequest?: number;
-  /** The toolbar row's style on top of its own (the viewer keeps it clear of its Overview button). */
+  /** The toolbar row's style on top of its own (v0.17.1: one row on a phone). */
   rowStyle?: CSSProperties;
+  /** v0.17.1: the Find button's style on top of its own (44 px high on a phone). */
+  buttonStyle?: CSSProperties;
+  /**
+   * v0.17.1 (one box at a time): the box under the toolbar now ('shown': a place found, 'going': a route followed,
+   * 'arrived' / 'failed': its end; null: none). Its other boxes (the help, More) hide it with `quiet`.
+   */
+  onBoxChange?: (box: StripBox | null) => void;
+  quiet?: boolean;
+  /** v0.17.1: shown at the bottom of the "You have arrived" box (the viewer's "E Details: …" line: no HUD box then). */
+  endExtra?: ReactNode;
+  /** v0.17.1: each new number closes a place found and a route's end (a person's card took their place). */
+  dismissRequest?: number;
 }
+
+export type StripBox = 'shown' | 'going' | 'arrived' | 'failed';
 
 /** The tour's entry: how many stops, about how long, how many visited (null: none to offer). */
 export interface TourOffer { count: number | null; minutes: number | null; visited: number }
@@ -217,7 +231,7 @@ function saveRecent(ids: string[]): void {
 
 export function PlaceSearch({
   engine, walking, people, departments, me = null, children, focusView, touch = false, onOpenChange, tour: offerTour = true, onStartTour, after,
-  openRequest = 0, rowStyle,
+  openRequest = 0, rowStyle, buttonStyle, onBoxChange, quiet = false, endExtra, dismissRequest = 0,
 }: PlaceSearchProps) {
   const touchRef = useRef(touch);
   touchRef.current = touch;
@@ -408,6 +422,19 @@ export function PlaceSearch({
     setNav(null);
   };
 
+  // v0.17.1: which box shows under the toolbar (the viewer keeps one box at a time)
+  const box: StripBox | null = open ? null : nav ? (nav.state === 'arrived' ? 'arrived' : nav.state === 'failed' ? 'failed' : 'going')
+    : shown ? 'shown' : null;
+  const onBoxChangeRef = useRef(onBoxChange);
+  onBoxChangeRef.current = onBoxChange;
+  useEffect(() => { onBoxChangeRef.current?.(box); }, [box]);
+  // a person's card took the place of a route's end or a place found
+  useEffect(() => {
+    if (!dismissRequest) return;
+    setShown(null);
+    setNav((was) => (was && (was.state === 'arrived' || was.state === 'failed') ? null : was));
+  }, [dismissRequest]);
+
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     // an IME composing a word (Hindi, Japanese, …) owns Enter, the arrows, Backspace and Esc
     if (isComposing(e)) return;
@@ -509,7 +536,7 @@ export function PlaceSearch({
           aria-expanded={open}
           aria-controls={open ? `${uid}-panel` : undefined}
           title={SEARCH_LABEL}
-          style={{ ...styles.toolButton, ...(open ? styles.toolButtonOn : null) }}
+          style={{ ...styles.toolButton, ...buttonStyle, ...(open ? styles.toolButtonOn : null) }}
           onClick={() => (open ? close() : setOpen(true))}
         >
           <SearchIcon /> <span>Find</span>
@@ -618,7 +645,7 @@ export function PlaceSearch({
         </div>
       )}
 
-      {!open && shown && !nav && (
+      {!open && !quiet && shown && !nav && (
         <div data-place-shown={shown.place.id} role="status" style={styles.shown}>
           <div style={{ minWidth: 0, flex: 1 }}>
             {shown.nearest && <span style={styles.badge}>{shown.nearest}</span>}
@@ -648,7 +675,7 @@ export function PlaceSearch({
         </div>
       )}
 
-      {!open && nav && (
+      {!open && !quiet && nav && (
         <div
           data-nav-strip={nav.state}
           data-nav-walk={nav.walk}
@@ -661,6 +688,7 @@ export function PlaceSearch({
                 <span style={styles.badge}>You have arrived</span>
                 <span style={styles.name}>{nav.place.name}</span>
                 <span style={styles.detail}>{nav.place.detail}</span>
+                {endExtra && <span data-nav-extra style={styles.walk}>{endExtra}</span>}
               </>
             )}
             {nav.state === 'failed' && (

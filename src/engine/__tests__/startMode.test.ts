@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  chooseStart, weakNote, softwareRenderer, welcomeTitle, welcomeActions, readStartMode, rememberStartMode, START_MODE_KEY,
+  chooseStart, weakNote, softwareRenderer, welcomeTitle, welcomeTip, readStartMode, rememberStartMode, START_MODE_KEY,
 } from '../startMode';
 
 describe('chooseStart (v0.14.6)', () => {
@@ -51,10 +51,11 @@ describe('the welcome card\'s words', () => {
     expect(welcomeTitle('  ')).toBe('Welcome');
     expect(welcomeTitle(null)).toBe('Welcome');
   });
-  it('Start the tour and Find someone only where the viewer has them', () => {
-    expect(welcomeActions()).toEqual(['tour', 'explore', 'find']);
-    expect(welcomeActions({ tour: false })).toEqual(['explore', 'find']);
-    expect(welcomeActions({ tour: false, search: false })).toEqual(['explore']);
+  it('v0.17.1: the card points to Find and More (each starts from one place), only where the viewer has them', () => {
+    expect(welcomeTip()).toBe('Find a person or place with Find. The tour is also under More.');
+    expect(welcomeTip({ tour: false })).toBe('Find a person or place with Find.');
+    expect(welcomeTip({ search: false })).toBe('The tour is also under More.');
+    expect(welcomeTip({ tour: false, search: false })).toBeNull();
   });
 });
 

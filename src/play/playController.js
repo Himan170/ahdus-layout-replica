@@ -90,6 +90,7 @@ import { lockedText } from './locks';
 import { isWallItem, mountOnWall, mountText } from './wallMount';
 import { createFloorWalls } from './floorWalls';
 import { lastResult } from './stateCache';
+import { arrivalCamera, ARRIVAL_EASE_S } from './arrivalView';
 
 // ── Feel ──
 const JUMP_SPEED = 5.2;
@@ -340,6 +341,8 @@ export function createPlayController(scene, canvas, {
   // the tour's stop view: 0 = the usual camera, 1 = STOP_VIEW (eased towards stopViewTarget)
   let stopView = 0;
   let camShoulder = null; // the shoulder offset the camera has now (easeShoulder; null: none yet)
+  // v0.17.1, the arrival view (setArrivalView): { target, instant, spot, hide, t (0 to 1), leaving, yaw0, pitch0, x0, z0 }
+  let arrival = null;
   let stopViewTarget = 0;
   const keys = new Set();
   // The touch joystick (v0.14.1, look 'drag'): { x: right, y: forward }, each −1…1, length = how far
@@ -1936,7 +1939,17 @@ export function createPlayController(scene, canvas, {
       const ceiling = roomNow && !onStairs ? levelElev() + (roomNow.wallHeight ?? 3) - 0.12 : null;
       // Pull the camera in front of walls instead of looking through them (thirdPersonCamera:
       // the ceiling first, then the ray; a blocked shoulder spot slides to the middle first)
-      const fullShoulder = shoulderOffset(scene.getEngine().getAspectRatio(camera));
+      const aspect = scene.getEngine().getAspectRatio(camera);
+      const fullShoulder = shoulderOffset(aspect);
+      const castCam = (from, to) => {
+        const toCam = new Vector3(to.x - from.x, to.y - from.y, to.z - from.z);
+        const dist = toCam.length();
+        if (dist < 1e-6) return null;
+        const hit = scene.pickWithRay(new Ray(new Vector3(from.x, from.y, from.z), toCam.normalize(), dist), (m) =>
+          nearby.has(m) && m.isPickable && m.isEnabled() && !isPlayerMesh(m) && !isGhostMesh(m) && !m.metadata?.pickPane &&
+          (m.metadata?.part === 'wall' || m.metadata?.part === 'window' || !!objectIdOf(m)));
+        return hit?.hit ? hit.distance : null;
+      };
       const cam = thirdPersonCamera({
         eye, dir: camDir, right,
         distance: CAM_DISTANCE + STOP_VIEW.back * stopView,
@@ -1944,15 +1957,7 @@ export function createPlayController(scene, canvas, {
         shoulderNow: camShoulder ?? undefined,
         up: 0.45 + STOP_VIEW.up * stopView,
         ceiling,
-        cast: (from, to) => {
-          const toCam = new Vector3(to.x - from.x, to.y - from.y, to.z - from.z);
-          const dist = toCam.length();
-          if (dist < 1e-6) return null;
-          const hit = scene.pickWithRay(new Ray(new Vector3(from.x, from.y, from.z), toCam.normalize(), dist), (m) =>
-            nearby.has(m) && m.isPickable && m.isEnabled() && !isPlayerMesh(m) && !isGhostMesh(m) && !m.metadata?.pickPane &&
-            (m.metadata?.part === 'wall' || m.metadata?.part === 'window' || !!objectIdOf(m)));
-          return hit?.hit ? hit.distance : null;
-        },
+        cast: castCam,
       });
       // Pulled right up to the character: hide the body so you don't look through the inside of its head
       if (cam.hideCharacter) showCharacter = false;
@@ -1961,8 +1966,38 @@ export function createPlayController(scene, canvas, {
       camShoulder = easeShoulder(camShoulder, cam.wantShoulder, dt, fullShoulder);
       // Never let the camera sink below the floor when looking up
       camera.position.y = Math.max(camera.position.y, collider.position.y + 0.3);
+      // v0.17.1, the arrival view: over a shoulder, looking AT the place you arrived at (arrivalView.js)
+      if (arrival) {
+        const a = arrival;
+        if (!a.spot && !a.leaving) {
+          const r = arrivalCamera({
+            eye: { x: eye.x, y: eye.y, z: eye.z }, feetY: collider.position.y, target: a.target,
+            ceiling, narrow: aspect < 1, cast: castCam,
+          });
+          a.spot = r.position;
+          a.hide = r.hideCharacter;
+          a.yaw0 = yaw;
+          a.pitch0 = pitch;
+          a.x0 = collider.position.x;
+          a.z0 = collider.position.z;
+        }
+        // you move, turn or fly: back to the usual camera
+        if (!a.leaving && a.spot && (userMoving || flying || Math.abs(yaw - a.yaw0) > 0.03 || Math.abs(pitch - a.pitch0) > 0.03
+          || Math.hypot(collider.position.x - a.x0, collider.position.z - a.z0) > 0.3)) a.leaving = true;
+        const step = a.instant ? 1 : dt / ARRIVAL_EASE_S;
+        a.t = a.leaving ? Math.max(0, a.t - step) : Math.min(1, a.t + step);
+        if (a.leaving && a.t <= 0) arrival = null;
+        else if (a.spot) {
+          const k = a.t * a.t * (3 - 2 * a.t); // smoothstep
+          const from = camera.position.clone();
+          const look = from.add(camDir.scale(4));
+          camera.position.set(from.x + (a.spot.x - from.x) * k, from.y + (a.spot.y - from.y) * k, from.z + (a.spot.z - from.z) * k);
+          camera.setTarget(new Vector3(look.x + (a.target.x - look.x) * k, look.y + (a.target.y - look.y) * k, look.z + (a.target.z - look.z) * k));
+          if (a.hide && k > 0.5) showCharacter = false;
+        }
+      }
     }
-    camera.setTarget(camera.position.add(firstPerson ? dir : camDir));
+    if (!arrival?.spot || firstPerson) camera.setTarget(camera.position.add(firstPerson ? dir : camDir));
     character.setVisible(showCharacter);
 
     // ── Tool preview ──
@@ -2035,6 +2070,7 @@ export function createPlayController(scene, canvas, {
 
   /** Put the character at the spawn point: standing, on the ground floor, facing the entrance. */
   function placeAtSpawn() {
+    arrival = null; // a jump: no easing back from the arrival view (v0.17.1)
     const s = spawnPoint();
     if (s.floor !== currentLevel) {
       currentLevel = s.floor;
@@ -2264,6 +2300,28 @@ export function createPlayController(scene, canvas, {
       if (instant) stopView = stopViewTarget;
     },
 
+    /**
+     * v0.17.1, the arrival view: point = where to look (world { x, y, z }: the person or place a walk arrived at):
+     * the camera eases (ARRIVAL_EASE_S) to a raised spot over a shoulder from which your character doesn't cover it
+     * (arrivalView.arrivalCamera); moving, turning or flying eases it back. null = back now. instant: no easing
+     * (prefers-reduced-motion). Third person only.
+     */
+    setArrivalView(point, { instant = false } = {}) {
+      if (!point) {
+        if (arrival) arrival.leaving = true;
+        return;
+      }
+      arrival = { target: { x: point.x, y: point.y, z: point.z }, instant, spot: null, hide: false, t: 0, leaving: false };
+    },
+
+    /** The arrival view now (tests): null, or { t (0 to 1), hidden (your character hidden there), spot, target }. */
+    getArrivalView() {
+      return arrival ? { t: arrival.t, hidden: !!arrival.hide, spot: arrival.spot, target: arrival.target, leaving: arrival.leaving } : null;
+    },
+
+    /** v0.17.1 (tests): is this mesh part of your own character (or its collider)? */
+    isPlayerMesh: (m) => isPlayerMesh(m),
+
     /** The tour's stop view now (0 to 1; tests). */
     getStopView() {
       return stopView;
@@ -2288,6 +2346,7 @@ export function createPlayController(scene, canvas, {
      * @param {{x:number, z:number, yaw?:number, pitch?:number, floor?:number, y?:number, fly?:boolean, exact?:boolean}} pose
      */
     setPose({ x, z, yaw: newYaw, pitch: newPitch, floor, y, fly, exact = false }) {
+      arrival = null; // a jump: no easing back from the arrival view (v0.17.1)
       if (floor !== undefined && floor !== currentLevel) {
         currentLevel = floor;
         onLevelChange(floor);

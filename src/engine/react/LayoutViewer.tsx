@@ -54,10 +54,17 @@
  * Overview (from above, on the floor you are on, looking at where you were) and Walk (back where you were).
  * A weak device's start (v0.14.8) says why in a note (WeakDeviceNote): "Walk anyway" walks from the entrance with the
  * welcome card and is remembered (the next visit walks), "Stay above" / Esc / a press on the view close it.
+ *
+ * Simple (v0.17.1): ONE toolbar row at the top left: Find · Overview / Walk · My desk · More. More holds Back to
+ * entrance, the company tour, the help (6 rows, the rest under "All shortcuts"), Low graphics and Hide me (when the
+ * page gives `hideMe`). The tour and Find each start from one place (More, Find); the welcome card only points to
+ * them, and on a first visit says how to walk (then no separate hint: the keys are explained once). No line of keys
+ * stays on screen. After arriving somewhere, one box: "You have arrived" holds the "E …" line; a card near you waits
+ * while another box shows. A phone: buttons 44 px high, one row. Name tags stay under every panel and menu.
  */
 
 import { useEffect, useId, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import { LayoutEngine } from '../LayoutEngine';
 import type {
@@ -69,6 +76,8 @@ import { connectEngine } from '../../integration/layoutBridge';
 // Not apiService: that would bundle saving (the Supabase client) into every viewer
 import { readSavedLayout } from '../../services/savedLayouts';
 import { PlaceSearch } from './PlaceSearch';
+import type { StripBox } from './PlaceSearch';
+import { isComposing } from '../../utils/keys';
 import { AUTO_FOCUS_ATTR } from '../systems/WalkthroughSystem';
 import { TouchControls, STICK_SIZE, STICK_MARGIN } from './TouchControls';
 import { TourPanel, TOUR_LABEL } from './TourPanel';
@@ -76,7 +85,6 @@ import { toolButtonStyles } from './PlaceSearch';
 import type { TourEvent } from '../systems/TourSystem';
 import type { RouteTarget } from '../systems/NavigationSystem';
 import { WelcomeCard, WeakDeviceNote } from './WelcomeCard';
-import type { WelcomeAction } from './WelcomeCard';
 import { tourDetail } from './PlaceSearch';
 import { chooseStart, readStartMode, rememberStartMode } from '../startMode';
 import { storedLowGraphics, storeLowGraphics } from '../../play/quality';
@@ -155,6 +163,11 @@ export interface LayoutViewerProps {
   tour?: boolean;
   /** The tour's events: { type, state, follow, index, count, stop, visited, … } (engine.tour). */
   onTour?: (event: TourEvent) => void;
+  /**
+   * v0.17.1: "Hide me" in More (the page's live presence: while hidden it stops sending your walk to the others). The
+   * viewer only shows the switch; `hidden` is the page's, `onChange` asks it to change. Not given: no switch.
+   */
+  hideMe?: { hidden: boolean; onChange: (hidden: boolean) => void } | null;
   className?: string;
   style?: CSSProperties;
 }
@@ -194,39 +207,47 @@ const WALK_HINT_TOUCH_KEY = 'ahdus.walkHintSeen.touch';
 const HINT_MS = 6000;
 const HINT_FADE_MS = 800;
 
-/** The "?" help: every key and mouse action while walking. */
+/** The help (More → Keys and mouse), v0.17.1: the 6 keys most people need… */
 export const WALK_HELP: [string, string][] = [
   ['W A S D / arrows', 'Walk'],
-  ['Shift', 'Run'],
-  ['H', 'Wave (your own character)'],
   ['Drag', 'Look around'],
   ['Click the floor', 'Walk there'],
-  ['Click a person', 'Their name card'],
   ['E', 'Use what you look at'],
+  ['Page Up / Page Down', 'Floor above / below'],
+  ['Esc', 'Stop a route or the tour · give the keys back to the page'],
+];
+/** …and the rest, under "All shortcuts" (every key still works). */
+export const WALK_HELP_MORE: [string, string][] = [
+  ['Shift', 'Run'],
+  ['Click a person', 'Their name card'],
+  ['H', 'Wave (your own character)'],
   ['Space', 'Jump'],
   ['F', 'Fly (Space up, C down, F lands)'],
   ['V', 'First / third person'],
-  ['Page Up / Page Down', 'Floor above / below'],
   ['Home', 'Back to the entrance'],
   ['G', 'Walk on along a route'],
   ['P', 'Pause / resume the tour'],
   ['Double-click or L', 'Mouse look (Esc releases)'],
-  ['Esc', 'Stop a route or the tour · give the keys back to the page'],
 ];
 
-/** The "?" help on a touch screen (v0.14.1). */
+/** The help on a touch screen (v0.14.1; v0.17.1: 6 rows, the rest under "All shortcuts"). */
 export const WALK_HELP_TOUCH: [string, string][] = [
   ['Joystick (bottom left)', 'Walk · push further to go faster'],
-  ['Let go of the joystick', 'Stop'],
   ['Drag anywhere else', 'Look around'],
   ['Tap the floor', 'Walk there'],
   ['Tap a person', 'Their name card'],
   ['Tap a machine near you', 'Use it'],
-  ['Find', 'A person, room or place'],
-  ['Back to entrance', 'Start again at the entrance'],
   ['Joystick on a route', 'Pauses it (Continue walks on)'],
-  ['Tour', 'The company tour, stop by stop'],
 ];
+export const WALK_HELP_TOUCH_MORE: [string, string][] = [
+  ['Let go of the joystick', 'Stop'],
+  ['Find', 'A person, room or place'],
+  ['More', 'Back to entrance, the company tour, Low graphics'],
+];
+/** v0.17.1: the My desk button and the Hide me switch, as screen readers hear them. */
+export const MY_DESK_LABEL = 'Walk to my desk';
+export const HIDE_ME_NOTE = 'Others on this page won\'t see you walk';
+export const HIDE_ME_LABEL = 'Hide me: others on this page won\'t see you walk';
 /** The help's name: keys and mouse, or touch. */
 const HELP_TITLE = 'Keys and mouse';
 const HELP_TITLE_TOUCH = 'Touch controls';
@@ -237,10 +258,6 @@ const FADE_MS = 250;
 const NARROW_PX = 640;
 /** Lower than this (px), the welcome card is compact (v0.14.7: AHDUS's 3D Company page gives a phone ~490 px). */
 const SHORT_PX = 600;
-/** With startMode: the Overview / Walk button sits at the top right; what was there moves this far down (px). */
-const UNDER_MODE_BUTTON = 56;
-/** …and the toolbar's row keeps this much of the right clear (px). */
-const MODE_BUTTON_ROOM = 124;
 /** Keys that walk: the welcome card closes (= Explore) and they walk at once. */
 const WALK_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 
@@ -323,8 +340,17 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [start, setStart] = useState<StartChoice | null>(null);
   const [welcome, setWelcome] = useState(false);
   const [welcomeName, setWelcomeName] = useState<string | null>(null);
-  const [welcomeTour, setWelcomeTour] = useState<string | null>(null);
-  const [findRequest, setFindRequest] = useState(0);
+  // v0.17.1: the keys on the welcome card (a first visit; undefined: not decided yet)
+  const [welcomeKeys, setWelcomeKeys] = useState<string | null | undefined>(undefined);
+  // v0.17.1: the card's tour button says the tour's size once it is planned (in idle time): drawn again then
+  const [, setTourPlanned] = useState(0);
+  // v0.17.1: More's menu, the help's "All shortcuts", the box under the toolbar (PlaceSearch), and closing a route's end
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [helpAll, setHelpAll] = useState(false);
+  const [strip, setStrip] = useState<StripBox | null>(null);
+  const [dismissRequest, setDismissRequest] = useState(0);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   // a weak device's start (v0.14.8): the note saying why it is from above (null: none)
   const [note, setNote] = useState<WeakKind | null>(null);
   useEffect(() => {
@@ -341,7 +367,6 @@ export function LayoutViewer(props: LayoutViewerProps) {
     ro.observe(box);
     return () => ro.disconnect();
   }, []);
-  const helpButtonRef = useRef<HTMLButtonElement>(null);
   // touch words and the joystick (v0.14.1): the last press was a finger (before any: a coarse main pointer)
   const [touchUI, setTouchUI] = useState(coarsePointer);
   const touchRef = useRef(touchUI);
@@ -689,9 +714,16 @@ export function LayoutViewer(props: LayoutViewerProps) {
   useEffect(() => {
     if (!walking) setWelcome(false);
   }, [walking]);
+  // v0.17.1, one box at a time: the tour, Find or More opened closes it too
   useEffect(() => {
-    if (touring) setWelcome(false);
-  }, [touring]);
+    if (touring || findOpen || moreOpen) setWelcome(false);
+  }, [touring, findOpen, moreOpen]);
+  useEffect(() => {
+    if (!engine || !welcome || !tour || engine.navigation.tourPlanReady) return undefined;
+    let live = true;
+    engine.whenNavigationReady().then(() => { if (live) setTourPlanned((n) => n + 1); }, () => {});
+    return () => { live = false; };
+  }, [engine, welcome, tour]);
   useEffect(() => {
     if (!welcome || !walking) return undefined;
     const onKey = (e: KeyboardEvent) => {
@@ -739,37 +771,40 @@ export function LayoutViewer(props: LayoutViewerProps) {
       canvas?.removeEventListener('pointerdown', onDown);
     };
   }, [noteShown]);
-  // The tour's size on the card, once it is planned (in idle time)
+  // v0.17.1: on a first visit the welcome card says how to walk (the one-time hint's words), and the hint then doesn't
+  // show: the keys are explained once
   useEffect(() => {
-    if (!welcome || !engine || !tour) return undefined;
-    let live = true;
-    const fill = () => {
-      const plan = engine.navigation.tourPlanReady;
-      if (live && plan?.stops?.length) setWelcomeTour(tourDetail({ count: plan.stops.length, minutes: plan.minutes, visited: 0 }));
-    };
-    fill();
-    engine.whenNavigationReady().then(fill, () => {});
-    return () => { live = false; };
-  }, [welcome, engine, tour]);
+    if (!welcome) {
+      setWelcomeKeys(undefined);
+      return;
+    }
+    if (!walking || !floorReady || welcomeKeys !== undefined) return;
+    const touch = touchRef.current;
+    const first = !walkHintSeen(touch);
+    if (first) markWalkHintSeen(touch);
+    setWelcomeKeys(first ? (touch ? WALK_HINT_TOUCH : WALK_HINT) : null);
+  }, [welcome, walking, floorReady, welcomeKeys]);
 
-  // The "?" help closes when walking ends, or on a press anywhere else
+  // The help closes when walking ends (it is about walking); the help and More on a press anywhere else
   useEffect(() => {
     if (!walking) setHelpOpen(false);
   }, [walking]);
   useEffect(() => {
-    if (!helpOpen) return undefined;
+    if (!helpOpen && !moreOpen) return undefined;
     const onDown = (e: PointerEvent) => {
-      const t = e.target as Node | null;
-      if (t && (helpButtonRef.current?.contains(t) || (t as Element).closest?.('[data-walk-help]'))) return;
+      const t = e.target as Element | null;
+      if (t?.closest?.('[data-walk-help], [data-more-menu], [data-viewer-more]')) return;
       setHelpOpen(false);
+      setMoreOpen(false);
     };
-    // Esc closes the help (wherever the focus is), and does nothing else: not the walkthrough's Esc
+    // Esc closes them (wherever the focus is), and does nothing else: not the walkthrough's Esc
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' || isComposing(e)) return;
       e.preventDefault();
       e.stopPropagation();
       setHelpOpen(false);
-      if (boxRef.current?.contains(document.activeElement)) helpButtonRef.current?.focus({ preventScroll: true });
+      setMoreOpen(false);
+      if (boxRef.current?.contains(document.activeElement)) moreButtonRef.current?.focus({ preventScroll: true });
     };
     document.addEventListener('pointerdown', onDown, true);
     window.addEventListener('keydown', onKey, true);
@@ -777,18 +812,52 @@ export function LayoutViewer(props: LayoutViewerProps) {
       document.removeEventListener('pointerdown', onDown, true);
       window.removeEventListener('keydown', onKey, true);
     };
-  }, [helpOpen]);
-  const reducedMotion = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }, [helpOpen, moreOpen]);
+  // More opened: the focus on its first item (↑ ↓ move; a mouse click gives the keys back to the view anyway)
+  useEffect(() => {
+    if (!moreOpen) return;
+    (moreMenuRef.current?.querySelector('[role^="menuitem"]') as HTMLElement | null)?.focus({ preventScroll: true });
+  }, [moreOpen]);
+
   // Their own card, no character chosen yet: "Choose your character"
   const me = props.player?.personId;
   const chooseUrl = safeLink(props.chooseCharacterUrl);
+  // v0.17.1: "My desk" only for someone with a desk in this layout
+  const [hasDesk, setHasDesk] = useState(false);
+  useEffect(() => {
+    if (!engine || me == null || String(me) === '') {
+      setHasDesk(false);
+      return;
+    }
+    try {
+      setHasDesk(!!engine.navigation.places().byId.get(`person:${me}`));
+    } catch {
+      setHasDesk(false);
+    }
+  }, [engine, people, me, layout, companyId, layoutId, progress?.currentFloorReady]);
+
+  // v0.17.1, one box at a time: a person's card the person asked for (a click, E) takes the place of a route's end
+  useEffect(() => {
+    if (person?.pinned) setDismissRequest((n) => n + 1);
+  }, [person?.pinned, person?.who.personId]);
+
+  const reducedMotion = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const touchWalk = walking && touchUI;
   // walking, the search panel stops above the joystick (touch) or the HUD (mouse): it never covers them
-  const toolbarStyle: CSSProperties = walking && !error
-    ? { ...styles.topLeft, bottom: touchWalk ? STICK_MARGIN + STICK_SIZE + 12 : TOOLBAR_BOTTOM_WALKING }
-    : styles.topLeft;
+  const toolbarStyle: CSSProperties = {
+    ...styles.topLeft,
+    ...(walking && !error ? { bottom: touchWalk ? STICK_MARGIN + STICK_SIZE + 12 : TOOLBAR_BOTTOM_WALKING } : null),
+    // over the name tags and the other boxes while a menu or Find is open
+    zIndex: findOpen || moreOpen || helpOpen ? 3 : 2,
+  };
   const helpTitle = touchUI ? HELP_TITLE_TOUCH : HELP_TITLE;
+  // v0.17.1: a phone (a narrow view or a finger): buttons 44 px high, one row
+  const tall = narrow || touchUI;
+  const buttonStyle: CSSProperties | undefined = tall ? styles.tallButton : undefined;
+  const rowStyle: CSSProperties | undefined = narrow ? { flexWrap: 'nowrap' } : undefined;
+  // what sits at the top right (the tour's panel, a module's card) starts under the toolbar's row
+  const underRow = 12 + (tall ? 44 : 32) + 8;
   const focusView = () => {
     // from above the box is no Tab stop yet (walking starts this moment): make it one, then focus it
     const box = boxRef.current;
@@ -797,14 +866,14 @@ export function LayoutViewer(props: LayoutViewerProps) {
   };
   const startTour = () => {
     if (!engine) return;
+    setMoreOpen(false);
     const r = engine.tour.start({ follow: 'auto' });
     if (r.problem) engine.walkthrough?.say(r.message ?? 'No tour here', 2500);
     focusView();
   };
-  const onWelcome = (action: WelcomeAction) => {
+  const onWelcome = (action: 'explore' | 'tour') => {
     setWelcome(false);
     if (action === 'tour') startTour();
-    else if (action === 'find') setFindRequest((n) => n + 1);
     else focusView();
   };
   // The weak device's note (v0.14.8): "Walk anyway" = walking from the entrance (remembered: the next visit walks),
@@ -823,18 +892,32 @@ export function LayoutViewer(props: LayoutViewerProps) {
       setWelcome(true);
     }
   };
-  // Overview / Walk (v0.14.6, startMode): the person's choice, remembered in this browser
-  const modeButton = owned && engine && !error ? (
+  // v0.17.1: "My desk": your character walks to your own desk (from above: from the entrance, as Take me there)
+  const goToMyDesk = () => {
+    if (!engine || me == null) return;
+    setMoreOpen(false);
+    setHelpOpen(false);
+    setWelcome(false);
+    setNote(null);
+    const r = engine.navigation.routeTo(`person:${me}`, { walk: 'auto' });
+    if (r.problem) engine.walkthrough?.say(r.message ?? 'No walking route to your desk', 3000);
+    focusView();
+  };
+  const ready = !!engine && !error;
+  // Overview / Walk (v0.14.6, startMode): the person's choice, remembered in this browser. v0.17.1: in the toolbar row
+  const modeButton = owned && ready ? (
     <button
       type="button"
       data-mode-button={walking ? 'overview' : 'walk'}
       aria-label={walking ? 'Overview' : 'Walk'}
-      title={walking ? 'See this floor from above (your place is kept)' : start?.reason === 'weak' && !engine.walkPlace
+      title={walking ? 'See this floor from above (your place is kept)' : start?.reason === 'weak' && !engine?.walkPlace
         ? 'Walk through (it may be slow on this device)' : 'Walk through from where you were'}
-      style={{ ...toolButtonStyles.off, ...styles.modeButton }}
+      style={{ ...toolButtonStyles.off, ...buttonStyle }}
       onClick={() => {
+        if (!engine) return;
         setWelcome(false);
         setNote(null);
+        setMoreOpen(false);
         if (walking) {
           rememberStartMode('view');
           engine.overview();
@@ -848,24 +931,137 @@ export function LayoutViewer(props: LayoutViewerProps) {
       {walking ? <MapIcon /> : <WalkIcon />} <span>{walking ? 'Overview' : 'Walk'}</span>
     </button>
   ) : null;
-  const rowStyle = owned ? { maxWidth: `calc(100% - ${MODE_BUTTON_ROOM}px)` } : undefined;
-  const tourButton = tour && engine && !error ? (
-    <button
-      type="button"
-      data-tour-button
-      aria-label={TOUR_LABEL}
-      aria-pressed={touring}
-      title={touring ? 'The tour\'s stops' : 'Take the company tour'}
-      style={{ ...toolButtonStyles.off, ...(touring ? toolButtonStyles.on : null) }}
-      onClick={() => (touring ? setTourList((o) => !o) : startTour())}
-    >
-      <FlagIcon /> <span>Tour</span>
+  const myDeskButton = ready && hasDesk ? (
+    <button type="button" data-my-desk-button aria-label={MY_DESK_LABEL} title={MY_DESK_LABEL}
+      style={{ ...toolButtonStyles.off, ...buttonStyle }} onClick={goToMyDesk}>
+      <DeskIcon /> <span>My desk</span>
     </button>
+  ) : null;
+  // More (v0.17.1): Back to entrance, the company tour, the help, Low graphics, Hide me
+  const hideMe = props.hideMe ?? null;
+  // the welcome card's tour button: its size ('' = a layout with no tour stops: no button)
+  const welcomeTourDetail = (() => {
+    if (!tour || !engine || !welcome) return '';
+    const plan = engine.navigation.tourPlanReady;
+    if (plan && !plan.stops.length) return '';
+    return tourDetail({ count: plan?.stops.length ?? null, minutes: plan?.minutes ?? null, visited: 0 });
+  })();
+  const tourItem = (() => {
+    if (!tour || !ready || !engine || !moreOpen) return null;
+    if (touring) return { detail: tourList ? 'Hide the stops' : 'Show the stops' };
+    const plan = engine.navigation.tourPlanReady; // never planned here: the menu doesn't wait
+    if (plan && !plan.stops.length) return null;
+    const ids = new Set(plan?.stops.map((st) => st.id) ?? []);
+    const visited = engine.tour.visitedNow().filter((id) => !plan || ids.has(id)).length;
+    return { detail: tourDetail({ count: plan?.stops.length ?? null, minutes: plan?.minutes ?? null, visited }) };
+  })();
+  const moreButton = ready ? (
+    <button
+      ref={moreButtonRef}
+      type="button"
+      data-viewer-more
+      aria-label="More"
+      aria-haspopup="menu"
+      aria-expanded={moreOpen}
+      aria-controls={moreOpen ? `${keysHintId}-more` : undefined}
+      title="More"
+      style={{ ...toolButtonStyles.off, ...buttonStyle, ...(moreOpen ? toolButtonStyles.on : null) }}
+      onClick={() => {
+        setHelpOpen(false);
+        setMoreOpen((o) => !o);
+      }}
+    >
+      <MoreIcon />{narrow ? null : <span>More</span>}
+    </button>
+  ) : null;
+  const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const items = [...(moreMenuRef.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1
+      : (at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[next]?.focus({ preventScroll: true });
+  };
+  const moreMenu = moreOpen && ready ? (
+    <div ref={moreMenuRef} id={`${keysHintId}-more`} data-more-menu role="menu" aria-label="More" style={styles.menu}
+      onKeyDown={onMenuKey} onPointerDown={(e) => e.stopPropagation()}>
+      {walking && (
+        <button type="button" role="menuitem" data-more-item="entrance" data-hud="entrance" title="Back to entrance (Home)"
+          style={styles.menuItem} onClick={() => { setMoreOpen(false); engine?.walkthrough?.backToEntrance(); }}>
+          <span style={styles.menuLabel}>Back to entrance</span>
+        </button>
+      )}
+      {tourItem && (
+        <button type="button" role="menuitem" data-more-item="tour" data-tour-button aria-label={`${TOUR_LABEL}, ${tourItem.detail}`}
+          style={styles.menuItem}
+          onClick={() => {
+            if (touring) {
+              setMoreOpen(false);
+              setTourList((o) => !o);
+            } else startTour();
+          }}>
+          <span style={styles.menuText}>
+            <span style={styles.menuLabel}>{TOUR_LABEL}</span>
+            <span data-tour-offer-detail style={styles.menuNote}>{tourItem.detail}</span>
+          </span>
+        </button>
+      )}
+      {walking && (
+        <button type="button" role="menuitem" data-more-item="help" data-hud="help" aria-label={helpTitle} aria-haspopup="dialog"
+          style={styles.menuItem} onClick={() => { setMoreOpen(false); setHelpAll(false); setHelpOpen(true); }}>
+          <span style={styles.menuLabel}>{helpTitle}</span>
+        </button>
+      )}
+      {quality !== 'low' && (
+        <button type="button" role="menuitemcheckbox" aria-checked={lowGraphics} data-more-item="low"
+          data-low-graphics={lowGraphics ? 'on' : 'off'} aria-label="Low graphics: simpler look, smoother on slow devices"
+          style={styles.menuItem}
+          onClick={() => {
+            const on = !lowGraphics;
+            storeLowGraphics(on);
+            setLowGraphics(on);
+          }}>
+          <span style={styles.menuText}>
+            <span style={styles.menuLabel}>Low graphics</span>
+            <span style={styles.menuNote}>Simpler look, smoother on slow devices</span>
+          </span>
+          <span aria-hidden style={{ ...styles.switch, ...(lowGraphics ? styles.switchOn : null) }}>{lowGraphics ? 'On' : 'Off'}</span>
+        </button>
+      )}
+      {hideMe && (
+        <button type="button" role="menuitemcheckbox" aria-checked={hideMe.hidden} data-more-item="hide-me"
+          data-hide-me={hideMe.hidden ? 'on' : 'off'} aria-label={HIDE_ME_LABEL} style={styles.menuItem}
+          onClick={() => hideMe.onChange(!hideMe.hidden)}>
+          <span style={styles.menuText}>
+            <span style={styles.menuLabel}>Hide me</span>
+            <span style={styles.menuNote}>{HIDE_ME_NOTE}</span>
+          </span>
+          <span aria-hidden style={{ ...styles.switch, ...(hideMe.hidden ? styles.switchOn : null) }}>{hideMe.hidden ? 'On' : 'Off'}</span>
+        </button>
+      )}
+    </div>
   ) : null;
   // a narrow view: the tour's panel at the bottom, above the joystick (touch) or the HUD
   const tourBottom = touchWalk ? STICK_MARGIN + STICK_SIZE + 12 : TOOLBAR_BOTTOM_WALKING;
   const offerChoice = !!(person && chooseUrl && me != null && String(me) === person.who.personId
     && !(person.who.characterChosen ?? !!person.who.character));
+  // v0.17.1, one box at a time: a route's end holds the "E …" line (no HUD box under it); a card near you waits while
+  // another box shows (a card next to the cursor, from above, only while a menu is open)
+  const navEnd = strip === 'arrived' || strip === 'failed';
+  const boxBusy = helpOpen || moreOpen || findOpen || navEnd || strip === 'shown' || (welcome && walking) || noteShown;
+  const showPerson = !!person && !error && !(touring && narrow && !person.at && !person.pinned)
+    && (person.pinned || (person.at ? !(helpOpen || moreOpen || findOpen) : !boxBusy));
+  const hudLine = walking && hud ? (
+    hud.message ? <span data-hud="hint">{hud.message}</span>
+      : hud.prompt && (touchUI || engaged) ? (
+        <span data-hud="prompt">
+          {touchUI ? 'Tap it: ' : <kbd style={styles.keyLight}>E</kbd>}{touchUI ? '' : ' '}
+          {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}
+        </span>
+      ) : null
+  ) : null;
   return (
     <div
       ref={boxRef}
@@ -903,40 +1099,18 @@ export function LayoutViewer(props: LayoutViewerProps) {
         </div>
       )}
       {(() => {
-        // The toolbar, top left: walking, the keys hint and Back to entrance; the search button
-        const walkBar = walking && !error && hud ? (
-          <>
-            {/* the view's description for screen readers (always); the pill shows only in mouse look (v0.14.0):
-                the cursor is gone then, and Esc is how to get it back. Otherwise Esc still releases the keys */}
-            <span id={keysHintId} data-hud="keys-state" style={styles.srOnly}>
-              {touchUI ? 'Use the joystick to walk, drag to look, tap the floor to go there'
-                : hud.locked ? 'Mouse look · Esc to release' : engaged ? 'Esc to release' : 'Click the view to walk'}
-            </span>
-            {hud.locked && <div aria-hidden data-hud="keys" style={styles.keys}>Mouse look · Esc to release</div>}
-            <button
-              type="button"
-              data-hud="entrance"
-              style={styles.button}
-              title="Back to entrance (Home)"
-              onClick={() => engine?.walkthrough?.backToEntrance()}
-            >
-              Back to entrance
-            </button>
-            <button
-              ref={helpButtonRef}
-              type="button"
-              data-hud="help"
-              aria-label={helpTitle}
-              aria-expanded={helpOpen}
-              aria-controls={helpOpen ? `${keysHintId}-help` : undefined}
-              title={helpTitle}
-              style={{ ...styles.button, ...styles.helpButton }}
-              onClick={() => setHelpOpen((o) => !o)}
-            >
-              ?
-            </button>
-          </>
+        // The toolbar, top left (v0.17.1): Find · Overview / Walk · My desk · More, one row
+        const keysState = walking && !error && hud ? (
+          // the view's description for screen readers (always)
+          <span id={keysHintId} data-hud="keys-state" style={styles.srOnly}>
+            {touchUI ? 'Use the joystick to walk, drag to look, tap the floor to go there'
+              : hud.locked ? 'Mouse look · Esc to release' : engaged ? 'Esc to release' : 'Click the view to walk'}
+          </span>
         ) : null;
+        // the pill shows only in mouse look (v0.14.0): the cursor is gone then, and Esc is how to get it back
+        const pill = walking && !error && hud?.locked
+          ? <div aria-hidden data-hud="keys" style={styles.keys}>Mouse look · Esc to release</div> : null;
+        const after = <>{modeButton}{myDeskButton}{moreButton}{pill}</>;
         const help = walking && helpOpen && !error ? (
           <div
             id={`${keysHintId}-help`}
@@ -950,7 +1124,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
               e.preventDefault();
               e.stopPropagation();
               setHelpOpen(false);
-              helpButtonRef.current?.focus({ preventScroll: true });
+              moreButtonRef.current?.focus({ preventScroll: true });
             }}
           >
             <div style={styles.helpHead}>
@@ -966,41 +1140,46 @@ export function LayoutViewer(props: LayoutViewerProps) {
                 </div>
               ))}
             </dl>
-            {quality !== 'low' ? (
-              <div style={styles.helpOption}>
-                <span id={`${keysHintId}-low`}>
-                  Low graphics
-                  <span style={styles.helpOptionNote}>Simpler look, smoother on slow devices</span>
-                </span>
-                <button type="button" role="switch" aria-checked={lowGraphics} aria-labelledby={`${keysHintId}-low`}
-                  data-low-graphics={lowGraphics ? 'on' : 'off'}
-                  style={{ ...styles.helpSwitch, ...(lowGraphics ? styles.helpSwitchOn : null) }}
-                  onClick={() => {
-                    const on = !lowGraphics;
-                    storeLowGraphics(on);
-                    setLowGraphics(on);
-                  }}>{lowGraphics ? 'On' : 'Off'}</button>
-              </div>
-            ) : null}
+            <button type="button" data-help-all aria-expanded={helpAll} style={styles.helpAll} onClick={() => setHelpAll((a) => !a)}>
+              {helpAll ? 'Fewer shortcuts' : 'All shortcuts'}
+            </button>
+            {helpAll && (
+              <dl data-help-more style={{ ...styles.helpList, marginTop: 6 }}>
+                {(touchUI ? WALK_HELP_TOUCH_MORE : WALK_HELP_MORE).map(([key, what]) => (
+                  <div key={key} style={styles.helpRow}>
+                    <dt style={styles.helpKey}>{key}</dt>
+                    <dd style={styles.helpWhat}>{what}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
           </div>
         ) : null;
-        if (search && engine && !error) {
+        if (!engine || error) return null;
+        if (search) {
           return (
-            <div style={{ ...toolbarStyle, ...(findOpen ? { zIndex: 3 } : null) }} data-viewer-toolbar>
+            <div style={toolbarStyle} data-viewer-toolbar>
               <PlaceSearch engine={engine} walking={walking} people={people} touch={touchUI}
                 departments={departments} me={me == null ? null : String(me)} onOpenChange={setFindOpen}
-                tour={tour} onStartTour={startTour} after={tourButton} openRequest={findRequest} rowStyle={rowStyle}
-                focusView={focusView}>{walkBar}</PlaceSearch>
+                tour={false} after={after} rowStyle={rowStyle} buttonStyle={buttonStyle}
+                onBoxChange={setStrip} quiet={helpOpen || moreOpen} endExtra={navEnd ? hudLine : null}
+                dismissRequest={dismissRequest} focusView={focusView}>{keysState}</PlaceSearch>
+              {moreMenu}
               {help}
             </div>
           );
         }
-        return walkBar || tourButton
-          ? <div style={toolbarStyle} data-viewer-toolbar><div style={{ ...styles.row, ...rowStyle }}>{walkBar}{tourButton}</div>{help}</div> : null;
+        return (
+          <div style={toolbarStyle} data-viewer-toolbar>
+            <div style={{ ...styles.row, ...rowStyle }}>{keysState}{after}</div>
+            {moreMenu}
+            {help}
+          </div>
+        );
       })()}
-      {modeButton}
       {welcome && walking && floorReady && !error && (
-        <WelcomeCard name={welcomeName} tour={tour} search={search} tourDetail={welcomeTour} touch={touchUI}
+        <WelcomeCard name={welcomeName} tour={tour && welcomeTourDetail !== ''} search={search} keys={welcomeKeys ?? null}
+          tourDetail={welcomeTourDetail || null}
           narrow={narrow} bottom={tourBottom} compact={short} onAction={onWelcome} />
       )}
       {noteShown && note && floorReady && !error && (
@@ -1020,42 +1199,38 @@ export function LayoutViewer(props: LayoutViewerProps) {
             </div>
           )}
           {touchWalk && engine && <TouchControls engine={engine} />}
-          {touchWalk ? (
+          {navEnd ? null : touchWalk ? (
             // a touch screen (v0.14.2): ONE short line beside the joystick, never over it (a knob pushed
             // forward rises above the ring): a message or what a tap does, else "Outside · Ground Floor".
-            // How to walk is in the hint, the "?" help and the screen readers' line.
+            // How to walk is in the hint, the help and the screen readers' line.
             <div data-hud-line="touch" style={styles.hudTouch} aria-live="polite">
-              {hud.message ? <span data-hud="hint">{hud.message}</span>
-                : hud.prompt ? <span data-hud="prompt">Tap it: {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</span>
-                  : (
-                    <>
-                      <span data-hud="room"><strong>{hud.roomName}</strong></span>
-                      {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · {hud.floor.name ?? `Floor ${hud.floor.index}`}</span>}
-                    </>
-                  )}
+              {hudLine ?? (
+                <>
+                  <span data-hud="room"><strong>{hud.roomName}</strong></span>
+                  {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · {hud.floor.name ?? `Floor ${hud.floor.index}`}</span>}
+                </>
+              )}
             </div>
           ) : (
+            // v0.17.1: no line of keys that stays on screen (they are in the welcome card / the hint and the help):
+            // where you are, a message, and what E does
             <div style={styles.hud} aria-live="polite">
               <span data-hud="room"><strong>{hud.roomName}</strong></span>
               {hud.floor && hud.floor.count > 1 && <span data-hud="floor"> · {hud.floor.name ?? `Floor ${hud.floor.index}`}</span>}
-              {/* while the one-time hint shows, the keys aren't said twice (a message still shows) */}
-              {(hud.message ?? (hint ? null : hud.hint?.detail)) && <div data-hud="hint">{hud.message ?? hud.hint?.detail}</div>}
-              {engaged && hud.prompt && (
-                <div data-hud="prompt"><kbd style={styles.key}>E</kbd> {hud.prompt.label}{hud.prompt.name ? `: ${hud.prompt.name}` : ''}</div>
-              )}
+              {hudLine && <div>{hudLine}</div>}
             </div>
           )}
         </>
       )}
       {engine && touring && !error && (
-        <TourPanel engine={engine} touch={touchUI} narrow={narrow} bottom={tourBottom} top={owned ? UNDER_MODE_BUTTON : 12}
+        <TourPanel engine={engine} touch={touchUI} narrow={narrow} bottom={tourBottom} top={underRow}
           listOpen={tourList} onListOpenChange={setTourList} focusView={focusView} />
       )}
       {/* the tour's fade (Skip the walk, Previous, a stop from the list; arriving with reduced motion) */}
       <div aria-hidden data-tour-fade={fade ? 'on' : undefined}
         style={{ ...styles.fade, opacity: fade, transition: `opacity ${FADE_MS}ms ease` }} />
       {walking && focused && <div aria-hidden data-focus-ring style={styles.focusRing} />}
-      {person && !error && !(touring && narrow && !person.at && !person.pinned) && (
+      {showPerson && person && (
         // text only (React escapes it): name and department, nothing else
         <div
           data-person-card={person.who.personId}
@@ -1075,7 +1250,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
         </div>
       )}
       {card && (
-        <div role="status" data-viewer-card style={owned ? { ...styles.card, top: UNDER_MODE_BUTTON } : styles.card}>
+        <div role="status" data-viewer-card style={{ ...styles.card, top: underRow }}>
           <strong>{card.title}</strong>
           <div style={{ whiteSpace: 'pre-line' }}>{card.body ?? card.text}</div>
         </div>
@@ -1084,10 +1259,21 @@ export function LayoutViewer(props: LayoutViewerProps) {
   );
 }
 
-function FlagIcon() {
+/** More: three dots. */
+function MoreIcon() {
+  return (
+    <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style={{ flex: 'none' }}>
+      <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
+    </svg>
+  );
+}
+
+/** My desk: a desk with a screen. */
+function DeskIcon() {
   return (
     <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flex: 'none' }}>
-      <path d="M4 22V4M4 4h12l-2 4 2 4H4" />
+      <path d="M3 12h18M5 12v8M19 12v8" />
+      <rect x="8" y="4" width="8" height="5" rx="1" />
     </svg>
   );
 }
@@ -1132,7 +1318,7 @@ const panel: CSSProperties = {
 const styles: Record<string, CSSProperties> = {
   center: { ...panel, top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
   // v0.16.1: name tags of the live people (LiveSystem), under every panel and button of the viewer
-  tagLayer: { position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' },
+  tagLayer: { position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 },
   crosshair: {
     position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
     color: '#fff', font: '22px/1 system-ui, sans-serif', textShadow: '0 0 3px #000', pointerEvents: 'none',
@@ -1165,13 +1351,38 @@ const styles: Record<string, CSSProperties> = {
     position: 'absolute', inset: 0, pointerEvents: 'none', borderRadius: 'inherit',
     boxShadow: 'inset 0 0 0 2px #fff, inset 0 0 0 4px #2563eb',
   },
-  card: { ...panel, top: 12, right: 12, maxWidth: 320 },
-  helpButton: { minWidth: 30, fontWeight: 700, textAlign: 'center' },
-  // under the toolbar, as the search panel
+  card: { ...panel, top: 12, right: 12, maxWidth: 320, zIndex: 1 },
+  // under the toolbar, as the search panel; opaque (v0.17.1: a name tag never shows through it)
   help: {
     ...panel, position: 'relative', pointerEvents: 'auto', marginTop: 8, width: '100%', maxWidth: 360, maxHeight: '100%',
-    boxSizing: 'border-box', overflowY: 'auto', padding: '8px 12px 10px', background: 'rgba(15, 23, 42, 0.9)',
+    boxSizing: 'border-box', overflowY: 'auto', padding: '8px 12px 10px', background: '#0f172a',
   },
+  helpAll: {
+    marginTop: 8, padding: '6px 0', border: 'none', background: 'transparent', color: '#a7f3d0', cursor: 'pointer',
+    font: '600 13px Inter, system-ui, sans-serif', textDecoration: 'underline', minHeight: 32,
+  },
+  // v0.17.1: the phone's buttons (44 px, a finger's size)
+  tallButton: { height: 44, minWidth: 44, padding: '0 12px', justifyContent: 'center', flex: 'none' },
+  // More's menu: under the toolbar, the AHDUS look, opaque (over the name tags)
+  menu: {
+    position: 'relative', pointerEvents: 'auto', marginTop: 8, width: '100%', maxWidth: 300, maxHeight: '100%',
+    overflowY: 'auto', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', padding: 4,
+    background: '#ffffff', color: '#25382f', border: '1px solid #e3e8e0', borderRadius: 14,
+    boxShadow: '0 8px 24px rgba(25, 59, 47, 0.14)', font: "14px/1.35 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif",
+  },
+  menuItem: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: 44, padding: '6px 10px',
+    border: 'none', borderRadius: 10, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left',
+    cursor: 'pointer', flexWrap: 'wrap', flex: 'none',
+  },
+  menuText: { display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 },
+  menuLabel: { fontWeight: 600 },
+  menuNote: { display: 'block', fontSize: 12.5, color: '#55625a', flexBasis: '100%' },
+  switch: {
+    flex: 'none', minWidth: 44, height: 26, lineHeight: '24px', boxSizing: 'border-box', borderRadius: 13, textAlign: 'center',
+    borderWidth: 1, borderStyle: 'solid', borderColor: '#cbd5c4', color: '#55625a', font: '600 12px Inter, system-ui, sans-serif',
+  },
+  switchOn: { background: '#28664f', borderColor: '#28664f', color: '#fff' },
   helpHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 },
   helpClose: {
     border: 'none', background: 'transparent', color: '#fff', font: '20px/1 system-ui, sans-serif', cursor: 'pointer',
@@ -1181,18 +1392,6 @@ const styles: Record<string, CSSProperties> = {
   helpRow: { display: 'flex', gap: 10, justifyContent: 'space-between' },
   helpKey: { fontWeight: 600, whiteSpace: 'nowrap' },
   helpWhat: { margin: 0, textAlign: 'right', opacity: 0.9 },
-  helpOption: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 8, paddingTop: 8,
-    borderTop: '1px solid rgba(255, 255, 255, 0.18)', fontSize: 13, fontWeight: 600,
-  },
-  helpOptionNote: { display: 'block', fontWeight: 400, opacity: 0.8, fontSize: 12 },
-  helpSwitch: {
-    // separate border fields: helpSwitchOn changes only the colour (React warns when a shorthand meets one of its parts)
-    minWidth: 52, minHeight: 32, borderRadius: 16, borderWidth: 1, borderStyle: 'solid',
-    borderColor: 'rgba(255, 255, 255, 0.4)', cursor: 'pointer',
-    background: 'transparent', color: '#fff', font: '600 13px system-ui, sans-serif',
-  },
-  helpSwitchOn: { background: '#28664f', borderColor: '#28664f' },
   // the one-time hint: over the middle of the view, near the bottom
   walkHint: {
     ...panel, left: '50%', bottom: 64, transform: 'translateX(-50%)', textAlign: 'center', padding: '8px 14px',
@@ -1201,16 +1400,15 @@ const styles: Record<string, CSSProperties> = {
   // touch: clear of the joystick and the HUD beside it
   walkHintTouch: { bottom: 'auto', top: '40%' },
   quiet: { ...panel, right: 12, bottom: 12, padding: '4px 10px', fontSize: 12, opacity: 0.8 },
-  key: { border: '1px solid #fff8', borderRadius: 4, padding: '0 5px', marginRight: 4 },
-  person: { ...panel, maxWidth: 220, padding: '6px 10px', fontSize: 13, overflowWrap: 'anywhere' },
+  // the E key in the HUD (dark) and in the arrived box (white)
+  keyLight: { border: '1px solid currentColor', borderRadius: 4, padding: '0 5px', opacity: 0.9 },
+  person: { ...panel, maxWidth: 220, padding: '6px 10px', fontSize: 13, overflowWrap: 'anywhere', zIndex: 1 },
   link: { display: 'block', marginTop: 4, color: '#a7f3d0', textDecoration: 'underline', fontWeight: 600 },
   // walking up to a desk: above the HUD, in the middle
   personNear: { left: '50%', bottom: 96, transform: 'translateX(-50%)', textAlign: 'center' },
   // touch: above the joystick and its knob pushed forward (the HUD is beside it)
   personNearTouch: { bottom: STICK_MARGIN + STICK_SIZE + 44 },
   fade: { position: 'absolute', inset: 0, zIndex: 4, background: '#0b1220', pointerEvents: 'none' },
-  // startMode's Overview / Walk (v0.14.6): top right
-  modeButton: { position: 'absolute', top: 12, right: 12, zIndex: 2 },
 };
 
 export default LayoutViewer;

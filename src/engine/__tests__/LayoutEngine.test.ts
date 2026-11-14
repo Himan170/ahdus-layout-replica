@@ -1267,15 +1267,29 @@ describe('drawing quality and Low graphics (v0.17.0)', () => {
     expect(sun.shadowEnabled).toBe(true);
     const quality: any[] = [];
     engine.on('quality', (q) => quality.push(q));
+    // v0.17.1: the shadows go off over a few frames (ShadowSwitch), never all at once
+    const settle = () => {
+      for (let i = 0; i < 100 && engine.shadowsSwitching; i++) engine.scene.render();
+      expect(engine.shadowsSwitching).toBe(false);
+    };
     engine.setLowGraphics(true);
     expect(engine.lowGraphics).toBe(true);
-    expect(sun.shadowEnabled).toBe(false);
     expect(engine.drawQuality.step.maxFull).toBe(0);
     expect(quality.at(-1)).toMatchObject({ level: -1, shadows: false, maxFull: 0 });
-    engine.scene.render(); // a frame does not turn the shadows back on (the 2D / 3D switch does that)
-    expect(sun.shadowEnabled).toBe(false);
-    engine.setLowGraphics(false);
+    const receivers = () => engine.scene.meshes.filter((m) => m.receiveShadows).length;
+    const before = receivers();
+    expect(before).toBeGreaterThan(0);
+    settle();
+    // v0.17.1: off = nothing receives them; the sun's own flag is left alone (flipping it froze a frame)
+    expect(engine.shadowsOn).toBe(false);
+    expect(receivers()).toBe(0);
     expect(sun.shadowEnabled).toBe(true);
+    engine.scene.render();
+    expect(receivers()).toBe(0);
+    engine.setLowGraphics(false);
+    expect(engine.shadowsOn).toBe(true); // on at once, the receivers given back over frames
+    settle();
+    expect(receivers()).toBe(before);
     expect(quality.at(-1)).toMatchObject({ level: 0, shadows: true });
   });
 

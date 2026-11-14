@@ -8,6 +8,9 @@
 // v0.14.7: a short view box (390 × 490, as AHDUS's 3D Company page gives a phone; and 1000 × 400) gets the compact
 // card: the toolbar row and Overview stay visible and clickable, all three actions show with no scrolling, the
 // joystick and the HUD line stay clear.
+// v0.17.1: the card's main button is Explore, a second smaller one "Start the tour" (its size; the tour is in More too);
+// it says how to walk on a first visit (then no one-time hint) and where Find is (the toolbar only, never in Find's
+// menu the tour); Find or More opened closes the card. Overview / Walk sits in the toolbar row (Find · Overview · More).
 // v0.14.8: a weak device's note says why it started from above (software WebGL / quality low); "Stay above", Esc and a
 // click on the view close it (not remembered); "Walk anyway" walks from the entrance with the welcome card and is
 // remembered (the next visit walks); Overview chosen later wins again; the note compact in a 390 × 490 phone box.
@@ -93,18 +96,30 @@ try {
   await p.waitForSelector('[data-welcome]', { timeout: 30000 }).catch(() => {});
   const title = await p.locator('[data-welcome-title]').textContent({ timeout: 5000 }).catch(() => '');
   const actions = await p.$$eval('[data-welcome-action]', (els) => els.map((e) => e.dataset.welcomeAction));
-  log('?start=walk: walking at the entrance, the welcome card "Welcome to Sample company" (tour, explore, find)',
-    m1 === 'walkthrough' && title === 'Welcome to Sample company' && actions.join() === 'tour,explore,find', JSON.stringify({ m1, title, actions }));
+  const said = await p.evaluate(() => ({
+    keys: document.querySelector('[data-welcome-keys]')?.textContent ?? null, tip: document.querySelector('[data-welcome-tip]')?.textContent ?? null,
+  }));
+  log('?start=walk: walking at the entrance, the welcome card "Welcome to Sample company" (v0.17.1: Explore + Start the tour; the keys on a first visit; where Find and the tour are)',
+    m1 === 'walkthrough' && title === 'Welcome to Sample company' && actions.join() === 'explore,tour'
+    && said.keys === 'W A S D to walk · drag to look · click the floor to go there'
+    && said.tip === 'Find a person or place with Find. The tour is also under More.', JSON.stringify({ m1, title, actions, ...said }));
   const noHint = await p.locator('[data-walk-hint]').count();
   log('the one-time walk hint waits while the card shows', noHint === 0, `hints: ${noHint}`);
-  log('the Overview button at the top right while walking', await modeButton() === 'overview'
-    && await p.evaluate(() => { const r = document.querySelector('[data-mode-button]').getBoundingClientRect(); const v = document.querySelector('[data-layout-viewer]').getBoundingClientRect(); return v.right - r.right < 20 && r.top - v.top < 20; }));
+  const row = await p.evaluate(() => [...document.querySelectorAll('[data-viewer-toolbar] button')].filter((el) => el.offsetParent !== null)
+    .map((el) => ({ name: el.getAttribute('aria-label'), top: Math.round(el.getBoundingClientRect().top) })));
+  log('v0.17.1: the Overview button in the toolbar row while walking: Find · Overview · More', await modeButton() === 'overview'
+    && row.map((r) => r.name).join() === 'Find a person, room or place,Overview,More' && new Set(row.map((r) => r.top)).size === 1, JSON.stringify(row));
   if (SHOTS) await shot('welcome-desktop.png');
   await p.mouse.move(desktop.width / 3, 150); // over the view (the sky), no click
   const walked = await hold('KeyW', 6);
   log('W walks with no click, and closes the card (= Explore)', walked > 0.2 && await card() === 0, `walked ${walked.toFixed(2)} m, card ${await card()}`);
-  const hintAfter = await p.waitForSelector('[data-walk-hint]', { timeout: 15000 }).then(() => true, () => false);
-  log('…then the one-time hint shows', hintAfter);
+  const hintAfter = await p.waitForSelector('[data-walk-hint]', { timeout: 8000 }).then(() => true, () => false);
+  const seen = await p.evaluate(() => localStorage.getItem('ahdus.walkHintSeen'));
+  log('v0.17.1: …and no one-time hint after it (the card said the keys: explained once)', !hintAfter && seen === '1', JSON.stringify({ hintAfter, seen }));
+  await open('start=walk&weak=0&people=1');
+  await p.waitForSelector('[data-welcome]', { timeout: 30000 }).catch(() => {});
+  log('…the next visit: the card without the keys line (only the tip)', await p.locator('[data-welcome-keys]').count() === 0
+    && await p.locator('[data-welcome-tip]').count() === 1);
 
   // ── 2. Explore, Esc ──
   await open('start=walk&weak=0&people=1');
@@ -120,29 +135,58 @@ try {
   const escWalk = await hold('KeyW', 5);
   log('Esc closes the card, and the keys stay the view\'s', await card() === 0 && escWalk > 0.2, `walked ${escWalk.toFixed(2)} m`);
 
-  // ── 3. Find someone, Start the tour ──
+  // ── 3. Find (the toolbar), the tour (More): each from ONE place ──
   await open('start=walk&weak=0&people=1');
   await p.waitForSelector('[data-welcome]', { timeout: 30000 });
-  await p.click('[data-welcome-action="find"]');
+  await p.click('button[aria-label="Find a person, room or place"]');
   await p.waitForSelector('[data-place-search]', { timeout: 10000 }).catch(() => {});
   const findFocus = await p.evaluate(() => document.activeElement?.closest?.('[data-place-search]') !== null && document.activeElement?.tagName === 'INPUT');
-  log('Find someone: the card closes, Find opens with the box focused', await card() === 0 && findFocus);
+  const noTourInFind = await p.locator('[data-tour-offer]').count() === 0;
+  log('Find from the toolbar: the card closes, Find opens with the box focused; v0.17.1: no tour in Find\'s menu',
+    await card() === 0 && findFocus && noTourInFind, JSON.stringify({ findFocus, noTourInFind }));
   await p.keyboard.type('Asha');
   const found = await p.locator('[data-place-search] [role="option"]', { hasText: 'Asha Patel' }).count();
   log('…and finds Asha Patel', found > 0);
   await open('start=walk&weak=0&people=1');
   await p.waitForSelector('[data-welcome]', { timeout: 30000 });
-  await p.waitForFunction(() => /stops/.test(document.querySelector('[data-welcome-action="tour"]')?.textContent ?? ''), null, { timeout: 60000 }).catch(() => {});
-  const tourText = await p.locator('[data-welcome-action="tour"]').textContent();
-  await p.click('[data-welcome-action="tour"]');
+  await p.evaluate(() => window.__ahdusViewer.whenNavigationReady?.());
+  await p.click('[data-viewer-more]');
+  const moreClosesCard = await card() === 0;
+  await p.waitForSelector('[data-more-item="tour"]', { timeout: 30000 }).catch(() => {});
+  const tourText = await p.locator('[data-more-item="tour"]').textContent().catch(() => '');
+  await p.click('[data-more-item="tour"]');
   const tourPanel = await p.waitForSelector('[data-tour-panel]', { timeout: 30000 }).then(() => true, () => false);
   const tourTop = await p.evaluate(() => {
     const t = document.querySelector('[data-tour-panel]')?.getBoundingClientRect();
     const m = document.querySelector('[data-mode-button]')?.getBoundingClientRect();
     return t && m ? Math.round(t.top - m.bottom) : null;
   });
-  log('Start the tour (with its size: "5 stops · about 1 min": with people, Engineering is a stop, v0.14.9): the tour starts, its panel under the Overview button',
-    /stops · about \d+ min/.test(tourText) && tourPanel && await card() === 0 && tourTop !== null && tourTop >= 0, `${tourText} · gap ${tourTop}px`);
+  log('More → Company tour (with its size: "5 stops · about 1 min": with people, Engineering is a stop, v0.14.9; More closes the card): the tour starts, its panel under the toolbar row',
+    moreClosesCard && /stops · about \d+ min/.test(tourText) && tourPanel && await card() === 0 && tourTop !== null && tourTop >= 0, `${tourText} · gap ${tourTop}px`);
+  await p.click('[data-tour-exit]').catch(() => {});
+  // v0.17.1 (review): the card's own tour button: second and smaller than Explore, with the tour's size; it starts the tour
+  await open('start=walk&weak=0&people=1');
+  await p.waitForSelector('[data-welcome]', { timeout: 30000 });
+  await p.evaluate(() => window.__ahdusViewer.whenNavigationReady?.());
+  await p.waitForSelector('[data-welcome-tour-detail]', { timeout: 30000 }).catch(() => {});
+  const cardTour = await p.evaluate(() => {
+    const r = (q) => document.querySelector(q)?.getBoundingClientRect();
+    const ex = r('[data-welcome-action="explore"]');
+    const to = r('[data-welcome-action="tour"]');
+    const style = (q) => getComputedStyle(document.querySelector(q));
+    return {
+      order: [...document.querySelectorAll('[data-welcome-action]')].map((b) => b.dataset.welcomeAction).join(),
+      wider: !!ex && !!to && ex.width > to.width * 1.3,
+      mainFilled: style('[data-welcome-action="explore"]').backgroundColor === 'rgb(40, 102, 79)',
+      detail: document.querySelector('[data-welcome-tour-detail]')?.textContent ?? null,
+      label: document.querySelector('[data-welcome-action="tour"]')?.getAttribute('aria-label'),
+    };
+  });
+  await p.click('[data-welcome-action="tour"]');
+  const cardTourPanel = await p.waitForSelector('[data-tour-panel]', { timeout: 30000 }).then(() => true, () => false);
+  log('the card\'s "Start the tour": a second, smaller button after Explore (Explore the filled one), "5 stops · about 1 min"; it starts the tour and the card closes',
+    cardTour.order === 'explore,tour' && cardTour.wider && cardTour.mainFilled && /^\d+ stops · about \d+ min$/.test(cardTour.detail ?? '')
+    && cardTour.label === `Start the tour, ${cardTour.detail}` && cardTourPanel && await card() === 0, JSON.stringify({ ...cardTour, cardTourPanel }));
   await p.click('[data-tour-exit]').catch(() => {});
 
   // ── 4. Overview keeps your place; Walk takes you back ──
@@ -310,12 +354,12 @@ try {
       onScreen: !!c && c.left >= box.left && c.right <= box.right + 0.5 && c.top >= box.top && c.bottom <= box.bottom,
       aboveStick: !stick || !c || c.bottom <= stick.top,
       modeOnScreen: !!m && m.right <= box.right && m.left >= box.left,
-      toolsClear: tools.every((t) => !overlap(t, m)),
-      words: document.querySelector('[data-welcome-action="explore"]')?.textContent,
+      toolsClear: tools.every((t) => !overlap(t, c)),
+      words: document.querySelector('[data-welcome-keys]')?.textContent,
       compact: document.querySelector('[data-welcome]')?.hasAttribute('data-welcome-compact'),
     };
   });
-  log('phone: the card full width at the bottom, on screen, above the joystick; Overview clear of the toolbar; touch words',
+  log('phone: the card full width at the bottom, on screen, above the joystick; the toolbar (with Overview) clear of it; touch words',
     phone.narrow === 'narrow' && phone.onScreen && phone.aboveStick && phone.modeOnScreen && phone.toolsClear && /Joystick/.test(phone.words ?? ''),
     JSON.stringify(phone));
   if (SHOTS) await shot('welcome-phone.png');
@@ -327,7 +371,6 @@ try {
   // ── 10. a short box (v0.14.7): AHDUS's 3D Company page gives a phone's view ~490 px ──
   await open('start=walk&weak=0&people=1', { clear: true, box: { width: 390, height: 490 } });
   await p.waitForSelector('[data-welcome]', { timeout: 30000 }).catch(() => {});
-  await p.waitForFunction(() => /stops/.test(document.querySelector('[data-welcome-action="tour"]')?.textContent ?? ''), null, { timeout: 60000 }).catch(() => {});
   const fits = () => p.evaluate(() => {
     const rect = (el) => el?.getBoundingClientRect();
     const box = rect(document.querySelector('[data-layout-viewer]'));
@@ -346,24 +389,23 @@ try {
       box: [Math.round(box.width), Math.round(box.height)], compact: el?.hasAttribute('data-welcome-compact'), names,
       clickable, toolsClear: tools.every((t) => !overlap(rect(t), c)),
       actions: actions.map((a) => a.dataset.welcomeAction).join(),
-      actionsShown: actions.length === 3 && actions.every((a) => inside(rect(a), c) && inside(rect(a), box)),
+      actionsShown: actions.length === 2 && actions.every((a) => inside(rect(a), c) && inside(rect(a), box)),
       noScroll: !!el && el.scrollHeight <= el.clientHeight + 1,
       stickClear: !stick || !overlap(stick, c), hudClear: !hud || !overlap(hud, c),
-      tourRead: document.querySelector('[data-welcome-action="tour"]')?.textContent,
+      tipShown: (() => { const t = rect(document.querySelector('[data-welcome-tip]')); return !!t && inside(t, c); })(),
     };
   });
   const s1 = await fits();
-  log('short box 390 × 490: the compact card, all three actions on screen with no scrolling, clear of the joystick and the HUD line',
-    s1.box.join() === '390,490' && s1.compact && s1.actions === 'tour,explore,find' && s1.actionsShown && s1.noScroll && s1.stickClear && s1.hudClear,
+  log('short box 390 × 490: the compact card, Explore, Start the tour and the tip on screen with no scrolling, clear of the joystick and the HUD line',
+    s1.box.join() === '390,490' && s1.compact && s1.actions === 'explore,tour' && s1.actionsShown && s1.tipShown && s1.noScroll && s1.stickClear && s1.hudClear,
     JSON.stringify(s1));
-  log('short box: Back to entrance, ?, Find, Tour and Overview visible and clickable (the card covers none of them)',
-    s1.names.length >= 5 && ['Back to entrance', 'Find a person, room or place', 'Company tour', 'Overview'].every((n) => s1.names.includes(n))
+  log('short box: Find, Overview and More visible and clickable (the card covers none of them)',
+    s1.names.length >= 3 && ['Find a person, room or place', 'Overview', 'More'].every((n) => s1.names.includes(n))
     && s1.clickable.every(Boolean) && s1.toolsClear, JSON.stringify({ names: s1.names, clickable: s1.clickable }));
-  log('short box: the detail of each action is still read out (Start the tour, 4 stops · about 1 min)', /Start the tour, \d+ stops · about \d+ min/.test(s1.tourRead ?? ''), s1.tourRead);
   if (SHOTS) await shot('welcome-phone-short.png');
-  await p.tap('[data-welcome-action="find"]');
+  await p.tap('button[aria-label="Find a person, room or place"]');
   await p.waitForSelector('[data-place-search]', { timeout: 10000 }).catch(() => {});
-  log('short box: Find someone opens Find', await card() === 0 && await p.evaluate(() => document.activeElement?.tagName === 'INPUT'));
+  log('short box: a tap on Find opens Find (and closes the card)', await card() === 0 && await p.evaluate(() => document.activeElement?.tagName === 'INPUT'));
   // v0.14.8: a weak phone in the short box: the note, compact at the bottom, the toolbar and Walk clickable
   await open('start=walk&weak=1&people=1', { clear: true, box: { width: 390, height: 490 } });
   await p.waitForSelector('[data-weak-note]', { timeout: 30000 }).catch(() => {});
@@ -398,8 +440,8 @@ try {
   await open('start=walk&weak=0&people=1', { clear: true, box: { width: 1000, height: 400 } });
   await p.waitForSelector('[data-welcome]', { timeout: 30000 }).catch(() => {});
   const s2 = await fits();
-  log('short wide box 1000 × 400: compact, in the middle, toolbar and Overview clickable, all actions with no scrolling',
-    s2.compact && s2.actionsShown && s2.noScroll && s2.clickable.every(Boolean) && s2.toolsClear && s2.hudClear, JSON.stringify(s2));
+  log('short wide box 1000 × 400: compact, in the middle, toolbar and Overview clickable, Explore and the tip with no scrolling',
+    s2.compact && s2.actionsShown && s2.tipShown && s2.noScroll && s2.clickable.every(Boolean) && s2.toolsClear && s2.hudClear, JSON.stringify(s2));
   if (SHOTS) await shot('welcome-wide-short.png');
 } catch (e) {
   log('script', false, e.message);

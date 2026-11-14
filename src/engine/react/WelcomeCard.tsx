@@ -4,29 +4,35 @@
  * view keeps them, and a movement key, a press on the view or Esc closes it (= Explore). LayoutViewer decides when
  * it shows (startMode.chooseStart) and what each button does. The AHDUS look, as inline styles (no stylesheet).
  *
- * Compact (v0.14.7): a short view box (AHDUS's 3D Company page gives a phone about 490 px) gets a smaller title, one
- * short line and the three actions in one row with no detail lines (still read out), so it covers neither the toolbar
- * row nor the Overview button, and nothing in it needs scrolling. LayoutViewer decides by the box's own height.
+ * Compact (v0.14.7): a short view box (AHDUS's 3D Company page gives a phone about 490 px) gets a smaller title and
+ * smaller lines, so it never covers the toolbar row and nothing in it needs scrolling. LayoutViewer decides by the box's
+ * own height.
+ *
+ * v0.17.1 ("simple"): Explore is the main button; "Start the tour" (its stops and minutes) a second, smaller one: the
+ * tour is what a new joiner (and a demo) wants first. It is in More too; Find starts from the toolbar only (the card says
+ * where). On a first visit it also says how to walk (the keys, or the joystick): the keys are explained once, here, and
+ * the one-time hint then doesn't show (LayoutViewer).
  */
 
-import { useId } from 'react';
+import { Fragment, useId } from 'react';
 import type { CSSProperties } from 'react';
 
-import { welcomeTitle, welcomeActions, weakNote } from '../startMode';
+import { welcomeTitle, welcomeTip, weakNote } from '../startMode';
 import type { WeakKind } from '../startMode';
 
-export type WelcomeAction = 'tour' | 'explore' | 'find';
+/** v0.17.1: Explore (the main one) and the company tour (with the viewer's tour option). */
+export type WelcomeAction = 'explore' | 'tour';
 
 export interface WelcomeCardProps {
   /** The layout's name ("Welcome to …"). */
   name?: string | null;
-  /** Its Start the tour / Find someone buttons (the viewer's tour / search options). */
+  /** Where the tour / Find are (the viewer's tour / search options): the card's pointer line. */
   tour?: boolean;
   search?: boolean;
-  /** The tour's size ("20 stops · about 8 min"); null: not planned yet. */
+  /** The tour's size ("5 stops · about 1 min", tourDetail): the tour button's second line. */
   tourDetail?: string | null;
-  /** Touch words (the joystick, not the keys). */
-  touch?: boolean;
+  /** How to walk (a first visit: the one-time hint's words); null: not said again. */
+  keys?: string | null;
   /** A narrow view (a phone): full width at the bottom, this far up (px: above the joystick or the HUD). */
   narrow?: boolean;
   bottom?: number;
@@ -35,14 +41,7 @@ export interface WelcomeCardProps {
   onAction: (action: WelcomeAction) => void;
 }
 
-const DETAIL: Record<WelcomeAction, (touch: boolean) => string> = {
-  tour: () => 'From the main entrance, stop by stop',
-  explore: (touch) => (touch ? 'Joystick to walk, drag to look' : 'W A S D to walk, drag to look'),
-  find: () => 'A person, room or place',
-};
-const LABEL: Record<WelcomeAction, string> = { tour: 'Start the tour', explore: 'Explore', find: 'Find someone' };
-const LINE = 'You are at the main entrance. How would you like to start?';
-const LINE_SHORT = 'You are at the main entrance.';
+const LINE = 'You are at the main entrance.';
 /**
  * A narrow card (at the bottom) keeps this much of the box's top clear (px): the toolbar row, on a phone two lines of
  * buttons (12 + 2 × 32 + 8), and a gap. A card still taller than what is left scrolls, never over the row.
@@ -50,10 +49,10 @@ const LINE_SHORT = 'You are at the main entrance.';
 export const WELCOME_TOOLBAR_ROOM = 96;
 
 export function WelcomeCard({
-  name, tour = true, search = true, tourDetail, touch = false, narrow = false, bottom = 12, compact = false, onAction,
+  name, tour = true, search = true, tourDetail = null, keys = null, narrow = false, bottom = 12, compact = false, onAction,
 }: WelcomeCardProps) {
   const id = useId();
-  const actions = welcomeActions({ tour, search });
+  const tip = welcomeTip({ tour, search });
   const place: CSSProperties = narrow
     ? { ...styles.narrow, bottom, maxHeight: `calc(100% - ${bottom + WELCOME_TOOLBAR_ROOM}px)` }
     : styles.wide;
@@ -72,24 +71,35 @@ export function WelcomeCard({
       <div style={styles.head}>
         <div style={{ minWidth: 0 }}>
           <h2 id={`${id}-title`} data-welcome-title style={compact ? styles.titleCompact : styles.title}>{welcomeTitle(name)}</h2>
-          <p id={`${id}-line`} style={compact ? styles.lineCompact : styles.line}>{compact ? LINE_SHORT : LINE}</p>
+          <p id={`${id}-line`} style={compact ? styles.lineCompact : styles.line}>
+            {LINE}
+            {keys && <span data-welcome-keys style={styles.keys}>{keys}</span>}
+            {tip && <span data-welcome-tip style={styles.tip}>{tip}</span>}
+          </p>
         </div>
         <button type="button" aria-label="Close and explore" title="Close (Esc)" style={compact ? styles.closeCompact : styles.close}
           onClick={() => onAction('explore')}>×</button>
       </div>
-      <div style={compact || !narrow ? styles.list : styles.listNarrow}>
-        {actions.map((a) => {
-          const detail = a === 'tour' && tourDetail ? tourDetail : DETAIL[a](touch);
-          const look = a === 'explore' ? styles.primary : styles.option;
-          return (
-            <button key={a} type="button" data-welcome-action={a} style={compact ? { ...look, ...styles.optionCompact } : look}
-              title={compact ? detail : undefined} onClick={() => onAction(a)}>
-              <strong style={compact ? styles.labelCompact : styles.label}>{LABEL[a]}</strong>
-              {/* compact: no detail line on screen, but still read out ("Start the tour, 4 stops · about 1 min") */}
-              <span style={compact ? styles.srOnly : a === 'explore' ? styles.detailOn : styles.detail}>{compact ? `, ${detail}` : detail}</span>
-            </button>
-          );
-        })}
+      <div style={styles.list}>
+        <button type="button" data-welcome-action="explore" style={{ ...styles.primary, ...styles.optionCompact, flex: '2 1 0' }}
+          onClick={() => onAction('explore')}>
+          <strong style={compact ? styles.labelCompact : styles.label}>Explore</strong>
+        </button>
+        {tour && (
+          <button type="button" data-welcome-action="tour" style={{ ...styles.option, ...styles.optionCompact, ...styles.second }}
+            aria-label={tourDetail ? `Start the tour, ${tourDetail}` : 'Start the tour'} title={tourDetail ?? undefined}
+            onClick={() => onAction('tour')}>
+            <span style={compact ? styles.secondLabelCompact : styles.secondLabel}>Start the tour</span>
+            {tourDetail && !compact && (
+              <span data-welcome-tour-detail style={styles.secondDetail}>
+                {/* a narrow button breaks it at a dot only ("5 stops ·" / "about 1 min"), never inside "1 min" */}
+                {tourDetail.split(' · ').map((part, i, all) => (
+                  <Fragment key={i}><span style={styles.nowrap}>{part}{i < all.length - 1 ? ' ·' : ''}</span>{i < all.length - 1 ? ' ' : ''}</Fragment>
+                ))}
+              </span>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -161,17 +171,23 @@ const styles: Record<string, CSSProperties> = {
   head: { display: 'flex', alignItems: 'flex-start', gap: 8, justifyContent: 'space-between' },
   title: { margin: 0, font: `700 18px/1.3 ${C.font}`, color: C.text, overflowWrap: 'anywhere' },
   line: { margin: '4px 0 0', fontSize: 13.5, color: C.muted },
+  // v0.17.1: the keys (first visit) and where Find / the tour are, each on a line of its own
+  keys: { display: 'block', marginTop: 6, color: C.text, fontWeight: 600 },
+  tip: { display: 'block', marginTop: 4 },
   close: {
     flex: 'none', width: 32, height: 32, border: 'none', borderRadius: 8, background: 'transparent', color: C.muted,
     font: '20px/1 system-ui, sans-serif', cursor: 'pointer',
   },
   list: { display: 'flex', gap: 8 },
-  listNarrow: { display: 'flex', flexDirection: 'column', gap: 6 },
   option,
   primary: { ...option, background: C.accent, border: `1px solid ${C.accent}`, color: '#fff' },
   label: { font: `700 14px/1.3 ${C.font}` },
-  detail: { color: C.muted, overflowWrap: 'anywhere' },
-  detailOn: { color: '#e4efe8', overflowWrap: 'anywhere' },
+  // v0.17.1: the tour, the second (smaller) button
+  second: { flex: '1 1 0', background: C.panel },
+  secondLabel: { font: `600 13px/1.25 ${C.font}`, overflowWrap: 'anywhere' },
+  secondLabelCompact: { font: `600 12.5px/1.25 ${C.font}`, overflowWrap: 'anywhere' },
+  secondDetail: { font: `11.5px/1.25 ${C.font}`, color: C.muted },
+  nowrap: { whiteSpace: 'nowrap' },
   // compact (v0.14.7): a short view box
   cardCompact: { gap: 10, padding: '10px 12px 12px', borderRadius: 14 },
   titleCompact: { margin: 0, font: `700 15px/1.3 ${C.font}`, color: C.text, overflowWrap: 'anywhere' },

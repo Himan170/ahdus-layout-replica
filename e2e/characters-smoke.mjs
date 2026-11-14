@@ -383,8 +383,8 @@ const resumed = await p.evaluate(() => {
     hint: document.querySelector('[data-hud="hint"]')?.textContent ?? null,
   };
 });
-log('walking again after choosing the ground floor: you start on it, standing (not flying on Floor 1), the usual hint',
-  resumed.level === 0 && !resumed.flying && resumed.floor === 0 && /^W A S D walk/.test(resumed.hint ?? ''), JSON.stringify(resumed));
+log('walking again after choosing the ground floor: you start on it, standing (not flying on Floor 1), no flying message',
+  resumed.level === 0 && !resumed.flying && resumed.floor === 0 && !/fly/i.test(resumed.hint ?? ''), JSON.stringify(resumed));
 await walkAs('placeholder:mixamo-v1');
 // in the aisle between the desks, looking along it
 await p.evaluate(() => window.workplace._engine.walkthrough.setPose({ x: 0, z: -5.6, yaw: 0, pitch: -0.15 }));

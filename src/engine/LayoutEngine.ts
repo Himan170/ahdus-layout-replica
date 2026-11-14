@@ -49,7 +49,7 @@ import type { Layout, Anchor, LayoutObject, AnchorKind } from './model/schema';
 import { loadLayout as parseLayout } from './model/migrate';
 import { toV1, storeFloorIds, mergeV2Extras } from './model/toV1';
 import { NavigationSystem } from './systems/NavigationSystem';
-import type { NavigationEvent, DepartmentInfo } from './systems/NavigationSystem';
+import type { NavigationEvent, DepartmentInfo, PlaceResult } from './systems/NavigationSystem';
 import { RouteLineSystem } from './systems/RouteLineSystem';
 import { TourSystem, TOUR_HIGHLIGHT } from './systems/TourSystem';
 import type { TourEvent } from './systems/TourSystem';
@@ -57,6 +57,7 @@ import { CommandHistory } from './commands/CommandHistory';
 import type { Command } from './commands/CommandHistory';
 import { createLayoutScene } from './systems/SceneSetup';
 import { StaticShadows } from './systems/StaticShadows';
+import { ShadowSwitch } from './systems/ShadowSwitch';
 import type { LayoutScene } from './systems/SceneSetup';
 import { RoomSystem } from './systems/RoomSystem';
 import type { V1Room } from './systems/RoomSystem';
@@ -423,6 +424,9 @@ export class LayoutEngine {
     this._staticShadows = shadowGenerator && sun ? new StaticShadows(this.scene, shadowGenerator, sun, {
       layoutKey: () => { const st = this._store.getState(); return [st.rooms, st.objects, st.floors]; },
     }) : null;
+    // v0.17.1: the quality step's shadows on / off = which meshes receive them, a batch per frame (the light's own
+    // flag, flipped, froze a weak laptop ~1.5 s in one frame; the shadow map is drawn once anyway: StaticShadows)
+    this._shadowSwitch = shadowGenerator && sun ? new ShadowSwitch(this.scene) : null;
     // v0.17.0: no pick under the mouse on every move (the viewer picks on its own clicks, hover and E)
     this.scene.skipPointerMovePicking = true;
     this.floors = new FloorSystem(this.rooms, this.objects, () => this._store.getState());
@@ -464,7 +468,9 @@ export class LayoutEngine {
     this.drawQuality = new QualityMonitor({
       dpr: typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
       auto: options.autoQuality !== false,
-      measuring: () => !!this._builder?.progress.allBuilt && !(typeof document !== 'undefined' && document.hidden),
+      // v0.17.1: not while the shadows switch (those frames are the switch's, not the device's)
+      measuring: () => !!this._builder?.progress.allBuilt && !(typeof document !== 'undefined' && document.hidden)
+        && !this._shadowSwitch?.busy,
       apply: (step) => this._applyQuality(step),
     });
     this.characters?.setMaxFull(this._fullCapNow());
@@ -472,9 +478,7 @@ export class LayoutEngine {
     // the cap shared: the live people first (they move), the seated ones the rest; your pose for the page
     this._liveTick = () => {
       this.characters?.setMaxFull(Math.max(0, this._fullCapNow() - this.live.fullCount));
-      // a 2D / 3D switch turns shadows back on: the quality's step wins
-      const sun = this._layoutScene.lights?.directional;
-      if (sun?.shadowEnabled && this._qualityStep && !this._qualityStep.shadows) sun.shadowEnabled = false;
+      // (a 2D / 3D switch flips the light's own flag: shadows the quality step turned off stay off, nothing receives)
       this._poseTick();
     };
     this.scene.onBeforeRenderObservable.add(this._liveTick);
@@ -505,6 +509,7 @@ export class LayoutEngine {
       getMe: () => (this._player?.personId != null ? String(this._player.personId) : null),
       emit: (event) => {
         this._noteArrival(event);
+        this._arrivalView(event);
         this.tour.onNavigation(event); // the tour's own walks, or another one taking over
         this.emit('navigation', event);
       },
@@ -843,6 +848,40 @@ export class LayoutEngine {
     return { personId: a.personId, name: a.name };
   }
 
+  /**
+   * v0.17.1: Take me there / My desk arrived (walk 'auto', not the tour's or a click's walk): the camera goes over a
+   * shoulder and looks at the person or place (the walker faces it, and the usual camera had them behind your body).
+   * A new walk starts: back to the usual camera.
+   */
+  private _arrivalView(event: NavigationEvent): void {
+    const walk = this._walkthrough;
+    if (!walk?.isActive()) return;
+    if (event.state === 'started') { walk.setArrivalView(null); return; }
+    if (event.state !== 'arrived' || event.walk !== 'auto' || (event as { source?: string }).source) return;
+    const target = this._arrivalTarget(event.place as PlaceResult | undefined);
+    if (!target) return;
+    const reduced = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    walk.setArrivalView(target, reduced);
+  }
+
+  /** Where the arrival view looks (world): a person's chest (where they sit / stand), else the item or room's middle. */
+  private _arrivalTarget(place: PlaceResult | undefined): { x: number; y: number; z: number } | null {
+    if (!place) return null;
+    const s = this._store.getState();
+    const floors = s.floors;
+    if (place.personId != null) {
+      const p = this.characters?.getPlaced().find((q) => String(q.personId) === String(place.personId));
+      if (p) return { x: p.x, y: p.y + (p.seated ? 1.05 : 1.4), z: p.z };
+    }
+    const id = place.personId != null ? place.deskId ?? place.entityId : place.entityId;
+    const obj = id ? (s.objects as Record<string, { x: number; z: number; floor?: number }>)[id] : undefined;
+    if (obj) return { x: obj.x, y: elevationOf(floors, obj.floor ?? place.floorId) + 1.0, z: obj.z };
+    const room = id ? (s.rooms as Record<string, { x: number; z: number; floor?: number }>)[id] : undefined;
+    if (room) return { x: room.x, y: elevationOf(floors, room.floor ?? place.floorId) + 1.0, z: room.z };
+    return null;
+  }
+
   /** A walk arrived at a person: remember them (and where); a new walk forgets them. */
   private _noteArrival(event: NavigationEvent): void {
     if (event.state === 'started') this._arrived = null;
@@ -1051,6 +1090,18 @@ export class LayoutEngine {
   private _lowGraphics = false;
   /** v0.17.0: the sun's shadows drawn once, again when the casters change (null: no shadows on this device). */
   private _staticShadows: StaticShadows | null = null;
+  /** v0.17.1: the shadows switched on / off over frames (null: no sun). */
+  private _shadowSwitch: ShadowSwitch | null = null;
+
+  /** v0.17.1: a quality change of the shadows is still being spread over frames (tests, the debug hook). */
+  get shadowsSwitching(): boolean {
+    return !!this._shadowSwitch?.busy;
+  }
+
+  /** v0.17.1: shadows wanted by the quality step / Low graphics (false: no mesh receives them; the sun is left alone). */
+  get shadowsOn(): boolean {
+    return this._shadowSwitch ? this._shadowSwitch.shadowsOn : !!this._layoutScene.lights?.directional?.shadowEnabled;
+  }
 
   /** v0.17.0: the full-character cap now: the measured cap, at most the quality step's. */
   private _fullCapNow(): number {
@@ -1066,7 +1117,11 @@ export class LayoutEngine {
       this.babylonEngine.resize?.();
     }
     const sun = this._layoutScene.lights?.directional;
-    if (sun && (!was || was.shadows !== step.shadows)) sun.shadowEnabled = step.shadows;
+    if (sun && (!was || was.shadows !== step.shadows)) {
+      // v0.17.1: which meshes receive, a batch per frame (ShadowSwitch); never the light's flag (one frozen frame)
+      if (this._shadowSwitch) this._shadowSwitch.set(step.shadows);
+      else sun.shadowEnabled = step.shadows;
+    }
     if (was) this.emit('quality', { level: this.drawQuality.isForced ? -1 : this.drawQuality.level, ...step });
   }
 
@@ -1117,6 +1172,7 @@ export class LayoutEngine {
   dispose(): void {
     this._playerToken++; // a character still loading is dropped
     this._staticShadows?.dispose();
+    this._shadowSwitch?.dispose();
     this._builder.dispose();
     this.tour.dispose();
     this.navigation.stop();

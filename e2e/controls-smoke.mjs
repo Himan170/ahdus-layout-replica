@@ -4,7 +4,9 @@
 // never captured (the cursor stays). A plain click on the floor walks there (a route, walk 'auto', source
 // 'click'); a click on a person keeps their card; a click on a machine with a module's action runs it.
 // Double-click or L = mouse look (a crosshair); the first Esc releases the mouse, the next the keys.
-// The one-time hint shows once per browser; "?" lists every key. Studio's Preview: e2e:play (unchanged).
+// The one-time hint shows once per browser; the help lists the main keys, "All shortcuts" every key.
+// v0.17.1: Back to entrance, the help and Low graphics are in the toolbar's More menu; no keys line stays on
+// screen; My desk walks you to your desk; Hide me says what it does. Studio's Preview: e2e:play (unchanged).
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run dev              (in one terminal)
@@ -39,8 +41,9 @@ await ctx.addInitScript(() => {
   new MutationObserver(() => {
     const el = document.querySelector('[data-walk-hint]');
     if (el && window.__hints.at(-1) !== el) { window.__hints.push(el); window.__hintTexts = window.__hints.map((h) => h.textContent); }
-    // the HUD's own keys line while the hint shows (it shouldn't: the same words twice)
-    if (el && document.querySelector('[data-hud="hint"]')) window.__hudLineWithHint = document.querySelector('[data-hud="hint"]').textContent;
+    // a keys line in the HUD while the hint shows (it shouldn't: the same words twice; v0.17.1: never)
+    const hud = [...document.querySelectorAll('[data-hud="hint"]')].find((h) => /W A S D/.test(h.textContent));
+    if (el && hud) window.__hudLineWithHint = hud.textContent;
   }).observe(document, { childList: true, subtree: true });
 });
 const p = await ctx.newPage();
@@ -92,6 +95,11 @@ const onScreen = (x, y, z) => p.evaluate(({ x, y, z }) => {
   return { x: r.left + s.x, y: r.top + s.y };
 }, { x, y, z });
 const shot = (name, pg = p) => pg.screenshot({ path: join(shotDir, name), timeout: 120000 });
+/** v0.17.1: open the toolbar's More menu (unless it is open) and click one of its items. */
+async function more(item, pg = p) {
+  if (!(await pg.locator('[data-more-menu]').count())) await pg.click('[data-viewer-more]');
+  await pg.click(`[data-more-item="${item}"]`);
+}
 const ready = (pg = p) => pg.waitForFunction(() => window.__ahdusViewer?.rooms.meshes.size === 3, null, { timeout: 90000 });
 
 // ── 1. Walking starts with the keys: no click ──
@@ -110,10 +118,10 @@ await p.waitForFunction(() => window.__hintTexts?.length > 0, null, { timeout: 3
 const hints = await p.evaluate(() => ({ texts: window.__hintTexts ?? [], seen: localStorage.getItem('ahdus.walkHintSeen'), lineWithHint: window.__hudLineWithHint ?? null }));
 await p.waitForSelector('[data-walk-hint]', { state: 'detached', timeout: 30000 }).catch(() => {});
 const hintGone = (await p.locator('[data-walk-hint]').count()) === 0;
-const lineAfter = await p.locator('[data-hud="hint"]').textContent({ timeout: 5000 }).catch(() => '');
-log('the one-time hint: "W A S D to walk · drag to look · click the floor to go there", then it goes; the HUD line under the room name only after it',
+const lineAfter = await p.evaluate(() => /W A S D/.test(document.querySelector('[data-layout-viewer]').innerText));
+log('the one-time hint: "W A S D to walk · drag to look · click the floor to go there", then it goes; v0.17.1: no keys line stays on screen after it',
   hints.texts.length === 1 && hints.texts[0] === 'W A S D to walk · drag to look · click the floor to go there' && hints.seen === '1' && hintGone &&
-  hints.lineWithHint === null && /^W A S D walk/.test(lineAfter),
+  hints.lineWithHint === null && lineAfter === false,
   JSON.stringify({ ...hints, hintGone, lineAfter }));
 
 // ── 2. Drag to look: the view turns, the cursor stays, no walk ──
@@ -140,27 +148,30 @@ log('a right-button drag looks too (left)', (await yaw()) < y2 - 0.2 && !(await 
 
 // ── 3. The view's own buttons work while walking, and the keys come back at once ──
 await pose(6, -10, 0, 0);
-await p.click('[data-hud="entrance"]');
+await more('entrance');
 await frames(3);
 const home = await pos();
 await wait(200);
 const afterHome = { focus: await focus(), walked: +(await hold('KeyW')).toFixed(2) };
-log('"Back to entrance" works while walking; then W walks at once (the focus back in the view)',
+log('More → "Back to entrance" works while walking; then W walks at once (the focus back in the view)',
   Math.abs(home.x) < 0.1 && Math.abs(home.z + 6.075) < 0.1 && afterHome.focus === 'view' && afterHome.walked > 0.1,
   JSON.stringify({ home, ...afterHome }));
 
-await p.click('[data-hud="help"]');
+await more('help');
+const helpShort = await p.evaluate(() => document.querySelector('[data-walk-help]')?.querySelectorAll('dt').length ?? 0);
+await p.click('[data-help-all]');
 const help = await p.evaluate(() => {
   const el = document.querySelector('[data-walk-help]');
-  return el ? { rows: el.querySelectorAll('dt').length, text: el.innerText, expanded: document.querySelector('[data-hud="help"]').getAttribute('aria-expanded') } : null;
+  return el ? { rows: el.querySelectorAll('dt').length, text: el.innerText, expanded: document.querySelector('[data-help-all]').getAttribute('aria-expanded'),
+    opaque: getComputedStyle(el).backgroundColor } : null;
 });
 if (SHOTS) await shot('controls-help.png');
 await p.keyboard.press('Escape');
 const helpEsc = { open: await p.locator('[data-walk-help]').count(), focus: await focus(), walked: +(await hold('KeyW')).toFixed(2) };
-log('"?" lists every key (W A S D, drag, click the floor, Page Up / Page Down, L, Esc…); Esc closes it, W walks',
-  help?.rows >= 12 && /W A S D/.test(help.text) && /Click the floor/.test(help.text) && /Page Up \/ Page Down/.test(help.text) &&
+log('More → the help: 6 rows, "All shortcuts" lists every key (W A S D, drag, click the floor, Page Up / Page Down, L, Esc…); Esc closes it, W walks',
+  helpShort === 6 && help?.rows >= 15 && help.opaque === 'rgb(15, 23, 42)' && /W A S D/.test(help.text) && /Click the floor/.test(help.text) && /Page Up \/ Page Down/.test(help.text) &&
   /Double-click or L/.test(help.text) && help.expanded === 'true' && helpEsc.open === 0 && helpEsc.walked > 0.1,
-  JSON.stringify({ rows: help?.rows, ...helpEsc }));
+  JSON.stringify({ helpShort, rows: help?.rows, opaque: help?.opaque, ...helpEsc }));
 
 const SEARCH = 'button[aria-label="Find a person, room or place"]';
 await pose(0, -14, 0, -0.2); // in the open, so W has room to walk
@@ -291,8 +302,8 @@ const skyFaces = await p.evaluate(async () => {
 });
 log('the sky has all six sides (none black)', !!skyFaces && skyFaces.every((m) => m > 0.1), JSON.stringify(skyFaces));
 
-// v0.17.0: "Low graphics" in the help: the simple look at once (no reload), remembered after a reload
-await p.click('[data-hud="help"]');
+// v0.17.0: "Low graphics" (v0.17.1: in More): the simple look at once (no reload), remembered after a reload
+await p.click('[data-viewer-more]');
 const lowOff = await p.getAttribute('[data-low-graphics]', 'data-low-graphics');
 await p.click('[data-low-graphics]');
 await frames(2);
@@ -300,7 +311,8 @@ const lowOn = await p.evaluate(() => {
   const e = window.__ahdusViewer;
   const sw = document.querySelector('[data-low-graphics]');
   return { attr: sw?.getAttribute('data-low-graphics'), checked: sw?.getAttribute('aria-checked'), low: e.lowGraphics,
-    shadows: e._layoutScene.lights.directional.shadowEnabled, full: e.characters?.fullCount ?? 0,
+    shadows: e.shadowsOn, // v0.17.1: off = nothing receives them (the sun left alone)
+    full: e.characters?.fullCount ?? 0,
     stored: localStorage.getItem('ahdus.lowGraphics') };
 });
 await p.keyboard.press('Escape');
@@ -314,24 +326,58 @@ const again = await p.evaluate(() => ({ texts: window.__hintTexts ?? [], focus: 
 log('after a reload the hint doesn\'t show again; the keys are the view\'s again at once', again.texts.length === 0 && again.focus,
   JSON.stringify(again));
 const lowAfter = await p.evaluate(() => window.__ahdusViewer.lowGraphics);
-await p.click('[data-hud="help"]');
+await p.click('[data-viewer-more]');
 const lowAfterAttr = await p.getAttribute('[data-low-graphics]', 'data-low-graphics');
 await p.click('[data-low-graphics]');
 await frames(2);
 const lowBack = await p.evaluate(() => {
   const e = window.__ahdusViewer;
   // off again: the measured step's shadows (SwiftShader may have dropped them by itself)
-  return { low: e.lowGraphics, shadows: e._layoutScene.lights.directional.shadowEnabled === e.drawQuality.step.shadows,
+  return { low: e.lowGraphics, shadows: e.shadowsOn === e.drawQuality.step.shadows,
     forced: e.drawQuality.isForced, stored: localStorage.getItem('ahdus.lowGraphics') };
 });
 await p.keyboard.press('Escape');
-log('v0.17.0: "Low graphics" in the help: off, then on at once (no shadows, no full characters), remembered after a reload, off again',
+log('v0.17.0: "Low graphics" (v0.17.1: in More): off, then on at once (no shadows, no full characters), remembered after a reload, off again',
   lowOff === 'off' && lowOn.attr === 'on' && lowOn.checked === 'true' && lowOn.low && !lowOn.shadows && lowOn.full === 0
     && lowOn.stored === '1' && lowAfter === true && lowAfterAttr === 'on' && !lowBack.low && lowBack.shadows && !lowBack.forced
     && lowBack.stored === null,
   JSON.stringify({ lowOff, lowOn, lowAfter, lowAfterAttr, lowBack }));
 
-// ── 8. Screenshots: the hint and the help on a phone (390 × 844), nothing off-screen ──
+// ── 8. v0.17.1: My desk walks you to your desk; Hide me says what it does and tells the page ──
+{
+  const p3 = await ctx.newPage();
+  await p3.goto(new URL('viewer.html?people=1', base).href);
+  await ready(p3);
+  await wait(1000);
+  const noMe = await p3.locator('[data-my-desk-button]').count();
+  await p3.close();
+  const p2 = await ctx.newPage();
+  p2.on('pageerror', (e) => errs.push('pageerror (my desk): ' + e.message));
+  await p2.goto(new URL('viewer.html?people=1&me=p_asha&hideme=1', base).href);
+  await ready(p2);
+  await p2.evaluate(() => window.__ahdusScene.getEngine().setHardwareScalingLevel(2));
+  await p2.waitForSelector('[data-my-desk-button]', { timeout: 30000 }).catch(() => {});
+  const label = await p2.getAttribute('[data-my-desk-button]', 'aria-label').catch(() => null);
+  await p2.click('[data-my-desk-button]');
+  await p2.waitForFunction(() => window.__ahdusViewer.navigation.walking?.walk === 'auto', null, { timeout: 30000 }).catch(() => {});
+  const going = await p2.evaluate(() => window.__ahdusViewer.navigation.walking?.place?.id ?? null);
+  await p2.waitForFunction(() => (window.__viewerNav ?? []).some((e) => e.state === 'arrived'), null, { timeout: 240000 }).catch(() => {});
+  const arrivedAt = await p2.evaluate(() => (window.__viewerNav ?? []).filter((e) => e.state === 'arrived').at(-1)?.place?.personId ?? null);
+  log('v0.17.1: "My desk" (aria-label "Walk to my desk") walks you to your own desk; none without a desk (no player)',
+    noMe === 0 && label === 'Walk to my desk' && going === 'person:p_asha' && arrivedAt === 'p_asha', JSON.stringify({ noMe, label, going, arrivedAt }));
+  await more('hide-me', p2);
+  const hide = await p2.evaluate(() => {
+    const el = document.querySelector('[data-hide-me]');
+    return { attr: el?.getAttribute('data-hide-me'), label: el?.getAttribute('aria-label'), checked: el?.getAttribute('aria-checked'),
+      text: el?.innerText.replace(/\n/g, ' | '), page: window.__viewerHideMe ?? null };
+  });
+  log('v0.17.1: More → "Hide me" says what it does (others on this page won\'t see you walk), switches on, the page hears it',
+    hide.attr === 'on' && hide.checked === 'true' && hide.label === "Hide me: others on this page won't see you walk" &&
+    /won't see you walk/.test(hide.text) && JSON.stringify(hide.page) === '[true]', JSON.stringify(hide));
+  await p2.close();
+}
+
+// ── 9. Screenshots: the hint and the help on a phone (390 × 844), nothing off-screen ──
 if (SHOTS) {
   const phoneCtx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
   const ph = await phoneCtx.newPage();
@@ -339,7 +385,7 @@ if (SHOTS) {
   await ready(ph);
   await ph.waitForSelector('[data-walk-hint]', { timeout: 30000 }).catch(() => {});
   await shot('controls-phone-hint.png', ph);
-  await ph.click('[data-hud="help"]');
+  await more('help', ph);
   const fits = await ph.evaluate(() => [...document.querySelectorAll('[data-viewer-toolbar] button, [data-walk-help]')]
     .every((el) => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth + 0.5; }));
   await shot('controls-phone-help.png', ph);

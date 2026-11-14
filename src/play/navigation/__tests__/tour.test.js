@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-  planTour, nearestNeighbour, twoOpt, insertBest, sideOf, sampleLine, coarseOf, coarseField, coarseCost,
+  planTour, planTourSteps, nearestNeighbour, twoOpt, insertBest, sideOf, sampleLine, coarseOf, coarseField, coarseCost,
   MENTION_DISTANCE, STOP_PAUSE, FACILITY_PAUSE, NAMES_MAX, tourSummary, notRightAfter,
 } from '../tour';
 import { findRoute } from '../route';
@@ -251,6 +251,29 @@ describe('the tour of the Meridian-shaped layout', () => {
     }
     expect(fastest).toBeLessThan(limit);
     expect(again.stops.map((s) => s.id)).toEqual(tour.stops.map((s) => s.id)); // the same plan every time
+  });
+
+  it('in steps (v0.17.1, planTourSteps): the same plan, in many small pieces (the engine plans it in idle slices)', () => {
+    const run = () => {
+      const it = planTourSteps(layout, people, departments, { catalog: ASSET_TYPES, maps });
+      const times = [];
+      let t = performance.now();
+      let r;
+      while (!(r = it.next()).done) { const n = performance.now(); times.push(n - t); t = n; }
+      times.push(performance.now() - t);
+      return { plan: r.value, times };
+    };
+    let best = Infinity;
+    let last = null;
+    for (let i = 0; i < 3; i++) {
+      last = run();
+      const total = last.times.reduce((a, b) => a + b, 0);
+      best = Math.min(best, Math.max(...last.times) / total);
+    }
+    expect(last.times.length).toBeGreaterThan(50); // Meridian: ~105 steps
+    expect(best).toBeLessThan(0.3); // the longest step (one leg's route) ~12 % of the whole
+    const strip = (p) => JSON.stringify({ ...p, ms: 0 });
+    expect(strip(last.plan)).toBe(strip(plan(layout, people, departments, { maps })));
   });
 });
 

@@ -840,3 +840,16 @@ export function findNearestRoute(layout, from, goals, options = {}) {
  * @property {{ x, z, floor }} from  where it really starts (moved off a wall or a desk if needed)
  * @property {{ x, z, floor }} to    where it really ends
  */
+
+/**
+ * The route finder's own parts of one walk map (v0.17.1): its walkable areas, the near-wall costs and the obstacle
+ * index, each made once per map. NavigationSystem.warm() makes them one per idle step, so the first route after a
+ * layout loads (which made all of them at once: one long frame on a slow laptop) only searches.
+ * @param {object} map  a walk map
+ * @param {'areas' | 'nearWalls' | 'obstacles'} [part]  one of them (none: all three)
+ */
+export function prepareMap(map, part) {
+  if (!part || part === 'areas') areasOf(map);
+  if (!part || part === 'nearWalls') nearWallOf(map);
+  if (!part || part === 'obstacles') obstacleIndexOf(map);
+}

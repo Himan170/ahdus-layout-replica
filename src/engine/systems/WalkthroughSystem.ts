@@ -376,6 +376,24 @@ export class WalkthroughSystem {
     this.controller.setStopView?.(on, { instant });
   }
 
+  /**
+   * v0.17.1, the arrival view: the camera eases to a raised spot over a shoulder and looks at this point (the person
+   * or place a walk arrived at), so your character doesn't cover it; moving or turning eases it back. null = back.
+   */
+  setArrivalView(point: { x: number; y: number; z: number } | null, instant = false): void {
+    this.controller.setArrivalView?.(point, { instant });
+  }
+
+  /** The arrival view now (tests): null, or { t, hidden, spot, target, leaving }. */
+  getArrivalView(): ReturnType<PlayController['getArrivalView']> | null {
+    return this.controller.getArrivalView?.() ?? null;
+  }
+
+  /** v0.17.1 (tests): is this mesh part of your own character? */
+  isPlayerMesh(mesh: unknown): boolean {
+    return !!this.controller.isPlayerMesh?.(mesh);
+  }
+
   setKeyHandler(handler: ((code: string) => boolean) | null): void {
     this.controller.setKeyHandler(handler);
   }

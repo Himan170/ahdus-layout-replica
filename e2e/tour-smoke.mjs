@@ -1,6 +1,6 @@
 // Tour smoke test (v0.14.4): the company tour in viewer.html.
-// Find's "Take the company tour · N stops · about M min" (every count the same as the plan's), the Tour
-// button, the panel ("Stop 1 of N · Main entrance", from the view from above: at the entrance), Pause / P,
+// More → "Company tour · N stops · about M min" (v0.17.1: its ONE place; every count the same as the plan's), the
+// panel ("Stop 1 of N · Main entrance", from the view from above: at the entrance), Pause / P,
 // Next, Previous (a fade), Exit; "Walk me" reaches stop 3 (the room outlined, the card's title), a movement
 // key pauses it and P walks on; "I'll walk" (the line; arriving there yourself completes the stop); "Skip the
 // walk" (a fade); the stop list's ticks after a reload and Restart; narration off by default; a phone
@@ -108,18 +108,22 @@ const plan = await p.evaluate(() => {
 log(`${MERIDIAN}: the tour is planned in idle time after the walk maps`, !!plan && plan.count > 5,
   plan ? `${plan.count} stops, about ${plan.minutes} min, ${plan.skipped} skipped` : 'no plan');
 
-// ── 1. Find's entry, every count the same ──
+// ── 1. The tour's ONE place (v0.17.1): More → "Company tour · N stops · about M min", not in Find; every count the same ──
 await p.click('[data-place-search-button]');
-await p.waitForSelector('[data-tour-offer]', { timeout: 20000 });
-const offer = await panelText('[data-tour-offer]');
-const firstOption = await p.$eval('[data-place-search] [role="option"]', (el) => el.hasAttribute('data-tour-offer'));
-log('Find\'s menu starts with "Take the company tour · N stops · about M min"', firstOption
-  && offer.includes('Take the company tour') && offer.includes(`${plan.count} stops · about ${plan.minutes} min`), offer.replace(/\s+/g, ' '));
+await p.waitForSelector('[data-place-search] [role="option"]', { timeout: 20000 });
+const inFind = await p.locator('[data-tour-offer]').count();
+await p.keyboard.press('Escape');
+await p.click('[data-viewer-more]');
+await p.waitForSelector('[data-more-item="tour"]', { timeout: 20000 });
+const offer = await panelText('[data-more-item="tour"]');
+const firstOption = await p.$eval('[data-more-menu] [role^="menuitem"]', (el) => el.getAttribute('data-more-item') === 'tour');
+log('More starts with "Company tour · N stops · about M min" (v0.17.1: not in Find\'s menu any more)', firstOption && inFind === 0
+  && offer.includes('Company tour') && offer.includes(`${plan.count} stops · about ${plan.minutes} min`), offer.replace(/\s+/g, ' '));
 log('stop 1 says the same count ("The tour: N stops")', plan.first.includes(`The tour: ${plan.count} stops`), plan.first);
 await shot('find-desktop');
 
 // ── 2. From above: the tour starts at the main entrance ──
-await p.click('[data-tour-offer]');
+await p.click('[data-more-item="tour"]');
 await p.waitForSelector('[data-tour-panel]', { timeout: 60000 });
 let s = await status();
 const spawn = await p.evaluate(async () => {
@@ -142,8 +146,10 @@ const speakerOn = await p.getAttribute('[data-tour-speak]', 'aria-pressed');
 await p.click('[data-tour-speak]');
 log('narration is off by default; the speaker button turns it on and off', speaker === 'false' && speakerOn === 'true',
   `${speaker} → ${speakerOn}`);
-const tourBtn = await p.getAttribute('[data-tour-button]', 'aria-pressed');
-log('the Tour button is in the view\'s buttons, pressed while the tour runs', tourBtn === 'true', `aria-pressed ${tourBtn}`);
+await p.click('[data-viewer-more]');
+const tourBtn = await p.getAttribute('[data-tour-button]', 'aria-label').catch(() => null);
+await p.click('[data-viewer-more]');
+log('More\'s Company tour, while the tour runs: "Show the stops" (v0.17.1: no Tour button of its own)', /Show the stops/.test(tourBtn ?? ''), String(tourBtn));
 await shot('start-desktop');
 
 // ── 3. Pause / P, Next, Previous, Exit ──
@@ -264,12 +270,11 @@ if (SHOTS) {
   watchErrors(p);
 }
 await open(p);
-await p.click('[data-place-search-button]');
-await p.waitForSelector('[data-tour-offer]', { timeout: 20000 });
+await p.click('[data-viewer-more]');
+await p.waitForSelector('[data-tour-offer-detail]', { timeout: 20000 });
 const offer2 = await panelText('[data-tour-offer-detail]');
-log('after a reload, Find says how many stops were visited', offer2.includes(`${ticks} visited`), `${offer2} (stored: ${stored ? 'yes' : 'no'})`);
-await p.keyboard.press('Escape');
-await p.click('[data-tour-button]');
+log('after a reload, More\'s Company tour says how many stops were visited', offer2.includes(`${ticks} visited`), `${offer2} (stored: ${stored ? 'yes' : 'no'})`);
+await p.click('[data-more-item="tour"]');
 await p.waitForSelector('[data-tour-panel]', { timeout: 60000 });
 await p.click('[data-tour-list-toggle]');
 const ticks2 = await p.$$eval('[data-tour-stop-item][data-visited]', (els) => els.length);
@@ -290,7 +295,9 @@ await open(ph);
 // viewer.html gives the view only part of a phone (its bridge-events panel): hide it, as e2e:touch does
 await ph.evaluate(() => { const a = document.querySelector('aside'); if (a) a.style.display = 'none'; window.dispatchEvent(new Event('resize')); });
 await ph.waitForTimeout(500);
-await ph.tap('[data-tour-button]');
+await ph.tap('[data-viewer-more]');
+await ph.waitForSelector('[data-more-item="tour"]', { timeout: 20000 });
+await ph.tap('[data-more-item="tour"]');
 await ph.waitForSelector('[data-tour-panel]', { timeout: 60000 });
 await ph.waitForTimeout(800);
 const fit = await ph.evaluate(() => {

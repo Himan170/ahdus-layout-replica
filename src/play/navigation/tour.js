@@ -104,6 +104,20 @@ const sayList = (names) => (names.length < 2 ? names.join('') : `${names.slice(0
  * @returns {TourPlan}
  */
 export function planTour(layout, people = [], departments = [], options = {}) {
+  const steps = planTourSteps(layout, people, departments, options);
+  for (;;) {
+    const r = steps.next();
+    if (r.done) return r.value;
+  }
+}
+
+/**
+ * planTour in steps (v0.17.1): a generator that yields between pieces of work (each a few ms: one cost field, one
+ * room's spots, one leg's route, one stop's words) and returns the same plan as planTour. NavigationSystem runs it in
+ * idle time, a slice at a time, so planning never holds a frame (Meridian's plan was ONE ~1.25 s task on a slow
+ * laptop). Its `ms` is the time from the first step to the last (the runner puts the working time in).
+ */
+export function* planTourSteps(layout, people = [], departments = [], options = {}) {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
   const { speed = WALK_SPEED, pause = STOP_PAUSE, facilityPause = FACILITY_PAUSE, backToReception = true } = options;
   const floors = layout.floors ?? {};
@@ -119,6 +133,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
 
   // who sits in which room (name and department only)
   const index = buildPlaces(layout, people);
+  yield 'places';
   // each room's department: departmentRef, else most of the people seated in it (v0.14.9: Studio's layouts)
   const deptOf = (r) => index.roomDepartments.get(r.id) ?? '';
   const seated = new Map();
@@ -135,7 +150,9 @@ export function planTour(layout, people = [], departments = [], options = {}) {
   }
 
   const spawn = entranceSpawn(layout, { maps, catalog: options.catalog });
+  yield 'spawn';
   const links = floorLinks(layout, { maps });
+  yield 'links';
   const skipped = [];
   const skip = (room, kind, answer) => {
     if (skipped.some((s) => s.roomId === room.id)) return;
@@ -213,6 +230,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
     const reached = (p) => areaOf(map, p.x, p.z) === startArea;
     const coarse = coarseOf(map);
     const startField = coarseField(coarse, arrival);
+    yield 'startField';
     /** A spot on this floor the body fits on and the tour can reach (null: none within 1.5 m). */
     const place = (p) => {
       if (map.isClear(p.x, p.z) && reached(p)) return { x: p.x, z: p.z, floor };
@@ -258,7 +276,10 @@ export function planTour(layout, people = [], departments = [], options = {}) {
     };
     /** A stop's way to face: from roomSpot, else towards the room's middle. */
     const faceYawOf = (spot, room) => facingYaw(spot, faceOf.get(spot) ?? room);
-    for (const r of floorRooms) if (!roomSpot(r)) skip(r, 'room', whyNot(r));
+    for (const r of floorRooms) {
+      if (!roomSpot(r)) skip(r, 'room', whyNot(r));
+      yield 'roomSpot';
+    }
 
     const here = []; // this floor's stops, before ordering
     if (floor === ground && (receptionRoom || receptionDesk)) {
@@ -327,9 +348,17 @@ export function planTour(layout, people = [], departments = [], options = {}) {
     const ends = ups.map((l) => ({ x: l.from.x, z: l.from.z, floor, link: l }));
     const field = (p) => coarseField(coarse, p);
     const startF = first ? field(first.spot) : startField;
+    yield 'startF';
     const D = createDistances();
-    const pts = [{ ref: first ?? 'start', p: startPoint, f: startF }, ...here.map((s) => ({ ref: s, p: s.spot, f: field(s.spot) }))];
-    for (const e of ends) pts.push({ ref: e, p: e, f: field(e) });
+    const pts = [{ ref: first ?? 'start', p: startPoint, f: startF }];
+    for (const s of here) {
+      pts.push({ ref: s, p: s.spot, f: field(s.spot) });
+      yield 'field';
+    }
+    for (const e of ends) {
+      pts.push({ ref: e, p: e, f: field(e) });
+      yield 'endField';
+    }
     for (const c of candidates) pts.push({ ref: c, p: c.spot, f: null });
     for (const a of pts) D.add(a.ref, a.p, a.f);
 
@@ -344,6 +373,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
       if (first) seq = notRightAfter(D, seq, !!end);
       const cost = D.path(seq);
       if (!best || cost < best.cost) best = { seq, cost, end };
+      yield 'order';
     }
     const chosen = best.seq.filter((s) => s !== pts[0].ref && s !== best.end);
     for (const s of chosen) if (s.kind === 'facility') stopRooms.add(s.roomId);
@@ -354,6 +384,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
       s.leg = legBetween(lastFloorStop, s);
       make(s);
       lastFloorStop = s;
+      yield 'leg';
     }
     if (floorStops.length) visitedFloors.push(floor);
     if (!best.end) {
@@ -369,6 +400,7 @@ export function planTour(layout, people = [], departments = [], options = {}) {
       ...reception, id: 'return', kind: 'return', name: reception.name, lines: [], text: '', leg: null,
     });
     back.leg = legBetween(lastFloorStop, back);
+    yield 'back';
   }
 
   // ── the walk between two stops: the route the walker takes (stairs included) ──
@@ -388,7 +420,8 @@ export function planTour(layout, people = [], departments = [], options = {}) {
   const mentioned = new Set();
   const walkedThrough = new Set();
   const pauseOf = (s) => (s.kind === 'return' ? 0 : s.kind === 'facility' || s.kind === 'entrance' ? facilityPause : pause);
-  stops.forEach((s, n) => {
+  for (let n = 0; n < stops.length; n++) {
+    const s = stops[n];
     s.n = n + 1;
     s.pause = pauseOf(s);
     const its = s.rooms.map((r) => roomsById.get(r.id)).filter(Boolean);
@@ -397,9 +430,11 @@ export function planTour(layout, people = [], departments = [], options = {}) {
     s.names = sitting.slice(0, NAMES_MAX).map((p) => ({ name: p.name, department: p.department }));
     if (s.leg) {
       describeLeg(s, n ? stops[n - 1] : null);
+      yield 'directions';
       mentionsOn(s);
+      yield 'mentions';
     }
-  });
+  }
   stops.forEach((s) => { s.lines = linesOf(s); s.text = s.lines.join('\n'); });
 
   const length = stops.reduce((sum, s) => sum + (s.leg?.length ?? 0), 0);

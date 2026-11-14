@@ -13,6 +13,8 @@
  *   …/viewer.html?start=walk                               startMode (v0.14.6): the welcome card, Overview / Walk
  *                                                          (start=view: from above); &weak=1 / &weak=0 = a weak device
  *                                                          or not (default: tested); &at=person:p1 / &at=room:… opens there
+ *   …/viewer.html?people=1&me=p_asha                       v0.17.1: the signed-in person (player): "My desk"
+ *   …/viewer.html?hideme=1                                 v0.17.1: "Hide me" in More (window.__viewerHideMe: each change)
  *
  * Only the viewer, a mode switch and a live list of the bridge's events and
  * anchors: no Workplace Studio code is loaded (e2e/viewer-smoke.mjs checks).
@@ -38,6 +40,9 @@ const WEAK = params.has('weak') ? params.get('weak') === '1' : undefined;
 const OPEN_AT = params.get('at') || undefined;
 // &quality=low (v0.14.8): the simple look (a weak device's other note)
 const QUALITY = params.get('quality') === 'low' ? 'low' : undefined;
+// v0.17.1: &me=<personId> = the signed-in person (My desk); &hideme=1 = the Hide me switch (this page keeps it)
+const PLAYER = params.get('me') ? { personId: params.get('me') } : undefined;
+const HIDE_ME = params.get('hideme') === '1';
 // how it started and why (v0.14.8, onStart): tests
 const onStart = (start) => { window.__viewerStart = start; };
 
@@ -55,6 +60,11 @@ function ViewerPage() {
   const [log, setLog] = useState([]);
   const [anchors, setAnchors] = useState([]);
   const [people, setPeople] = useState(layout && params.has('people') ? SAMPLE_PEOPLE : undefined);
+  const [hidden, setHidden] = useState(false);
+  const onHideMe = useCallback((h) => {
+    setHidden(h);
+    if (import.meta.env.DEV) (window.__viewerHideMe ??= []).push(h);
+  }, []);
   // tests and the console: other people (e.g. after __ahdusViewer.loadLayout(another layout))
   if (import.meta.env.DEV) window.__ahdusSetPeople = setPeople;
   const mainRef = useRef(null);
@@ -122,7 +132,8 @@ function ViewerPage() {
         <LayoutViewer
           layout={layout} companyId={companyId} layoutId={layoutId} mode={mode} people={people}
           startMode={START} weakDevice={WEAK} openAt={OPEN_AT} quality={QUALITY} onStart={onStart}
-          search={params.get('search') !== '0'}
+          search={params.get('search') !== '0'} player={PLAYER}
+          hideMe={HIDE_ME ? { hidden, onChange: onHideMe } : null}
           onModeChange={setMode} onNavigation={onNavigation}
           onReady={onReady} onCard={onCard} style={{ flex: 1, minWidth: 0 }}
         />
