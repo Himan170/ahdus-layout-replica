@@ -1187,7 +1187,9 @@ const styles: Record<string, CSSProperties> = {
   },
   helpOptionNote: { display: 'block', fontWeight: 400, opacity: 0.8, fontSize: 12 },
   helpSwitch: {
-    minWidth: 52, minHeight: 32, borderRadius: 16, border: '1px solid rgba(255, 255, 255, 0.4)', cursor: 'pointer',
+    // separate border fields: helpSwitchOn changes only the colour (React warns when a shorthand meets one of its parts)
+    minWidth: 52, minHeight: 32, borderRadius: 16, borderWidth: 1, borderStyle: 'solid',
+    borderColor: 'rgba(255, 255, 255, 0.4)', cursor: 'pointer',
     background: 'transparent', color: '#fff', font: '600 13px system-ui, sans-serif',
   },
   helpSwitchOn: { background: '#28664f', borderColor: '#28664f' },

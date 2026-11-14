@@ -23,7 +23,8 @@ export const RAISE_HOLD_MS = 60000;
  * @param {number} dpr  window.devicePixelRatio
  */
 export function qualitySteps(dpr = 1) {
-  const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+  // rounded: a screen reporting 1.0000000149 has no step of its own above 1
+  const ratio = Number.isFinite(dpr) && dpr > 0 ? Math.round(dpr * 100) / 100 : 1;
   const r = (cap) => Math.min(ratio, cap);
   const all = [
     { pixelRatio: r(MAX_PIXEL_RATIO), shadows: true, maxFull: null },

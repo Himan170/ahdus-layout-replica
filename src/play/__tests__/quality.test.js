@@ -23,6 +23,7 @@ describe('qualitySteps (v0.17.0)', () => {
     ]);
     expect(qualitySteps(1.25).map((s) => s.pixelRatio)).toEqual([1.25, 1, 1, 1]);
     expect(qualitySteps(NaN)).toEqual(qualitySteps(1));
+    expect(qualitySteps(1.0000000149011612)).toEqual(qualitySteps(1)); // a desktop that reports a hair over 1
   });
 });
 
