@@ -58,6 +58,11 @@ export interface LayoutSceneOptions {
   quality?: 'high' | 'low';
   /** Where the real assets are (models/, textures/, env/). Default: the app's public/assets/. */
   assetBaseUrl?: string;
+  /**
+   * v0.17.0: keep the drawn picture after each frame (default true: Studio's exports and thumbnails read the canvas).
+   * The viewer passes false: the browser may then swap buffers instead of copying them.
+   */
+  preserveDrawingBuffer?: boolean;
 }
 
 /**
@@ -66,7 +71,7 @@ export interface LayoutSceneOptions {
  */
 export function createLayoutScene(canvas: HTMLCanvasElement, options: LayoutSceneOptions = {}): LayoutScene {
   const engine = new Engine(canvas, true, {
-    preserveDrawingBuffer: true,
+    preserveDrawingBuffer: options.preserveDrawingBuffer ?? true,
     stencil: true,
   });
   // v0.17.0: never above MAX_PIXEL_RATIO (2): a phone at 3 drew 2.25 × the pixels for a difference hardly seen

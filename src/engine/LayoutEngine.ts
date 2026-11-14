@@ -56,6 +56,7 @@ import type { TourEvent } from './systems/TourSystem';
 import { CommandHistory } from './commands/CommandHistory';
 import type { Command } from './commands/CommandHistory';
 import { createLayoutScene } from './systems/SceneSetup';
+import { StaticShadows } from './systems/StaticShadows';
 import type { LayoutScene } from './systems/SceneSetup';
 import { RoomSystem } from './systems/RoomSystem';
 import type { V1Room } from './systems/RoomSystem';
@@ -376,7 +377,8 @@ export class LayoutEngine {
   ): Promise<LayoutEngine> {
     const { signal } = options;
     if (signal?.aborted) throw abortError();
-    const engine = new LayoutEngine(createLayoutScene(canvas, { quality: options.quality, assetBaseUrl: options.assetBaseUrl }), options);
+    const engine = new LayoutEngine(createLayoutScene(canvas, {
+      quality: options.quality, assetBaseUrl: options.assetBaseUrl, preserveDrawingBuffer: false }), options);
     // Allow one frame for the scene to initialise. Aborted meanwhile (React StrictMode unmounts at once): disposed
     // NOW, not when ready. Two engines on one canvas share its WebGL context: one still drawing (or decoding the
     // sky) while the next starts breaks the next one's first sky face (v0.14.0: a black part of the sky in dev).
@@ -416,6 +418,13 @@ export class LayoutEngine {
     const shadowGenerator = layoutScene.lights?.shadowGenerator;
     this.rooms = new RoomSystem(this.scene, { shadowGenerator });
     this.objects = new ObjectSystem(this.scene, { shadowGenerator });
+    // v0.17.0: nothing that casts a shadow moves here: the shadows are drawn again only when the casters change
+    const sun = layoutScene.lights?.directional;
+    this._staticShadows = shadowGenerator && sun ? new StaticShadows(this.scene, shadowGenerator, sun, {
+      layoutKey: () => { const st = this._store.getState(); return [st.rooms, st.objects, st.floors]; },
+    }) : null;
+    // v0.17.0: no pick under the mouse on every move (the viewer picks on its own clicks, hover and E)
+    this.scene.skipPointerMovePicking = true;
     this.floors = new FloorSystem(this.rooms, this.objects, () => this._store.getState());
     // Seen from above (view / edit): the chosen floor without its roof, the floors above hidden,
     // so its desks and people show. Walking switches to inside / outside (onViewChange).
@@ -1040,6 +1049,8 @@ export class LayoutEngine {
   }
 
   private _lowGraphics = false;
+  /** v0.17.0: the sun's shadows drawn once, again when the casters change (null: no shadows on this device). */
+  private _staticShadows: StaticShadows | null = null;
 
   /** v0.17.0: the full-character cap now: the measured cap, at most the quality step's. */
   private _fullCapNow(): number {
@@ -1105,6 +1116,7 @@ export class LayoutEngine {
   /** Stop rendering and dispose the scene and the Babylon engine. */
   dispose(): void {
     this._playerToken++; // a character still loading is dropped
+    this._staticShadows?.dispose();
     this._builder.dispose();
     this.tour.dispose();
     this.navigation.stop();
