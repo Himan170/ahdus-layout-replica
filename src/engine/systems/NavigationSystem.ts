@@ -29,8 +29,8 @@
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 import { buildPlaces, searchPlaces, publicPlace, flatResults, FACILITIES } from '../../play/navigation/places';
 import { browsePlaces, recentPlaces } from '../../play/navigation/browse';
-import { planTour } from '../../play/navigation/tour';
-import { findNearestRoute, roomAt } from '../../play/navigation/route';
+import { planTour, planTourSteps } from '../../play/navigation/tour';
+import { findNearestRoute, prepareMap, roomAt } from '../../play/navigation/route';
 import { createWalkMapCache } from '../../play/navigation/walkMap';
 import { entranceSpawn } from '../../play/navigation/entrance';
 import { createFollower, routeMarks, headingOf, turnTowards, TURN_RATE } from '../../play/navigation/follow';
@@ -268,6 +268,9 @@ interface Hooks {
   getMe?: () => string | null;
   /** When idle work runs (default requestIdleCallback, else a short timeout); tests pass their own. */
   idle?: (fn: () => void) => void;
+  /** Runs fn soon, after the page has had a chance to draw (v0.17.1: every warm-up step after the first;
+   * default: a new task; tests that give `idle` get it for this too). */
+  soon?: (fn: () => void) => void;
 }
 
 /** The outline of a place found. */
@@ -281,6 +284,8 @@ export const REROUTE_EVERY = 0.5;
 export const STUCK_LIMIT = 2;
 /** Progress since the last time it was stuck that forgives it (m). */
 const STUCK_FORGIVEN_AFTER = 3;
+/** warm(): the tour's plan runs this long per idle callback (ms, v0.17.1), then gives the page a frame. */
+export const TOUR_SLICE_MS = 8;
 export const CANT_GET_PAST = "Can't get past here";
 /** The route line: redrawn after this much progress (m). */
 const REDRAW_EVERY = 0.5;
@@ -444,23 +449,53 @@ export class NavigationSystem {
   }
 
   /**
-   * Build the walk maps of every floor (and warm up the route finder) in idle time, one floor at a
-   * time: after a layout loads, so the first route or "Take me there" doesn't freeze the page. A
+   * Build the walk maps of every floor (and warm up the route finder) in idle time, one piece per idle
+   * callback: after a layout loads, so the first route or "Take me there" doesn't freeze the page. A
    * changed layout (or warm() again) drops a warm-up that hasn't finished. Resolves when done.
+   * v0.17.1: each map's route-finder parts are steps of their own, and the tour's plan runs in slices of
+   * TOUR_SLICE_MS (planTourSteps): on a slow laptop the plan was one ~1.25 s task, the first route ~400 ms.
    */
   warm(): Promise<void> {
     const token = ++this.warmToken;
     const idle = this.hooks.idle ?? defaultIdle;
+    // the first step waits for an idle moment; the rest follow in new tasks (each a few ms; the tour in slices): on a
+    // slow laptop that draws all the time idle callbacks come about once a second (their timeout): a minute for the tour
+    const soon = this.hooks.soon ?? this.hooks.idle ?? defaultSoon;
     const s = this.hooks.getLayout();
-    const steps: (() => void)[] = floorsInOrder(s.floors).map((f: { id: number }) => () => { this.walkMaps.get(s, f.id); });
+    /** A step returns true when it isn't finished: it runs again in the next idle callback. */
+    const steps: (() => boolean | void)[] = [];
+    for (const f of floorsInOrder(s.floors) as { id: number }[]) {
+      steps.push(() => { this.walkMaps.get(s, f.id); });
+      for (const part of ['areas', 'nearWalls', 'obstacles'] as const) steps.push(() => { prepareMap(this.walkMaps.get(s, f.id), part); });
+    }
+    steps.push(() => { this.places(); });
     // one route (the entrance → the first place), so the route finder's own parts are made too
     steps.push(() => {
       const spawn = entranceSpawn(s, { maps: this.walkMaps });
       const goal = this.places().places.find((p) => p.goals?.length)?.goals[0];
       if (goal) findNearestRoute(s, { x: spawn.x, z: spawn.z, floor: spawn.floor }, [goal], { maps: this.walkMaps });
     });
-    // then the tour's plan (v0.14.4): "Start the tour" never waits for it
-    steps.push(() => { this.tourPlan(); });
+    // then the tour's plan (v0.14.4): "Start the tour" never waits for it; in slices (v0.17.1)
+    const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    let job: { steps: Generator<unknown, unknown>; key: unknown[]; work: number } | null = null;
+    steps.push(() => {
+      if (this.tourPlanReady) return false;
+      const key = this.tourKey();
+      if (!job || key.some((k, i) => k !== job!.key[i])) {
+        job = { steps: planTourSteps(s, this.people, this.departments, { maps: this.walkMaps, catalog: ASSET_TYPES }), key, work: 0 };
+      }
+      const t0 = clock();
+      for (;;) {
+        const r = job.steps.next();
+        if (r.done) {
+          const plan = r.value as TourPlan;
+          plan.ms = job.work + (clock() - t0); // the working time, not the idle time between the slices
+          this.tour = { plan, key: job.key };
+          return false;
+        }
+        if (clock() - t0 >= TOUR_SLICE_MS) { job.work += clock() - t0; return true; }
+      }
+    });
     return new Promise((resolve) => {
       const next = () => {
         const now = this.hooks.getLayout();
@@ -468,10 +503,12 @@ export class NavigationSystem {
           resolve();
           return;
         }
-        const step = steps.shift();
+        const step = steps[0];
         if (!step) { resolve(); return; }
-        try { step(); } catch (e) { console.warn('[navigation] warming up the walk maps failed', e); }
-        idle(next);
+        let more = false;
+        try { more = step() === true; } catch (e) { console.warn('[navigation] warming up the walk maps failed', e); }
+        if (!more) steps.shift();
+        soon(next);
       };
       idle(next);
     });
@@ -885,6 +922,15 @@ export class NavigationSystem {
       },
     };
   }
+}
+
+/** A new task (MessageChannel: no 4 ms clamp, after the browser could draw a frame); else setTimeout. */
+function defaultSoon(fn: () => void): void {
+  if (typeof MessageChannel !== 'undefined') {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => { ch.port1.close(); fn(); };
+    ch.port2.postMessage(null);
+  } else setTimeout(fn, 0);
 }
 
 function defaultIdle(fn: () => void): void {
