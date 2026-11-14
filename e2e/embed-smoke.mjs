@@ -39,6 +39,10 @@ log('build:embed makes one IIFE file (global AHDUSWorkplace) + its .css, with no
 const SAVING = /GoTrueClient|RealtimeClient|supabase|dwtwin_sync_queue/i;
 log('the embed has no saving code (no Supabase client, no sync queue)', !SAVING.test(bundle),
   SAVING.test(bundle) ? `found: ${bundle.match(SAVING)[0]}` : '');
+// v0.17.0: smaller: no WebGPU shaders (the embed draws with WebGL) and no Studio editor commands (it never edits)
+const EXTRA = /ShadersStoreWGSL\[|Apply proposed layout|Add floor with rooms/;
+log('v0.17.0: the embed has no WebGPU shaders and no Studio editor commands', !EXTRA.test(bundle),
+  `${(bundle.length / 1024).toFixed(0)} kB${EXTRA.test(bundle) ? ` | found: ${bundle.match(EXTRA)[0]}` : ''}`);
 
 // ── A plain static server for the repo (the page), and an "API" on another origin ──
 const root = resolve('.');

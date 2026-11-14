@@ -21,6 +21,24 @@ export default defineConfig({
   plugins: [
     react(),
     {
+      // v0.17.0: a smaller file. One file inlines every dynamic import, so Babylon's WebGPU shaders (~290 kB, loaded
+      // only by a WebGPU engine: the embed makes a WebGL one) came along: an empty module instead. And the embed
+      // never edits: LayoutEngine gets a read-only editor instead of Studio's commands (embed/readOnlyEditor.js).
+      name: 'ahdus-embed-smaller',
+      enforce: 'pre',
+      resolveId(source, importer) {
+        if (!importer) return null;
+        if (/[\\/]ShadersWGSL[\\/]/.test(source) && /@babylonjs/.test(importer)) return '\0ahdus-no-wgsl';
+        if (/store[\\/]editorHistory(\.js)?$/.test(source) && /[\\/]engine[\\/]LayoutEngine\.ts$/.test(importer)) {
+          return resolve(__dirname, 'src/embed/readOnlyEditor.js');
+        }
+        return null;
+      },
+      load(id) {
+        return id === '\0ahdus-no-wgsl' ? 'export {};' : null;
+      },
+    },
+    {
       // The script injects its stylesheet itself (embed.css?inline); this copy is
       // for pages whose Content-Security-Policy blocks injected styles
       name: 'ahdus-embed-css',
