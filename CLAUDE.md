@@ -15,14 +15,15 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1534, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1552, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
 npm run build:embed  # dist-embed/ahdus-workplace.js (+ .css, + assets/): the one-file embed for plain HTML pages
 npm run build:ahdus  # dist-ahdus/ (git-ignored) for AHDUS-FRONTEND (scripts/build-ahdus.mjs): workplace-studio/ = Studio
                      # with VITE_LAYOUT_BACKEND=ahdus + base /workplace-studio/ (vite.ahdus.config.js), 3d-environment/ =
-                     # a copy of build:embed's output, layout.schema.json, VERSION (version=, commit=, built=)
+                     # a copy of build:embed's output, layout.schema.json, VERSION (version=, commit=, built=);
+                     # v0.17.2: workplace-studio/prefetch.json (scripts/studio-prefetch.mjs) + splash.css
 npm run schema:json  # dist-ahdus/layout.schema.json (or: node scripts/schema-json.mjs <file>): JSON Schema (draft-07) of
                      # the v2 layout from the Zod LayoutSchema (engine/model/jsonSchema.ts); the AHDUS server checks saves
 npm run assets:prepare  # public/assets/ from the downloaded packs (D:\assets-raw, outside the repo; sharp)
@@ -1165,7 +1166,7 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
 - **Where:** `people.deskSeats`: a `CHAIR*` within 1.2 m of a desk's edge (`DESK*`, `RECEPTION_DESK`), facing it
   (≤ 60°); each chair goes to the desk it fits best. No chair: standing where a chair would be, facing it
   (`people.DESK_WORK_SIDE`: the desk's local +Z, a reception desk's −Z behind the counter; turned with the desk).
-- **Look:** everyone starts as the neutral simple figure (one mesh per pose, a thin instance each: 2 draw calls for
+- **Look:** everyone starts as the neutral simple figure (v0.17.2: three meshes per pose (top, legs, head), a thin instance each: 6 draw calls for
   any number). `chooseFullCharacters`: at most 12 on the current floor within 15 m of the camera (kept until 18 m)
   become full characters when their file has loaded (each url once per scene, ≤ 3 downloads at once,
   `modelLoader.loadGlbContainer`); each gets `instantiateModelsToScene` (own skeleton, shared geometry and
@@ -1199,6 +1200,30 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
   walking (`CharacterSystem.setHiddenPerson`). No / unknown character, a failed file, quality 'low' = the simple
   figure; no clip, a failed clip or manifest `walk: false` = the standing pose (slides). Our test clip:
   `public/assets/characters/placeholder-walk.glb` (`scripts/make-placeholder-character.mjs`: 1.2 m/s).
+
+## Polish (v0.17.2, how it works)
+
+- **One loading screen** (`ui/splash.css`, self-contained: no theme.css tokens; words `ui/splashSteps.js`, PURE + tested):
+  `index.html` draws `#boot-splash.studio-splash` from the first paint (vite.config.js `splashPlugin` inlines splash.css
+  and sets `%AHDUS_BACKEND%`); `StudioSplash` draws the same markup (`data-splash` = loading | leaving,
+  `data-splash-theme`, steps `[data-step]` = create | load | ready with `data-step-state`) and App removes the boot copy
+  (`useBootSplashGone`). Dark only in AHDUS mode with localStorage `theme` = dark (`splashTheme`). `?new=1`
+  (`createdFromUrl`, removed with `withoutNewParam`) = the create step ticked + the rename hint. A script / link that
+  fails to load before React = the boot copy's error card (`[data-boot-error]`, Try again; AHDUS: Back to AHDUS). The
+  3D Company page (AHDUS-FRONTEND workplace-page.js) draws the same screen from `workplace-studio/splash.css` on the click.
+- **Prefetch** (`scripts/studio-prefetch.mjs` PURE, `src/__tests__/studioPrefetch.test.js`; vite.ahdus.config.js
+  `build.manifest`, its .vite/ folder removed after): the entry, its static imports, CSS, latin Inter 400 / 500 / 600 and
+  the `START_CHUNKS` dynamic chunks (WebGL shaders, glTF loader, .env loader). AHDUS prefetches them for editors only;
+  its server caches `workplace-studio/assets/<name>-<hash>.*` for a year (immutable).
+- **Figure colours** (`play/figureLook.js` PURE: `figureColors`, `cleanColors`): CharacterSystem's figures are
+  `people_<pose>` (top) + `_legs` + `_head` (`buildFigureParts`, `figureMeshes()`), per-instance `color` buffers on top
+  and legs (Babylon stores them as `instanceColor`), material `person_figure` (white diffuse, no specular, emissive
+  `FIGURE_SOFT_LIGHT`). Manifest v2 entries may carry `colors: { top, bottom? }` (EMBED_GUIDE 4b). LiveSystem keeps the
+  one-mesh `buildFigure`.
+- **The cap's windows wait:** `CharacterSystem.settling()` / `LiveSystem.settling()` (making a character, or within
+  `SETTLE_AFTER_MAKE_MS` 1.5 s of one): LayoutEngine's FullCap and QualityMonitor don't measure meanwhile (those frames
+  had pulled the cap back to 12 and the quality a step down on an RTX 4060).
+- **Room types** (`play/roomNames.js` PURE: `typeRepeatsName`, `roomTypeShown`): places.js details and `RoomDetails`.
 
 ## Simple (v0.17.1, how it works)
 
@@ -1366,7 +1391,7 @@ Nothing is saved. Studio is unchanged.
   standing = Idle. The nearest `MAX_ANIMATED` 8 full characters play it, the rest `holdClip` frame 0; hips on the seat
   in the clip's pose. Full characters (≤ 12) are the nearest to the point the camera LOOKS at (`chooseFullCharacters`
   `focus` = camera.getTarget(), while the camera is within `VIEW_REACH` 30 m of it; else the camera; those full already
-  `KEEP_BONUS` 2 m nearer). Simple figures are grey (`FIGURE_GREY`). A file nobody near used for 30 s is unloaded
+  `KEEP_BONUS` 2 m nearer). Simple figures wear their outfit's colours (v0.17.2, `play/figureLook.js`). A file nobody near used for 30 s is unloaded
   (`unloadAfterMs`).
 - **You** (`PlayerCharacter.ts`, viewer / embed walkthrough): with a clip set Idle / Walk / Run (`people.chooseGait`,
   `RUN_FROM` 3.3 m/s) / Wave (**H**, standing still; else "Stand still to wave"), the forward leg lifted on stairs
@@ -1531,8 +1556,8 @@ site on the server (local mode renames the layout), the leave check. Saving, und
   anchorData, opening sizes. The layout list is built from the saved data (name, rooms, floors, last edit).
 - The editor is wrapped in `EditorErrorBoundary`: a failure shows "This layout could not be opened" + Back to layouts
   + Try again (a new editor on the same layout).
-- **Loading screen** (all modes, `ui/StudioSplash.jsx`, rendered by `App.jsx` over the editor): the Studio's name
-  ("AHDUS" above it in AHDUS mode), a spinner, "Opening Workplace Studio…". It stays until the layout is loaded AND
+- **Loading screen** (all modes, `ui/StudioSplash.jsx`, rendered by `App.jsx` over the editor; v0.17.2: ONE screen from the
+  first paint, see "Polish"): the Studio's name ("AHDUS" above it in AHDUS mode) and its steps. It stays until the layout is loaded AND
   the editor calls `onFirstFrame`: the first frame after the current floor is built (`progress.currentFloorReady`)
   whose shown meshes are ready (`ui/firstFrame.js`: shaders compiled; at most `MAX_WAIT_MS` 4 s more; downloads of
   the realistic look don't count). Then a 300 ms fade (`FADE_MS`; none with prefers-reduced-motion). An editor crash
@@ -1772,6 +1797,12 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: small polish (v0.17.2, 15 Nov 2026, branch `feature/v0.17.2-polish`)
+
+One loading screen for Studio (steps, the AHDUS look, an error with Try again), Studio's files prefetched for editors on
+the 3D Company page, simple figures in their outfit's colours, a full-character limit that really rises to 24, room
+types only when new (see "Polish"; CHANGELOG.md). Screenshots + timings: private-docs/screenshots/v0.17.2/ (not in git).
 
 ## DONE: simple (v0.17.1, 14 Nov 2026, branch `feature/v0.17.1-simple`)
 
