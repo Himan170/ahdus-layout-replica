@@ -9,8 +9,52 @@
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body, #root { width: 100%; height: 100%; overflow: hidden; }
     </style>
+    <!-- ui/splash.css, put here by vite.config.js (plugin "ahdus-splash-css") -->
+    <style data-splash-css>/* splash.css */</style>
   </head>
   <body>
+    <!--
+      The loading screen from the first paint, before Studio's JS has arrived (v0.17.2). ui/StudioSplash.jsx draws
+      the same markup in the same place and App removes this one. Words: ui/splashSteps.js (a test checks them).
+    -->
+    <div id="boot-splash" class="studio-splash" role="status" aria-live="polite" aria-busy="true" aria-label="Loading Studio…">
+      <div class="studio-splash__brand">
+        <span class="studio-splash__logo" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h4"/><path d="M10 8h4"/><path d="M14 21v-3a2 2 0 0 0-4 0v3"/><path d="M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2"/><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/></svg></span>
+        <div class="studio-splash__name"><span class="studio-splash__ahdus" hidden>AHDUS</span><span>Workplace Studio</span></div>
+      </div>
+      <ol class="studio-splash__steps">
+        <li class="studio-splash__step" data-step="create" data-step-state="done" hidden><span class="studio-splash__mark" aria-hidden="true"></span>Creating your workplace</li>
+        <li class="studio-splash__step" data-step="load" data-step-state="active"><span class="studio-splash__mark" aria-hidden="true"></span>Loading Studio…</li>
+        <li class="studio-splash__step" data-step="ready" data-step-state="todo"><span class="studio-splash__mark" aria-hidden="true"></span>Ready</li>
+      </ol>
+    </div>
+    <script>
+      (function () {
+        var box = document.getElementById('boot-splash');
+        var ahdus = '%AHDUS_BACKEND%' === 'ahdus';
+        if (ahdus) box.querySelector('.studio-splash__ahdus').hidden = false;
+        try { if (ahdus && localStorage.getItem('theme') === 'dark') box.setAttribute('data-splash-theme', 'dark'); } catch (e) { /* blocked */ }
+        try { if (new URLSearchParams(location.search).get('new') === '1') box.querySelector('[data-step="create"]').hidden = false; } catch (e) { /* old browser */ }
+        // Studio's own files failed to load (no connection, a file missing): say so, with Try again, never an endless spinner
+        window.addEventListener('error', function (event) {
+          var el = event.target;
+          if (!box.isConnected || !el || (el.tagName !== 'SCRIPT' && el.tagName !== 'LINK')) return;
+          box.setAttribute('role', 'alert');
+          box.setAttribute('aria-busy', 'false');
+          box.setAttribute('data-boot-error', '');
+          box.removeAttribute('aria-label');
+          box.querySelector('.studio-splash__steps').remove();
+          var card = document.createElement('div');
+          card.className = 'studio-splash__card';
+          card.innerHTML = '<h1 class="studio-splash__title">Workplace Studio could not be opened</h1>'
+            + '<p class="studio-splash__text">Its files did not load. Check your connection and try again.</p>'
+            + '<div class="studio-splash__buttons"><button type="button" class="studio-splash__button is-primary">Try again</button>'
+            + (ahdus ? '<a class="studio-splash__button" href="/3d-model.html">Back to AHDUS</a>' : '') + '</div>';
+          card.querySelector('button').addEventListener('click', function () { location.reload(); });
+          box.appendChild(card);
+        }, true);
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

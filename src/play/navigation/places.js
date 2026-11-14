@@ -35,6 +35,7 @@ import { floorAbove, floorsInOrder, stairDimsFor } from '../building';
 import { roomOpenings, wallThicknessOf } from '../geometry';
 import { deskSeats, seatPose, isDesk, visitorSpots } from '../people';
 import { stairBottom } from './route';
+import { roomTypeShown } from '../roomNames';
 
 const list = (v) => (Array.isArray(v) ? v : Object.values(v ?? {}));
 const floorOf = (r) => r.floor ?? r.floorId ?? 0;
@@ -222,7 +223,8 @@ export function buildPlaces(layout, people = []) {
     const goals = roomDoorSpots(room).map((s) => ({ ...s, floor, roomId: room.id }));
     add({
       id: `room:${room.id}`, kind: facility ? 'facility' : 'room', group: facility ? 'facilities' : 'rooms',
-      name, detail: joinDetail(facility ? FACILITIES[facility].label : typeLabel, dept !== name ? dept : '', floorName(floor)),
+      // v0.17.2: the type only when it isn't the name again ('Corridor · Corridor', 'Stairs · Staircase')
+      name, detail: joinDetail(roomTypeShown(name, facility ? FACILITIES[facility].label : typeLabel), dept !== name ? dept : '', floorName(floor)),
       floor, roomId: room.id, roomName: name, department: dept || null, facility, roomType: room.type ?? null,
       entityId: room.id, highlight: [room.id], x: room.x, z: room.z, goals,
     }, name, [typeLabel, dept, ...(facility ? FACILITIES[facility].words : [])]);

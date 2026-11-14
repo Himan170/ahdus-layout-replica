@@ -8,7 +8,9 @@
  * "Try again" and "Back to layouts" is shown instead of a blank page.
  *
  * Opening the editor shows the loading screen (ui/StudioSplash.jsx) until the layout
- * is loaded and the editor has drawn its first full frame (onFirstFrame).
+ * is loaded and the editor has drawn its first full frame (onFirstFrame). v0.17.2: it is
+ * the SAME screen as index.html's own copy (#boot-splash, drawn before this JS arrived),
+ * which App removes once it has drawn its own (useBootSplashGone).
  *
  * AHDUS mode (VITE_LAYOUT_BACKEND=ahdus): no companies screen. The site in the
  * address (?site=<id>) opens straight in Workplace Studio; leaving goes back to
@@ -23,10 +25,16 @@ import CompanySelector from './components/CompanySelector';
 import WorkplaceEditor from './components/WorkplaceEditor';
 import EditorErrorBoundary from './ui/EditorErrorBoundary';
 import StudioSplash from './ui/StudioSplash';
+import { createdFromUrl, splashTheme, withoutNewParam } from './ui/splashSteps';
 import { useWorkspaceStore } from './store/workspaceStore';
 import { loadWorkspace, stopAutoSave } from './services/apiService';
 import { isAhdusBackendOn } from './services/backendFlags';
 import { AHDUS_COMPANY, AHDUS_HOME, siteFromUrl, hasLoginToken, goToLogin } from './services/ahdusBackend';
+
+/** index.html's loading screen goes once React has drawn (its own copy of it, or the companies screen). */
+function useBootSplashGone() {
+  useEffect(() => { document.getElementById('boot-splash')?.remove(); }, []);
+}
 
 function backToAhdus() {
   window.location.assign(AHDUS_HOME);
@@ -39,9 +47,18 @@ const TOO_SLOW = 'AHDUS is taking too long to answer. Check your connection and 
 /** Workplace Studio on one AHDUS site: the loading screen / the editor / why it can't open. */
 function AhdusStudio() {
   const [site] = useState(siteFromUrl);
+  const [created] = useState(createdFromUrl); // from "Create a workplace" (?new=1): its step shows done
+  const [theme] = useState(() => splashTheme(true));
   const [status, setStatus] = useState(site ? { state: 'loading' } : { state: 'error', error: 'No workplace was chosen.' });
   const [attempt, setAttempt] = useState(0); // "Try again" loads once more
   const [splash, setSplash] = useState('loading'); // 'done' after the editor's first frame
+  const newName = useWorkspaceStore((s) => (created && status.state === 'open' ? s.layoutName : null));
+
+  // ?new=1 is for this opening only: a reload doesn't say "Creating your workplace" again
+  useEffect(() => {
+    const clean = withoutNewParam(window.location.href);
+    if (clean) window.history.replaceState(window.history.state, '', clean);
+  }, []);
 
   useEffect(() => {
     if (!site) return undefined;
@@ -79,6 +96,7 @@ function AhdusStudio() {
       <StudioSplash
         phase="error"
         ahdus
+        theme={theme}
         errorTitle="This workplace could not be opened"
         error={status.error}
         onRetry={site ? handleRetry : null}
@@ -98,13 +116,17 @@ function AhdusStudio() {
       <StudioSplash
         phase={status.state === 'open' ? splash : 'loading'}
         ahdus
-        text={status.state === 'login' ? 'Taking you to the AHDUS login…' : 'Opening Workplace Studio…'}
+        created={created}
+        theme={theme}
+        newName={newName}
+        text={status.state === 'login' ? 'Taking you to the AHDUS login…' : null}
       />
     </>
   );
 }
 
 export default function App() {
+  useBootSplashGone();
   const [view, setView] = useState('selector'); // 'selector' | 'editor'
   const [company, setCompany] = useState(null); // { id, name } whose layouts to list
   const [openCount, setOpenCount] = useState(0); // a fresh editor (and error boundary) per opening

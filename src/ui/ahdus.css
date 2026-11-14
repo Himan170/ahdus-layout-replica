@@ -37,7 +37,6 @@
 
 /* ── Loading screen, toast, dialog ───────────────────────────────── */
 
-:root .studio-splash__ahdus { color: var(--text-muted); }
 :root .ui-toast__link { color: var(--accent); }
 :root .ui-toast__link:hover { color: var(--accent-hover); }
 :root .ui-dialog { box-shadow: var(--shadow-pop); }

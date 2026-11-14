@@ -23,7 +23,9 @@
  *   their own point of the cycle); the others hold its first frame. The hips go
  *   onto the seat in that pose, so the clip's own sitting height counts.
  * - v0.16.0, many people: the simple figures are grey (further than the full
- *   characters, or while a file loads), and a character file nobody near uses
+ *   characters, or while a file loads); v0.17.2: in each person's outfit colours
+ *   (play/figureLook.js: top, trousers, a mannequin-grey head; three thin-instance
+ *   meshes per pose, softly lit), and a character file nobody near uses
  *   is unloaded after UNLOAD_AFTER_MS (loaded again when someone is near).
  *   Files asked for through loadFile() (your character, the walk clip, clip
  *   sets) stay.
@@ -57,6 +59,7 @@ import {
 } from '../../play/people';
 import { levelForY } from '../../play/building';
 import { cleanClothing, outfitLook, partName } from '../../play/outfit';
+import { cleanColors, figureColors, rgba } from '../../play/figureLook';
 import { loadGlbContainer } from '../../utils/modelLoader';
 import type { LayoutRecords } from './RoomSystem';
 import { ClipLibrary, Animator, holdClip } from './ClipLibrary';
@@ -77,6 +80,8 @@ export interface CharacterFile {
   outfit?: 'rocketbox';
   /** v0.16.0: the url of the character's clip set (an animation-only .glb shared by many characters). */
   clips?: string;
+  /** v0.17.2: the outfit's main colours ('#rrggbb'), for the simple figure (play/figureLook.js). */
+  colors?: { top: string; bottom?: string };
 }
 
 export interface Person {
@@ -178,8 +183,18 @@ export const MAKE_EVERY_MS = 200;
 const BREATHING = 3;
 /** The simple figure is drawn for a person this tall (m). */
 const FIGURE_HEIGHT = 1.75;
-/** v0.16.0: the simple figures' grey (far away, or while a character file loads). */
+/** v0.16.0: the simple figures' grey; v0.17.2: only their head's (their clothes have the person's colours). */
 export const FIGURE_GREY = new Color3(0.62, 0.64, 0.67);
+/** v0.17.2: the simple figures' light from all round, so their shaded side isn't black (softer shading). */
+export const FIGURE_SOFT_LIGHT = new Color3(0.2, 0.2, 0.2);
+/**
+ * v0.17.2: after a full character is made, its first frames compile its shaders and upload its skeleton: they say
+ * nothing about how fast this device draws people, so the frame-rate monitors (FullCap, QualityMonitor) wait this
+ * long (ms) after the last one was made, and while more are being made (`settling`). Measured on an RTX 4060
+ * (Meridian, 319 people): making 4 more gave one 3 s window of ~5 fps, the cap fell back from 16 to 12 and the
+ * quality to its 6-character step, at 60+ fps.
+ */
+export const SETTLE_AFTER_MAKE_MS = 1500;
 /** v0.16.0: a character file nobody near uses is unloaded after this long (ms). */
 export const UNLOAD_AFTER_MS = 30_000;
 
@@ -217,7 +232,7 @@ export class CharacterSystem {
   private enabled = true;
 
   // simple figures: one mesh per pose, a thin instance per person shown
-  private figures: { seated: Mesh; standing: Mesh } | null = null;
+  private figures: { seated: FigureParts; standing: FigureParts } | null = null;
   private figureMaterial: StandardMaterial | null = null;
   private figureKey: string | null = null; // who the thin instances show (null: draw again)
 
@@ -326,6 +341,11 @@ export class CharacterSystem {
   /** v0.17.0: people chosen whose file is loaded but who wait their turn to be made (one per makeEvery ms). */
   get makingMore(): boolean {
     return this.enabled && (this.pendingMake || this.pendingFile || (this.notReady && this.people.length > 0));
+  }
+
+  /** v0.17.2: characters are being made, or one was made SETTLE_AFTER_MAKE_MS ago or less: frames don't count. */
+  settling(now = performance.now()): boolean {
+    return this.makingMore || now - this.lastMade < SETTLE_AFTER_MAKE_MS;
   }
 
   /** How many people are drawn as full characters now. */
@@ -461,8 +481,7 @@ export class CharacterSystem {
     this.scene.onBeforeRenderObservable.remove(this.observer);
     this.observer = null;
     for (const id of [...this.full.keys()]) this.removeFull(id);
-    this.figures?.seated.dispose();
-    this.figures?.standing.dispose();
+    for (const f of [this.figures?.seated, this.figures?.standing]) if (f) for (const m of figureMeshes(f)) m.dispose();
     this.figureMaterial?.dispose();
     for (const f of this.files.values()) if (f !== 'failed' && !(f instanceof Promise)) disposeFile(f);
     this.files.clear();
@@ -725,39 +744,55 @@ export class CharacterSystem {
     const shownIds = new Set(shown.map((p) => p.personId));
     for (const [id, f] of this.full) f.root.setEnabled(shownIds.has(id));
     const simple = shown.filter((p) => !this.full.has(p.personId));
-    const key = simple.map((p) => p.personId).join('|');
+    const looks = new Map(simple.map((p) => [p.personId, figureColors(p)]));
+    const key = simple.map((p) => { const l = looks.get(p.personId)!; return `${p.personId}:${l.top}:${l.bottom}`; }).join('|');
     if (key === this.figureKey) return;
     this.figureKey = key;
     if (!simple.length && !this.figures) return;
     const figures = this.ensureFigures();
     for (const seated of [true, false]) {
-      const mesh = seated ? figures.seated : figures.standing;
+      const parts = seated ? figures.seated : figures.standing;
       const these = simple.filter((p) => p.seated === seated);
       if (!these.length) {
-        mesh.thinInstanceCount = 0;
-        mesh.setEnabled(false);
+        for (const mesh of figureMeshes(parts)) {
+          mesh.thinInstanceCount = 0;
+          mesh.setEnabled(false);
+        }
         continue;
       }
       const data = new Float32Array(these.length * 16);
+      const tops = new Float32Array(these.length * 4);
+      const legs = new Float32Array(these.length * 4);
       these.forEach((p, i) => {
         const s = (p.character?.height ?? FIGURE_HEIGHT) / FIGURE_HEIGHT;
         const lift = seated ? p.seatHeight - SEAT_HEIGHT : 0;
         Matrix.Compose(new Vector3(s, s, s), Quaternion.RotationAxis(Vector3.Up(), p.yaw), new Vector3(p.x, p.y + lift, p.z))
           .copyToArray(data, i * 16);
+        const look = looks.get(p.personId)!;
+        tops.set(rgba(look.top), i * 4);
+        legs.set(rgba(look.bottom), i * 4);
       });
-      mesh.thinInstanceSetBuffer('matrix', data, 16, true);
-      mesh.thinInstanceRefreshBoundingInfo(false);
-      mesh.setEnabled(true);
+      for (const mesh of figureMeshes(parts)) {
+        // each mesh its own copy: Babylon keeps the array it is given
+        mesh.thinInstanceSetBuffer('matrix', mesh === parts.top ? data : data.slice(), 16, true);
+        mesh.thinInstanceRefreshBoundingInfo(false);
+        mesh.setEnabled(true);
+      }
+      parts.top.thinInstanceSetBuffer('color', tops, 4, true);
+      parts.legs.thinInstanceSetBuffer('color', legs, 4, true);
     }
   }
 
-  private ensureFigures(): { seated: Mesh; standing: Mesh } {
+  private ensureFigures(): { seated: FigureParts; standing: FigureParts } {
     if (this.figures) return this.figures;
+    // v0.17.2: white × each part's vertex colour × the person's colour (thin-instance 'color'); no shine, lit
+    // softly from all round so a seated figure's far side is not black
     const mat = new StandardMaterial('person_figure', this.scene);
-    mat.diffuseColor = FIGURE_GREY.clone();
-    mat.specularColor = new Color3(0.08, 0.08, 0.08);
+    mat.diffuseColor = Color3.White();
+    mat.specularColor = Color3.Black();
+    mat.emissiveColor = FIGURE_SOFT_LIGHT.clone();
     this.figureMaterial = mat;
-    this.figures = { seated: buildFigure(this.scene, true, mat), standing: buildFigure(this.scene, false, mat) };
+    this.figures = { seated: buildFigureParts(this.scene, true, mat), standing: buildFigureParts(this.scene, false, mat) };
     return this.figures;
   }
 }
@@ -853,6 +888,8 @@ export function validCharacter(c: CharacterFile | null | undefined): CharacterFi
   if (c.gender === 'female' || c.gender === 'male') out.gender = c.gender;
   if (c.outfit === 'rocketbox') out.outfit = c.outfit;
   if (typeof c.clips === 'string' && c.clips) out.clips = c.clips;
+  const colors = cleanColors(c.colors);
+  if (colors) out.colors = colors;
   return out;
 }
 
@@ -976,7 +1013,66 @@ function aimBone(root: TransformNode, bone: TransformNode | undefined, toward: T
   bone.rotationQuaternion = turn.multiply(rotationOf(bone));
 }
 
-/** The neutral simple figure (no face, no clothes), facing +Z, its feet / the seat's foot at the origin. */
+/** v0.17.2: a person's simple figure in three meshes: `top` (torso, arms: named people_seated / people_standing),
+ *  `legs` (…_legs) and `head` (…_head); top and legs take each person's colour (thin-instance 'color'). */
+export interface FigureParts { top: Mesh; legs: Mesh; head: Mesh }
+
+export function figureMeshes(parts: FigureParts): Mesh[] {
+  return [parts.top, parts.legs, parts.head];
+}
+
+/**
+ * The simple figure people at their desks are drawn as (v0.17.2), facing +Z, its feet / the seat's foot at the
+ * origin: rounded parts (capsules, a smooth head), white clothes for the person's colours, a mannequin-grey head.
+ */
+export function buildFigureParts(scene: Scene, seated: boolean, mat: StandardMaterial): FigureParts {
+  const groups: Record<'top' | 'legs' | 'head', Mesh[]> = { top: [], legs: [], head: [] };
+  const add = (group: 'top' | 'legs' | 'head', mesh: Mesh, at: [number, number, number], shade: number, tiltX = 0, tiltZ = 0) => {
+    mesh.position.set(...at);
+    mesh.rotation.x = tiltX;
+    mesh.rotation.z = tiltZ;
+    const n = mesh.getTotalVertices();
+    const colors = new Float32Array(n * 4);
+    const c = group === 'head' ? [FIGURE_GREY.r * shade, FIGURE_GREY.g * shade, FIGURE_GREY.b * shade, 1] : [shade, shade, shade, 1];
+    for (let i = 0; i < n; i++) colors.set(c, i * 4);
+    mesh.setVerticesData(VertexBuffer.ColorKind, colors);
+    groups[group].push(mesh);
+  };
+  const limb = (h: number, r: number) => MeshBuilder.CreateCapsule('fig', { height: h, radius: r, tessellation: 12, subdivisions: 2 }, scene);
+  const head = () => MeshBuilder.CreateSphere('fig', { diameter: seated ? 0.23 : 0.24, segments: 16 }, scene);
+  const HALF_PI = Math.PI / 2;
+  if (seated) {
+    add('top', MeshBuilder.CreateCapsule('fig', { height: 0.62, radius: 0.16, tessellation: 16 }, scene), [0, 0.86, -0.1], 1, 0.08);
+    add('head', head(), [0, 1.3, -0.06], 1.05);
+    for (const s of [-1, 1]) {
+      add('top', limb(0.32, 0.05), [s * 0.2, 0.98, -0.06], 0.94, 0.35);   // upper arm
+      add('top', limb(0.34, 0.045), [s * 0.17, 0.83, 0.13], 0.94, HALF_PI); // forearm, towards the desk
+      add('legs', limb(0.5, 0.075), [s * 0.09, 0.6, 0.13], 1, HALF_PI);     // thigh, on the seat
+      add('legs', limb(0.52, 0.065), [s * 0.09, 0.3, 0.36], 1);             // shin
+    }
+  } else {
+    add('top', MeshBuilder.CreateCapsule('fig', { height: 0.66, radius: 0.17, tessellation: 16 }, scene), [0, 1.2, 0], 1);
+    add('head', head(), [0, 1.63, 0], 1.05);
+    for (const s of [-1, 1]) {
+      add('legs', limb(0.9, 0.07), [s * 0.09, 0.45, 0], 1);
+      add('top', limb(0.62, 0.045), [s * 0.25, 1.15, 0], 0.94, 0, s * 0.06);
+    }
+  }
+  const base = seated ? 'people_seated' : 'people_standing';
+  const merge = (list: Mesh[], name: string, part: string): Mesh => {
+    const mesh = Mesh.MergeMeshes(list, true, true)!;
+    mesh.name = name;
+    mesh.material = mat;
+    mesh.isPickable = false;
+    mesh.checkCollisions = false;
+    mesh.metadata = { people: seated ? 'seated' : 'standing', figurePart: part };
+    mesh.setEnabled(false);
+    return mesh;
+  };
+  return { top: merge(groups.top, base, 'top'), legs: merge(groups.legs, `${base}_legs`, 'legs'), head: merge(groups.head, `${base}_head`, 'head') };
+}
+
+/** The neutral simple figure (no face, no clothes) in ONE mesh, facing +Z (live people: LiveSystem). */
 export function buildFigure(scene: Scene, seated: boolean, mat: StandardMaterial): Mesh {
   const parts: Mesh[] = [];
   const BODY = [0.48, 0.53, 0.6, 1];

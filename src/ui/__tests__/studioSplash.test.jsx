@@ -7,6 +7,9 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { watchFirstFrame, meshesDrawable, MAX_WAIT_MS } from '../firstFrame';
 import StudioSplash, { FADE_MS } from '../StudioSplash';
+import { splashSteps, splashStatus, createdFromUrl, withoutNewParam, splashTheme, STEP_LABELS } from '../splashSteps';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -111,13 +114,33 @@ describe('StudioSplash', () => {
 
   const splash = () => container.querySelector('[data-splash]');
 
-  it('shows the name, a spinner and "Opening Workplace Studio…" while loading', () => {
+  const stepStates = () => [...container.querySelectorAll('[data-step]')].map((li) => `${li.dataset.step}:${li.dataset.stepState}`);
+
+  it('shows the name and the steps "Loading Studio…" → "Ready" while loading (v0.17.2)', () => {
     act(() => root.render(<StudioSplash phase="loading" />));
     expect(splash().dataset.splash).toBe('loading');
     expect(container.textContent).toContain('Workplace Studio');
-    expect(container.textContent).toContain('Opening Workplace Studio…');
+    expect(container.textContent).toContain('Loading Studio…');
     expect(container.textContent).not.toContain('AHDUS');
-    expect(container.querySelector('.studio-splash__spinner')).not.toBeNull();
+    expect(stepStates()).toEqual(['load:active', 'ready:todo']);
+    expect(splash().getAttribute('aria-label')).toBe('Loading Studio…');
+    expect(splash().dataset.splashTheme).toBe('light');
+  });
+
+  it('after "Create a workplace": "Creating your workplace" done, then the name and how to rename it', () => {
+    act(() => root.render(<StudioSplash phase="loading" ahdus created newName="Untitled workplace 2" />));
+    expect(stepStates()).toEqual(['create:done', 'load:active', 'ready:todo']);
+    expect(container.querySelector('[data-splash-hint]').textContent).toContain('Untitled workplace 2 is ready');
+    act(() => root.render(<StudioSplash phase="done" ahdus created newName="Untitled workplace 2" />));
+    expect(stepStates()).toEqual(['create:done', 'load:done', 'ready:done']);
+    expect(splash().getAttribute('aria-label')).toBe('Ready');
+  });
+
+  it('dark only when asked (AHDUS in dark mode); the login text replaces the steps', () => {
+    act(() => root.render(<StudioSplash phase="loading" ahdus theme="dark" text="Taking you to the AHDUS login…" />));
+    expect(splash().dataset.splashTheme).toBe('dark');
+    expect(stepStates()).toEqual(['login:active']);
+    expect(container.textContent).toContain('Taking you to the AHDUS login…');
   });
 
   it('inside AHDUS the brand says AHDUS, as in the top bar', () => {
@@ -153,12 +176,49 @@ describe('StudioSplash', () => {
         onRetry={onRetry} onBack={onBack} backLabel="Back to AHDUS" />,
     ));
     expect(splash().dataset.splash).toBe('error');
-    expect(container.querySelector('.studio-splash__spinner')).toBeNull();
+    expect(container.querySelector('[data-step]')).toBeNull();
     expect(container.textContent).toContain('AHDUS could not be reached');
     const [retry, back] = container.querySelectorAll('button');
     expect(retry.textContent).toContain('Try again');
     act(() => retry.click());
     expect(onRetry).toHaveBeenCalled();
     expect(back.textContent).toContain('Back to AHDUS');
+  });
+});
+
+describe('splashSteps (v0.17.2)', () => {
+  it('the steps: create only after Create a workplace, one in progress, then all done', () => {
+    expect(splashSteps({ phase: 'loading' }).map((s) => s.label)).toEqual(['Loading Studio…', 'Ready']);
+    expect(splashSteps({ created: true, phase: 'loading' }).map((s) => [s.key, s.state]))
+      .toEqual([['create', 'done'], ['load', 'active'], ['ready', 'todo']]);
+    expect(splashSteps({ created: true, phase: 'done' }).every((s) => s.state === 'done')).toBe(true);
+    expect(splashStatus(splashSteps({ phase: 'loading' }))).toBe('Loading Studio…');
+    expect(splashStatus(splashSteps({ phase: 'done' }))).toBe('Ready');
+  });
+
+  it('?new=1: read once, then taken out of the address', () => {
+    expect(createdFromUrl('?site=4&new=1')).toBe(true);
+    expect(createdFromUrl('?site=4')).toBe(false);
+    expect(withoutNewParam('https://a.test/workplace-studio/?site=4&new=1#x')).toBe('/workplace-studio/?site=4#x');
+    expect(withoutNewParam('https://a.test/workplace-studio/?site=4')).toBeNull();
+  });
+
+  it('dark only in AHDUS with its theme "dark"; storage blocked = light', () => {
+    const store = (v) => ({ getItem: () => v });
+    expect(splashTheme(true, store('dark'))).toBe('dark');
+    expect(splashTheme(true, store('light'))).toBe('light');
+    expect(splashTheme(false, store('dark'))).toBe('light');
+    expect(splashTheme(true, { getItem: () => { throw new Error('blocked'); } })).toBe('light');
+  });
+
+  it("index.html's own copy says the same words, with the same classes, and has the splash.css marker", () => {
+    const html = readFileSync(resolve(__dirname, '../../../index.html'), 'utf8');
+    for (const label of Object.values(STEP_LABELS)) expect(html).toContain(label);
+    expect(html).toContain('Loading Studio…');
+    for (const cls of ['studio-splash__brand', 'studio-splash__logo', 'studio-splash__steps', 'studio-splash__step',
+      'studio-splash__mark', 'studio-splash__ahdus']) expect(html).toContain(cls);
+    expect(html).toContain('/* splash.css */');
+    expect(html).toContain('id="boot-splash"');
+    expect(html).not.toContain('data-splash='); // e2e waits for [data-splash] (React's) to go
   });
 });

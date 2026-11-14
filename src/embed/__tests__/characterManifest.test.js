@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  parseManifest, readManifest, resolvePeople, resolvePlayer, resolveLive, walkClipUrlOf, charactersOf, idHash, neutralFor,
+  parseManifest, readManifest, resolvePeople, resolvePlayer, resolveLive, walkClipUrlOf, charactersOf, idHash, neutralFor, fileOf,
   DEFAULT_HEIGHT, MAX_TEXT,
 } from '../characterManifest';
 
@@ -140,6 +140,17 @@ describe('manifest version 2 (v0.16.0)', () => {
       'mixamo:aj-v1': { url: 'office/aj.glb', height: 1.8 },
     },
   };
+
+  it("v0.17.2: a file's colours (for the simple figure) are kept as #rrggbb; a wrong value is left out and said", () => {
+    const m = parseManifest({ version: 2, characters: {
+      a: { url: 'a.glb', colors: { top: '#334455', bottom: '#111111' } },
+      b: { url: 'b.glb', colors: { top: 'navy' } },
+    } }, URL2);
+    expect(m.characters.get('a').colors).toEqual({ top: '#334455', bottom: '#111111' });
+    expect(fileOf(m.characters.get('a')).colors).toEqual({ top: '#334455', bottom: '#111111' });
+    expect(m.characters.get('b').colors).toBeUndefined();
+    expect(m.problems.some((x) => x.startsWith('b: "colors"'))).toBe(true);
+  });
 
   it('reads characters, clip sets and the neutral set; a group switched off is left out', () => {
     const m = parseManifest(v2, URL2);

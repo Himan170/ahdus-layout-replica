@@ -11,7 +11,7 @@
 // at your eye height, V hides your body, your seated figure hides; no character = the simple figure.
 // v0.16.0 (manifest v2, our placeholder suit + its clip set): people who never chose get the neutral character, people at
 // desks are drawn from the manifest's "seated" copy (you walk with the full file), a desk with a keyboard = Type, others
-// Sit, at most 8 play, the clothing a person chose, grey simple figures; your character's Idle / Walk / Run / Wave (H).
+// Sit, at most 8 play, the clothing a person chose, simple figures in their colours (v0.17.2); your character's Idle / Walk / Run / Wave (H).
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run e2e:characters      (builds the embed; serves the files itself)
@@ -210,8 +210,8 @@ log('the view from above starts on the ground floor: no roof over its desks, the
 // Far away (the whole ground floor in view): everyone is a simple figure, two thin-instanced meshes
 const far = await drawnPeople();
 const farMeshes = await p.evaluate(() => window.workplace._engine.scene.meshes.filter((m) => m.name.startsWith('people_')).length);
-log('from far away: the 17 people downstairs are simple figures (2 meshes with thin instances), no character file downloaded',
-  far.seated === 16 && far.standing === 1 && far.full === 0 && farMeshes === 2 &&
+log('from far away: the 17 people downstairs are simple figures (3 parts × 2 poses = 6 meshes with thin instances, v0.17.2), no character file downloaded',
+  far.seated === 16 && far.standing === 1 && far.full === 0 && farMeshes === 6 &&
   !requests.some((u) => u.endsWith('.glb') && u.includes('/characters/')), JSON.stringify(far));
 await shot('characters-far.png');
 
@@ -607,14 +607,19 @@ log('no warnings about the manifest', !warnings.some((w) => /character manifest/
       return [...new Set(st.root.getChildMeshes(false).filter((m) => m.isEnabled() && m.getTotalVertices() > 0)
         .map((m) => m.name.replace(/^.*\./, '').replace(/_primitive\d+$/, '')))].sort();
     };
-    const grey = window.workplace._engine.scene.getMeshByName('people_seated')?.material?.diffuseColor;
+    // v0.17.2: simple figures in their own colours (instanceColor per person), only the head grey
+    const top = window.workplace._engine.scene.getMeshByName('people_seated');
+    const tint = top?._userThinInstanceBuffersStorage?.data?.instanceColor;
+    const n = top?.isEnabled() ? top.thinInstanceCount : 0;
+    const figureColours = tint ? [...new Set(Array.from({ length: n }, (_, i) => [...tint.slice(i * 4, i * 4 + 3)].map((x) => x.toFixed(2)).join(',')))] : [];
+    const head = window.workplace._engine.scene.getMeshByName('people_seated_head');
     return {
       urls: [...new Set(placed.map((x) => x.character?.url?.replace(/^.*\//, '') ?? null))],
       full: c.fullCount, animated: c.animatedCount,
       clips: Object.fromEntries(['user_1', 'user_2', 'user_3', 'user_4', 'user_5', 'user_6', 'user_7', 'user_8']
         .map((id) => [id, of(id) ? `${of(id).clip}${of(id).playing ? '' : ' (held)'}` : null])),
       shirt: parts('user_6'), suit: parts('user_7'),
-      grey: grey ? [grey.r, grey.g, grey.b].map((n) => +n.toFixed(2)) : null,
+      figures: n, figureColours: figureColours.length, headGrey: !!head && !head._userThinInstanceBuffersStorage?.data?.instanceColor,
     };
   });
   const seatedAsked = asked.filter((u) => u.endsWith('/placeholder-suit-seated.glb')).length;
@@ -629,11 +634,11 @@ log('no warnings about the manifest', !warnings.some((w) => /character manifest/
     front.length >= 2 && front.every((c) => c.startsWith('Type')) && back.length >= 2 && back.every((c) => c.startsWith('Sit'))
       && state.animated >= 1 && state.animated <= 8 && Object.values(state.clips).filter((c) => c && !c.endsWith('(held)')).length <= 8,
     JSON.stringify({ clips: state.clips, animated: state.animated }));
-  log('v0.16.0: the clothing a person chose (user_6: shirt + trousers), the others in the suit; far people are grey figures',
+  log('v0.16.0: the clothing a person chose (user_6: shirt + trousers), the others in the suit; v0.17.2: far people are figures in their own colours',
     !!state.shirt && state.shirt.includes('Top_shirt') && state.shirt.includes('Trousers') && !state.shirt.includes('Outfit_formal')
       && !!state.suit && state.suit.includes('Outfit_formal') && !state.suit.includes('Top_shirt')
-      && JSON.stringify(state.grey) === JSON.stringify([0.62, 0.64, 0.67]),
-    JSON.stringify({ shirt: state.shirt, suit: state.suit, grey: state.grey }));
+      && (state.figures < 2 || state.figureColours >= 2) && state.headGrey,
+    JSON.stringify({ shirt: state.shirt, suit: state.suit, figures: state.figures, colours: state.figureColours, headGrey: state.headGrey }));
   if (SHOTS) {
     await v.evaluate(() => window.workplace._engine.babylonEngine.setHardwareScalingLevel(1 / window.devicePixelRatio));
     await look(-2.5, -4, 4.2, 0.95, -Math.PI / 2 - 0.4, v);

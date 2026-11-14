@@ -85,7 +85,7 @@ describe('Find on a Studio-made office (no departmentRef)', () => {
   it('Office A is Sales: in its detail, and a department place "Sales"', () => {
     const a = index.byId.get('room:r_a');
     expect(a.department).toBe('Sales');
-    expect(a.detail).toBe('Office · Sales · Ground Floor');
+    expect(a.detail).toBe('Sales · Ground Floor'); // v0.17.2: 'Office' repeats 'Office A'
     expect(index.byId.get('department:Sales')).toEqual(expect.objectContaining({ kind: 'department', roomId: 'r_a', highlight: ['r_a'] }));
     expect(Object.values(searchPlaces(index, 'sales').groups).flat().map((p) => p.id)).toContain('department:Sales');
   });

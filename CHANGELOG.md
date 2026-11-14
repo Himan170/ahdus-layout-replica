@@ -3,6 +3,34 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.17.2 (15 Nov 2026): small polish
+
+- **One loading screen for Workplace Studio:** in the AHDUS look (AHDUS green, Inter, light; dark only when AHDUS is
+  in dark mode), with steps: "Creating your workplace… → Loading Studio… → Ready". It is there from the very first
+  paint (`index.html` draws it before Studio's code arrives; `ui/StudioSplash.jsx` takes over in the same place,
+  styles in `ui/splash.css`, words in `ui/splashSteps.js`), so there is no second loader any more. A new workplace
+  (`?new=1`, removed from the address at once) keeps "Creating your workplace" ticked and says how to rename it.
+  Studio's files failing to load = "Workplace Studio could not be opened" with Try again (no endless spinner).
+  `build:ahdus` copies `splash.css` next to Studio, so the 3D Company page draws the same screen from the click.
+- **Faster opening for editors:** `build:ahdus` writes `workplace-studio/prefetch.json` (`scripts/studio-prefetch.mjs`:
+  Studio's start files from Vite's manifest, 39 files). The 3D Company page prefetches them at the lowest priority,
+  for editors only (never employees, never with Save-Data). Measured click → Studio ready (local AHDUS, RTX 4060,
+  fresh browser profile, median of 3): Edit 1,233 → 1,196 ms, Create 2,087 → 1,242 ms; at 20 Mbit/s + 40 ms: Edit
+  1,919 → 1,204 ms, Create 2,707 → 1,334 ms. After the click Studio downloads 141 kB instead of ~1 MB (24 of its 26
+  files from the cache). Create no longer waits 800 ms before leaving.
+- **Simple figures in colour:** when the full-character limit is reached, the people drawn as simple figures wear
+  their outfit's main colours (top, trousers; skin-toned head) with softer shading, instead of grey dummies
+  (`play/figureLook.js`: the Wardrobe's clothing, else the manifest's new optional `colors`, else a suit colour for a
+  Rocketbox outfit, else a palette colour by `personId`). Each pose is 3 thin-instance meshes (6 for any number of
+  people).
+- **The full-character limit really rises:** the frames spent making characters counted as slow, so the limit fell
+  back to 12 and the quality dropped a step on a fast graphics card. Now the frame-rate windows wait while characters
+  are being made (and 1.5 s after). Measured (Meridian, 319 people, RTX 4060): 12 → 16 → 20 → 24 within ~30 s, ~125
+  FPS, full quality, in every run (before: back to 12, shadows off for a minute).
+- **Room type only when it says something new:** "Corridor · Corridor", "Stairs · Staircase", "Meeting room · Meeting
+  room" show just the name (`play/roomNames.js`), in Find's results and menus and Studio's room card / hover card.
+  AHDUS's 3D Company room list uses the same rule.
+
 ## 0.17.1 (14 Nov 2026): simple
 
 Fewer things on screen in the 3D view (the viewer and the embed; Workplace Studio is unchanged). Every key still

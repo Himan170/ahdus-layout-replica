@@ -1,42 +1,8 @@
 /* Loading screen, toast and dialog (StudioSplash, Toast, Dialog). Colours only from theme.css. */
 
-/* ── Loading screen (ui/StudioSplash.jsx) ─────────────────────────── */
-
-.studio-splash {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-6);
-  padding: var(--space-4);
-  background: var(--bg-app);
-  color: var(--text);
-  font-family: var(--font);
-  opacity: 1;
-  transition: opacity var(--splash-fade, 300ms) ease;
-}
-.studio-splash.is-leaving { opacity: 0; pointer-events: none; }
-.studio-splash.is-error { gap: 0; }
-.studio-splash__brand { display: flex; align-items: center; gap: var(--space-3); }
-.studio-splash__name { display: flex; flex-direction: column; font-size: 22px; font-weight: 600; line-height: 1.2; }
-.studio-splash__ahdus { color: var(--text-muted); font-size: 13px; font-weight: 600; letter-spacing: 0.08em; }
-.studio-splash__spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: studio-splash-spin 0.9s linear infinite;
-}
-.studio-splash__text { margin: 0; color: var(--text-muted); font-size: 14px; }
+/* The loading screen (ui/StudioSplash.jsx) has its own file: ui/splash.css (also inlined in index.html).
+   .studio-splash__actions stays here for EditorErrorBoundary. */
 .studio-splash__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-@keyframes studio-splash-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) {
-  .studio-splash { transition: none; }   /* StudioSplash hides it at once too (splashFadeMs) */
-}
 
 /* ── Toast (ui/Toast.jsx) ─────────────────────────────────────────── */
 
