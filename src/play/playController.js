@@ -549,11 +549,11 @@ export function createPlayController(scene, canvas, {
    * in doorways/windows (roomBuilder) are looked through unless `panes` is set:
    * aiming through a door at a desk targets the desk.
    */
-  function aimPick(predicate, maxDist = REACH + CAM_DISTANCE, { panes = false } = {}) {
+  function aimPick(predicate, maxDist = REACH + CAM_DISTANCE, { panes = false, near = false } = {}) {
     const { origin, dir } = aimLine();
     const ray = new Ray(origin, dir, maxDist);
     const hit = scene.pickWithRay(ray, (m) =>
-      m.isPickable && m.isEnabled() && m.isVisible !== false && !isPlayerMesh(m) && !isGhostMesh(m) &&
+      (!near || nearby.has(m)) && m.isPickable && m.isEnabled() && m.isVisible !== false && !isPlayerMesh(m) && !isGhostMesh(m) &&
       (panes || !m.metadata?.pickPane) && predicate(m));
     return hit?.hit ? hit : null;
   }
@@ -1307,7 +1307,8 @@ export function createPlayController(scene, canvas, {
   function interactTarget() {
     const hit = aimPick((m) =>
       !!objectIdOf(m) || m.metadata?.part === 'door' || m.metadata?.part === 'window',
-    REACH + CAM_DISTANCE);
+    // v0.17.0: asked every frame; only what is near can be within INTERACT_REACH (was a pick of every mesh)
+    REACH + CAM_DISTANCE, { near: true });
     if (!hit) return null;
     const p = hit.pickedPoint;
     const distance = Math.hypot(p.x - feet().x, p.z - feet().z);

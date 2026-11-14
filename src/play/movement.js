@@ -64,6 +64,8 @@ export function createNearbyMeshes(scene, { exclude } = {}) {
       const next = [];
       for (const m of scene.meshes) {
         if (exclude?.(m)) continue;
+        // a mesh moved since its last frame: its box where it is now (frozen meshes return at once)
+        m.computeWorldMatrix?.(true);
         const box = m.getBoundingInfo?.()?.boundingBox;
         if (!box) continue;
         const lo = box.minimumWorld;
