@@ -44,6 +44,7 @@ import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
+import { BoundingInfo } from '@babylonjs/core/Culling/boundingInfo';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import type { Material } from '@babylonjs/core/Materials/material';
@@ -197,6 +198,9 @@ export class CharacterSystem {
   private lastMade = -Infinity;
   private makeEvery: number;
   private pendingMake = false;
+  /** v0.17.0: a chosen person waits for their file, or the building is not drawn yet (makingMore). */
+  private pendingFile = false;
+  private notReady = true;
   /** v0.16.0: when each character file was last used by someone near (ms), for unloading. */
   private lastUsed = new Map<string, number>();
   /** Files asked for through loadFile() (your character, the walk clip, clip sets): never unloaded. */
@@ -321,7 +325,7 @@ export class CharacterSystem {
 
   /** v0.17.0: people chosen whose file is loaded but who wait their turn to be made (one per makeEvery ms). */
   get makingMore(): boolean {
-    return this.pendingMake;
+    return this.enabled && (this.pendingMake || this.pendingFile || (this.notReady && this.people.length > 0));
   }
 
   /** How many people are drawn as full characters now. */
@@ -439,7 +443,8 @@ export class CharacterSystem {
     this.place();
     const now = performance.now();
     // v0.17.0: none until the building is drawn (the figures show meanwhile)
-    if (now - this.lastChoice >= CHOOSE_EVERY_MS && (this.options.ready?.() ?? true)) {
+    this.notReady = !(this.options.ready?.() ?? true);
+    if (now - this.lastChoice >= CHOOSE_EVERY_MS && !this.notReady) {
       this.lastChoice = now;
       this.choose(now);
     }
@@ -513,10 +518,12 @@ export class CharacterSystem {
     const wanted = new Set(this.chosen);
     for (const id of [...this.full.keys()]) if (!wanted.has(id)) this.removeFull(id);
     let more = false;
+    let loading = false;
     for (const id of this.chosen) {
       if (this.full.has(id)) continue;
       const person = this.placed.find((p) => p.personId === id)!;
       const file = this.fileFor(person.character!.url); // every file asked for at once (the downloads)
+      if (file instanceof Promise) loading = true;
       if (!file || file === 'failed' || file instanceof Promise) continue;
       // v0.17.0: one at a time, the nearest first (chosen is nearest first); the next one in makeEvery ms
       if (now - this.lastMade < this.makeEvery) { more = true; continue; }
@@ -524,6 +531,7 @@ export class CharacterSystem {
       this.lastMade = now;
     }
     this.pendingMake = more;
+    this.pendingFile = loading;
     if (more) this.lastChoice = Math.min(this.lastChoice, this.lastMade + this.makeEvery - CHOOSE_EVERY_MS); // not 300 ms later
     this.unloadUnused(now);
   }
@@ -900,17 +908,26 @@ function samePlace(a: PlacedPerson, b: PlacedPerson): boolean {
 }
 
 /**
- * v0.17.0: a character is drawn without culling instead of measuring its posed box. The box of a skinned mesh in
- * its pose needs every vertex skinned on the CPU (refreshBoundingInfo({ applySkeleton: true }): 2 s of a slow
- * walk's profile); drawing itself skins on the GPU (Babylon stores the bones in a texture). A full character is
- * always near (≤ 18 m), so it is nearly always in view anyway, and a clip moves it out of any box measured once.
+ * v0.17.0: a character's box without skinning it on the CPU. The box of a skinned mesh in its pose needs every
+ * vertex skinned on the CPU (refreshBoundingInfo({ applySkeleton: true }): 2 s of a slow walk's profile); drawing
+ * itself skins on the GPU (Babylon stores the bones in a texture). Instead: its rest box (cheap) made a cube as
+ * big as its largest side × SKIN_BOX_GROW, about its middle, so a seated pose, a walk or a wave stays inside it.
+ * (Never culling them instead cost more: the bones of people behind you were posed every frame.)
  */
 export function skipSkinnedBounds(meshes: AbstractMesh[]): void {
   for (const m of meshes) {
-    m.refreshBoundingInfo({}); // its rest box (cheap), for anything that asks
-    m.alwaysSelectAsActiveMesh = true;
+    if (!m.getTotalVertices()) continue;
+    m.refreshBoundingInfo({});
+    const box = m.getBoundingInfo().boundingBox;
+    const c = box.center;
+    const e = box.extendSize;
+    const r = Math.max(e.x, e.y, e.z) * SKIN_BOX_GROW;
+    m.setBoundingInfo(new BoundingInfo(new Vector3(c.x - r, c.y - r, c.z - r), new Vector3(c.x + r, c.y + r, c.z + r)));
   }
 }
+
+/** v0.17.0: a character's cube box: its largest side × this (the rest pose's half-size → the cube's half-size). */
+export const SKIN_BOX_GROW = 1.25;
 
 /** World matrices from the top down (a child's uses its parent's). */
 export function refreshTree(top: TransformNode): void {

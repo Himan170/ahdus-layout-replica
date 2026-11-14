@@ -60,12 +60,12 @@ export function createNearbyMeshes(scene, { exclude } = {}) {
       const moved = Math.hypot(at.x - atX, at.z - atZ);
       if (moved < NEAR_REFRESH_M && now - atMs < NEAR_REFRESH_MS && scene.meshes.length === meshCount &&
           layoutKey === key) return false;
-      atX = at.x; atZ = at.z; atMs = now; meshCount = scene.meshes.length; key = layoutKey;
+      // new meshes: look again next frame too (a mesh made or moved this frame has its box where it was made)
+      const added = scene.meshes.length !== meshCount;
+      atX = at.x; atZ = at.z; atMs = added ? now - NEAR_REFRESH_MS : now; meshCount = scene.meshes.length; key = layoutKey;
       const next = [];
       for (const m of scene.meshes) {
         if (exclude?.(m)) continue;
-        // a mesh moved since its last frame: its box where it is now (frozen meshes return at once)
-        m.computeWorldMatrix?.(true);
         const box = m.getBoundingInfo?.()?.boundingBox;
         if (!box) continue;
         const lo = box.minimumWorld;

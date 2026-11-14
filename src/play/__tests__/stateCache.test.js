@@ -59,11 +59,14 @@ describe('createNearbyMeshes (v0.17.0)', () => {
     const scene = { meshes: [desk, far] };
     const near = createNearbyMeshes(scene);
     near.refresh({ x: 0, y: 0, z: 0 }, 0);
+    // meshes new since the last look (the first one too): looked at again on the next frame, then not
+    expect(near.refresh({ x: 0, y: 0, z: 0 }, 5)).toBe(true);
     expect(near.refresh({ x: 0.5, y: 0, z: 0 }, 10)).toBe(false);
     expect(near.refresh({ x: 1.2, y: 0, z: 0 }, 20)).toBe(true);
     expect(near.refresh({ x: 1.2, y: 0, z: 0 }, 20 + NEAR_REFRESH_MS)).toBe(true);
     scene.meshes = [desk, far, mesh('new', [0, 0, 0], [1, 1, 1])];
     expect(near.refresh({ x: 1.2, y: 0, z: 0 }, 30 + NEAR_REFRESH_MS)).toBe(true);
+    expect(near.refresh({ x: 1.2, y: 0, z: 0 }, 35 + NEAR_REFRESH_MS)).toBe(true); // the next frame, again
     expect(near.refresh({ x: 1.2, y: 0, z: 0 }, 40 + NEAR_REFRESH_MS, 'edited')).toBe(true);
     expect(near.refresh({ x: 1.2, y: 0, z: 0 }, 50 + NEAR_REFRESH_MS, 'edited')).toBe(false);
     // walking to the far desk brings it in

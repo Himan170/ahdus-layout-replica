@@ -100,7 +100,7 @@ describe('people after the building, one at a time (v0.17.0)', () => {
     cs.dispose();
   });
 
-  it('full characters skip the CPU-skinned box: never culled instead', async () => {
+  it('full characters skip the CPU-skinned box: a cube about their rest box holds the pose', async () => {
     const cs = system({ makeEveryMs: 0 });
     cs.setPeople(people.slice(0, 1));
     for (let i = 0; i < 100 && cs.fullCount === 0; i++) {
@@ -112,7 +112,24 @@ describe('people after the building, one at a time (v0.17.0)', () => {
     const root = scene.getTransformNodeByName('person_p0')!;
     const meshes = root.getChildMeshes(false).filter((m) => m.getTotalVertices() > 0);
     expect(meshes.length).toBeGreaterThan(0);
-    for (const m of meshes) expect(m.alwaysSelectAsActiveMesh).toBe(true);
+    // a cube about the rest box, big enough for the seated pose (the knees, the feet), culled as any mesh
+    const cs2 = cs as any;
+    const bones: Map<string, any> = cs2.full.get('p0').bones;
+    for (const m of meshes) {
+      expect(m.alwaysSelectAsActiveMesh).toBe(false);
+      m.computeWorldMatrix(true);
+      const box = m.getBoundingInfo().boundingBox;
+      const e = box.extendSize;
+      expect(e.x).toBeCloseTo(e.y, 5);
+      expect(e.y).toBeCloseTo(e.z, 5);
+      for (const name of ['Hips', 'LeftFoot', 'RightFoot', 'Head', 'LeftHand']) {
+        const at = bones.get(name)?.getAbsolutePosition();
+        if (!at) continue;
+        expect(at.x).toBeGreaterThan(box.minimumWorld.x); expect(at.x).toBeLessThan(box.maximumWorld.x);
+        expect(at.y).toBeGreaterThan(box.minimumWorld.y); expect(at.y).toBeLessThan(box.maximumWorld.y);
+        expect(at.z).toBeGreaterThan(box.minimumWorld.z); expect(at.z).toBeLessThan(box.maximumWorld.z);
+      }
+    }
     cs.dispose();
   });
 });
