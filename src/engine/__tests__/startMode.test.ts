@@ -52,9 +52,9 @@ describe('the welcome card\'s words', () => {
     expect(welcomeTitle(null)).toBe('Welcome');
   });
   it('v0.17.1: the card points to Find and More (each starts from one place), only where the viewer has them', () => {
-    expect(welcomeTip()).toBe('Find a person or place with Find. The company tour is under More.');
+    expect(welcomeTip()).toBe('Find a person or place with Find. The tour is also under More.');
     expect(welcomeTip({ tour: false })).toBe('Find a person or place with Find.');
-    expect(welcomeTip({ search: false })).toBe('The company tour is under More.');
+    expect(welcomeTip({ search: false })).toBe('The tour is also under More.');
     expect(welcomeTip({ tour: false, search: false })).toBeNull();
   });
 });

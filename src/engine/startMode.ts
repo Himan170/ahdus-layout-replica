@@ -70,9 +70,9 @@ export function welcomeTitle(name: unknown): string {
  * More → Company tour): no buttons of their own on the card. null: the viewer has neither.
  */
 export function welcomeTip({ tour = true, search = true }: { tour?: boolean; search?: boolean } = {}): string | null {
-  if (search && tour) return 'Find a person or place with Find. The company tour is under More.';
+  if (search && tour) return 'Find a person or place with Find. The tour is also under More.';
   if (search) return 'Find a person or place with Find.';
-  if (tour) return 'The company tour is under More.';
+  if (tour) return 'The tour is also under More.';
   return null;
 }
 

@@ -342,6 +342,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [welcomeName, setWelcomeName] = useState<string | null>(null);
   // v0.17.1: the keys on the welcome card (a first visit; undefined: not decided yet)
   const [welcomeKeys, setWelcomeKeys] = useState<string | null | undefined>(undefined);
+  // v0.17.1: the card's tour button says the tour's size once it is planned (in idle time): drawn again then
+  const [, setTourPlanned] = useState(0);
   // v0.17.1: More's menu, the help's "All shortcuts", the box under the toolbar (PlaceSearch), and closing a route's end
   const [moreOpen, setMoreOpen] = useState(false);
   const [helpAll, setHelpAll] = useState(false);
@@ -717,6 +719,12 @@ export function LayoutViewer(props: LayoutViewerProps) {
     if (touring || findOpen || moreOpen) setWelcome(false);
   }, [touring, findOpen, moreOpen]);
   useEffect(() => {
+    if (!engine || !welcome || !tour || engine.navigation.tourPlanReady) return undefined;
+    let live = true;
+    engine.whenNavigationReady().then(() => { if (live) setTourPlanned((n) => n + 1); }, () => {});
+    return () => { live = false; };
+  }, [engine, welcome, tour]);
+  useEffect(() => {
     if (!welcome || !walking) return undefined;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -863,9 +871,10 @@ export function LayoutViewer(props: LayoutViewerProps) {
     if (r.problem) engine.walkthrough?.say(r.message ?? 'No tour here', 2500);
     focusView();
   };
-  const onWelcome = () => {
+  const onWelcome = (action: 'explore' | 'tour') => {
     setWelcome(false);
-    focusView();
+    if (action === 'tour') startTour();
+    else focusView();
   };
   // The weak device's note (v0.14.8): "Walk anyway" = walking from the entrance (remembered: the next visit walks),
   // then the welcome card (a deep link: its route's line instead, as a walking start with openAt)
@@ -930,6 +939,13 @@ export function LayoutViewer(props: LayoutViewerProps) {
   ) : null;
   // More (v0.17.1): Back to entrance, the company tour, the help, Low graphics, Hide me
   const hideMe = props.hideMe ?? null;
+  // the welcome card's tour button: its size ('' = a layout with no tour stops: no button)
+  const welcomeTourDetail = (() => {
+    if (!tour || !engine || !welcome) return '';
+    const plan = engine.navigation.tourPlanReady;
+    if (plan && !plan.stops.length) return '';
+    return tourDetail({ count: plan?.stops.length ?? null, minutes: plan?.minutes ?? null, visited: 0 });
+  })();
   const tourItem = (() => {
     if (!tour || !ready || !engine || !moreOpen) return null;
     if (touring) return { detail: tourList ? 'Hide the stops' : 'Show the stops' };
@@ -1162,7 +1178,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
         );
       })()}
       {welcome && walking && floorReady && !error && (
-        <WelcomeCard name={welcomeName} tour={tour} search={search} keys={welcomeKeys ?? null}
+        <WelcomeCard name={welcomeName} tour={tour && welcomeTourDetail !== ''} search={search} keys={welcomeKeys ?? null}
+          tourDetail={welcomeTourDetail || null}
           narrow={narrow} bottom={tourBottom} compact={short} onAction={onWelcome} />
       )}
       {noteShown && note && floorReady && !error && (
