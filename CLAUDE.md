@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1481, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1518, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -72,7 +72,7 @@ npm run e2e:measurements # 23   e2e/measurements-smoke.mjs (off at start, the Me
 npm run e2e:templates # 9 checks  e2e/templates-smoke.mjs (new layout from a template: small office, clinic, factory floor)
 npm run e2e:save     # 30 checks   e2e/save-smoke.mjs      (auto-save, reopen, version history, old saves, list, delete, export/import,
                      #                                       companies, two tabs on one layout)
-npm run e2e:perf     # 20 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
+npm run e2e:perf     # 21 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
                      #                                       and in viewer.html with the company tour walking / at a stop (TOUR=off skips it);
                      #                                       one room change rebuilds only it + its neighbours; all items
                      #                                       real models; REALISTIC=off measures the simple look)
@@ -91,7 +91,8 @@ npm run e2e:viewer   # 34 checks   e2e/viewer-smoke.mjs    (viewer.html: <Layout
                      #                                       departments, kinds, floors; ↓ Enter / Esc), recent
                      #                                       searches, walking chips "Nearest stairs · 7 m");
                      #                                       v0.14.3: ?debug=tour (the plan, its panel, its route)
-npm run e2e:embed    # 38 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
+npm run e2e:embed    # 39 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
+                     #                                       (v0.17.0: no WebGPU shaders, no editor commands either)
                      #                                       in it (no Supabase), serves embed-test.html itself; keys at once, the page's own field / button, hover, Esc, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
                      #                                       with cookies, destroy(), assets next to the script, quality low,
@@ -152,7 +153,8 @@ npm run e2e:touch   # 15 checks   e2e/touch-smoke.mjs     (viewer.html on a phon
                      #                                       "?"), the HUD one line beside the joystick, the knob pushed
                      #                                       forward never under it,
                      #                                       a mouse = mouse words again; SHOTS=<dir>: phone screenshots)
-npm run e2e:controls # 16 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
+npm run e2e:controls # 17 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
+                     #                                       (v0.17.0: "Low graphics" in the help, kept after a reload)
                      #                                       to look (cursor stays), Back to entrance / ? / Find / Clear give
                      #                                       the keys back, click the floor walks there, a key ends it, a
                      #                                       desk = the card, the CNC = its action, double-click / L / Esc,
@@ -510,6 +512,10 @@ src/play/live.js                   PURE (v0.16.1): live presence: cleanLive / cl
 src/engine/systems/LiveSystem.ts   engine.live (v0.16.1): live people drawn (figures `live_people`, full characters
                                    `live_<id>` via animatedCharacter), their desks emptied, name tags (DOM, `[data-live-tag]`)
 src/engine/systems/FullCap.ts      FullCapMonitor (v0.16.1): the full-character limit measured from the frame rate
+src/engine/systems/QualityMonitor.ts  v0.17.0: the viewer's drawing quality from its frame rate (steps: play/quality.js)
+src/engine/systems/StaticShadows.ts   v0.17.0: the viewer's sun shadows drawn once, again when the casters change
+src/play/stateCache.js             PURE (v0.17.0): cachedLayoutState, lastResult (lists made again only when records change)
+src/embed/readOnlyEditor.js        v0.17.0: the embed file's editor (refuses every change; vite.embed.config.js)
 src/play/outfit.js                 PURE (v0.16.0): the Wardrobe's clothing on Rocketbox parts (cleanClothing, parts, tints)
 src/utils/gltfExtensions.js        The glTF extensions we load (webp, specular, unlit; v0.16.0 meshopt + quantization,
                                    the npm decoder bundled, never Babylon's CDN)
@@ -1193,6 +1199,46 @@ Harsh or AHDUS into this repo** (public; Mixamo licence): tests and demos use ou
   figure; no clip, a failed clip or manifest `walk: false` = the standing pose (slides). Our test clip:
   `public/assets/characters/placeholder-walk.glb` (`scripts/make-placeholder-character.mjs`: 1.2 m/s).
 
+## Smooth (v0.17.0, how it works)
+
+The viewer / embed on weak devices (part 1 of Himan's v0.17 plan; "simple" UI changes are v0.17.1). Measured with a
+4 × slower CPU on Meridian: private-docs/screenshots/v0.17-measure/ (not in git). Studio is unchanged unless said.
+- **Heap growth (part 0):** not a leak: a walk there and back 3 times comes back down after a forced GC. One real
+  leak fixed: a character file's baked clips stayed after the file was unloaded (`ClipLibrary.forget(url)`).
+- **Walking** (`play/movement.js` `createNearbyMeshes`): collisions, the third-person camera's ray, aiming and E test
+  only the meshes whose box is within `NEAR_RADIUS` 8 m sideways (4 m below, 8 m above), looked up again after 1 m,
+  500 ms, a layout change, or (next frame) when meshes were added; `collider.surroundingMeshes` = that list. The
+  layout's arrays are made again only when the store's records change (`play/stateCache.js`: `cachedLayoutState` for
+  WalkthroughSystem and Studio's Preview, `lastResult` for rooms / stairs per floor).
+- **The building first** (`LayoutEngine` `CHARACTERS_AFTER_FRAMES` 10, CharacterSystem option `ready`): no full
+  character (and not your own file) until the start floor is built and drawn 10 frames; then one at a time,
+  nearest first (`MAKE_EVERY_MS` 200; `makingMore` true while one waits, its file downloads or the building isn't
+  drawn: e2e waits on it). Room materials start flat (`materialLibrary` `later`) when the realistic look will
+  replace them anyway; painted only if it doesn't come (no twin, a texture error, the look off).
+- **Skinning is on the GPU** (Babylon's default, bone textures; checked in the browser: 27 of 27). The CPU cost was
+  ours: boxes computed from the bones. Full characters get a fixed cube box (`skipSkinnedBounds`, `SKIN_BOX_GROW`
+  1.25), never `alwaysSelectAsActiveMesh` (that posed every out-of-view skeleton every frame).
+- **Quality** (`play/quality.js` PURE, `systems/QualityMonitor.ts`, LayoutEngine `drawQuality`, option
+  `autoQuality`): pixel ratio never above `MAX_PIXEL_RATIO` 2 (also Studio, SceneSetup). Steps (`qualitySteps(dpr)`,
+  steps that change nothing left out): ratio 2, 1.5, 1, then no shadows, then `LOW_FULL_CHARACTERS` 6. One 3 s
+  window under `DROP_FPS` 30 (p90, live.js `windowFps`) = a step down at once; `RAISE_AFTER` 5 windows at
+  `RAISE_FPS` 50 = one up, never within `RAISE_HOLD_MS` 60 s of a drop; measured only once everything is built and
+  the page shows. The full-character cap = min(FullCap's, the step's). The 'quality' event. **Low graphics**
+  (`engine.setLowGraphics`, the "?" help's switch `[data-low-graphics]`, localStorage `ahdus.lowGraphics`): the
+  simple look, no characters, no shadows, ratio 1 (a forced step; the monitor waits). Moves into "More" in v0.17.1.
+- **Shadows drawn once** (`systems/StaticShadows.ts`, the viewer only): the map's refreshRate RENDER_ONCE, drawn
+  again when a caster is added / removed / shown / hidden, the store's rooms / objects / floors change, shadows come
+  back on, and once more when every caster's shadow shader is ready; the sun's box kept meanwhile
+  (`autoUpdateExtends` off). Nothing that casts shadows moves in the viewer (the walker and people cast none).
+- **Viewer only:** `scene.skipPointerMovePicking` (it picks on its own clicks, hover, E); `createLayoutScene({
+  preserveDrawingBuffer: false })` (Studio keeps true: exports, thumbnails).
+- **Smaller embed** (`vite.embed.config.js` plugin `ahdus-embed-smaller`): Babylon's WGSL shaders = an empty module
+  (one file inlines every dynamic import; the embed draws with WebGL), LayoutEngine's editor = `embed/readOnlyEditor.js`
+  (same names, `readOnlyEditor.test.js`). 2,959 → 2,643 kB (gzip 762 → 705). Studio and viewer.html builds unchanged.
+- Tests: `play/__tests__/quality.test.js`, `stateCache.test.js`, `engine/__tests__/QualityMonitor.test.ts`,
+  `StaticShadows.test.ts`, `characterPacing.test.ts`, `characterLeak.test.ts`, `materialPaintLater.test.js`,
+  `LayoutEngine.test.ts` ("drawing quality and Low graphics"), `embed/__tests__/readOnlyEditor.test.js`.
+
 ## Live presence (v0.16.1, how it works)
 
 Part A of Himan's v0.16.1 request (13 Nov 2026); Part B (AHDUS-FRONTEND: the WebSocket, Hide me) comes after the tag.
@@ -1661,6 +1707,13 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: smooth (v0.17.0, 14 Nov 2026, branch `feature/v0.17.0-smooth`)
+
+Part 0 (heap: no leak; baked clips freed with their file), smoother walking and stairs, the building first and the
+people one at a time (skinning was already on the GPU), automatic quality + "Low graphics", shadows drawn once, no
+pointer-move picking, a smaller embed (see "Smooth"; CHANGELOG.md). Weak runs (desktop + phone, quality on / off):
+private-docs/screenshots/v0.17-measure/ (not in git). v0.17.1 "simple" is planned after the merge.
 
 ## DONE: small fixes (v0.16.2, 14 Nov 2026, branches `fix/ime-safe-enter`, `fix/v0.16.2-small-fixes`)
 

@@ -45,6 +45,7 @@ const load = async (url: string, sc: Scene) => {
 
 function system() {
   return new CharacterSystem(scene, {
+    makeEveryMs: 0, // v0.17.0: these check who wears what; the pacing is characterPacing.test.ts
     getLayout: () => ({ objects, floors, currentFloor: 0 }),
     getObjectMesh: () => ({ isEnabled: () => true, isDisposed: () => false }),
     loadFile: load,

@@ -299,20 +299,45 @@ function paintTile(ctx, painter, size) {
   } catch { /* no DOM canvas (tests): paint again next time */ }
 }
 
-function makeTextureMaterial(scene, key, { specular = 0.05, size = 512 } = {}) {
-  const tex = new DynamicTexture(`tex_${key}`, { width: size, height: size }, scene, true);
-  const ctx = tex.getContext();
-  paintTile(ctx, PAINTER[key] ?? key, size);
-  tex.update();
-  tex.wrapU = Texture.WRAP_ADDRESSMODE;
-  tex.wrapV = Texture.WRAP_ADDRESSMODE;
-  tex.anisotropicFilteringLevel = 8;
+/**
+ * v0.17.0: a room surface's flat colour (about its painted tile's), shown while its photo textures load when the
+ * realistic look is on: painting the tiles was 13 % of a slow laptop's loading, for pictures replaced seconds later.
+ */
+const FLAT_COLOUR = {
+  wood: '#a9825a', carpet: '#5e6873', tile: '#9a958d', smallTile: '#b6babd', concrete: '#8d918f',
+  raised: '#585d62', plaster: '#e8e4dc',
+};
 
+function makeTextureMaterial(scene, key, { specular = 0.05, size = 512, later = false } = {}) {
   const mat = new StandardMaterial(`mat_${key}`, scene);
-  mat.diffuseTexture = tex;
   mat.specularColor = new Color3(specular, specular, specular);
   mat.specularPower = 64;
+  const paint = () => {
+    const tex = new DynamicTexture(`tex_${key}`, { width: size, height: size }, scene, true);
+    paintTile(tex.getContext(), PAINTER[key] ?? key, size);
+    tex.update();
+    tex.wrapU = Texture.WRAP_ADDRESSMODE;
+    tex.wrapV = Texture.WRAP_ADDRESSMODE;
+    tex.anisotropicFilteringLevel = 8;
+    mat.diffuseTexture = tex;
+    mat.diffuseColor = new Color3(1, 1, 1);
+  };
+  const flat = FLAT_COLOUR[PAINTER[key] ?? key];
+  if (later && flat) {
+    mat.diffuseColor = Color3.FromHexString(flat);
+    unpainted.set(mat, paint);
+  } else paint();
   return markShared(mat);
+}
+
+/** v0.17.0: procedural materials made flat (their photo twin on the way) → paint them. */
+const unpainted = new WeakMap();
+/** Paint a flat procedural material now (its photo twin failed, or the realistic look went off). */
+function ensurePainted(material) {
+  const paint = material && unpainted.get(material);
+  if (!paint) return;
+  unpainted.delete(material);
+  paint();
 }
 
 // ── Shared materials ─────────────────────────────────────────────────────
@@ -451,7 +476,7 @@ function twinFor(scene, key, proc, tile) {
   all.set(key, twin);
   const setName = REALISTIC_SURFACES[key];
   const set = TEXTURE_SETS[setName];
-  if (!set) { twin.failed = true; return twin; }
+  if (!set) { twin.failed = true; ensurePainted(proc); return twin; }
 
   const m = new PBRMaterial(`real_${key}`, scene);
   let waiting = 3;
@@ -469,6 +494,7 @@ function twinFor(scene, key, proc, tile) {
       (message) => {
         if (twin.failed) return;
         twin.failed = true; // keeps the procedural material
+        ensurePainted(twin.proc);
         settle();
         console.warn(`[realistic look] ${setName}/${file}.jpg could not be loaded: ${message ?? ''}`);
       });
@@ -510,6 +536,7 @@ function applySurfaceLook(scene) {
   const on = isRealistic(scene);
   const map = new Map();
   for (const twin of twins.get(scene)?.values() ?? []) {
+    if (!on) ensurePainted(twin.proc); // the procedural look again: its picture now
     if (!twin.ready || !twin.material) continue;
     if (on) map.set(twin.proc, twin.material); else map.set(twin.material, twin.proc);
   }
@@ -528,7 +555,9 @@ export function getMaterials(scene) {
   const floorGetters = Object.fromEntries(
     ['wood', 'carpet', 'tile', 'corridor', 'smallTile', 'concrete', 'raised'].map((k) => [
       k,
-      lazy(k, () => makeTextureMaterial(scene, k, { specular: k === 'tile' || k === 'corridor' ? 0.25 : k === 'wood' ? 0.12 : 0.04 })),
+      lazy(k, () => makeTextureMaterial(scene, k, {
+        specular: k === 'tile' || k === 'corridor' ? 0.25 : k === 'wood' ? 0.12 : 0.04, later: isRealistic(scene),
+      })),
     ]),
   );
 
@@ -554,10 +583,10 @@ export function getMaterials(scene) {
 
   lib = {
     floor: (kind) => (floorSurfaces[kind] ?? floorSurfaces.wood)(),
-    plaster: surface('plaster', lazy('plaster', () => makeTextureMaterial(scene, 'plaster', { specular: 0.02 })), TILE_SIZE.plaster),
+    plaster: surface('plaster', lazy('plaster', () => makeTextureMaterial(scene, 'plaster', { specular: 0.02, later: isRealistic(scene) })), TILE_SIZE.plaster),
     // Slab, roof, parapet, wall band: plaster too, but grey concrete-plaster when realistic
     structure: surface('structure', lazy('structure', () => {
-      const m = makeTextureMaterial(scene, 'plaster', { specular: 0.02 });
+      const m = makeTextureMaterial(scene, 'plaster', { specular: 0.02, later: isRealistic(scene) });
       m.name = 'mat_structure';
       return m;
     }), TILE_SIZE.plaster),

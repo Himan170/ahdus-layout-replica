@@ -65,7 +65,7 @@ import { createBuildPreview } from '../utils/buildPreview';
 import { itemOverFloorPoint, wallTargetOf } from '../utils/pickHelpers';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { createCharacter } from './character';
-import { moveWithSteps } from './movement';
+import { moveWithSteps, createNearbyMeshes } from './movement';
 import { lockPointer } from '../utils/pointerLock';
 import { createDragLook } from './dragLook';
 import { createWalkMapCache, FREE, STAIRS, BLOCKED } from './navigation/walkMap';
@@ -89,6 +89,7 @@ import { ridersOf } from '../utils/itemRiders';
 import { lockedText } from './locks';
 import { isWallItem, mountOnWall, mountText } from './wallMount';
 import { createFloorWalls } from './floorWalls';
+import { lastResult } from './stateCache';
 
 // ── Feel ──
 const JUMP_SPEED = 5.2;
@@ -372,14 +373,18 @@ export function createPlayController(scene, canvas, {
   const state = () => getState();
   const floorWalls = createFloorWalls(); // v0.15.6: the walls wall items hang on
   // Rooms on the floor the character is on (not the planner's floor)
-  const floorRooms = () => state().rooms.filter((r) => r.floor === currentLevel);
+  // v0.17.0: kept until the layout or the floor changes (asked at every 0.1 m step; was a new array each time)
+  const roomsOn = lastResult((rooms, floor) => rooms.filter((r) => r.floor === floor));
+  const roomsBelow = lastResult((rooms, floor) => {
+    const below = floorBelow(state().floors, floor);
+    return below ? rooms.filter((r) => r.floor === below.id) : null;
+  });
+  const stairsOf = lastResult((objects) => objects.filter((o) => o.assetType === 'STAIRCASE'));
+  const floorRooms = () => roomsOn(state().rooms, currentLevel);
   const levelElev = () => elevationOf(state().floors, currentLevel);
-  const stairsList = () => state().objects.filter((o) => o.assetType === 'STAIRCASE');
+  const stairsList = () => stairsOf(state().objects);
   /** Rooms on the floor below the one you're on (null on the lowest floor). */
-  const belowRooms = () => {
-    const below = floorBelow(state().floors, currentLevel);
-    return below ? state().rooms.filter((r) => r.floor === below.id) : null;
-  };
+  const belowRooms = () => roomsBelow(state().rooms, currentLevel);
   const floorName = (id) => Object.values(state().floors).find((f) => f.id === id)?.name ?? 'This floor';
   // Where the body fits (navigation/walkMap.js), per floor, built when first needed, kept until the layout changes
   const walkMaps = sharedWalkMaps ?? createWalkMapCache({ catalog: ASSET_TYPES });
@@ -407,6 +412,8 @@ export function createPlayController(scene, canvas, {
     messageUntil = performance.now() + ms;
   };
   const isPlayerMesh = (m) => m === collider || m.isDescendantOf?.(character.root);
+  // v0.17.0: collisions and the camera test only the meshes near you (Babylon tests every mesh of the scene)
+  const nearby = createNearbyMeshes(scene, { exclude: (m) => isPlayerMesh(m) });
   const isGhostMesh = (m) =>
     (ghost && (m === ghost || m.isDescendantOf?.(ghost))) ||
     (carry && carry.meshes.some((c) => m === c || m.isDescendantOf?.(c))) ||
@@ -542,11 +549,11 @@ export function createPlayController(scene, canvas, {
    * in doorways/windows (roomBuilder) are looked through unless `panes` is set:
    * aiming through a door at a desk targets the desk.
    */
-  function aimPick(predicate, maxDist = REACH + CAM_DISTANCE, { panes = false } = {}) {
+  function aimPick(predicate, maxDist = REACH + CAM_DISTANCE, { panes = false, near = false } = {}) {
     const { origin, dir } = aimLine();
     const ray = new Ray(origin, dir, maxDist);
     const hit = scene.pickWithRay(ray, (m) =>
-      m.isPickable && m.isEnabled() && m.isVisible !== false && !isPlayerMesh(m) && !isGhostMesh(m) &&
+      (!near || nearby.has(m)) && m.isPickable && m.isEnabled() && m.isVisible !== false && !isPlayerMesh(m) && !isGhostMesh(m) &&
       (panes || !m.metadata?.pickPane) && predicate(m));
     return hit?.hit ? hit : null;
   }
@@ -1300,7 +1307,8 @@ export function createPlayController(scene, canvas, {
   function interactTarget() {
     const hit = aimPick((m) =>
       !!objectIdOf(m) || m.metadata?.part === 'door' || m.metadata?.part === 'window',
-    REACH + CAM_DISTANCE);
+    // v0.17.0: asked every frame; only what is near can be within INTERACT_REACH (was a pick of every mesh)
+    REACH + CAM_DISTANCE, { near: true });
     if (!hit) return null;
     const p = hit.pickedPoint;
     const distance = Math.hypot(p.x - feet().x, p.z - feet().z);
@@ -1848,6 +1856,7 @@ export function createPlayController(scene, canvas, {
       }
     }
 
+    if (nearby.refresh(collider.position, performance.now(), state().objects)) collider.surroundingMeshes = nearby.list;
     const before = collider.position.clone();
     // Step up (stairs, room floors) after every small move, so climbing works at any frame rate
     const stepUp = () => {
@@ -1940,7 +1949,7 @@ export function createPlayController(scene, canvas, {
           const dist = toCam.length();
           if (dist < 1e-6) return null;
           const hit = scene.pickWithRay(new Ray(new Vector3(from.x, from.y, from.z), toCam.normalize(), dist), (m) =>
-            m.isPickable && m.isEnabled() && !isPlayerMesh(m) && !isGhostMesh(m) && !m.metadata?.pickPane &&
+            nearby.has(m) && m.isPickable && m.isEnabled() && !isPlayerMesh(m) && !isGhostMesh(m) && !m.metadata?.pickPane &&
             (m.metadata?.part === 'wall' || m.metadata?.part === 'window' || !!objectIdOf(m)));
           return hit?.hit ? hit.distance : null;
         },

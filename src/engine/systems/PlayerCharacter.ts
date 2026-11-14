@@ -39,7 +39,7 @@ import '@babylonjs/core/Animations/animatable';
 import {
   playerEyeHeight, walkRatio, STANDING_POSE, WALK_MIN_SPEED, chooseGait, stairLift, STAIR_HIP_LIFT,
 } from '../../play/people';
-import { copyCharacter, poseBones, refreshTree, restContainer } from './CharacterSystem';
+import { copyCharacter, poseBones, refreshTree, restContainer, skipSkinnedBounds } from './CharacterSystem';
 import type { Clothing } from './CharacterSystem';
 import { bakeClip, clipBones, instantiateClip, Animator, refreshChain } from './ClipLibrary';
 import type { BakedClip, ClipLibrary } from './ClipLibrary';
@@ -358,7 +358,7 @@ export function bakeGroup(
 
 function refreshAll(copy: Pick<CharacterCopy, 'root' | 'meshes'>): void {
   refreshTree(copy.root);
-  for (const m of copy.meshes) m.refreshBoundingInfo({ applySkeleton: true });
+  skipSkinnedBounds(copy.meshes); // v0.17.0: no CPU skinning for its box (it walks out of any box anyway)
 }
 
 type Snapshot = [TransformNode, Quaternion, Vector3][];

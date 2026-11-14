@@ -40,6 +40,7 @@ let scene: Scene;
 
 function system(extra: Partial<ConstructorParameters<typeof CharacterSystem>[1]> = {}) {
   return new CharacterSystem(scene, {
+    makeEveryMs: 0, // v0.17.0: these check who is made; the pacing is characterPacing.test.ts
     getLayout: () => ({ objects, floors, currentFloor: 0 }),
     getObjectMesh: () => ({ isEnabled: () => true, isDisposed: () => false }),
     loadFile: (url, sc) => registerGltfExtensions().then(() =>
@@ -160,14 +161,16 @@ describe('many people (v0.16.0)', () => {
     expect(cs.unloads).toBe(1);
     // the clip set (asked for through loadFile) stays
     expect(cs.loadedFiles).toContain('/c/clips.glb');
-    // back again: loaded again, posed by the clip baked before (not baked again)
+    // v0.17.0: its baked clips went with it (they stayed for the whole visit before)
+    expect(cs.clipLibrary.bakedFor('/c/suit.glb')).toBe(0);
+    // back again: loaded again and its clips baked again (one bake per clip, as the first time)
     const bakes = cs.clipLibrary.bakes;
     scene.activeCamera!.position.set(0, 1.6, -3);
     (scene.activeCamera as FreeCamera).computeWorldMatrix();
     await settled(cs, ['near']);
     expect(loads.filter((u) => u === '/c/suit.glb')).toHaveLength(2);
     expect(cs.fullState('near')!.clip).toBe('Type');
-    expect(cs.clipLibrary.bakes).toBe(bakes);
+    expect(cs.clipLibrary.bakes).toBe(bakes * 2);
     cs.dispose();
   });
 

@@ -39,6 +39,7 @@ import { studioWalkMaps } from './studioWalkMaps';
 import { NavigationSystem } from '../engine/systems/NavigationSystem';
 import { RouteLineSystem } from '../engine/systems/RouteLineSystem';
 import { createFloorWalls } from '../play/floorWalls';
+import { cachedLayoutState } from '../play/stateCache';
 
 export function useStudioScene({
   canvasRef, sceneRef, cameraRef, lightsRef, siteEnvRef, roomSystemRef, objectSystemRef, floorSystemRef, characterSystemRef,
@@ -144,15 +145,7 @@ export function useStudioScene({
       onPointClick: walkClick,
       onEmptyHand: () => setSelectedSlot(EMPTY_HAND),
       onDeactivate: () => { navigation.stop(); },
-      getState: () => {
-        const st = useWorkspaceStore.getState();
-        return {
-          rooms: Object.values(st.rooms),
-          objects: Object.values(st.objects),
-          currentFloor: st.currentFloor,
-          floors: st.floors,
-        };
-      },
+      getState: cachedLayoutState(() => useWorkspaceStore.getState()), // v0.17.0: arrays only when the layout changes
       actions: {
         addObject: (d) => editor.addObject(d),
         updateObject: (id, patch, opts) => editor.updateObject(id, patch, opts),
