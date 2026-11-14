@@ -291,6 +291,20 @@ const skyFaces = await p.evaluate(async () => {
 });
 log('the sky has all six sides (none black)', !!skyFaces && skyFaces.every((m) => m > 0.1), JSON.stringify(skyFaces));
 
+// v0.17.0: "Low graphics" in the help: the simple look at once (no reload), remembered after a reload
+await p.click('[data-hud="help"]');
+const lowOff = await p.getAttribute('[data-low-graphics]', 'data-low-graphics');
+await p.click('[data-low-graphics]');
+await frames(2);
+const lowOn = await p.evaluate(() => {
+  const e = window.__ahdusViewer;
+  const sw = document.querySelector('[data-low-graphics]');
+  return { attr: sw?.getAttribute('data-low-graphics'), checked: sw?.getAttribute('aria-checked'), low: e.lowGraphics,
+    shadows: e._layoutScene.lights.directional.shadowEnabled, full: e.characters?.fullCount ?? 0,
+    stored: localStorage.getItem('ahdus.lowGraphics') };
+});
+await p.keyboard.press('Escape');
+
 // ── 7. The hint only once per browser ──
 await p.reload();
 await ready();
@@ -299,6 +313,23 @@ await wait(2000);
 const again = await p.evaluate(() => ({ texts: window.__hintTexts ?? [], focus: document.activeElement?.matches('[data-layout-viewer]') }));
 log('after a reload the hint doesn\'t show again; the keys are the view\'s again at once', again.texts.length === 0 && again.focus,
   JSON.stringify(again));
+const lowAfter = await p.evaluate(() => window.__ahdusViewer.lowGraphics);
+await p.click('[data-hud="help"]');
+const lowAfterAttr = await p.getAttribute('[data-low-graphics]', 'data-low-graphics');
+await p.click('[data-low-graphics]');
+await frames(2);
+const lowBack = await p.evaluate(() => {
+  const e = window.__ahdusViewer;
+  // off again: the measured step's shadows (SwiftShader may have dropped them by itself)
+  return { low: e.lowGraphics, shadows: e._layoutScene.lights.directional.shadowEnabled === e.drawQuality.step.shadows,
+    forced: e.drawQuality.isForced, stored: localStorage.getItem('ahdus.lowGraphics') };
+});
+await p.keyboard.press('Escape');
+log('v0.17.0: "Low graphics" in the help: off, then on at once (no shadows, no full characters), remembered after a reload, off again',
+  lowOff === 'off' && lowOn.attr === 'on' && lowOn.checked === 'true' && lowOn.low && !lowOn.shadows && lowOn.full === 0
+    && lowOn.stored === '1' && lowAfter === true && lowAfterAttr === 'on' && !lowBack.low && lowBack.shadows && !lowBack.forced
+    && lowBack.stored === null,
+  JSON.stringify({ lowOff, lowOn, lowAfter, lowAfterAttr, lowBack }));
 
 // ── 8. Screenshots: the hint and the help on a phone (390 × 844), nothing off-screen ──
 if (SHOTS) {

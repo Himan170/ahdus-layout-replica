@@ -151,7 +151,7 @@ afterEach(() => {
  * once (buildBudgetMs: Infinity) unless a test asks for slices.
  */
 function makeEngine(options = {}) {
-  options = { buildBudgetMs: Infinity, ...options };
+  options = { buildBudgetMs: Infinity, charactersAfterFrames: 0, ...options };
   const engine = new NullEngine();
   const scene = new Scene(engine);
   const camera = new ArcRotateCamera('camera', -Math.PI / 3, Math.PI / 4, 30, Vector3.Zero(), scene);
@@ -1255,5 +1255,34 @@ describe('live presence (v0.16.1)', () => {
     expect(engine.live.count).toBe(1);
     engine.loadLayout(save()); // another layout: positions mean nothing there
     expect(engine.live.count).toBe(0);
+  });
+});
+
+describe('drawing quality and Low graphics (v0.17.0)', () => {
+  it('starts at the best step; Low graphics = no shadows, the simple look, no people; off = back again', () => {
+    const engine = makeEngine();
+    engine.loadLayout(save());
+    const sun = (engine as any)._layoutScene.lights.directional;
+    expect(engine.drawQuality.level).toBe(0);
+    expect(sun.shadowEnabled).toBe(true);
+    const quality: any[] = [];
+    engine.on('quality', (q) => quality.push(q));
+    engine.setLowGraphics(true);
+    expect(engine.lowGraphics).toBe(true);
+    expect(sun.shadowEnabled).toBe(false);
+    expect(engine.drawQuality.step.maxFull).toBe(0);
+    expect(quality.at(-1)).toMatchObject({ level: -1, shadows: false, maxFull: 0 });
+    engine.scene.render(); // a frame does not turn the shadows back on (the 2D / 3D switch does that)
+    expect(sun.shadowEnabled).toBe(false);
+    engine.setLowGraphics(false);
+    expect(sun.shadowEnabled).toBe(true);
+    expect(quality.at(-1)).toMatchObject({ level: 0, shadows: true });
+  });
+
+  it('autoQuality: false keeps the best step whatever the frames', () => {
+    const engine = makeEngine({ autoQuality: false });
+    engine.loadLayout(save());
+    for (let i = 0; i < 400; i++) engine.drawQuality.frame(200, i * 200);
+    expect(engine.drawQuality.level).toBe(0);
   });
 });

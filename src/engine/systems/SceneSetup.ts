@@ -11,6 +11,7 @@ import { Engine } from '@babylonjs/core/Engines/engine';
 import { Scene } from '@babylonjs/core/scene';
 import { Color4 } from '@babylonjs/core/Maths/math.color';
 import { Camera } from '@babylonjs/core/Cameras/camera';
+import { MAX_PIXEL_RATIO } from '../../play/quality';
 import type { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 // Side-effect imports: Babylon tree-shakes aggressively
 import '@babylonjs/core/Meshes/meshBuilder';
@@ -68,7 +69,8 @@ export function createLayoutScene(canvas: HTMLCanvasElement, options: LayoutScen
     preserveDrawingBuffer: true,
     stencil: true,
   });
-  engine.setHardwareScalingLevel(1 / window.devicePixelRatio);
+  // v0.17.0: never above MAX_PIXEL_RATIO (2): a phone at 3 drew 2.25 × the pixels for a difference hardly seen
+  engine.setHardwareScalingLevel(1 / Math.min(MAX_PIXEL_RATIO, window.devicePixelRatio || 1));
 
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.06, 0.08, 0.12, 1);

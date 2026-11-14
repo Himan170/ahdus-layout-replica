@@ -71,11 +71,14 @@ import { createPlayerCharacter } from './systems/PlayerCharacter';
 import { LiveSystem } from './systems/LiveSystem';
 import type { LivePersonInput, LiveInfo } from './systems/LiveSystem';
 import { FullCapMonitor } from './systems/FullCap';
+import { QualityMonitor } from './systems/QualityMonitor';
+import type { QualityStep } from './systems/QualityMonitor';
 import { createPoseThrottle, poseOf, liveStateOf } from '../play/live';
 import { seatPose } from '../play/people';
 import { SceneBuilder } from './systems/SceneBuilder';
 import type { BuildProgress } from './systems/SceneBuilder';
 import { elevationOf } from '../play/building';
+import { setRealistic } from '../utils/realLook';
 import { WalkthroughSystem } from './systems/WalkthroughSystem';
 import type { WalkthroughTarget, WalkthroughClick } from './systems/WalkthroughSystem';
 import { createWorkspaceStore } from '../store/workspaceStore';
@@ -120,6 +123,13 @@ export interface EngineOptions {
    * (FullCapMonitor: 12, up to 24 while frames stay smooth; weak devices 12).
    */
   fullCharacters?: number;
+  /**
+   * v0.17.0: lower the drawing quality by itself when frames are slow (the pixel ratio, then shadows, then fewer
+   * full characters; QualityMonitor), raise it again when smooth for a while. Default true; false: always the best.
+   */
+  autoQuality?: boolean;
+  /** v0.17.0: full characters (and your own) start this many frames after the start floor is drawn (tests: 0). */
+  charactersAfterFrames?: number;
 }
 
 /**
@@ -196,6 +206,8 @@ type EventMap = {
   tour: TourEvent;
   /** v0.16.1: your own pose, for the page to send to the others (PoseEvent). */
   pose: PoseEvent;
+  /** v0.17.0: the drawing quality changed by itself (slow / smooth frames): its step, 0 = the best. */
+  quality: { level: number; pixelRatio: number; shadows: boolean; maxFull: number | null };
 };
 
 /**
@@ -305,6 +317,9 @@ export class LayoutEngine {
   readonly live: LiveSystem;
   /** v0.16.1: how many full characters this device draws (measured from its frame rate). */
   readonly fullCap: FullCapMonitor;
+  /** v0.17.0: the drawing quality, lowered by itself when frames are slow (QualityMonitor). */
+  readonly drawQuality: QualityMonitor;
+  private _qualityStep: QualityStep | null = null;
   private _liveTick: (() => void) | null = null;
   private _capTick: (() => void) | null = null;
   private _pose = createPoseThrottle();
@@ -390,6 +405,7 @@ export class LayoutEngine {
   private constructor(layoutScene: LayoutScene, options: EngineOptions) {
     this._mode = options.mode ?? 'edit';
     this._quality = options.quality ?? 'high';
+    this._charactersAfter = options.charactersAfterFrames ?? CHARACTERS_AFTER_FRAMES;
     this._focusTarget = options.focusTarget ?? null;
 
     this._layoutScene = layoutScene;
@@ -436,16 +452,28 @@ export class LayoutEngine {
       measuring: () => !!this._builder?.progress.allBuilt && !(typeof document !== 'undefined' && document.hidden),
       fixed: options.fullCharacters ?? null,
     });
-    this.characters?.setMaxFull(this.fullCap.cap);
-    this.live.setFullCap(this.fullCap.cap);
+    this.drawQuality = new QualityMonitor({
+      dpr: typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
+      auto: options.autoQuality !== false,
+      measuring: () => !!this._builder?.progress.allBuilt && !(typeof document !== 'undefined' && document.hidden),
+      apply: (step) => this._applyQuality(step),
+    });
+    this.characters?.setMaxFull(this._fullCapNow());
+    this.live.setFullCap(this._fullCapNow());
     // the cap shared: the live people first (they move), the seated ones the rest; your pose for the page
     this._liveTick = () => {
-      this.characters?.setMaxFull(Math.max(0, this.fullCap.cap - this.live.fullCount));
+      this.characters?.setMaxFull(Math.max(0, this._fullCapNow() - this.live.fullCount));
+      // a 2D / 3D switch turns shadows back on: the quality's step wins
+      const sun = this._layoutScene.lights?.directional;
+      if (sun?.shadowEnabled && this._qualityStep && !this._qualityStep.shadows) sun.shadowEnabled = false;
       this._poseTick();
     };
     this.scene.onBeforeRenderObservable.add(this._liveTick);
     this._capTick = () => {
-      if (this.fullCap.frame(this.babylonEngine.getDeltaTime?.() ?? 16, performance.now())) this.live.setFullCap(this.fullCap.cap);
+      const ms = this.babylonEngine.getDeltaTime?.() ?? 16;
+      const now = performance.now();
+      const capChanged = this.fullCap.frame(ms, now);
+      if (this.drawQuality.frame(ms, now) || capChanged) this.live.setFullCap(this._fullCapNow());
     };
     this.scene.onAfterRenderObservable.add(this._capTick);
     this.navigation = new NavigationSystem({
@@ -992,8 +1020,48 @@ export class LayoutEngine {
 
   // ── Cleanup ────────────────────────────────────────────────────────────
 
+  /**
+   * v0.17.0: "Low graphics" (the viewer's switch): the simple look at once, as quality 'low' (simple models and
+   * colours, no people drawn), with the pixel ratio 1 and no shadows; off = the quality the engine was made with.
+   */
+  setLowGraphics(on: boolean): void {
+    if (on === this._lowGraphics) return;
+    this._lowGraphics = on;
+    const high = this._quality !== 'low';
+    if (high) setRealistic(this.scene, !on);
+    this.characters?.setEnabled(!on);
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.drawQuality.force(on ? { pixelRatio: Math.min(1, dpr), shadows: false, maxFull: 0 } : null);
+    this.live.setFullCap(this._fullCapNow());
+  }
+
+  get lowGraphics(): boolean {
+    return this._lowGraphics;
+  }
+
+  private _lowGraphics = false;
+
+  /** v0.17.0: the full-character cap now: the measured cap, at most the quality step's. */
+  private _fullCapNow(): number {
+    return Math.min(this.fullCap.cap, this._qualityStep?.maxFull ?? Infinity);
+  }
+
+  /** v0.17.0: draw with this quality step (the pixel ratio, shadows; the full characters through _fullCapNow). */
+  private _applyQuality(step: QualityStep): void {
+    const was = this._qualityStep;
+    this._qualityStep = step;
+    if (!was || was.pixelRatio !== step.pixelRatio) {
+      this.babylonEngine.setHardwareScalingLevel(1 / step.pixelRatio);
+      this.babylonEngine.resize?.();
+    }
+    const sun = this._layoutScene.lights?.directional;
+    if (sun && (!was || was.shadows !== step.shadows)) sun.shadowEnabled = step.shadows;
+    if (was) this.emit('quality', { level: this.drawQuality.isForced ? -1 : this.drawQuality.level, ...step });
+  }
+
   /** v0.17.0: the frame the start floor was first drawn in (null: not yet, or a new layout is being built). */
   private _floorReadyFrame: number | null = null;
+  private _charactersAfter = CHARACTERS_AFTER_FRAMES;
 
   /** v0.17.0: full characters may come: the start floor is built and CHARACTERS_AFTER_FRAMES frames were drawn since. */
   private _charactersReady(): boolean {
@@ -1003,7 +1071,20 @@ export class LayoutEngine {
     }
     const frame = this.scene.getFrameId();
     this._floorReadyFrame ??= frame;
-    return frame - this._floorReadyFrame >= CHARACTERS_AFTER_FRAMES;
+    return frame - this._floorReadyFrame >= this._charactersAfter;
+  }
+
+  /** v0.17.0: resolves once full characters may come (_charactersReady), checked after every frame. */
+  private _whenCharactersReady(): Promise<void> {
+    if (this._charactersReady()) return Promise.resolve();
+    return new Promise((resolve) => {
+      const check = () => {
+        if (!this._charactersReady() && !this.scene.isDisposed) return;
+        this.scene.onAfterRenderObservable.removeCallback(check);
+        resolve();
+      };
+      this.scene.onAfterRenderObservable.add(check);
+    });
   }
 
   /** How far building the layout is: { done, total, floor, currentFloorReady, allBuilt }. */
@@ -1100,7 +1181,8 @@ export class LayoutEngine {
     const files = this.characters!;
     this._playerReady = createPlayerCharacter(this.scene, {
       character, clothing: cleanClothing(p?.clothing), walkClipUrl: p?.walkClipUrl ?? null, walk: p?.walk,
-    }, (url) => files.loadFile(url), files.clipLibrary).then((made) => {
+      // v0.17.0: its file too only once the start floor is drawn (the simple figure walks meanwhile)
+    }, (url) => this._whenCharactersReady().then(() => files.loadFile(url)), files.clipLibrary).then((made) => {
       if (token !== this._playerToken || this._walkthrough !== walk) { made.dispose(); return; }
       walk.setCharacter(made);
     }, (err) => {
