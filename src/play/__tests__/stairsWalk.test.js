@@ -449,8 +449,18 @@ describe('stairProblems: what Studio says about a staircase', () => {
     const problems = stairProblems(s, oneFloor, [stairRoom]);
     expect(problems.map((p) => p.code)).toEqual(['NOWHERE', 'NO_STEP_ON', 'BLOCKS_DOOR']);
     expect(problems[0].text).toBe(`${STAIRS_LEAD_NOWHERE}: there is no floor above. Add one, with a room where they arrive`);
-    expect(problems[1].text).toBe("These stairs don't fit Stair hall: there's no room in front of the bottom step");
+    // v0.17.3: how much floor there is, and how far to move them (to whole 10 cm)
+    expect(problems[1].text).toBe("These stairs don't fit Stair hall: only 0.05 m of floor in front of the bottom step (0.8 m needed). Move them 0.8 m away from the wall there");
     expect(problems[2].text).toBe("These stairs don't fit Stair hall: they block a door");
+  });
+
+  it('the bottom step 0.3 m from the wall (as found on Render, v0.17.3): 0.25 m of floor, move them 0.6 m', () => {
+    const room = { ...stairRoom, x: 5.325, z: -3.825, width: 5.35, depth: 6.35, doors: [] }; // z −7 … −0.65
+    const s = stair({ x: 5, z: -3, rotationY: Math.PI }); // bottom step at z −1, the wall's inside face at −0.725
+    const stepOn = (st) => stairProblems(st, oneFloor, [room]).filter((p) => p.code !== 'NOWHERE'); // one floor: leads nowhere too
+    expect(stepOn(s)).toEqual([{ code: 'NO_STEP_ON',
+      text: "These stairs don't fit Stair hall: only 0.25 m of floor in front of the bottom step (0.8 m needed). Move them 0.6 m away from the wall there" }]);
+    expect(stepOn({ ...s, z: -3.6 })).toEqual([]);
   });
 
   it('a normal-size flight (4 m) sticks out of a 3.5 m stair room', () => {
