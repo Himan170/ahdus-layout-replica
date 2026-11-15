@@ -3,6 +3,21 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.17.3 (15 Nov 2026): a click on the stairs climbs them
+
+- **A click on a staircase walks up (or down) it:** found on Render in a real layout: a click on the steps (also in
+  mouse look, L) walked to the door in front of the stairs and stopped. A click used to walk to the spot clicked, on
+  the floor the flight starts on, and a step is not a place to stand: the route ended at the nearest spot in front
+  of the flight, or found none. Now a click anywhere on a flight walks to its other end, through the same link the
+  routes use (`route.stairsClickGoal`, from `playController.clickTarget`): from its floor (or below) up to where it
+  arrives, from the floor above down to the spot in front of its bottom step; and it ends ON that landing, not 1 m
+  short on the last steps (`NavigationSystem` `routeTo(…, { arriveWithin })`, `STAIRS_ARRIVE_WITHIN` 0.35 m). The
+  viewer, the embed and Studio's Walk through alike; the `walkClick` event carries `stairs: { objectId, direction }`.
+  Stairs that lead nowhere: a click walks as before. W and Take me there already climbed them.
+- **Check my layout says how far to move stairs:** "These stairs don't fit Staircase 3: only 0.25 m of floor in front
+  of the bottom step (0.8 m needed). Move them 0.6 m away from the wall there" (was "there's no room in front of the
+  bottom step"). The check's key is unchanged, so a warning someone ignored stays ignored until Show again.
+
 ## 0.17.2 (15 Nov 2026): small polish
 
 - **One loading screen for Workplace Studio:** in the AHDUS look (AHDUS green, Inter, light; dark only when AHDUS is
