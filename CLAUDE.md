@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1557, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1564, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -157,7 +157,7 @@ npm run e2e:touch   # 16 checks   e2e/touch-smoke.mjs     (viewer.html on a phon
                      #                                       "?"), the HUD one line beside the joystick, the knob pushed
                      #                                       forward never under it,
                      #                                       a mouse = mouse words again; SHOTS=<dir>: phone screenshots)
-npm run e2e:controls # 19 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
+npm run e2e:controls # 20 checks e2e/controls-smoke.mjs (viewer.html: keys with no click, the hint once, drag
                      #                                       (v0.17.0: "Low graphics" in the help, kept after a reload)
                      #                                       to look (cursor stays), Back to entrance / ? / Find / Clear give
                      #                                       the keys back, click the floor walks there, a key ends it, a
@@ -1034,7 +1034,12 @@ walkthrough only: **Studio's Preview keeps pointer lock exactly as before** (pla
   from its floor or below, the spot in front of its bottom step from above; null (leads nowhere / walled in) = as
   before), arriving within `STAIRS_ARRIVE_WITHIN` 0.35 m (`routeTo(…, { arriveWithin })`): on the landing, not on the
   last steps; Studio's Walk through too (`useStudioScene` walkClick). A step is not a place to stand: a click used to end
-  in front of the flight. No route = the problem as a short HUD message (`walk.say`). Event `walkClick` { action: person |
+  in front of the flight. **Walks nowhere (v0.17.3, PURE `play/clickHint.js`):** a wall / window / ceiling / roof
+  (`NO_WALK_PARTS`: walkTo null), the sky, or a route problem other than `ROOM_PROBLEMS` (NO_DOOR, START_NO_DOOR,
+  NO_STAIRS: their message stays, `walk.say`) = `walkClick.hint` "Click the floor or the stairs to walk there" (a tap:
+  "Tap the floor or the stairs"), at most once per `CLICK_HINT_GAP_MS` 4 s (`createHintGate`), drawn at the click by
+  `engine/react/ClickHint.tsx` (`[data-click-hint]`, 2 s, fades; gone when mouse look starts); Studio's Walk through the same
+  (`setClickHint`). Event `walkClick` { action: person |
   interact | walk | none, at, person?, objectId?, to?, stairs?: { objectId, direction }, problem?, message? }.
 - **A click's walk** (`source: 'click'`): no highlight, no strip (PlaceSearch ignores its events), a movement key or a
   double-click ends it ('stopped', no "Press G"), arrival ends it without turning. The line shows as for Take me there.
@@ -1728,7 +1733,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
   (stops, order and texts all come from the layout and the seats).
 - Touch (v0.14.1): no pinch to zoom, no flying or floor buttons by touch (Find + Take me there, or the stairs); the
   joystick has no run speed. The joystick is hidden from screen readers (Find + Take me there cover them).
-- A click on a wall walks to the spot in front of it; there is no "walk to the room behind this wall".
+- A click on a wall walks nowhere (v0.17.3: the hint "Click the floor or the stairs"); there is no "walk to the room behind this wall".
 - Start mode (v0.14.6): a weak device is found by the WebGL renderer's name only (software rendering) or quality 'low';
   a slow graphics card is not measured. The welcome card shows on every start that walks (not once per browser). Deep
   links are the page's to read (`openAt`): the viewer reads no address itself.
@@ -1808,7 +1813,8 @@ Search followed as v0.13.3 (below).
 
 Found on Render in a real layout ("rusborn"): a click on the steps walked to the door in front of them and stopped.
 A click on a flight now walks to its other end, onto the landing (see "Easy controls", A click); Check's NO_STEP_ON
-says how far to move the stairs (`building.stairProblems`). The layout itself: its ground-floor stairs start 0.3 m
+says how far to move the stairs (`building.stairProblems`); a click that walks nowhere shows "Click the floor or
+the stairs to walk there" at the click (`play/clickHint.js`; e2e:controls 20). The layout itself: its ground-floor stairs start 0.3 m
 from the wall with the office door; W and Take me there climbed them anyway. e2e:stairs 28 checks; CHANGELOG.md.
 
 ## DONE: small polish (v0.17.2, 15 Nov 2026, branch `feature/v0.17.2-polish`)

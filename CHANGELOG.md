@@ -14,6 +14,13 @@ What changed in each version, newest first. Older versions (up to 0.14.9) are li
   short on the last steps (`NavigationSystem` `routeTo(…, { arriveWithin })`, `STAIRS_ARRIVE_WITHIN` 0.35 m). The
   viewer, the embed and Studio's Walk through alike; the `walkClick` event carries `stairs: { objectId, direction }`.
   Stairs that lead nowhere: a click walks as before. W and Take me there already climbed them.
+- **"Click the floor or the stairs to walk there":** a walking click that walks nowhere (a wall, a window, a ceiling, the
+  sky, a spot no route reaches) shows this short hint next to the click (a phone: "Tap the floor or the stairs"), for
+  ~2 s, at most once every 4 s (`play/clickHint.js`, `engine/react/ClickHint.tsx`; viewer, embed and Studio's Walk
+  through). It replaces "No walking route to …" there; a room nobody can reach keeps its own message ("…: it has no
+  door", "…: no stairs lead to Floor 1"). Clicks on a person, an item with an action, a door, the toolbar or menus
+  never show it. A wall click used to walk to the spot in front of the wall: it walks nowhere now. The `walkClick`
+  event carries `hint` (the words) when one shows.
 - **Check my layout says how far to move stairs:** "These stairs don't fit Staircase 3: only 0.25 m of floor in front
   of the bottom step (0.8 m needed). Move them 0.6 m away from the wall there" (was "there's no room in front of the
   bottom step"). The check's key is unchanged, so a warning someone ignored stays ignored until Show again.

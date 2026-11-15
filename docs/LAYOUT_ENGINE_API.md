@@ -228,6 +228,9 @@ engine.on('walkClick', (e) => { ... });   // walkthrough (v0.14.0), a plain clic
                                           // (as E); walk = a route there, walk 'auto', source 'click'
                                           // v0.17.3: a click on a staircase walks to its OTHER end (up or down
                                           // it, onto the landing): to = that spot, stairs = { objectId, direction }
+                                          // v0.17.3: hint = "Click the floor or the stairs to walk there" ("Tap …" for a
+                                          // tap) when it walks nowhere (a wall, the sky, no route), at most once per 4 s;
+                                          // <LayoutViewer> shows it at the click. A room nobody can reach: message instead
 engine.on('mode', ({ mode }) => { ... });           // the mode changed (setMode, or a route started from above)
 engine.on('personDetails', ({ person }) => { ... }); // v0.14.7: E after a walk arrived at a person (not the window by
                                                      //   their desk); <LayoutViewer> pins their card
