@@ -3,6 +3,29 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.17.4 (16 Nov 2026): stairs that always work
+
+Found in a real layout on Render: the ground-floor stairs stood 0.3 m from a wall, in front of the stair room's only
+way in, so nobody could reach the room, and the editor had ignored two of Check's warnings. Editors never need
+coordinates to fix this now.
+- **Placing or moving stairs in Studio:** where there isn't 0.8 m of free floor in front of the bottom step and past
+  the top on the floor above (walls, furniture, other stairs, a door's way), the stairs turn red and the floor they
+  miss is shaded red, with the reason in the hint. Dropped or let go there, they move to the nearest spot that works
+  (same room, same turn): "Moved the stairs a little, so there is room to step on and off." Hold **Alt** to put them
+  exactly where you drop them. The library, dragging the stairs and Plan view alike (`play/stairFit.js`).
+- **Fix it:** every stairs problem in Check my layout, and "Nobody can walk to …" or a blocked door caused by stairs
+  or furniture, has a **Fix it** button: it moves the item to the nearest spot that works, as one undo step, and
+  selects it. The selected stairs' Inspector has it too. A fix is offered only when it really clears the problem.
+- **Plain words:** "The stairs are too close to the wall of Staircase 3: there is no room to step onto them", "The
+  stairs end too close to a wall on Floor 1: there is no room to step off at the top", "Desk is in the way at the
+  bottom of the stairs" (v0.17.3's "only 0.25 m … move them 0.6 m" is gone). Stairs problems now count as errors.
+- **Publish (AHDUS):** problems that stop people walking somewhere (a room nobody can reach, stairs with no space, a
+  room with no door, no way in) are listed in the Publish dialog even when ignored, each with Fix it; the button
+  reads "Publish anyway". Publishing is never blocked.
+- **Ignored problems:** Check shows "2 ignored · Show" (the Check button's tooltip counts them too), and ignoring a
+  problem that stops people walking asks once: "People can't walk there while this is wrong. Ignore it anyway?"
+- New: `npm run e2e:stairs-fit` (24 checks, on a copy of the Render layout when it is there); e2e:check 14 checks.
+
 ## 0.17.3 (15 Nov 2026): a click on the stairs climbs them
 
 - **A click on a staircase walks up (or down) it:** found on Render in a real layout: a click on the steps (also in

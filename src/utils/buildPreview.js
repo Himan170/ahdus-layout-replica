@@ -12,6 +12,7 @@
  *   wallTop(room, wallName, elevation, ok)      strip along the top of a wall (grab it: wall height)
  *   opening(room, wallName, offset, defaults, elevation, ok)  door / window in a wall
  *   box({x, y, z, sx, sy, sz}, ok)              any box (e.g. over an existing door to remove)
+ *   zones([{ x, y, z, hw, hd, rot }])           red patches on the floor (v0.17.4: the floor stairs miss)
  *   hide(...names) / hideAll()                  names: 'room' | 'wall' | 'box'
  *
  * Meshes are created once and reused (never per mouse move). None are pickable.
@@ -50,6 +51,7 @@ export function createBuildPreview(scene, name = 'build') {
   let roomParts = null;
   let wallBox = null;
   let boxMesh = null;
+  const zoneMeshes = [];
 
   function roomMeshes() {
     if (!roomParts) {
@@ -174,11 +176,29 @@ export function createBuildPreview(scene, name = 'build') {
     }, ok);
   }
 
+  /** Red patches lying on the floor: turned rectangles at world height y (the floor stairs need and miss). */
+  function zones(list = []) {
+    while (zoneMeshes.length < list.length) {
+      zoneMeshes.push(track(MeshBuilder.CreateBox(`${name}_pv_zone_${zoneMeshes.length}`, { size: 1 }, scene)));
+    }
+    zoneMeshes.forEach((m, i) => {
+      const z = list[i];
+      m.setEnabled(!!z);
+      if (!z) return;
+      m.material = BAD;
+      m.position.set(z.x, z.y + 0.04, z.z);
+      m.scaling.set(Math.max(z.hw * 2, 0.02), 0.06, Math.max(z.hd * 2, 0.02));
+      m.rotation.y = z.rot ?? 0;
+      m.renderingGroupId = 1; // over the floor and the stairs' own mesh
+    });
+  }
+
   function hide(...names) {
     for (const n of names) {
       if (n === 'room' && roomParts) [roomParts.floor, ...roomParts.walls].forEach((m) => m.setEnabled(false));
       if (n === 'wall') wallBox?.setEnabled(false);
       if (n === 'box') boxMesh?.setEnabled(false);
+      if (n === 'zones') zoneMeshes.forEach((m) => m.setEnabled(false));
     }
   }
 
@@ -186,12 +206,13 @@ export function createBuildPreview(scene, name = 'build') {
     room,
     wall,
     box,
+    zones,
     wallHighlight,
     wallTop,
     opening,
     segmentOpening,
     hide,
-    hideAll: () => hide('room', 'wall', 'box'),
+    hideAll: () => hide('room', 'wall', 'box', 'zones'),
     owns: (mesh) => all.includes(mesh),
     materials: { ok: OK, bad: BAD },
     dispose() {
@@ -200,6 +221,7 @@ export function createBuildPreview(scene, name = 'build') {
       roomParts = null;
       wallBox = null;
       boxMesh = null;
+      zoneMeshes.length = 0;
       OK.dispose();
       BAD.dispose();
     },

@@ -18,8 +18,10 @@ import { setCameraView, flyTo as flyCamera } from '../engine/systems/CameraSyste
 // Phase 2 utilities
 import {
   elevationOf, floorBelow,
-  stairProblems, floorPosition, steepStairsText, floorHeight,
+  floorPosition, steepStairsText, floorHeight,
 } from '../play/building';
+import { stairFit, findStairSpot } from '../play/stairFit';
+import { isAltDown } from '../utils/altKey';
 
 // Phase 3 utilities
 import { ASSET_TYPES } from '../utils/assetCatalog';
@@ -301,6 +303,24 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
         break;
       }
     }
+    // v0.17.4: stairs that can't be used here go to the nearest spot in the same room where they work
+    // (same turn); Alt held = exactly here
+    let moved = false;
+    if (result.assetType === 'STAIRCASE' && !result.free && !isAltDown()) {
+      const stair = { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor };
+      if (!stairFit(stair, store, { catalog: ASSET_TYPES }).ok) {
+        const spot = findStairSpot(stair, store, { catalog: ASSET_TYPES });
+        if (spot) {
+          result = { ...result, x: spot.x, z: spot.z };
+          roomId = spot.roomId ?? roomId;
+          moved = true;
+        }
+      }
+    }
+    // stairs that lead nowhere or don't fit their room: say so at once (the Inspector says it too)
+    const stairProblem = result.assetType === 'STAIRCASE' && stairFit(
+      { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor },
+      store, { catalog: ASSET_TYPES }).problems[0];
     editor.addObject({
       assetType: result.assetType,
       category: ASSET_TYPES[result.assetType]?.category || 'Furniture',
@@ -312,12 +332,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       floor: store.currentFloor,
       roomId,
     });
-    // stairs that lead nowhere or don't fit their room: say so at once (the Inspector says it too)
-    const stairProblem = result.assetType === 'STAIRCASE' && stairProblems(
-      { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor },
-      store.floors, Object.values(useWorkspaceStore.getState().rooms))[0];
     if (stairProblem) {
-      showStudioMessage(stairProblem.text);
+      showStudioMessage(`${stairProblem.text}.`, true);
+    } else if (moved) {
+      showStudioMessage('Moved the stairs a little, so there is room to step on and off. Hold Alt to place them exactly. Ctrl+Z to undo.');
     } else if (result.assetType === 'STAIRCASE' && steepStairsText(floorHeight(store.floors, store.currentFloor))) {
       showStudioMessage(steepStairsText(floorHeight(store.floors, store.currentFloor)));
     }
@@ -918,6 +936,18 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       if (!focusSelection()) cameraActions.fit();
     }));
   };
+  /** v0.17.4: "Fix it" = the problem's moves, one undo step; checked again at once. */
+  const fixCheck = (problem) => {
+    if (!problem?.fix?.moves?.length) return;
+    editor.moveObjects(problem.fix.moves, { label: problem.fix.label });
+    editor.endBurst();
+    checks.run();
+    const [firstId] = problem.fix.moves[0];
+    const st = useWorkspaceStore.getState();
+    if (st.objects[firstId]) { st.selectFloor(st.objects[firstId].floor ?? problem.floorId); st.selectObject(firstId); }
+    const stairs = st.objects[firstId]?.assetType === 'STAIRCASE';
+    showStudioMessage(`${stairs ? 'Moved the stairs to the nearest spot where they work' : 'Moved it out of the way'}. Ctrl+Z to undo.`);
+  };
   const ignoreCheck = (key, ignore) => {
     const keys = useWorkspaceStore.getState().ignoredChecks;
     editor.setIgnoredChecks(ignore ? [...keys, key] : keys.filter((k) => k !== key), { label: ignore ? 'Ignore layout problem' : 'Show layout problem again' });
@@ -1106,11 +1136,21 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   const selectedObject = selectedObjectId ? objectsMap[selectedObjectId] ?? null : null;
   const selectedRoom = !selectedObject && selectedRoomId ? roomsMap[selectedRoomId] ?? null : null;
   // a selected staircase: why it can't be used as it stands (leads nowhere, doesn't fit its room)
-  const stairWarnings = useMemo(
-    () => (selectedObject?.assetType === 'STAIRCASE'
-      ? stairProblems(selectedObject, floorsMap, Object.values(roomsMap)).map((p) => p.text) : []),
-    [selectedObject, floorsMap, roomsMap],
-  );
+  // v0.17.4: with the furniture and the floor above, and the nearest spot where they work ("Fix it")
+  const stairCheck = useMemo(() => {
+    if (selectedObject?.assetType !== 'STAIRCASE') return { warnings: [], spot: null };
+    const layout = { floors: floorsMap, rooms: roomsMap, objects: objectsMap };
+    const fit = stairFit(selectedObject, layout, { catalog: ASSET_TYPES });
+    const spot = fit.ok || selectedObject.isLocked ? null : findStairSpot(selectedObject, layout, { catalog: ASSET_TYPES });
+    return { warnings: fit.problems.map((p) => p.text), spot };
+  }, [selectedObject, floorsMap, roomsMap, objectsMap]);
+  const stairWarnings = stairCheck.warnings;
+  const fixSelectedStairs = useCallback(() => {
+    const spot = stairCheck.spot;
+    if (!spot || !selectedObject) return;
+    editor.moveObjects([[selectedObject.id, { x: spot.x, z: spot.z, roomId: spot.roomId }]], { label: 'Move the stairs' });
+    showStudioMessage('Moved the stairs to the nearest spot where they work. Ctrl+Z to undo.');
+  }, [stairCheck, selectedObject]); // eslint-disable-line react-hooks/exhaustive-deps
   // v0.15.6: a selected wall item (a TV, a clock…): does it hang on a wall? (no: the Inspector's "Mount on wall")
   const floorWallsRef = useRef(null);
   if (!floorWallsRef.current) floorWallsRef.current = createFloorWalls();
@@ -1317,7 +1357,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       </div>
       {inAhdus && <Toast toast={ahdus.toast} onClose={ahdus.closeToast} />}
       {checks.open && !isPlaying && <LayoutCheckPanel checks={checks} floors={floorsMap} inspectorOpen={!!inspectorMode} onSelect={selectCheck}
-        onIgnore={ignoreCheck} onClose={() => checks.setOpen(false)} />}
+        onIgnore={ignoreCheck} onFix={fixCheck} onClose={() => checks.setOpen(false)} />}
       {ahdus.dialog === 'publish' && (
         <PublishDialog
           siteName={layoutName}
@@ -1325,6 +1365,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           busy={ahdus.publishing}
           loadVersions={loadVersions}
           checkCount={checks.count}
+          walking={checks.walking}
+          onFix={fixCheck}
           onShowChecks={() => { ahdus.cancelDialog(); checks.run(); checks.setOpen(true); }}
           seatWarning={losingDeskText(seats.losing)}
           onCancel={ahdus.cancelDialog}
@@ -1560,8 +1602,18 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               onProblem={(text) => showStudioMessage(text, true)}
               onMoveObject={(id, to) => {
                 // one undo step per drag, with what it takes along (a desk: its chair, its monitor)
-                moveItemCarrying(id, to, { label: 'Move item' });
+                const object = objectsMap[id];
+                let at = to;
+                // v0.17.4: stairs dropped where they can't be used go to the nearest spot that works (Alt: stay)
+                if (object?.assetType === 'STAIRCASE' && !isAltDown()) {
+                  const st = useWorkspaceStore.getState();
+                  const stair = { ...object, ...to };
+                  const spot = !stairFit(stair, st, { catalog: ASSET_TYPES }).ok && findStairSpot(stair, st, { catalog: ASSET_TYPES });
+                  if (spot) at = { ...to, x: spot.x, z: spot.z };
+                }
+                moveItemCarrying(id, at, { label: 'Move item' });
                 editor.endBurst();
+                if (at !== to) showStudioMessage('Moved the stairs a little, so there is room to step on and off. Hold Alt to put them exactly where you drop them. Ctrl+Z to undo.');
               }}
               onRotateObject={(id) => {
                 const object = objectsMap[id];
@@ -1687,6 +1739,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           mode={inspectorMode}
           object={selectedObject}
           stairWarnings={stairWarnings}
+          onFixStairs={stairCheck.spot ? fixSelectedStairs : null}
           wallMount={wallMount}
           onMountOnWall={handleMountOnWall}
           room={selectedRoom}

@@ -290,6 +290,7 @@ export function useStudioScene({
     });
     // v0.15.6: wall items hang on the walls of the floor being edited
     const floorWalls = createFloorWalls();
+    placementMgr.setLayoutSource(() => useWorkspaceStore.getState()); // v0.17.4: stairs that don't fit
     placementMgr.setWallSource(() => {
       const st = useWorkspaceStore.getState();
       return floorWalls(st, st.currentFloor);

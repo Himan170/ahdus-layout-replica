@@ -112,7 +112,7 @@ function Section({ title, children }) {
 
 // ── Item ────────────────────────────────────────────────────────────────
 
-function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetPositionRef, stairWarnings = [], wallMount = null, onMountOnWall }) {
+function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetPositionRef, stairWarnings = [], onFixStairs = null, wallMount = null, onMountOnWall }) {
   const [keepProportions, setKeepProportions] = useState(true);
   const commit = (patch) => onUpdate(object.id, patch);
   // while it is dragged (or a move arrow is): where it is now, not where the layout still has it
@@ -143,6 +143,7 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
       {isStairs && stairWarnings.length > 0 && (
         <section className="insp-section" data-stairs-problems>
           {stairWarnings.map((text) => <p key={text} className="insp-note is-bad" role="alert">{text}.</p>)}
+          {onFixStairs && <button className="ui-btn is-primary" data-stairs-fix onClick={onFixStairs}>Fix it</button>}
         </section>
       )}
       {wallMount && !wallMount.onWall && (
@@ -638,7 +639,8 @@ function GroupBody({ items }) {
 export default function Inspector({
   mode,                 // 'object' | 'room' | 'opening' | 'layers' | null
   object, room, floorName,
-  stairWarnings = [],   // a staircase: why it can't be used as it stands (building.stairProblems' texts)
+  stairWarnings = [],   // a staircase: why it can't be used as it stands (stairFit's texts)
+  onFixStairs = null,   // v0.17.4: move it to the nearest spot where it works (null: none, or nothing wrong)
   opening,              // { roomId, kind, index, room, data, partnerRoom } (a selected door/window)
   onResizeOpening,      // (change) => problem text or null
   onDeleteOpening,
@@ -796,7 +798,7 @@ export default function Inspector({
       <div className="inspector__body">
         {mode === 'object' && seatPanel && <SeatSection key={object.id} {...seatPanel} />}
         {mode === 'object' && (
-          <ObjectBody object={object} floorName={floorName} onUpdate={onUpdateObject} stairWarnings={stairWarnings}
+          <ObjectBody object={object} floorName={floorName} onUpdate={onUpdateObject} stairWarnings={stairWarnings} onFixStairs={onFixStairs}
             wallMount={wallMount} onMountOnWall={onMountOnWall}
             hookPoints={hookPoints} positions={positions} onSetPositionRef={onSetPositionRef} />
         )}

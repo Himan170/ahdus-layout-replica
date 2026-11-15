@@ -39,7 +39,7 @@ import {
 } from '../play/geometry';
 import {
   elevationOf, floorBelow, planWallHeight, wallHeightText, HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT,
-  placementHeight, canStandOn, floorOnlyText,
+  placementHeight, canStandOn, floorOnlyText, stairSize,
 } from '../play/building';
 import { carriedBy, carryMoves } from '../play/carry';
 import { ridersOf as itemRiders, KEEP_HEIGHT } from '../utils/itemRiders';
@@ -49,6 +49,7 @@ import { snapTargets, snapDrag, snapText } from '../play/dragSnap';
 import { livePosition } from '../utils/livePosition';
 import { isDesk } from '../play/people';
 import { groupMembers, lockedNote } from '../play/group';
+import { stairPreview, findStairSpot } from '../play/stairFit';
 
 const FLOOR_Y = 0.02;
 const CLICK_SLOP = 5; // px the mouse may move with the button down and still count as a click
@@ -500,6 +501,10 @@ export function createPlannerTools(scene, canvas, {
         keys: [['Release', 'Put them here'], ['Esc', 'Cancel']],
       });
     }
+    if (obj.assetType === 'STAIRCASE') {
+      const h = stairDragHint(obj, x, z, snapNote);
+      if (h) return saveDragHint(h);
+    }
     const riders = drag.items.filter((it, i) => i > 0 && it.onTop).length;
     const chair = drag.items.some((it, i) => i > 0 && !it.onTop);
     const room = findRoomAt(floorRooms(), x, z);
@@ -510,6 +515,25 @@ export function createPlannerTools(scene, canvas, {
         .filter(Boolean).join(' · '),
       keys: [['Release', 'Put it here'], ['Alt', 'No snapping'], ['Esc', 'Cancel']],
     });
+  }
+
+  /**
+   * v0.17.4: stairs dragged where they can't be used (no free floor at an end, a door, furniture): the
+   * flight and the floor they miss turn red, and the hint says what happens on release (they move to the
+   * nearest spot that works; Alt: they stay). Null when they fit.
+   */
+  function stairDragHint(obj, x, z, snapNote) {
+    const fit = stairPreview({ ...obj, x, z }, st(), { catalog: ASSET_TYPES });
+    if (fit.ok) { pv.hide('zones'); return null; }
+    const { width, length } = stairSize(obj);
+    pv.zones([{ x, z, y: elev(), hw: width / 2, hd: length / 2, rot: obj.rotationY ?? 0 }, ...fit.zones]);
+    return {
+      title: `Move ${nameOf(obj)}`,
+      detail: [fit.text, altDown ? 'Alt: they stay exactly here' : 'Release: they move to the nearest spot that works (hold Alt to keep them here)', snapNote]
+        .filter(Boolean).join(' · '),
+      bad: true,
+      keys: [['Release', altDown ? 'Put them here' : 'Move them where they work'], ['Alt', 'Exactly here'], ['Esc', 'Cancel']],
+    };
   }
 
   /** A room being dragged: its items' meshes move with it by (dx, dz); `moved` keeps their ids to put back. */
@@ -941,6 +965,20 @@ export function createPlannerTools(scene, canvas, {
     }
     const rooms = floorRooms();
     const r3 = (v) => Math.round(v * 1000) / 1000;
+    // v0.17.4: stairs that can't be used where they were dropped go to the nearest spot that works (Alt: stay)
+    const lead = st().objects[d.objectId];
+    let stairNote = null;
+    if (lead?.assetType === 'STAIRCASE' && !d.group && !altDown) {
+      const at = { ...lead, x: r3(d.items[0].x + plan.dx), z: r3(d.items[0].z + plan.dz) };
+      if (!stairPreview(at, st(), { catalog: ASSET_TYPES }).ok) {
+        const spot = findStairSpot(at, st(), { catalog: ASSET_TYPES });
+        if (spot) {
+          plan.dx = spot.x - d.items[0].x;
+          plan.dz = spot.z - d.items[0].z;
+          stairNote = 'They moved a little, so there is room to step on and off (hold Alt to put them exactly where you drop them).';
+        }
+      }
+    }
     const moves = d.items.map((it) => {
       const x = r3(it.x + plan.dx);
       const z = r3(it.z + plan.dz);
@@ -951,7 +989,7 @@ export function createPlannerTools(scene, canvas, {
     const obj = st().objects[d.objectId];
     const name = d.group ? `${d.group} items` : nameOf(obj);
     actions.moveObjects(moves, { label: `Move ${name}` });
-    onMessage([`Moved ${name}. Ctrl+Z to undo.`, lockedNote(d.locked)].filter(Boolean).join(' '), !!d.locked);
+    onMessage([`Moved ${name}.`, stairNote, 'Ctrl+Z to undo.', lockedNote(d.locked)].filter(Boolean).join(' '), !!d.locked);
   }
 
   /**

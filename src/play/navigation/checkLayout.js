@@ -5,18 +5,23 @@
  * that can't work (a room with no door, a desk nobody can walk to, furniture in a wall) as a list
  * Studio shows to the person building. Nothing here changes the layout, and nothing blocks saving.
  *
- *   checkLayout(layout, { catalog, maps }) → { problems, ms }
- *   problem = { key, kind, severity, message, ids, floorId, roomId?, objectId? }
+ *   checkLayout(layout, { catalog, maps, fixes }) → { problems, ms }
+ *   problem = { key, kind, severity, message, ids, floorId, roomId?, objectId?, blocksWalking?, fix? }
  *     key       stable while the same things are wrong (kind + the ids it is about): "Ignore" keeps it
  *     severity  'error' (it can't be used) | 'warning' (it looks wrong) | 'info' (a note, not counted)
  *     roomId / objectId   what a click selects
+ *     blocksWalking  (v0.17.4) people can't walk somewhere because of it: Publish lists it even when ignored
+ *     fix       (v0.17.4) "Fix it": { moves: [[objectId, patch]], label } = one editor.moveObjects
+ *               (fixes: false = none: checking a layout with the fixes applied)
  *
  * It reuses the walk map (walkMap.js: what the body can stand on), the walkable areas and the
- * stairs between floors (route.js), the entrance (entrance.js) and building.stairProblems.
+ * stairs between floors (route.js), the entrance (entrance.js) and play/stairFit.js.
  */
 
 import { roomOpenings, openingCentre, wallThicknessOf } from '../geometry';
-import { floorsInOrder, stairProblems, FLOOR_LIKE_TYPES } from '../building';
+import { floorsInOrder, FLOOR_LIKE_TYPES } from '../building';
+import { stairFit, stairSpots, findItemSpot } from '../stairFit';
+import { rectsOverlap, reachOf, farApart, distanceTo } from '../turnedRect';
 import { deskSeat, isDesk } from '../people';
 import {
   createWalkMapCache, wallObstacles, itemFootprints, isSolidItem, groundFloorId, FREE,
@@ -66,35 +71,9 @@ export const WINDOW_FRONT = 0.4;
 /** A desk can be walked to when the body fits within this distance of it, in its own room (m). */
 export const DESK_REACH = 1.0;
 
-// ── Rectangles (turned: { x, z, hw, hd, rot }, Babylon's rotationY) ──────
-
-const axesOf = (r) => {
-  const c = Math.cos(r.rot ?? 0);
-  const s = Math.sin(r.rot ?? 0);
-  return [{ x: c, z: -s }, { x: s, z: c }]; // local +X, local +Z
-};
-
-/** Do two turned rectangles overlap by more than `tol` (each shrunk by tol / 2)? Separating axes. */
-export function rectsOverlap(a, b, tol = 0) {
-  const t = tol / 2;
-  const ra = { ...a, hw: a.hw - t, hd: a.hd - t };
-  const rb = { ...b, hw: b.hw - t, hd: b.hd - t };
-  if (ra.hw <= 0 || ra.hd <= 0 || rb.hw <= 0 || rb.hd <= 0) return false;
-  const [ax, az] = axesOf(ra);
-  const [bx, bz] = axesOf(rb);
-  const dx = rb.x - ra.x;
-  const dz = rb.z - ra.z;
-  for (const n of [ax, az, bx, bz]) {
-    const reachA = ra.hw * Math.abs(ax.x * n.x + ax.z * n.z) + ra.hd * Math.abs(az.x * n.x + az.z * n.z);
-    const reachB = rb.hw * Math.abs(bx.x * n.x + bx.z * n.z) + rb.hd * Math.abs(bz.x * n.x + bz.z * n.z);
-    if (Math.abs(dx * n.x + dz * n.z) >= reachA + reachB) return false;
-  }
-  return true;
-}
-
-/** How far a turned rectangle reaches from its centre (a circle around it: a quick "can't touch" test). */
-const reachOf = (r) => Math.hypot(r.hw, r.hd);
-const far = (a, b) => Math.hypot(a.x - b.x, a.z - b.z) > reachOf(a) + reachOf(b);
+// Turned rectangles ({ x, z, hw, hd, rot }, Babylon's rotationY): play/turnedRect.js
+export { rectsOverlap };
+const far = farApart;
 
 // ── Names ────────────────────────────────────────────────────────────────
 
@@ -320,7 +299,7 @@ export function checkLayout(layout, options = {}) {
             if (blockers.has(item.id) || !fp(item).some((r) => !far(r, zone) && rectsOverlap(r, zone, 0.04))) continue;
             blockers.add(item.id);
             add(CHECK_KINDS.DOOR_BLOCKED, 'warning', `${itemName(item)} blocks a door of ${roomName(room)}`,
-              [item.id], id, { objectId: item.id });
+              [item.id], id, { objectId: item.id, doorAt: c });
           }
         } else {
           // inside the room, right in front of the window, taller than its sill
@@ -342,15 +321,15 @@ export function checkLayout(layout, options = {}) {
     }
   }
 
-  // ── 7. Stairs (building.stairProblems: the same texts as the Inspector) ──
+  // ── 7. Stairs (play/stairFit.js: the same words as the Inspector). Stairs nobody can use are errors ──
   for (const stair of objects) {
     if (stair.assetType !== 'STAIRCASE') continue;
-    for (const p of stairProblems(stair, floors, rooms)) {
+    for (const p of stairFit(stair, safe, { catalog }).problems) {
       problems.push({
         key: `${CHECK_KINDS.STAIRS}_${p.code}:${stair.id}`,
         kind: CHECK_KINDS.STAIRS,
         code: p.code,
-        severity: p.code === 'NOWHERE' ? 'error' : 'warning',
+        severity: 'error',
         message: p.text,
         ids: [stair.id],
         floorId: floorOf(stair),
@@ -364,18 +343,86 @@ export function checkLayout(layout, options = {}) {
   const unique = problems.filter((p) => !seen.has(p.key) && seen.add(p.key));
   unique.sort((a, b) => (order.get(a.floorId) ?? 0) - (order.get(b.floorId) ?? 0) ||
     SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.message.localeCompare(b.message));
+  for (const p of unique) if (blocksWalking(p)) p.blocksWalking = true;
+  if (options.fixes !== false) addFixes(unique, safe, { catalog, floorIds, check: checkLayout });
   return { problems: unique, ms: now() - t0 };
 }
 
-/** Distance from a point to a turned rectangle (0 inside). */
-function distanceTo(rect, x, z) {
-  const c = Math.cos(rect.rot ?? 0);
-  const s = Math.sin(rect.rot ?? 0);
-  const dx = x - rect.x;
-  const dz = z - rect.z;
-  const lx = dx * c - dz * s;
-  const lz = dx * s + dz * c;
-  return Math.hypot(Math.max(Math.abs(lx) - rect.hw, 0), Math.max(Math.abs(lz) - rect.hd, 0));
+// ── Fix it (v0.17.4) ─────────────────────────────────────────────────────
+
+/** Problems that stop people walking somewhere: Publish lists them even when ignored. */
+const WALKING_KINDS = new Set([
+  CHECK_KINDS.NO_ENTRANCE, CHECK_KINDS.ROOM_NO_DOOR, CHECK_KINDS.FLOOR_UNREACHABLE,
+  CHECK_KINDS.ROOM_UNREACHABLE, CHECK_KINDS.DESK_UNREACHABLE, CHECK_KINDS.STAIRS,
+]);
+export function blocksWalking(p) {
+  return !!p && WALKING_KINDS.has(p.kind);
+}
+
+/**
+ * Give the problems a staircase or an item can fix by moving a `fix`: { moves: [[id, patch]], label }
+ * for one editor.moveObjects (one undo step). Stairs move to the nearest spot where they work
+ * (stairFit.stairSpots), an item that blocks a door to the nearest spot where it blocks nothing
+ * (stairFit.findItemSpot). "Nobody can walk to …" gets the moves of the stairs and door blockers
+ * around it, but only when checking the layout with them moved shows it gone.
+ */
+function addFixes(problems, layout, { catalog, floorIds, check }) {
+  const objects = list(layout.objects);
+  const byId = new Map(objects.map((o) => [o.id, o]));
+  const culprits = []; // { problem, moves }
+  const stairsDone = new Map();
+  for (const p of problems) {
+    const obj = byId.get(p.objectId);
+    if (!obj || obj.isLocked) continue;
+    if (p.kind === CHECK_KINDS.STAIRS) {
+      if (!stairsDone.has(obj.id)) {
+        let spot = null;
+        for (const s of stairSpots(obj, layout, { catalog })) {
+          if (s.x !== obj.x || s.z !== obj.z) { spot = s; break; }
+        }
+        stairsDone.set(obj.id, spot ? { moves: [[obj.id, { x: spot.x, z: spot.z, roomId: spot.roomId }]], label: 'Move the stairs' } : null);
+      }
+      const fix = stairsDone.get(obj.id);
+      if (fix) { p.fix = fix; culprits.push({ problem: p, obj, moves: fix.moves }); }
+    } else if (p.kind === CHECK_KINDS.DOOR_BLOCKED) {
+      const spot = findItemSpot(obj, layout, { catalog });
+      if (spot) {
+        p.fix = { moves: spot.moves, label: `Move ${String(obj.label ?? '').trim() || catalog[obj.assetType]?.label || 'the item'}` };
+        culprits.push({ problem: p, obj, moves: spot.moves });
+      }
+    }
+  }
+  // "Nobody can walk to …": the stairs and door blockers near it (FLOOR_UNREACHABLE: the stairs below it)
+  const rooms = list(layout.rooms);
+  const nextFloor = (id) => floorIds[floorIds.indexOf(id) + 1] ?? null;
+  const near = (p, c) => {
+    const isStairs = c.problem.kind === CHECK_KINDS.STAIRS;
+    const f = floorOf(c.obj);
+    if (p.kind === CHECK_KINDS.FLOOR_UNREACHABLE) return isStairs && floorIds.indexOf(f) < floorIds.indexOf(p.floorId);
+    // stairs count on their floor and on the floor they arrive on
+    if (f !== p.floorId && !(isStairs && nextFloor(f) === p.floorId)) return false;
+    const target = p.roomId ? rooms.find((r) => r.id === p.roomId) : byId.get(p.objectId);
+    const room = p.roomId ? target : target && roomAt(layout, p.floorId, target.x ?? 0, target.z ?? 0);
+    if (!room) return true;
+    const at = c.problem.doorAt ?? { x: c.obj.x ?? 0, z: c.obj.z ?? 0 };
+    const pad = isStairs ? 3 : 0.6; // a flight is 4 m long: its ends reach that far from its middle
+    return Math.abs(at.x - room.x) <= room.width / 2 + pad && Math.abs(at.z - room.z) <= room.depth / 2 + pad;
+  };
+  const lost = problems.filter((p) => [CHECK_KINDS.ROOM_UNREACHABLE, CHECK_KINDS.DESK_UNREACHABLE, CHECK_KINDS.FLOOR_UNREACHABLE].includes(p.kind));
+  const plans = lost.map((p) => ({ p, from: culprits.filter((c) => near(p, c)) })).filter((x) => x.from.length);
+  if (!plans.length) return;
+  // one check with every culprit moved tells which of them fix what
+  const moved = new Map();
+  for (const { from } of plans) for (const c of from) for (const [id, patch] of c.moves) moved.set(id, patch);
+  const after = check({ ...layout, objects: objects.map((o) => (moved.has(o.id) ? { ...o, ...moved.get(o.id) } : o)) },
+    { catalog, fixes: false }).problems;
+  const still = new Set(after.map((p) => p.key));
+  for (const { p, from } of plans) {
+    if (still.has(p.key)) continue;
+    const moves = new Map();
+    for (const c of from) for (const [id, patch] of c.moves) moves.set(id, patch);
+    p.fix = { moves: [...moves], label: from.every((c) => c.problem.kind === CHECK_KINDS.STAIRS) ? 'Move the stairs' : 'Move what blocks the way' };
+  }
 }
 
 // ── What Studio shows ────────────────────────────────────────────────────
@@ -419,6 +466,15 @@ export function toggleIgnored(ignored = [], key, on) {
 export function liveIgnored(ignored = [], problems = []) {
   const keys = new Set(problems.map((p) => p.key));
   return (ignored ?? []).filter((k) => keys.has(k));
+}
+
+/**
+ * What the Publish dialog lists (v0.17.4): the problems that stop people walking somewhere, the
+ * ignored ones too (marked `ignored`), worst first as checkLayout sorted them.
+ */
+export function walkingProblems(problems = [], ignored = []) {
+  const hidden = new Set(ignored ?? []);
+  return problems.filter(blocksWalking).map((p) => (hidden.has(p.key) ? { ...p, ignored: true } : p));
 }
 
 /** "No problems" / "1 problem" / "12 problems". */
