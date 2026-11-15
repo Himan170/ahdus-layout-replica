@@ -89,6 +89,8 @@ import { tourDetail } from './PlaceSearch';
 import { chooseStart, readStartMode, rememberStartMode } from '../startMode';
 import { storedLowGraphics, storeLowGraphics } from '../../play/quality';
 import type { StartMode, StartChoice, StartReason, WeakKind } from '../startMode';
+import { ClickHint } from './ClickHint';
+import type { ClickHintData } from './ClickHint';
 
 export interface LayoutViewerProps {
   /** The layout: a save, an exported layout file or v2 JSON. */
@@ -318,6 +320,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const [shownMode, setShownMode] = useState<EngineMode>(mode);
   // the person pointed at (view) or walked up to (walkthrough); at: the cursor in the box (px);
   // pinned: clicked or tapped (stays until the next click or tap, and its link can be clicked)
+  // v0.17.3: "Click the floor or the stairs to walk there" next to a click that walks nowhere
+  const [clickHint, setClickHint] = useState<ClickHintData | null>(null);
   const [person, setPerson] = useState<{ who: PlacedPerson; at: { x: number; y: number } | null; pinned?: boolean } | null>(null);
   // walking: the "?" help, and the one-time hint ('shown' → 'fading' → gone)
   const [helpOpen, setHelpOpen] = useState(false);
@@ -451,6 +455,10 @@ export function LayoutViewer(props: LayoutViewerProps) {
           } else {
             pinnedFromRef.current = null;
             setPerson((was) => (was?.pinned ? null : was));
+          }
+          const c = canvasRef.current;
+          if (ev.hint && c) {
+            setClickHint({ id: performance.now(), text: ev.hint, at: ev.at, view: { width: c.clientWidth, height: c.clientHeight } });
           }
         }),
         // E after a walk arrived at a person (v0.14.7): their card, kept as a click on them keeps it
@@ -684,6 +692,9 @@ export function LayoutViewer(props: LayoutViewerProps) {
 
   const walking = shownMode === 'walkthrough';
   const engaged = !!(hud?.engaged ?? hud?.locked);
+  // a double-click (mouse look) starts with a click that walks nowhere: its hint goes when the mouse is captured
+  const mouseLook = !!hud?.locked;
+  useEffect(() => { if (mouseLook) setClickHint(null); }, [mouseLook]);
   const floorReady = !progress || progress.currentFloorReady;
 
   // The HUD's walking line in the same words (the controller writes it)
@@ -1087,6 +1098,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
         style={{ width: '100%', height: '100%', display: 'block', outline: 'none', touchAction: 'none' }}
       />
       <div ref={tagLayerRef} data-live-tags="" aria-hidden="true" style={styles.tagLayer} />
+      {walking && <ClickHint hint={clickHint} />}
       {error && <div role="alert" style={styles.center}>{error}</div>}
       {!error && progress && !progress.currentFloorReady && (
         <div role="status" data-build-progress="start" style={styles.center}>

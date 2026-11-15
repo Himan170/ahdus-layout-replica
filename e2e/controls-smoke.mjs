@@ -208,6 +208,7 @@ const navBefore = (await nav()).length;
 await p.mouse.click(at.x, at.y);
 await p.waitForFunction(() => window.__ahdusViewer.navigation.walking?.source === 'click', null, { timeout: 15000 }).catch(() => {});
 const started = await walkingNow();
+const floorHint = await p.locator('[data-click-hint]').count(); // v0.17.3: a click that walks shows no hint
 const line = await p.evaluate(() => window.__ahdusScene.meshes.filter((m) => m.metadata?.routeLine && m.isEnabled() && m.thinInstanceCount > 0).length);
 if (SHOTS) await shot('controls-click-walk.png');
 await p.waitForFunction(() => window.__ahdusViewer.navigation.walking === null, null, { timeout: 90000 }).catch(() => {});
@@ -216,8 +217,8 @@ const clickNav = (await nav()).slice(navBefore);
 const strip = await p.locator('[data-nav-strip]').count();
 log('a click on the floor walks there (Take me there to that spot): the line shows, no strip, arrives within 1.2 m',
   started?.walk === 'auto' && started?.source === 'click' && line >= 1 && distance(arrived, goal) < 1.2 &&
-  clickNav.at(-1)?.state === 'arrived' && clickNav.every((e) => e.source === 'click') && strip === 0 && !(await locked()),
-  `${JSON.stringify(arrived)} | ${clickNav.map((e) => e.state).filter((s, i, a) => s !== a[i - 1]).join(' → ')} | line ${line}`);
+  clickNav.at(-1)?.state === 'arrived' && clickNav.every((e) => e.source === 'click') && strip === 0 && !(await locked()) && floorHint === 0,
+  `hint ${floorHint} | ${JSON.stringify(arrived)} | ${clickNav.map((e) => e.state).filter((s, i, a) => s !== a[i - 1]).join(' → ')} | line ${line}`);
 
 // a movement key ends a click's walk (you walk yourself)
 await pose(0, -13, 0, -0.35);
@@ -284,6 +285,51 @@ await p.keyboard.press('KeyL');
 await frames(2);
 log('a click on the view takes the keys back; L switches mouse look on and off',
   back.focus === 'view' && back.walking === null && lLock && !(await locked()), JSON.stringify({ ...back, lLock }));
+
+// ── v0.17.3: a click that walks nowhere (a wall) shows "Click the floor or the stairs to walk there" at the click ──
+await wait(4500); // the sky clicks above may have shown one: at most one every 4 s
+await pose(0, -13, 0, 0.05); // outside, facing the building's south wall
+await wait(400);
+const wallAt = await p.evaluate(() => {
+  const w = window.__ahdusViewer.walkthrough; const cv = w.canvas; const r = cv.getBoundingClientRect();
+  for (let fy = 0.25; fy < 0.75; fy += 0.03) {
+    for (let fx = 0.3; fx < 0.7; fx += 0.02) {
+      const t = w.clickTarget(cv.clientWidth * fx, cv.clientHeight * fy);
+      if (t.kind === 'wall' && !t.walkTo) return { x: r.left + cv.clientWidth * fx, y: r.top + cv.clientHeight * fy };
+    }
+  }
+  return null;
+});
+const hintNow = () => p.evaluate(() => {
+  const h = document.querySelector('[data-click-hint]');
+  if (!h) return null;
+  const b = h.getBoundingClientRect();
+  return { text: h.textContent, x: b.x + b.width / 2, y: b.y + b.height / 2 };
+});
+await p.evaluate(() => {
+  window.__wallClicks = [];
+  window.__ahdusViewer.on('walkClick', (e) => window.__wallClicks.push({ action: e.action, hint: e.hint ?? null, t: performance.now() }));
+});
+let wallHint = null;
+let wallWalk = 'no wall on the view';
+if (wallAt) {
+  await p.mouse.click(wallAt.x, wallAt.y);
+  await p.waitForSelector('[data-click-hint]', { timeout: 10000 }).catch(() => {});
+  wallHint = await hintNow();
+  wallWalk = await walkingNow();
+  await wait(600); // not a double-click (that is mouse look): two clicks within 400 ms
+  await p.mouse.click(wallAt.x, wallAt.y); // again, within 4 s of the first: no second hint
+  await p.waitForFunction(() => window.__wallClicks.length >= 2, null, { timeout: 10000 }).catch(() => {});
+}
+const clicks = await p.evaluate(() => window.__wallClicks.map((c, i, all) => ({ ...c, t: Math.round(c.t - all[0].t) })));
+if (SHOTS && wallHint) await shot('controls-click-hint.png');
+await wait(2600);
+const clickHintGone = (await p.locator('[data-click-hint]').count()) === 0;
+log('a click on a wall walks nowhere: "Click the floor or the stairs to walk there" next to the click, gone after ~2 s, not again within a few seconds',
+  wallHint?.text === 'Click the floor or the stairs to walk there' && wallWalk === null && clickHintGone &&
+  clicks.length === 2 && clicks.every((c) => c.action === 'none') && !!clicks[0].hint && clicks[1].hint === null && clicks[1].t < 4000 &&
+  Math.abs(wallHint.x - wallAt.x) < 160 && Math.abs(wallHint.y - wallAt.y) < 60,
+  JSON.stringify({ wallAt, wallHint, wallWalk, clickHintGone, clicks }));
 
 // The sky: all six sides of its cube map decoded (the first one was black in dev: React StrictMode's first engine
 // still ran on the same WebGL context; it is disposed at once now)

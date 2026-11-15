@@ -72,6 +72,8 @@ export interface WalkthroughClick {
   kind: string | null;
   /** A staircase was clicked (v0.17.3): walkTo is its other end, up or down it; else null. */
   stairs?: { objectId: string; direction: 'up' | 'down' } | null;
+  /** A tap (a finger), not a mouse click (v0.17.3: the hint's words). */
+  touch?: boolean;
 }
 
 /** A text field (typing there never walks; the view never takes the focus from it). */

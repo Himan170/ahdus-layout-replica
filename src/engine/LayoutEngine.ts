@@ -87,6 +87,7 @@ import { createWorkspaceStore } from '../store/workspaceStore';
 import { createEditorHistory } from '../store/editorHistory';
 import { primaryAnchor } from '../integration/anchorsFromStore';
 import { softwareRenderer } from './startMode';
+import { clickFeedback, clickHintText, createHintGate } from '../play/clickHint';
 
 /** Item types only Studio shows (markers for the editor): hidden in view and walkthrough mode (v0.13.1). */
 export const STUDIO_ONLY_TYPES = ['SPAWN_POINT'];
@@ -226,6 +227,9 @@ export interface WalkClickEvent {
   to?: { x: number; z: number; floor: number };
   /** A click on a staircase (v0.17.3): the walk goes up or down it, to its other end. */
   stairs?: { objectId: string; direction: 'up' | 'down' } | null;
+  /** v0.17.3: nothing to walk to there: show this near the click ("Click the floor or the stairs to walk there"); none
+   *  when a hint showed less than CLICK_HINT_GAP_MS ago, or the click did something else. */
+  hint?: string;
   problem?: string;
   message?: string;
 }
@@ -348,6 +352,8 @@ export class LayoutEngine {
 
   // Walkthrough mode (made the first time it is needed: it needs the canvas)
   private _walkthrough: WalkthroughSystem | null = null;
+  /** At most one "Click the floor or the stairs" hint per CLICK_HINT_GAP_MS (v0.17.3). */
+  private _hintGate = createHintGate();
   private _player: Player | null = null;
   /** setPeople's list (E's person details, also with quality 'low'). */
   private _people: Person[] = [];
@@ -1334,8 +1340,9 @@ export class LayoutEngine {
       this.emit('walkClick', { action: 'interact', at, objectId: click.target.objectId ?? null });
       return;
     }
+    // v0.17.3: nothing to walk to (a wall, a ceiling, the sky): a short hint at the click (clickHint.js)
     if (!click.walkTo) {
-      this.emit('walkClick', { action: 'none', at });
+      this.emit('walkClick', { action: 'none', at, ...this._clickHint(click) });
       return;
     }
     const to = click.walkTo;
@@ -1344,11 +1351,20 @@ export class LayoutEngine {
       walk: 'auto', source: 'click', ...(click.stairs ? { arriveWithin: STAIRS_ARRIVE_WITHIN } : {}),
     });
     if (r.problem) {
-      walk.say(r.message ?? 'No way to walk there', 2500);
-      this.emit('walkClick', { action: 'none', at, to, stairs: click.stairs ?? null, problem: r.problem, message: r.message });
+      // a room nobody can reach keeps its own words ("…: it has no door"); any other spot no route reaches: the hint
+      const room = clickFeedback({ walkTo: to, problem: r.problem }) === 'message';
+      if (room) walk.say(r.message ?? 'No way to walk there', 2500);
+      this.emit('walkClick', {
+        action: 'none', at, to, stairs: click.stairs ?? null, problem: r.problem, message: r.message, ...(room ? {} : this._clickHint(click)),
+      });
       return;
     }
     this.emit('walkClick', { action: 'walk', at, to, stairs: click.stairs ?? null });
+  }
+
+  /** The hint's words for a click that walks nowhere, at most once per CLICK_HINT_GAP_MS ({} meanwhile). */
+  private _clickHint(click: WalkthroughClick): { hint?: string } {
+    return this._hintGate.allow(performance.now()) ? { hint: clickHintText(!!click.touch) } : {};
   }
 
   /** E on an item (its main anchor, as layoutBridge picks it) or on a door / window. */

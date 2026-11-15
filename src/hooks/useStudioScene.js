@@ -38,6 +38,7 @@ import { installStudioPointer } from './studioPointer';
 import { studioWalkMaps } from './studioWalkMaps';
 import { NavigationSystem, STAIRS_ARRIVE_WITHIN } from '../engine/systems/NavigationSystem';
 import { RouteLineSystem } from '../engine/systems/RouteLineSystem';
+import { clickFeedback, clickHintText, createHintGate } from '../play/clickHint';
 import { createFloorWalls } from '../play/floorWalls';
 import { cachedLayoutState } from '../play/stateCache';
 
@@ -48,7 +49,7 @@ export function useStudioScene({
   isPlayingRef, measureModeRef, measureStartRef, measurementIdRef, fpsRef, fpsDisplayRef, plannerMessageTimer,
   setBuildProgress, setPlayHud, setSelectedSlot, setCatalogOpen, setNewFloorAsk, setInteraction,
   setPositionsVersion, setPlannerHint, setMeasurePreview, setMeasureStart, setMeasurements, setSceneReady,
-  editor, showStudioMessage, placeObject, DEMO_MODULES, pauseRenderingRef,
+  editor, showStudioMessage, placeObject, DEMO_MODULES, pauseRenderingRef, setClickHint,
 }) {
   // ─── Initialise Babylon Engine & Scene ───
   useEffect(() => {
@@ -123,22 +124,42 @@ export function useStudioScene({
       startWalking: () => (play?.isActive() ? play : null),
       routeLine: () => (routeLine ??= new RouteLineSystem(scene)),
       emit: (event) => {
-        // no route ("No walking route to …: it has no door"), or stuck on the way ("Can't get past here")
-        if (event.state === 'failed') play?.say(event.message ?? 'No way to walk there', 2500);
+        // no route ("No walking route to …: it has no door"), or stuck on the way ("Can't get past here");
+        // a click's own "no route" is walkClick's to say (v0.17.3: the hint, or the room's message)
+        if (event.state === 'failed' && !clickRouting) play?.say(event.message ?? 'No way to walk there', 2500);
       },
     });
+    let clickRouting = false;
+    const hintGate = createHintGate();
+    /** v0.17.3: "Click the floor or the stairs to walk there" at the click, at most once per CLICK_HINT_GAP_MS. */
+    const showClickHint = (click) => {
+      if (!hintGate.allow(performance.now())) return;
+      setClickHint?.({
+        id: performance.now(), text: clickHintText(!!click.touch),
+        // the hint sits in the canvas card: the click (canvas px) moved by where the canvas is in it
+        at: { x: click.screen.x + canvas.offsetLeft, y: click.screen.y + canvas.offsetTop },
+        view: { width: canvas.offsetLeft + canvas.clientWidth, height: canvas.offsetTop + canvas.clientHeight },
+      });
+    };
     /** A click with an empty hand: a machine's action when it is in reach (as E), else walk there. */
     const walkClick = (click) => {
       if (click.target && layoutBridge._prompt(click.target, bridgeContext)?.handled) {
         layoutBridge._interact(click.target, bridgeContext);
         return;
       }
-      if (!click.walkTo) return;
+      if (!click.walkTo) { showClickHint(click); return; }
       const to = click.walkTo;
       // a staircase: up or down it, onto the landing at its other end (v0.17.3)
-      navigation.routeTo({ x: to.x, z: to.z, floor: to.floor }, {
-        walk: 'auto', source: 'click', ...(click.stairs ? { arriveWithin: STAIRS_ARRIVE_WITHIN } : {}),
-      });
+      clickRouting = true;
+      let r;
+      try {
+        r = navigation.routeTo({ x: to.x, z: to.z, floor: to.floor }, {
+          walk: 'auto', source: 'click', ...(click.stairs ? { arriveWithin: STAIRS_ARRIVE_WITHIN } : {}),
+        });
+      } finally { clickRouting = false; }
+      if (!r?.problem) return;
+      if (clickFeedback({ walkTo: to, problem: r.problem }) === 'message') play?.say(r.message ?? 'No way to walk there', 2500);
+      else showClickHint(click);
     };
 
     play = createPlayController(scene, canvas, {
