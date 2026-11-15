@@ -70,6 +70,7 @@ import { lockPointer } from '../utils/pointerLock';
 import { createDragLook } from './dragLook';
 import { createWalkMapCache, FREE, STAIRS, BLOCKED } from './navigation/walkMap';
 import { entranceSpawn, nearestFree, NOT_BLOCKED } from './navigation/entrance';
+import { stairsClickGoal } from './navigation/route';
 import {
   snap, wallSegmentTransform, findRoomAt, formatRoomSize,
   planRoom, planOpening, planRemoveOpening, wallSegmentData, resizeItem,
@@ -1690,7 +1691,7 @@ export function createPlayController(scene, canvas, {
     const hit = scene.pickWithRay(ray, (m) =>
       m.isPickable && m.isEnabled() && m.isVisible !== false && !isPlayerMesh(m) && !isGhostMesh(m) &&
       !m.metadata?.pickPane && (!!objectIdOf(m) || !!roomPartOf(m) || m.name === 'ground'));
-    if (!hit?.hit || !hit.pickedPoint) return { screen: { x, y }, point: null, target: null, walkTo: null, kind: null };
+    if (!hit?.hit || !hit.pickedPoint) return { screen: { x, y }, point: null, target: null, walkTo: null, kind: null, stairs: null };
     const m = hit.pickedMesh;
     const p = hit.pickedPoint;
     const point = { x: p.x, y: p.y, z: p.z };
@@ -1714,11 +1715,17 @@ export function createPlayController(scene, canvas, {
       const d = Math.hypot(dx, dz);
       if (d > 1e-3) { gx += (dx / d) * CLICK_STAND_OFF; gz += (dz / d) * CLICK_STAND_OFF; }
     }
+    // v0.17.3: a staircase takes you to its other end (up or down it), not to the step clicked
+    const st = obj?.assetType === 'STAIRCASE' ? state() : null;
+    const stairs = st
+      ? stairsClickGoal({ rooms: st.rooms, objects: st.objects, floors: st.floors }, obj.id, currentLevel, { maps: walkMaps })
+      : null;
     return {
       screen: { x, y }, point,
       target: target && distance <= INTERACT_REACH ? target : null,
-      walkTo: { x: gx, z: gz, floor },
+      walkTo: stairs ? { x: stairs.x, z: stairs.z, floor: stairs.floor } : { x: gx, z: gz, floor },
       kind: objectId ? 'item' : part?.part ?? 'ground',
+      stairs: stairs ? { objectId: stairs.objectId, direction: stairs.direction } : null,
     };
   }
 

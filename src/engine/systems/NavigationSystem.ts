@@ -234,6 +234,8 @@ export type RouteSource = 'click' | 'tour';
 export interface FaceOnArrival { yaw: number; pitch?: number; turn?: boolean }
 /** The tour's walks arrive this close to their spot (m), not within the usual 1 m: a stop stands well inside its room. */
 export const TOUR_ARRIVE_WITHIN = 0.35;
+/** A click on a staircase walks to its other end and arrives this close (m): on the landing, not on the last steps (v0.17.3). */
+export const STAIRS_ARRIVE_WITHIN = 0.35;
 
 /** A walker's controller (playController via WalkthroughSystem): what navigation drives. */
 export interface PilotHost {
@@ -321,6 +323,8 @@ interface Walk {
   faceYaw: number | null;
   /** routeTo's face (the tour's stops). */
   face?: FaceOnArrival;
+  /** routeTo's arriveWithin (m; a click on stairs), else the follower's own. */
+  arriveWithin?: number;
   /** Walking time so far (s, the frames' time). */
   elapsed: number;
   source?: RouteSource;
@@ -677,7 +681,7 @@ export class NavigationSystem {
    * target: an id or result from find(), { personId } | { deskId } | { roomId } | { objectId } |
    * { type: 'RESTROOM' | 'MEETING' | 'RECEPTION' | 'STAIRS' } (the nearest) | { x, z, floor }.
    */
-  routeTo(target: RouteTarget, { walk = 'guide', source, face }: { walk?: WalkMode; source?: RouteSource; face?: FaceOnArrival } = {}): RouteAnswer {
+  routeTo(target: RouteTarget, { walk = 'guide', source, face, arriveWithin }: { walk?: WalkMode; source?: RouteSource; face?: FaceOnArrival; arriveWithin?: number } = {}): RouteAnswer {
     const mode: WalkMode = walk === 'auto' ? 'auto' : 'guide';
     const from = source === 'click' || source === 'tour' ? { source } : {};
     if (!this.resolve(target)) return { problem: 'NOT_FOUND', message: 'Nothing found to go to' };
@@ -695,9 +699,10 @@ export class NavigationSystem {
     }
     place = this.chosen(place, route);
     const w: Walk = {
-      place, walk: mode, host, route, follower: this.follower(route, source), paused: false, stuck: 0, stuckAtS: 0,
+      place, walk: mode, host, route, follower: this.follower(route, source, arriveWithin), paused: false, stuck: 0, stuckAtS: 0,
       sinceReroute: 0, drawnS: -Infinity, drawnFloor: -1, emittedRemaining: route.length, sinceEmit: 0, faceYaw: null, elapsed: 0,
       ...from, ...(face && Number.isFinite(face.yaw) ? { face } : {}),
+      ...(arriveWithin !== undefined && arriveWithin > 0 ? { arriveWithin } : {}),
     };
     this.active = w;
     if (!w.source) { // a click's walk leaves what search outlined alone
@@ -765,7 +770,7 @@ export class NavigationSystem {
     return true;
   }
 
-  private follower(route: Route, source?: RouteSource) {
+  private follower(route: Route, source?: RouteSource, arriveWithin?: number) {
     const layout = this.hooks.getLayout();
     // arrived = within 1 m AND in the room the route ends in (a room's goal is just inside its door)
     const legs = (route as { legs: { floor: number; points: { x: number; z: number }[] }[] }).legs;
@@ -775,7 +780,8 @@ export class NavigationSystem {
     const inGoalRoom = (me: { x: number; z: number; floor: number }) => !goalRoom || roomAt(layout, me.floor, me.x, me.z)?.id === goalRoom.id;
     return createFollower(route as never, {
       mapFor: (f: number) => this.walkMaps.get(this.hooks.getLayout(), f), inGoalRoom,
-      ...(source === 'tour' ? { arriveWithin: TOUR_ARRIVE_WITHIN } : {}),
+      ...(arriveWithin !== undefined && arriveWithin > 0 ? { arriveWithin }
+        : source === 'tour' ? { arriveWithin: TOUR_ARRIVE_WITHIN } : {}),
     });
   }
 
@@ -790,7 +796,7 @@ export class NavigationSystem {
       return false;
     }
     w.route = route;
-    w.follower = this.follower(route, w.source);
+    w.follower = this.follower(route, w.source, w.arriveWithin);
     w.drawnS = -Infinity;
     this.draw(w, me.floor, true);
     this.emitProgress(w, me.floor, { force: true, rerouted: true });

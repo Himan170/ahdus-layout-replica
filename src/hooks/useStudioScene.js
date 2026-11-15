@@ -36,7 +36,7 @@ import { createPlannerTools } from '../planner/plannerTools';
 import { layoutBridge } from '../integration/layoutBridge';
 import { installStudioPointer } from './studioPointer';
 import { studioWalkMaps } from './studioWalkMaps';
-import { NavigationSystem } from '../engine/systems/NavigationSystem';
+import { NavigationSystem, STAIRS_ARRIVE_WITHIN } from '../engine/systems/NavigationSystem';
 import { RouteLineSystem } from '../engine/systems/RouteLineSystem';
 import { createFloorWalls } from '../play/floorWalls';
 import { cachedLayoutState } from '../play/stateCache';
@@ -135,7 +135,10 @@ export function useStudioScene({
       }
       if (!click.walkTo) return;
       const to = click.walkTo;
-      navigation.routeTo({ x: to.x, z: to.z, floor: to.floor }, { walk: 'auto', source: 'click' });
+      // a staircase: up or down it, onto the landing at its other end (v0.17.3)
+      navigation.routeTo({ x: to.x, z: to.z, floor: to.floor }, {
+        walk: 'auto', source: 'click', ...(click.stairs ? { arriveWithin: STAIRS_ARRIVE_WITHIN } : {}),
+      });
     };
 
     play = createPlayController(scene, canvas, {

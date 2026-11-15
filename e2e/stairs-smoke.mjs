@@ -215,6 +215,124 @@ log('Take me there climbs a flight (it arrives upstairs, on the treads drawn, at
   ended === 'arrived' && there.floor === 1 && Math.abs(there.y - 3.52) < 0.05 && Math.abs(mt.worst) <= STEP,
   `${ended}, floor ${there.floor}, y ${there.y.toFixed(2)}, worst ${mt.worst.toFixed(2)} m`);
 
+// ── v0.17.3: a click on a flight walks up (or down) it, to the landing at its other end ──
+/** A spot on the view where a click is on that staircase (clickTarget says so), as page coordinates; null: none. */
+const stairsPixel = (id) => p.evaluate((id) => {
+  const w = window.__ahdusViewer.walkthrough;
+  const cv = w.canvas; const W = cv.clientWidth; const H = cv.clientHeight; const r = cv.getBoundingClientRect();
+  for (let fy = 0.95; fy > 0.25; fy -= 0.02) {
+    for (let fx = 0.15; fx < 0.85; fx += 0.01) {
+      const t = w.clickTarget(W * fx, H * fy);
+      if (t.stairs?.objectId === id) return { x: r.left + W * fx, y: r.top + H * fy, direction: t.stairs.direction };
+    }
+  }
+  return null;
+}, id);
+/** The 'walkClick' events and the end of the click's walk (arrived / failed / stopped). */
+await p.evaluate(() => {
+  window.__walkClicks = [];
+  window.__ahdusViewer.on('walkClick', (d) => window.__walkClicks.push({ action: d.action, stairs: d.stairs ?? null, message: d.message ?? null }));
+});
+async function clickWalk(click) {
+  await p.evaluate(() => { window.__viewerNav = []; window.__walkClicks = []; });
+  await click();
+  await p.waitForFunction(() => (window.__viewerNav ?? []).some((e) => ['arrived', 'failed', 'stopped'].includes(e.state)), null, { timeout: 300000, polling: 500 }).catch(() => {});
+  return p.evaluate(() => ({
+    ended: (window.__viewerNav ?? []).find((e) => ['arrived', 'failed', 'stopped'].includes(e.state))?.state ?? 'none',
+    clicks: window.__walkClicks,
+  }));
+}
+/** Inside the flight's own outline (then the walk ended on its steps, not on a landing). */
+const onFlight = (s, q) => {
+  const lx = (q.x - s.x) * Math.cos(s.rotationY) - (q.z - s.z) * Math.sin(s.rotationY);
+  const lz = (q.x - s.x) * Math.sin(s.rotationY) + (q.z - s.z) * Math.cos(s.rotationY);
+  return Math.abs(lx) < halfWidth(s) && Math.abs(lz) < halfLength(s);
+};
+const flat = (s, q, f) => q.floor === f && Math.abs(q.y - (3.5 * f + 0.02)) < 0.05 && !onFlight(s, q);
+
+// up: a click on the steps from 3 m in front of the bottom step
+await pose({ ...at(turned, 0, -5), yaw: turned.rotationY, pitch: -0.3, floor: 0, fly: false });
+const upAt = await stairsPixel(turned.id);
+const up = upAt ? await clickWalk(() => p.mouse.click(upAt.x, upAt.y)) : { ended: 'no stairs on the view', clicks: [] };
+const upEnd = await pos();
+log('a click on a flight (mouse) walks UP it and ends on the landing of Floor 1, not on the steps',
+  up.ended === 'arrived' && up.clicks[0]?.stairs?.direction === 'up' && flat(turned, upEnd, 1),
+  `${up.ended}, ${JSON.stringify(up.clicks[0] ?? null)}, floor ${upEnd.floor} y ${upEnd.y.toFixed(2)} (${upEnd.x.toFixed(2)}, ${upEnd.z.toFixed(2)})`);
+// down: from the landing upstairs, a click on the same flight (seen through its opening)
+await pose({ ...at(turned, 0, 3.4), yaw: turned.rotationY + Math.PI, pitch: -0.55, floor: 1, fly: false });
+const downAt = await stairsPixel(turned.id);
+const down = downAt ? await clickWalk(() => p.mouse.click(downAt.x, downAt.y)) : { ended: 'no stairs on the view', clicks: [] };
+const downEnd = await pos();
+log('a click on the flight from Floor 1 walks DOWN it to the ground floor, in front of its bottom step',
+  down.ended === 'arrived' && down.clicks[0]?.stairs?.direction === 'down' && flat(turned, downEnd, 0),
+  `${down.ended}, ${JSON.stringify(down.clicks[0] ?? null)}, floor ${downEnd.floor} y ${downEnd.y.toFixed(2)}`);
+// mouse look (L): the crosshair on the steps, a click anywhere
+// the crosshair is over the right shoulder (0.85 m aside), so stand aside too until it is on the steps
+let aimed = false;
+for (const across of [-0.85, 0.85, 0]) {
+  for (const pitch of [-0.2, -0.3, -0.4, -0.5]) {
+    await pose({ ...at(turned, across, -4.5), yaw: turned.rotationY, pitch, floor: 0, fly: false });
+    await wait(400); // the shoulder camera settles
+    aimed = await p.evaluate((id) => {
+      const w = window.__ahdusViewer.walkthrough;
+      return w.clickTarget(w.canvas.clientWidth / 2, w.canvas.clientHeight / 2).stairs?.objectId === id;
+    }, turned.id);
+    if (aimed) break;
+  }
+  if (aimed) break;
+}
+await p.mouse.move(500, 120);
+await p.keyboard.press('KeyL');
+await p.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 10000 }).catch(() => {});
+const locked = await p.evaluate(() => !!document.pointerLockElement);
+const lookUp = aimed && locked ? await clickWalk(() => p.mouse.click(500, 120)) : { ended: `aimed ${aimed}, locked ${locked}`, clicks: [] };
+const lookEnd = await pos();
+log('mouse look (L): a click with the crosshair on the steps walks up them too',
+  lookUp.ended === 'arrived' && lookUp.clicks[0]?.stairs?.direction === 'up' && flat(turned, lookEnd, 1),
+  `${lookUp.ended}, floor ${lookEnd.floor} y ${lookEnd.y.toFixed(2)}`);
+await p.keyboard.press('Escape'); await wait(500);
+
+// A layout shaped like the one this was found in (v0.17.2, Render): a staircase room with no door of its
+// own, reached through the office's door in their shared wall, the bottom step 0.3 m from that wall (Check
+// warns "no room in front of the bottom step"). W climbed it, a click walked to the door and stopped.
+const tight = flight('t', 5, -3, 180);
+const office = (floor, doors) => ({
+  id: `office${floor}`, type: 'OFFICE', name: floor ? 'Office 1' : 'Office', floor, x: 4.5, z: 3.25, width: 11, depth: 7.5,
+  wallHeight: 3.2, wallThickness: 0.15, doors, windows: [],
+});
+const stairRoom = (floor, z, depth, doors) => ({
+  id: `stairroom${floor}`, type: 'STAIRCASE', name: floor ? 'Stairs 1' : 'Stairs', floor, x: 5.325, z, width: 5.35, depth,
+  wallHeight: 3.2, wallThickness: 0.15, doors, windows: [],
+});
+await p.evaluate(async (layout) => {
+  const e = window.__ahdusViewer;
+  e.loadLayout(layout);
+  await e.whenBuilt();
+  await e.whenNavigationReady();
+  e.setMode('walkthrough');
+}, {
+  layoutName: 'Tight stairs',
+  rooms: [
+    office(0, [{ wall: 'north', offset: 0, width: 1.2, height: 2.1 }, { wall: 'south', offset: 0.34, width: 1, height: 2.1 }]),
+    stairRoom(0, -3.825, 6.35, []),
+    office(1, [{ wall: 'south', offset: 2.5, width: 1, height: 2.1 }]),
+    stairRoom(1, -3.575, 5.85, [{ wall: 'north', offset: 1.675, width: 1, height: 2.1 }]),
+  ],
+  objects: [tight],
+  floors: [0, 1].map((id) => ({ id, name: id ? 'Floor 1' : 'Ground Floor', height: 3.5 })),
+  anchorData: {},
+});
+await p.mouse.move(500, 120);
+await pose({ x: 4.84, z: 2, yaw: Math.PI, pitch: -0.25, floor: 0, fly: false });
+await wait(400);
+const tightAt = await stairsPixel('t');
+const tightUp = tightAt ? await clickWalk(() => p.mouse.click(tightAt.x, tightAt.y)) : { ended: 'no stairs on the view', clicks: [] };
+const tightEnd = await pos();
+log('stairs right behind a door (bottom step 0.3 m from the wall): a click on them through the door climbs to Floor 1',
+  tightUp.ended === 'arrived' && tightUp.clicks[0]?.stairs?.direction === 'up' && flat(tight, tightEnd, 1),
+  `${tightUp.ended}, ${JSON.stringify(tightUp.clicks[0] ?? null)}, floor ${tightEnd.floor} y ${tightEnd.y.toFixed(2)} (${tightEnd.x.toFixed(2)}, ${tightEnd.z.toFixed(2)})`);
+if (SHOTS) await shot('stairs-click-tight-arrived.png');
+
 // ── Studio: a staircase keeps its size ──
 const st = await ctx.newPage();
 st.on('pageerror', (e) => errs.push('pageerror: ' + e.message));

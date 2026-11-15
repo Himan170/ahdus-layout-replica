@@ -70,6 +70,8 @@ export interface WalkthroughClick {
   /** Where to walk: the spot on a floor, else a little in front of what was hit; null: nothing there. */
   walkTo: { x: number; z: number; floor: number } | null;
   kind: string | null;
+  /** A staircase was clicked (v0.17.3): walkTo is its other end, up or down it; else null. */
+  stairs?: { objectId: string; direction: 'up' | 'down' } | null;
 }
 
 /** A text field (typing there never walks; the view never takes the focus from it). */

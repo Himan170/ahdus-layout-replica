@@ -48,7 +48,7 @@ import type { Scene } from '@babylonjs/core/scene';
 import type { Layout, Anchor, LayoutObject, AnchorKind } from './model/schema';
 import { loadLayout as parseLayout } from './model/migrate';
 import { toV1, storeFloorIds, mergeV2Extras } from './model/toV1';
-import { NavigationSystem } from './systems/NavigationSystem';
+import { NavigationSystem, STAIRS_ARRIVE_WITHIN } from './systems/NavigationSystem';
 import type { NavigationEvent, DepartmentInfo, PlaceResult } from './systems/NavigationSystem';
 import { RouteLineSystem } from './systems/RouteLineSystem';
 import { TourSystem, TOUR_HIGHLIGHT } from './systems/TourSystem';
@@ -224,6 +224,8 @@ export interface WalkClickEvent {
   person?: PlacedPerson;
   objectId?: string | null;
   to?: { x: number; z: number; floor: number };
+  /** A click on a staircase (v0.17.3): the walk goes up or down it, to its other end. */
+  stairs?: { objectId: string; direction: 'up' | 'down' } | null;
   problem?: string;
   message?: string;
 }
@@ -1337,13 +1339,16 @@ export class LayoutEngine {
       return;
     }
     const to = click.walkTo;
-    const r = this.navigation.routeTo({ x: to.x, z: to.z, floor: to.floor }, { walk: 'auto', source: 'click' });
+    // a staircase: up or down it, onto the landing at its other end (playController.clickTarget, v0.17.3)
+    const r = this.navigation.routeTo({ x: to.x, z: to.z, floor: to.floor }, {
+      walk: 'auto', source: 'click', ...(click.stairs ? { arriveWithin: STAIRS_ARRIVE_WITHIN } : {}),
+    });
     if (r.problem) {
       walk.say(r.message ?? 'No way to walk there', 2500);
-      this.emit('walkClick', { action: 'none', at, to, problem: r.problem, message: r.message });
+      this.emit('walkClick', { action: 'none', at, to, stairs: click.stairs ?? null, problem: r.problem, message: r.message });
       return;
     }
-    this.emit('walkClick', { action: 'walk', at, to });
+    this.emit('walkClick', { action: 'walk', at, to, stairs: click.stairs ?? null });
   }
 
   /** E on an item (its main anchor, as layoutBridge picks it) or on a door / window. */

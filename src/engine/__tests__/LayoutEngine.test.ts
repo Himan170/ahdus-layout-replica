@@ -749,6 +749,19 @@ describe('navigation: going there (v0.13.4)', () => {
     expect(engine.highlights.ids()).toEqual(['obj_desk']);
   });
 
+  it('a click on a staircase (v0.17.3) walks to its other end and arrives ON that spot (the landing), not 1 m short', () => {
+    const { engine, events, controller } = walking({ mode: 'walkthrough' });
+    const clicks: any[] = [];
+    engine.on('walkClick', (e) => clicks.push(e));
+    const c = controller();
+    const stairs = { objectId: 'obj_stairs', direction: 'up' };
+    c.options.onPointClick(clickOn({ walkTo: { x: 1.5, z: -1, floor: 0 }, kind: 'item', stairs }));
+    expect(clicks).toEqual([expect.objectContaining({ action: 'walk', stairs })]);
+    follow(c);
+    expect(events[events.length - 1]).toMatchObject({ state: 'arrived', source: 'click' });
+    expect(Math.hypot(c.pos.x - 1.5, c.pos.z + 1)).toBeLessThan(0.4);
+  });
+
   it('a movement key ends a click\'s walk (no "Press G"), and a double-click cancels the walk its first click started', () => {
     const { engine, events, controller } = walking({ mode: 'walkthrough' });
     const c = controller();
