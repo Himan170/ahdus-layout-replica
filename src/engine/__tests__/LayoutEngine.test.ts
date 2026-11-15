@@ -749,6 +749,19 @@ describe('navigation: going there (v0.13.4)', () => {
     expect(engine.highlights.ids()).toEqual(['obj_desk']);
   });
 
+  it('a click on a staircase (v0.17.3) walks to its other end and arrives ON that spot (the landing), not 1 m short', () => {
+    const { engine, events, controller } = walking({ mode: 'walkthrough' });
+    const clicks: any[] = [];
+    engine.on('walkClick', (e) => clicks.push(e));
+    const c = controller();
+    const stairs = { objectId: 'obj_stairs', direction: 'up' };
+    c.options.onPointClick(clickOn({ walkTo: { x: 1.5, z: -1, floor: 0 }, kind: 'item', stairs }));
+    expect(clicks).toEqual([expect.objectContaining({ action: 'walk', stairs })]);
+    follow(c);
+    expect(events[events.length - 1]).toMatchObject({ state: 'arrived', source: 'click' });
+    expect(Math.hypot(c.pos.x - 1.5, c.pos.z + 1)).toBeLessThan(0.4);
+  });
+
   it('a movement key ends a click\'s walk (no "Press G"), and a double-click cancels the walk its first click started', () => {
     const { engine, events, controller } = walking({ mode: 'walkthrough' });
     const c = controller();
@@ -766,18 +779,37 @@ describe('navigation: going there (v0.13.4)', () => {
     expect(engine.navigation.walking).not.toBeNull();
   });
 
-  it('a click where no one can walk says why in the HUD; on the sky it does nothing', () => {
+  it('a click into a room nobody can reach says why in the HUD (no hint); on the sky or a wall: the hint, once per few s', () => {
     const { engine, controller } = walking({ mode: 'walkthrough' });
     const clicks: any[] = [];
     engine.on('walkClick', (e) => clicks.push(e));
     const c = controller();
     c.options.onPointClick(clickOn({ walkTo: { x: 0, z: 0, floor: 1 } })); // upstairs: the stairs lead into a room with no door
-    c.options.onPointClick(clickOn({ point: null, walkTo: null, kind: null }));
-    expect(clicks.map((k) => k.action)).toEqual(['none', 'none']);
-    expect(clicks[0].problem).toBeTruthy();
+    expect(clicks[0]).toMatchObject({ action: 'none', problem: 'NO_STAIRS' }); // "…: no stairs lead to Floor 1"
+    expect(clicks[0].hint).toBeUndefined();
     expect(c.say).toHaveBeenCalledWith(clicks[0].message, expect.any(Number));
+    // v0.17.3: nothing to walk to = "Click the floor or the stairs to walk there", not a HUD message
+    c.say.mockClear();
+    c.options.onPointClick(clickOn({ point: null, walkTo: null, kind: null }));
+    expect(clicks[1]).toMatchObject({ action: 'none', hint: 'Click the floor or the stairs to walk there' });
     expect(clicks[1].problem).toBeUndefined();
+    c.options.onPointClick(clickOn({ walkTo: null, kind: 'wall' })); // right after: no second hint
+    expect(clicks[2]).toMatchObject({ action: 'none' });
+    expect(clicks[2].hint).toBeUndefined();
+    expect(c.say).not.toHaveBeenCalled();
     expect(engine.navigation.walking).toBeNull();
+  });
+
+  it('a tap that walks nowhere: "Tap the floor or the stairs"; a click that does something else: no hint', () => {
+    const { engine, controller } = walking({ mode: 'walkthrough' });
+    const clicks: any[] = [];
+    engine.on('walkClick', (e) => clicks.push(e));
+    const c = controller();
+    c.options.onPointClick(clickOn({ walkTo: { x: 1.5, z: -1, floor: 0 } })); // a walk
+    expect(clicks[0]).toMatchObject({ action: 'walk' });
+    expect(clicks[0].hint).toBeUndefined();
+    c.options.onPointClick(clickOn({ walkTo: null, kind: 'ceiling', touch: true }));
+    expect(clicks[1]).toMatchObject({ action: 'none', hint: 'Tap the floor or the stairs' });
   });
 
   it('a click on a person is their card; on something a module has an action for, within reach, that action (as E)', () => {

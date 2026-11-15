@@ -1,7 +1,7 @@
 // Walking routes (route.js, v0.13.2): plan section 6 + the Meridian-shaped layout + 200 random layouts.
 import { describe, it, expect } from 'vitest';
 import {
-  findRoute, findNearestRoute, floorLinks, stairBottom, cellsClear, segmentToRect, lineOfSight, roomHasDoor,
+  findRoute, findNearestRoute, floorLinks, stairsClickGoal, stairBottom, cellsClear, segmentToRect, lineOfSight, roomHasDoor,
 } from '../route';
 import { createWalkMapCache, buildWalkMap, itemObstacles, wallObstacles, FREE, BODY_RADIUS } from '../walkMap';
 import { entranceSpawn } from '../entrance';
@@ -308,6 +308,50 @@ describe('routes between floors', () => {
     expect(r.problem).toBeUndefined();
     expect(troubles(layout, r)).toEqual([]);
     expect(doorsThrough(layout, r)).toContain('1:room_up2:west');
+  });
+});
+
+describe('a click on a staircase (stairsClickGoal, v0.17.3)', () => {
+  const goal = (layout, from) => stairsClickGoal(layout, 'obj_stairs', from, { catalog: ASSET_TYPES });
+
+  it('from its floor: up, to the spot where the link arrives; from the floor above: down, to its foot', () => {
+    const layout = twoFloors();
+    const [link] = floorLinks(layout, { catalog: ASSET_TYPES });
+    expect(goal(layout, 0)).toEqual({ ...link.to, direction: 'up', objectId: 'obj_stairs' });
+    expect(goal(layout, 1)).toEqual({ ...link.from, direction: 'down', objectId: 'obj_stairs' });
+    // a route there goes up the flight: it is a place the walker can reach, on the other floor
+    const r = route(layout, { x: -3, z: -2, floor: 0 }, goal(layout, 0));
+    expect(r.problem).toBeUndefined();
+    expect(r.legs.map((l) => l.floor)).toEqual([0, 1]);
+  });
+
+  it('stairs that lead nowhere, or not a staircase: null (the click walks as before)', () => {
+    expect(goal(twoFloors({ roomAbove: false }), 0)).toBeNull();
+    expect(stairsClickGoal(twoFloors(), 'room_hall', 0, { catalog: ASSET_TYPES })).toBeNull();
+  });
+
+  it('a flight whose bottom step is 0.3 m from a door wall (the click used to stop at the door): still up', () => {
+    // as found on Render: the stairs' room has no door of its own; the office's door in the shared wall
+    // is right behind the bottom step, so the walk map has no free cell between them (only the link)
+    const stairs = item('obj_stairs', 'STAIRCASE', 5, -3, { rotationY: Math.PI });
+    const layout = {
+      rooms: [
+        room('room_office', 4.5, 3.25, 11, 7.5, { doors: [{ wall: 'north', offset: 0, width: 1.2, height: 2.1 }, { wall: 'south', offset: 0.34, width: 1, height: 2.1 }] }),
+        room('room_stairs', 5.325, -3.825, 5.35, 6.35, { type: 'STAIRCASE' }),
+        room('room_office1', 4.5, 3.25, 11, 7.5, { floor: 1, doors: [{ wall: 'south', offset: 2.5, width: 1, height: 2.1 }] }),
+        room('room_stairs1', 5.325, -3.575, 5.35, 5.85, { floor: 1, type: 'STAIRCASE', doors: [{ wall: 'north', offset: 1.675, width: 1, height: 2.1 }] }),
+      ],
+      objects: [stairs],
+      floors,
+    };
+    const up = goal(layout, 0);
+    expect(up).toMatchObject({ floor: 1, direction: 'up' });
+    expect(up.z).toBeLessThan(-5.5); // past the top step (-5), on Floor 1's landing
+    // the spot clicked on the steps (what a click used to walk to) has no route; the other end has one
+    expect(route(layout, { x: 4.84, z: 2, floor: 0 }, { x: 4.5, z: -1.4, floor: 0 }).problem).toBe('NO_ROUTE');
+    const r = route(layout, { x: 4.84, z: 2, floor: 0 }, up);
+    expect(r.problem).toBeUndefined();
+    expect(r.legs.map((l) => l.floor)).toEqual([0, 1]);
   });
 });
 

@@ -118,24 +118,55 @@ function stairAxis(stair, dims) {
  */
 export function floorLinks(layout, options = {}) {
   const maps = options.maps ?? createWalkMapCache({ catalog: options.catalog });
-  const floors = layout.floors ?? {};
   const rooms = list(layout.rooms);
   const links = [];
   for (const s of list(layout.objects)) {
-    if (s.assetType !== 'STAIRCASE') continue;
-    const floor = floorOf(s);
-    const above = floorAbove(floors, floor);
-    if (!above || !floors[floor] || stairNeedsRoomAbove(s, floors, rooms)) continue;
-    const dims = stairDimsFor(floors, s);
-    const low = landing(maps.get(layout, floor), stairBottom(s, dims));
-    const high = landing(maps.get(layout, above.id), stairTop(s, dims));
-    if (!low || !high) continue;
-    const via = stairAxis(s, dims);
-    const flat = pathLength([low, ...via, high]);
-    const cost = Math.hypot(flat, dims.rise);
-    links.push({ kind: 'stairs', objectId: s.id, from: { floor, x: low.x, z: low.z }, to: { floor: above.id, x: high.x, z: high.z }, cost, via });
+    const link = s.assetType === 'STAIRCASE' ? stairLink(layout, s, maps, rooms) : null;
+    if (link) links.push(link);
   }
   return links;
+}
+
+/** One staircase's link (floorLinks), or null: it leads nowhere, or an end is walled in. */
+function stairLink(layout, s, maps, rooms = list(layout.rooms)) {
+  const floors = layout.floors ?? {};
+  const floor = floorOf(s);
+  const above = floorAbove(floors, floor);
+  if (!above || !floors[floor] || stairNeedsRoomAbove(s, floors, rooms)) return null;
+  const dims = stairDimsFor(floors, s);
+  const low = landing(maps.get(layout, floor), stairBottom(s, dims));
+  const high = landing(maps.get(layout, above.id), stairTop(s, dims));
+  if (!low || !high) return null;
+  const via = stairAxis(s, dims);
+  const flat = pathLength([low, ...via, high]);
+  const cost = Math.hypot(flat, dims.rise);
+  return { kind: 'stairs', objectId: s.id, from: { floor, x: low.x, z: low.z }, to: { floor: above.id, x: high.x, z: high.z }, cost, via };
+}
+
+/**
+ * Where a click on a staircase takes you (v0.17.3): its OTHER end, so a click anywhere on a flight
+ * climbs it (or goes down it) through the same link the routes use, as Take me there does. A click
+ * used to walk to the spot clicked, on the floor the flight starts on: a step is not a place to stand,
+ * so the route ended in front of the flight (or found none) and nobody climbed.
+ * From the floor it starts on, on the flight or below: up, to where it arrives; from the floor it
+ * leads to or above: down, to the spot in front of its bottom step.
+ * @param {{ rooms, objects, floors }} layout  store shape
+ * @param {string} stairId
+ * @param {number} fromFloor  the floor the walker is on
+ * @param {{ maps?: { get(layout, floorId) }, catalog?: object }} [options]
+ * @returns {{ x: number, z: number, floor: number, direction: 'up' | 'down', objectId: string } | null}
+ *   null: not a staircase, it leads nowhere, or an end is walled in (the click walks as before)
+ */
+export function stairsClickGoal(layout, stairId, fromFloor, options = {}) {
+  const stair = list(layout.objects).find((o) => o.id === stairId && o.assetType === 'STAIRCASE');
+  if (!stair) return null;
+  const maps = options.maps ?? createWalkMapCache({ catalog: options.catalog });
+  const link = stairLink(layout, stair, maps);
+  if (!link) return null;
+  const order = floorsInOrder(layout.floors ?? {}).map((f) => f.id);
+  const up = fromFloor === link.from.floor || order.indexOf(fromFloor) < order.indexOf(link.to.floor);
+  const end = up ? link.to : link.from;
+  return { x: end.x, z: end.z, floor: end.floor, direction: up ? 'up' : 'down', objectId: stair.id };
 }
 
 function landing(map, p) {

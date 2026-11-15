@@ -74,6 +74,7 @@ import Toast from '../ui/Toast';
 import { PublishDialog, LeaveDialog } from '../ui/PublishDialogs';
 import Dialog from '../ui/Dialog';
 import DropFootprint from '../ui/DropFootprint';
+import { ClickHint } from '../engine/react/ClickHint';
 import CameraControls from '../ui/CameraControls';
 import { turnCameraTo, zoomCamera, setPanMode } from '../utils/cameraControls';
 import { usePhone } from '../ui/look';
@@ -155,6 +156,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   const [isPlaying, setIsPlaying] = useState(false);
   const isPlayingRef = useRef(false);
   const [playHud, setPlayHud] = useState(null);
+  const [clickHint, setClickHint] = useState(null); // v0.17.3: Walk through's "Click the floor or the stairs"
   const [hotbar, setHotbar] = useState(DEFAULT_HOTBAR);
   const [selectedSlot, setSelectedSlot] = useState(EMPTY_HAND); // walking first: building is a choice (1–9, B)
   const [catalogOpen, setCatalogOpen] = useState(false);
@@ -352,7 +354,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     isPlayingRef, measureModeRef, measureStartRef, measurementIdRef, fpsRef, fpsDisplayRef,
     plannerMessageTimer, setBuildProgress, setPlayHud, setSelectedSlot, setCatalogOpen, setNewFloorAsk,
     setInteraction, setPositionsVersion, setPlannerHint, setMeasurePreview, setMeasureStart, setMeasurements,
-    setSceneReady, editor, showStudioMessage, placeObject, DEMO_MODULES, pauseRenderingRef,
+    setSceneReady, editor, showStudioMessage, placeObject, DEMO_MODULES, pauseRenderingRef, setClickHint,
   });
 
   // ─── Store → scene: meshes, the floor being edited, the gizmo (hooks/useStoreMeshSync.js) ───
@@ -1576,6 +1578,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
             />
           )}
           <DropFootprint drag={libraryDrop.drag} />
+          {isPlaying && <ClickHint hint={clickHint} />}
           {/* Not in Plan view: the plan is drawn from the store, so nothing there waits for the build */}
           {buildProgress && !buildProgress.allBuilt && !(planView && !isPlaying) && (
             <div

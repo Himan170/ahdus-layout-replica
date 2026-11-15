@@ -70,6 +70,8 @@ import { lockPointer } from '../utils/pointerLock';
 import { createDragLook } from './dragLook';
 import { createWalkMapCache, FREE, STAIRS, BLOCKED } from './navigation/walkMap';
 import { entranceSpawn, nearestFree, NOT_BLOCKED } from './navigation/entrance';
+import { stairsClickGoal } from './navigation/route';
+import { NO_WALK_PARTS } from './clickHint';
 import {
   snap, wallSegmentTransform, findRoomAt, formatRoomSize,
   planRoom, planOpening, planRemoveOpening, wallSegmentData, resizeItem,
@@ -1605,16 +1607,16 @@ export function createPlayController(scene, canvas, {
       lookBy(dx * k, dy * k);
     },
     // a tap (touch) is a click: the floor walks there, a person shows their card, a machine its action
-    click: ({ x, y, button }) => {
-      if (mouseAim) { previewClick(x, y, button); return; }
+    click: ({ x, y, button, touch }) => {
+      if (mouseAim) { previewClick(x, y, button, touch); return; }
       if (button !== 0 || !active) return;
       // mouse-look mode: the crosshair (the middle of the view) is what you click
       const at = locked ? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 } : { x, y };
-      onPointClick(clickTarget(at.x, at.y));
+      onPointClick({ ...clickTarget(at.x, at.y), touch: !!touch });
     },
-    doubleClick: ({ x, y, button }) => {
+    doubleClick: ({ x, y, button, touch }) => {
       // Walk through: two quick clicks are two clicks (two chairs placed), never mouse look (that is M)
-      if (mouseAim) { previewClick(x, y, button); return; }
+      if (mouseAim) { previewClick(x, y, button, touch); return; }
       if (button !== 0 || !active || locked) return;
       onDoubleClick();
       lockPointer(canvas);
@@ -1626,7 +1628,7 @@ export function createPlayController(scene, canvas, {
    * your hand (or an item carried) the left button uses it THERE and the right button removes /
    * cancels there; an empty hand walks there (onPointClick, as a viewer) and removes nothing.
    */
-  function previewClick(x, y, button) {
+  function previewClick(x, y, button, touch = false) {
     if (!active || keysPaused) return;
     if (!locked) pointer = { x, y };
     // what the click would do, for exactly this spot (a tap has no mouse move before it)
@@ -1635,7 +1637,7 @@ export function createPlayController(scene, canvas, {
     if (button !== 0) return;
     if (carry || tool) { primaryAction(); return; }
     const at = locked ? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 } : { x, y };
-    onPointClick(clickTarget(at.x, at.y));
+    onPointClick({ ...clickTarget(at.x, at.y), touch: !!touch });
   }
 
   function onPointerDown(e) {
@@ -1690,7 +1692,7 @@ export function createPlayController(scene, canvas, {
     const hit = scene.pickWithRay(ray, (m) =>
       m.isPickable && m.isEnabled() && m.isVisible !== false && !isPlayerMesh(m) && !isGhostMesh(m) &&
       !m.metadata?.pickPane && (!!objectIdOf(m) || !!roomPartOf(m) || m.name === 'ground'));
-    if (!hit?.hit || !hit.pickedPoint) return { screen: { x, y }, point: null, target: null, walkTo: null, kind: null };
+    if (!hit?.hit || !hit.pickedPoint) return { screen: { x, y }, point: null, target: null, walkTo: null, kind: null, stairs: null };
     const m = hit.pickedMesh;
     const p = hit.pickedPoint;
     const point = { x: p.x, y: p.y, z: p.z };
@@ -1714,11 +1716,19 @@ export function createPlayController(scene, canvas, {
       const d = Math.hypot(dx, dz);
       if (d > 1e-3) { gx += (dx / d) * CLICK_STAND_OFF; gz += (dz / d) * CLICK_STAND_OFF; }
     }
+    // v0.17.3: a staircase takes you to its other end (up or down it), not to the step clicked
+    const st = obj?.assetType === 'STAIRCASE' ? state() : null;
+    const stairs = st
+      ? stairsClickGoal({ rooms: st.rooms, objects: st.objects, floors: st.floors }, obj.id, currentLevel, { maps: walkMaps })
+      : null;
+    // v0.17.3: a wall, a window, a ceiling, a roof is not a place to walk to (the click shows a hint, clickHint.js)
+    const nowhere = !objectId && !!part && NO_WALK_PARTS.has(part.part);
     return {
       screen: { x, y }, point,
       target: target && distance <= INTERACT_REACH ? target : null,
-      walkTo: { x: gx, z: gz, floor },
+      walkTo: nowhere ? null : stairs ? { x: stairs.x, z: stairs.z, floor: stairs.floor } : { x: gx, z: gz, floor },
       kind: objectId ? 'item' : part?.part ?? 'ground',
+      stairs: stairs ? { objectId: stairs.objectId, direction: stairs.direction } : null,
     };
   }
 

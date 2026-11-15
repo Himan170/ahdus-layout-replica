@@ -563,7 +563,18 @@ export function stairProblems(stair, floors, rooms) {
   if (!insideBy(flight, inner, tol)) {
     out.push({ code: 'STICKS_OUT', text: `These stairs don't fit ${name}: they stick out of it` });
   } else if (!insideBy(stepOn, inner, tol)) {
-    out.push({ code: 'NO_STEP_ON', text: `These stairs don't fit ${name}: there's no room in front of the bottom step` });
+    // v0.17.3: how much floor there is (in 5 cm steps) and how far to move them, so the fix is plain
+    let free = 0;
+    for (let k = Math.round(STAIR_STEP_ON / 0.05) - 1; k > 0; k -= 1) {
+      if (insideBy(stairLocalBox(stair, -width / 2, width / 2, -length / 2 - k * 0.05, -length / 2), inner, tol)) { free = k * 0.05; break; }
+    }
+    const m = (v) => `${+v.toFixed(2)} m`;
+    const move = Math.ceil((STAIR_STEP_ON - free) * 10 - 1e-6) / 10;
+    out.push({
+      code: 'NO_STEP_ON',
+      text: `These stairs don't fit ${name}: ${free > 0 ? `only ${m(free)} of floor` : 'no floor'} in front of the bottom step `
+        + `(${m(STAIR_STEP_ON)} needed). Move them ${m(move)} away from the wall there`,
+    });
   }
   const doorBlocked = roomOpenings(room).some((o) => {
     if (o.kind !== 'door') return false;
