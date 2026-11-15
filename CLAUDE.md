@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1564, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1580, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -148,6 +148,13 @@ npm run e2e:seats    # 26 checks   e2e/seats-smoke.mjs     (NO dev server: start
                      #                                       search, move / replace questions, not in undo, People
                      #                                       without a desk, the Publish warning, editors read-only,
                      #                                       phone; SHOTS=<dir>: screenshots)
+npm run e2e:stairs-fit # 24     e2e/stairs-fit-smoke.mjs (v0.17.4, NO dev server: its own in AHDUS mode on port 3101, the
+                     #                                       API faked; RUSBORN=<exported layout> (default private-docs/rusborn-
+                     #                                       2026-11-15.json, a copy; none: a stand-in): Check's "N ignored" +
+                     #                                       Show, Fix it (one undo, Check clean, the top in Staircase 2), the
+                     #                                       Inspector's Fix it, Publish lists walking problems (ignored too) +
+                     #                                       Fix it + Publish anyway, a library drop: red + shaded, snapped,
+                     #                                       Alt = exactly; a drag: the same; SHOTS=<dir>: screenshots)
 npm run e2e:touch   # 16 checks   e2e/touch-smoke.mjs     (viewer.html on a phone: 390 × 844, hasTouch + isMobile,
                      #                                       fingers through CDP touch events: the joystick (push =
                      #                                       walk, further = faster, let go = stop), drag to look, two
@@ -436,7 +443,41 @@ Walk through follow-up: plain right-click removes aimed items even with an empty
 Door items in drawn walls are visibly open doorways, matching room doors; floor controls stay unchanged.
 
 Measured on 72 rooms / 864 items: 132 ms cold, 112 ms with warm walk maps (11 Nov 2026).
-Regression script: `npm run e2e:check` (12 checks) (template door removed/restored, selection, floor switching, Ignore/undo/reopen, phone).
+Regression script: `npm run e2e:check` (14 checks) (template door removed/restored, selection, floor switching, Ignore/undo/reopen, phone).
+
+## Stairs that always work (v0.17.4, how it works)
+
+Editors never need coordinates. PURE `src/play/stairFit.js` (tests `play/__tests__/stairFit.test.js`), turned
+rectangles in `play/turnedRect.js`.
+- **`stairFit(stair, layout, { catalog })`** → `{ ok, problems: [{ code, text }], shade, room }`: in the innermost room
+  holding its middle, `STAIR_CLEAR` 0.8 m of free floor in front of the bottom step AND past the top on the floor
+  above (`stairTop`), free of walls (the room's inner box; no other room's walls), furniture (`itemFootprints`, solid
+  items) and other stairs (theirs, both ends, and stairs arriving from below), and the flight + its opening clear of
+  door zones (any room's doors near it, `DOOR_CLEAR`). Codes (each once): NOWHERE, STICKS_OUT, NO_STEP_ON ("The stairs
+  are too close to the wall of …"), NO_LANDING ("The stairs end too close to a wall on Floor 1: …"; a room above holding
+  the top step makes it this, not NOWHERE), BLOCKS_DOOR, IN_THE_WAY ("Desk is in the way at the bottom of the stairs").
+  `shade` = the floor they miss. `stairPreview` (zones with their world `y`), `stairProblems` (the Inspector).
+- **`stairSpots`** (a generator, nearest first; the spot itself first when it works): same room, same rotation, offsets
+  every 0.05 m within 2 m, 0.1 m to 6 m, 0.25 m beyond (`radius` 12). `findStairSpot` = the first. **`findItemSpot(item,
+  layout)`** (Fix it for a blocked door): the item with its chair and riders, out of door zones (`ITEM_DOOR_FREE` 1 m),
+  stairs and their ends, walls and other furniture.
+- **Studio:** placing (placement manager `setLayoutSource`, `getWarning`: the ghost red + `placing_pv_zone_*` boxes,
+  `buildPreview.zones`) and dragging (`plannerTools` `stairDragHint`: `planner_pv_zone_*`) say why; on drop / release
+  they go to `findStairSpot` ("Moved the stairs a little, so there is room to step on and off"), **Alt held**
+  (`utils/altKey.isAltDown`) = exactly there. Plan view's drop the same. The Inspector's `data-stairs-problems` has
+  **Fix it** (`data-stairs-fix`).
+- **Check my layout:** STAIRS problems are errors; walking problems (`WALKING_KINDS`: NO_ENTRANCE, ROOM_NO_DOOR,
+  FLOOR / ROOM / DESK_UNREACHABLE, STAIRS) carry `blocksWalking`. `addFixes`: a problem a move can fix gets `fix: {
+  moves, label }` (stairs: the first other `stairSpots` spot; DOOR_BLOCKED: `findItemSpot`; unreachable rooms / desks /
+  floors: the stairs or door blocker near them, kept only when one `checkLayout(patched, { fixes: false })` shows the
+  problem gone). Panel: **Fix it** (`data-check-fix`) = `editor.moveObjects(fix.moves)`, one undo step, the item selected;
+  "N ignored · Show" (`data-check-ignored`, `data-check-show-ignored`); Ignore on a walking problem asks once
+  (`data-check-confirm`, "Ignore anyway" `data-check-confirm-yes`). The Check button's title counts the ignored.
+- **Publish (AHDUS):** `walkingProblems(problems, ignored)` (`useLayoutCheck` → `checks.walking`): listed even when
+  ignored (`data-publish-walking`, `data-publish-problem`, Fix it `data-publish-fix`), the button "Publish anyway"
+  (`data-publish-anyway`). Never blocks publishing.
+- Tests: `stairFit.test.js` (a stand-in of the Render layout; the real one when `private-docs/rusborn-2026-11-15.json` is
+  there), `checkLayout.test.js`, `npm run e2e:stairs-fit`, `e2e:check`.
 
 ## Code map
 
@@ -531,6 +572,10 @@ src/play/wallMount.js              PURE (v0.15.6): wall items (WALL_ITEMS height
 src/play/dragSnap.js               PURE (v0.15.6): snapping while dragging (walls, items' edges / middles, grid) + guides
 src/play/locks.js                  PURE (v0.15.6): what a lock stops (a locked room: no move / resize / turn / delete)
 src/ui/hiddenLayers.js             Layers' eye (v0.15.6): hidden rooms / items per workplace, Studio's view only
+src/play/stairFit.js               PURE (v0.17.4): stairs that work: stairFit (problems + the floor they miss), stairPreview,
+                                   stairProblems, stairSpots / findStairSpot (nearest spot that works), findItemSpot
+src/play/turnedRect.js             PURE (v0.17.4): turned rectangles (rectsOverlap, boxOf, distanceTo, farApart)
+src/utils/altKey.js                v0.17.4: isAltDown() (Alt held: stairs placed exactly where dropped)
 src/play/carry.js                  PURE (v0.15.1): what an item takes along (carriedBy: a desk's chair + riders), carryMoves,
                                    turnStep (R 90°, Shift+R 15°), carryDrop (v0.15.2: putting it down in Walk through)
 src/utils/itemRiders.js            ridersOf: what stands on an item, from its mesh (Studio's drag + Walk through's carry)
@@ -649,7 +694,7 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
   "Build a room above to use these stairs" (`stairNeedsRoomAbove`). **Stairs that lead nowhere (v0.14.6)** (no floor
   above, or no room where they arrive) can't be climbed: `supportHeight` ignores their steps, `stairPushOut` (given
   `rooms`) blocks them all round, the bottom step too (`nowhere: true`: the walker says "These stairs lead nowhere",
-  `STAIRS_LEAD_NOWHERE`), and the walk map blocks the whole flight. **Studio** (`building.stairProblems`, shown in the
+  `STAIRS_LEAD_NOWHERE`), and the walk map blocks the whole flight. **Studio** (`stairFit.stairProblems`, v0.17.4: see "Stairs that always work"; shown in the
   Inspector of a selected staircase, `data-stairs-problems`, and as the message after placing one): NOWHERE ("These
   stairs lead nowhere: …"), and, in the innermost room holding its middle: STICKS_OUT, NO_STEP_ON (no
   `STAIR_STEP_ON` 0.8 m in front of the bottom step inside the room), BLOCKS_DOOR (the flight in a door's `DOOR_CLEAR`
@@ -1809,11 +1854,21 @@ and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
 
+## DONE: stairs that always work (v0.17.4, 16 Nov 2026, branch `fix/v0.17.4-stairs-always-work`)
+
+Sir's Render layout ("rusborn"): the ground-floor stairs 0.3 m from a wall, in front of the stair room's door, the room
+unreachable, two of the warnings ignored. Now stairs that can't be used show red with the missing floor shaded while
+placed or dragged and snap to the nearest working spot (Alt: exactly there), every stairs and blocked-way problem in
+Check has Fix it (one undo step, plain words), Publish lists what stops people walking even when ignored, Check shows
+"N ignored · Show" and asks before ignoring a walking problem (see "Stairs that always work"; CHANGELOG.md). Fix it on
+the real layout moves the stairs 0.55 m: Check clean, the top in Staircase 2. Screenshots:
+private-docs/screenshots/v0.17.4/ (not in git).
+
 ## DONE: a click on the stairs climbs them (v0.17.3, 15 Nov 2026, branch `fix/v0.17.3-click-stairs`)
 
 Found on Render in a real layout ("rusborn"): a click on the steps walked to the door in front of them and stopped.
 A click on a flight now walks to its other end, onto the landing (see "Easy controls", A click); Check's NO_STEP_ON
-says how far to move the stairs (`building.stairProblems`); a click that walks nowhere shows "Click the floor or
+says how far to move the stairs (then `building.stairProblems`; v0.17.4: `stairFit`, plain words + Fix it); a click that walks nowhere shows "Click the floor or
 the stairs to walk there" at the click (`play/clickHint.js`; e2e:controls 20). The layout itself: its ground-floor stairs start 0.3 m
 from the wall with the office door; W and Take me there climbed them anyway. e2e:stairs 28 checks; CHANGELOG.md.
 
