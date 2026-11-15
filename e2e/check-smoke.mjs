@@ -41,10 +41,15 @@ try {
   await page.evaluate(({ id }) => window.__ahdusStore.getState().updateRoom(id, { doors: [] }), saved);
   await problem.waitFor({ timeout: 15000 });
   await panel.locator('li').filter({ hasText: 'Meeting Room has no door' }).getByRole('button', { name: 'Ignore', exact: true }).click();
+  // v0.17.4: a room with no door stops people walking there: Ignore asks once
+  check('ignoring a walking problem asks once', await panel.locator('[data-check-confirm]').count() === 1 && await panel.getByText('Ignored (1)', { exact: true }).count() === 0);
+  await panel.locator('[data-check-confirm-yes]').click();
   check('Ignore removes the count and goes under Ignored', await panel.getByText('Ignored (1)', { exact: true }).count() === 1);
+  check('the status line says "1 ignored" with Show', await panel.locator('[data-check-ignored="1"] [data-check-show-ignored]').count() === 1);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   check('one Undo shows the problem again', await problem.isVisible());
   await panel.locator('li').filter({ hasText: 'Meeting Room has no door' }).getByRole('button', { name: 'Ignore', exact: true }).click();
+  await panel.locator('[data-check-confirm-yes]').click();
   await page.waitForTimeout(2500);
   await page.reload();
   await page.locator(".selector-row__main").filter({ hasText: "Check test" }).click();
