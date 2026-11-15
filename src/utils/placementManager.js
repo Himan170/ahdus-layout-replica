@@ -25,6 +25,9 @@ import { disposeMaterialIfOwned } from './materialLibrary';
 import { placementHeight, canStandOn, floorOnlyText } from '../play/building';
 import { isWallItem, mountOnWall } from '../play/wallMount';
 import { ASSET_TYPES } from './assetCatalog';
+import { createBuildPreview } from './buildPreview';
+import { stairPreview } from '../play/stairFit';
+import { isAltDown } from './altKey';
 
 // ─── Ghost visual config ───
 const GHOST_ALPHA = 0.48;
@@ -97,6 +100,9 @@ export function createPlacementManager(scene, options = {}) {
   let getElevation = () => 0; // elevation of the floor being edited
   let getWalls = null;        // () => wallPieces of the floor being edited (v0.15.6: wall items hang on them)
   let _mounted = null;        // a wall item: true = on a wall, false = no wall near; null: not a wall item
+  let getLayout = null;       // () => the store's layout (v0.17.4: stairs check where they would go)
+  let _warning = null;        // stairs that don't fit here: they will move to where they do (or Alt: stay)
+  const pv = createBuildPreview(scene, 'placing'); // the floor the stairs miss, in red
   const ghostMaterials = createGhostMaterials(scene);
 
   // ── Ghost cleanup ──
@@ -110,6 +116,8 @@ export function createPlacementManager(scene, options = {}) {
     currentRotationY = 0;
     _valid = true;
     _mounted = null;
+    _warning = null;
+    pv.hide('zones');
   }
 
   const objectIdOf = (m) => m.metadata?.objectId ?? m.parent?.metadata?.objectId ?? null;
@@ -220,7 +228,27 @@ export function createPlacementManager(scene, options = {}) {
       _problem = canStandOn(currentAssetType, surface, under) ? null : floorOnlyText(ASSET_TYPES[currentAssetType]?.label);
       _valid = !!height && !_problem && (baseY + currentYOffset) >= -0.05;
       applyGhostMaterial(ghostRoot, _valid ? ghostMaterials.valid : ghostMaterials.invalid);
+      checkStairs();
     }
+  }
+
+  /**
+   * v0.17.4: stairs need free floor at both ends (play/stairFit.js). Where they don't fit, the ghost is red
+   * and the floor they miss is shaded; they can still be dropped: placeObject moves them to the nearest
+   * spot that works, or (Alt) leaves them here.
+   */
+  function checkStairs() {
+    _warning = null;
+    if (currentAssetType !== 'STAIRCASE' || !getLayout || !ghostRoot || !_valid) { pv.hide('zones'); return; }
+    const layout = getLayout();
+    const fit = stairPreview({ x: ghostRoot.position.x, z: ghostRoot.position.z, rotationY: currentRotationY, floor: layout.currentFloor ?? 0 },
+      layout, { catalog: ASSET_TYPES });
+    if (fit.ok) { pv.hide('zones'); return; }
+    pv.zones(fit.zones);
+    applyGhostMaterial(ghostRoot, ghostMaterials.invalid);
+    _warning = isAltDown()
+      ? `${fit.text}. Alt: they stay exactly here`
+      : `${fit.text}. Drop them: they move to the nearest spot that works (hold Alt to keep them here)`;
   }
 
   // ── Scroll wheel: adjust height ──
@@ -236,6 +264,7 @@ export function createPlacementManager(scene, options = {}) {
     if (!ghostRoot || _mounted) return; // a hung item faces away from its wall
     currentRotationY += step;
     ghostRoot.rotation.y = currentRotationY;
+    checkStairs();
   }
 
   // ── Confirm placement (mouse click / drop) ──
@@ -267,6 +296,10 @@ export function createPlacementManager(scene, options = {}) {
   // ── Cancel placement ──
   /** Why the spot under the pointer is refused ("Large Plant stands on the floor"), or null. */
   function getProblem() { return ghostRoot ? _problem : null; }
+  /** v0.17.4: stairs that don't fit where the ghost is (they can still be dropped), or null. */
+  function getWarning() { return ghostRoot ? _warning : null; }
+  /** v0.17.4: () => the store's layout state (rooms, objects, floors, currentFloor). */
+  function setLayoutSource(fn) { getLayout = fn; }
 
   function cancelPlacement() {
     clearGhost();
@@ -319,6 +352,7 @@ export function createPlacementManager(scene, options = {}) {
     cancelPlacement();
     ghostMaterials.valid.dispose();
     ghostMaterials.invalid.dispose();
+    pv.dispose();
   }
 
   return {
@@ -327,6 +361,8 @@ export function createPlacementManager(scene, options = {}) {
     confirmPlacement,
     cancelPlacement,
     getProblem,
+    getWarning,
+    setLayoutSource,
     adjustHeight,
     rotatePreview,
     duplicateLast,

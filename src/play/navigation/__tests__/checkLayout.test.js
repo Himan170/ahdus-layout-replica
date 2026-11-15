@@ -257,12 +257,15 @@ describe('stairs and floors', () => {
     expect(found[0].message).toMatch(/^These stairs lead nowhere: there is no floor above/);
   });
 
-  it('stairs that stick out of their room: a warning with the Inspector\'s text', () => {
+  it('stairs that stick out of their room: an error with the Inspector\'s text (v0.17.4: and the landing upstairs too), and a Fix it', () => {
     const layout = twoFloors();
     layout.objects.push(item('STAIRCASE', 2.6, 0, { id: 's' }));
-    expect(of(layout, CHECK_KINDS.STAIRS).map((p) => [p.code, p.severity, p.message])).toEqual([
-      ['STICKS_OUT', 'warning', "These stairs don't fit Hall: they stick out of it"],
+    const found = of(layout, CHECK_KINDS.STAIRS);
+    expect(found.map((p) => [p.code, p.severity, p.message])).toEqual([
+      ['NO_LANDING', 'error', 'The stairs end too close to a wall on Floor 1: there is no room to step off at the top'],
+      ['STICKS_OUT', 'error', 'The stairs stick out of Hall'],
     ]);
+    expect(found.every((p) => p.blocksWalking && p.fix?.moves?.[0]?.[0] === 's')).toBe(true);
   });
 
   it('an upper floor no stairs lead to: one line for the floor, not one per room', () => {

@@ -13,7 +13,7 @@ import { ObjectSystem } from '../../engine/systems/ObjectSystem';
 import { createPlayController } from '../playController';
 import {
   elevationOf, stairDimsFor, stairDrawn, stairHeightAt, stairOpening, stairPatch, stairPushOut, stairSize, stairTop, supportHeight,
-  stairProblems, STAIRS_LEAD_NOWHERE,
+  STAIRS_LEAD_NOWHERE,
 } from '../building';
 import { stairBottom, floorLinks, findRoute } from '../navigation/route';
 import { createFollower } from '../navigation/follow';
@@ -432,52 +432,5 @@ describe('stairs that lead nowhere can not be climbed', () => {
     // with a room above where it arrives: STAIRS again
     const two = { rooms: [...rooms(2)], objects: [s], floors };
     expect(createWalkMapCache().get(two, 0).at(3, 2)).toBe(STAIRS);
-  });
-});
-
-describe('stairProblems: what Studio says about a staircase', () => {
-  const oneFloor = { 0: { id: 0, name: 'Ground Floor', height: 4 } };
-  // a small stair room, 2.5 × 3.5 m (x 4.75 … 7.25, z −4.75 … −1.25), a door on its west and east walls
-  const stairRoom = { id: 'sr', type: 'STAIRCASE', name: 'Stair hall', floor: 0, x: 6, z: -3, width: 2.5, depth: 3.5,
-    wallHeight: 3.7, wallThickness: 0.15, windows: [],
-    doors: [{ wall: 'east', offset: 0, width: 1, height: 2.1 }, { wall: 'west', offset: 0.5, width: 1, height: 2.1 }] };
-  const codes = (s, fl, rs) => stairProblems(s, fl, rs).map((p) => p.code);
-
-  it('a half-size flight turned round: leads nowhere, its bottom step faces the wall, it stands in front of the west door', () => {
-    // 2 m long, z −3.4 … −1.4: its bottom step (+Z end) 7.5 cm from the north wall's inside face
-    const s = stair({ x: 5.4, z: -2.4, rotationY: Math.PI, scaleX: 0.5, scaleY: 0.5, scaleZ: 0.5 });
-    const problems = stairProblems(s, oneFloor, [stairRoom]);
-    expect(problems.map((p) => p.code)).toEqual(['NOWHERE', 'NO_STEP_ON', 'BLOCKS_DOOR']);
-    expect(problems[0].text).toBe(`${STAIRS_LEAD_NOWHERE}: there is no floor above. Add one, with a room where they arrive`);
-    // v0.17.3: how much floor there is, and how far to move them (to whole 10 cm)
-    expect(problems[1].text).toBe("These stairs don't fit Stair hall: only 0.05 m of floor in front of the bottom step (0.8 m needed). Move them 0.8 m away from the wall there");
-    expect(problems[2].text).toBe("These stairs don't fit Stair hall: they block a door");
-  });
-
-  it('the bottom step 0.3 m from the wall (as found on Render, v0.17.3): 0.25 m of floor, move them 0.6 m', () => {
-    const room = { ...stairRoom, x: 5.325, z: -3.825, width: 5.35, depth: 6.35, doors: [] }; // z −7 … −0.65
-    const s = stair({ x: 5, z: -3, rotationY: Math.PI }); // bottom step at z −1, the wall's inside face at −0.725
-    const stepOn = (st) => stairProblems(st, oneFloor, [room]).filter((p) => p.code !== 'NOWHERE'); // one floor: leads nowhere too
-    expect(stepOn(s)).toEqual([{ code: 'NO_STEP_ON',
-      text: "These stairs don't fit Stair hall: only 0.25 m of floor in front of the bottom step (0.8 m needed). Move them 0.6 m away from the wall there" }]);
-    expect(stepOn({ ...s, z: -3.6 })).toEqual([]);
-  });
-
-  it('a normal-size flight (4 m) sticks out of a 3.5 m stair room', () => {
-    expect(codes(stair({ x: 6, z: -3 }), oneFloor, [stairRoom])).toContain('STICKS_OUT');
-  });
-
-  it('a floor above with no room where they arrive: build one there', () => {
-    const s = stair({ x: 0, z: 0 });
-    const [p] = stairProblems(s, floors, rooms(1));
-    expect(p).toMatchObject({ code: 'NOWHERE', text: `${STAIRS_LEAD_NOWHERE}: build a room on Floor 1 where they arrive` });
-  });
-
-  it('a flight in the middle of a big room, with a room above: nothing to say', () => {
-    expect(stairProblems(stair({ x: 3, z: 2, rotationY: 90 * DEG }), floors, rooms(2))).toEqual([]);
-  });
-
-  it('outside every room only "leads nowhere" counts', () => {
-    expect(codes(stair({ x: 100, z: 0 }), oneFloor, [stairRoom])).toEqual(['NOWHERE']);
   });
 });

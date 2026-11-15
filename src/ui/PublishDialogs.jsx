@@ -14,7 +14,9 @@ import Dialog from './Dialog';
 import { lastPublishedAt, lastPublishedText } from './publishFlow';
 
 /** loadVersions: () => Promise<versions[]> (newest first; may reject). */
-export function PublishDialog({ siteName, state, busy, loadVersions, seatWarning = null, checkCount = 0, onShowChecks, onCancel, onConfirm }) {
+export function PublishDialog({ siteName, state, busy, loadVersions, seatWarning = null, checkCount = 0, walking = [], onFix, onShowChecks, onCancel, onConfirm }) {
+  // v0.17.4: what stops people walking somewhere is listed even when ignored, with Fix it; then "Publish anyway"
+  const blocked = walking.length > 0;
   const never = state === 'never';
   const [last, setLast] = useState(never ? null : undefined); // undefined: still asking
 
@@ -40,14 +42,28 @@ export function PublishDialog({ siteName, state, busy, loadVersions, seatWarning
       actions={(
         <>
           <button className="ui-btn" onClick={onCancel} disabled={busy}>Cancel</button>
-          <button className="ui-btn is-primary" onClick={onConfirm} disabled={busy} data-autofocus>
-            <Send size={16} strokeWidth={1.75} aria-hidden /> {busy ? 'Publishing…' : 'Publish'}
+          <button className={`ui-btn ${blocked ? 'is-danger' : 'is-primary'}`} onClick={onConfirm} disabled={busy} data-autofocus={blocked ? undefined : true}
+            data-publish-anyway={blocked ? '' : undefined}>
+            <Send size={16} strokeWidth={1.75} aria-hidden /> {busy ? 'Publishing…' : blocked ? 'Publish anyway' : 'Publish'}
           </button>
         </>
       )}
     >
       <p>Everyone in your company will see this version.</p>
       {lastLine && <p className="ui-muted" data-last-published>{lastLine}</p>}
+      {blocked && (
+        <div className="dialog-warning" data-publish-walking={walking.length}>
+          <p><AlertTriangle size={16} strokeWidth={1.75} aria-hidden /> {walking.length === 1 ? 'One thing stops' : `${walking.length} things stop`} people walking where they need to:</p>
+          <ul className="publish-walking">
+            {walking.map((p) => (
+              <li key={p.key} data-publish-problem={p.key}>
+                <span>{p.message}{p.ignored && <span className="is-ignored"> (ignored)</span>}</span>
+                {p.fix && onFix && <button className="ui-btn is-primary" data-publish-fix onClick={() => onFix(p)} disabled={busy}>Fix it</button>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {checkCount > 0 && <p data-layout-check-warning>Check found {checkCount} {checkCount === 1 ? 'problem' : 'problems'} in this layout. <button className="ui-btn" onClick={onShowChecks}>Show</button></p>}
       {seatWarning && (
         <p className="dialog-warning" data-seat-warning>

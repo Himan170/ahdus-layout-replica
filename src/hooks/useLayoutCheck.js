@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { checkLayout } from '../play/navigation/checkLayout';
+import { checkLayout, walkingProblems } from '../play/navigation/checkLayout';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { studioWalkMaps } from './studioWalkMaps';
 import { livePosition } from '../utils/livePosition';
@@ -47,5 +47,8 @@ export function useLayoutCheck({ playing, plannerToolsRef, gizmoControllerRef })
     return () => { cancelled = true; clearTimeout(timer); if (idle) window.cancelIdleCallback?.(idle); };
   }, [rooms, objects, floors, playing, run]);
   const visible = result.problems.filter((p) => !ignored.includes(p.key));
-  return { open, setOpen, run, ...result, ignored, visible, count: visible.filter((p) => p.severity !== 'info').length };
+  const ignoredCount = result.problems.length - visible.length;
+  // v0.17.4: what stops people walking somewhere, ignored or not (the Publish dialog lists them)
+  const walking = walkingProblems(result.problems, ignored);
+  return { open, setOpen, run, ...result, ignored, visible, ignoredCount, walking, count: visible.filter((p) => p.severity !== 'info').length };
 }

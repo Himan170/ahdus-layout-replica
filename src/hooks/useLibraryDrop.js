@@ -81,7 +81,7 @@ export function useLibraryDrop({
     mgr.updatePointer(at.x, at.y);
     const ghost = mgr.getGhostPosition();
     if (!ghost) return null;
-    const problem = mgr.getProblem?.() ?? null;
+    const problem = mgr.getProblem?.() ?? mgr.getWarning?.() ?? null; // v0.17.4: stairs that don't fit here (they can still drop)
     // turned a quarter (a wall item on a wall along Z): its footprint is turned too
     const turned = Math.abs(Math.sin(ghost.rotationY ?? 0)) > 0.7;
     const rect = footprintAt(ghost, turned ? tile.depth : tile.width, turned ? tile.width : tile.depth);
