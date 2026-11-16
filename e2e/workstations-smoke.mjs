@@ -248,10 +248,11 @@ log('one Undo removes the second cluster', groupsOf((await store()).objects).siz
 await dragTile('4-person cluster', 0, -OFFICE.d / 2 + 1.5); // 0.1 m from the wall, across the door
 st = await store();
 const doorGroup = [...groupsOf(st.objects).values()].find((g) => g.length === 8) ?? [];
-const blocked = panel.getByRole('button', { name: 'The 4-person cluster blocks a door of Open Office', exact: true });
+const blocked = panel.getByRole('button', { name: /^The 4-person cluster blocks the door of Open Office(: only 0\.\d m to the wall)?$/ });
 await blocked.waitFor({ timeout: 20000 }).catch(() => {});
-log('Check: "The 4-person cluster blocks a door of Open Office"', doorGroup.length === 8 && await blocked.count() === 1);
-await panel.locator('li').filter({ hasText: 'The 4-person cluster blocks a door of Open Office' }).locator('[data-check-fix]').click().catch(() => {});
+log('Check: ONE line "The 4-person cluster blocks the door of Open Office", no "Nobody can walk to" lines', doorGroup.length === 8 && await blocked.count() === 1 && await panel.getByText(/Nobody can walk to .*Desk/).count() === 0,
+  (await panel.locator('li').allInnerTexts()).map((t) => t.split(/\n/)[0]).join(' | ').slice(0, 400));
+await panel.locator('li').filter({ hasText: 'The 4-person cluster blocks the door of Open Office' }).locator('[data-check-fix]').click().catch(() => {});
 await frames(4);
 st = await store();
 const moved = doorGroup.map((o) => { const x = st.objects.find((y) => y.id === o.id) ?? o; return { dx: x.x - o.x, dz: x.z - o.z }; });
@@ -277,6 +278,54 @@ st = await store();
 const cabin = st.rooms.find((r) => r.id !== 'open_0' && r.id !== 'open_1');
 log('a private cabin: a room with a door, its desk inside', st.rooms.length === roomsBefore + 1 && cabin?.doors?.length === 1
   && st.objects.some((o) => o.roomId === cabin?.id && o.assetType === 'DESK_MANAGER'), cabin ? `${cabin.width} × ${cabin.depth} m` : 'no room');
+// Take me there to its desk: the route from the entrance ends inside the cabin, at the desk (the same findNearestRoute
+// the viewer's routeTo uses, with the place's goals)
+const cabinRoute = await p.evaluate(async (cabinId) => {
+  const [{ findNearestRoute }, { buildPlaces }, { entranceSpawn }, { ASSET_TYPES }] = await Promise.all([
+    import('/src/play/navigation/route.js'), import('/src/play/navigation/places.js'),
+    import('/src/play/navigation/entrance.js'), import('/src/utils/assetCatalog.js'),
+  ]);
+  const s = window.__ahdusStore.getState();
+  const layout = { rooms: Object.values(s.rooms), objects: Object.values(s.objects), floors: s.floors };
+  const room = layout.rooms.find((r) => r.id === cabinId);
+  const desk = layout.objects.find((o) => o.roomId === cabinId && o.assetType === 'DESK_MANAGER');
+  const index = buildPlaces(layout, [{ personId: 'boss', deskId: desk.id, name: 'Boss', department: 'Sales' }]);
+  const from = { ...entranceSpawn(layout, { catalog: ASSET_TYPES }), floor: 0 };
+  const route = findNearestRoute(layout, from, index.byId.get('person:boss').goals, { catalog: ASSET_TYPES });
+  if (route.problem) return { problem: route.message };
+  const end = route.legs.at(-1).points.at(-1);
+  return { inside: Math.abs(end.x - room.x) < room.width / 2 && Math.abs(end.z - room.z) < room.depth / 2,
+    toDesk: Math.hypot(end.x - desk.x, end.z - desk.z), length: route.length };
+}, cabin?.id);
+log('Take me there reaches the cabin\'s desk: the route ends inside the cabin, at the desk', cabinRoute.inside && cabinRoute.toDesk < 1.8,
+  JSON.stringify(cabinRoute));
+// walk in: Walk through, 2.5 m outside its door, a click on the floor just inside it walks in through the door
+await deselect();
+await p.click('[aria-label="Walk through"]'); await wait(800);
+const door = await p.evaluate(async (cabinId) => {
+  const { roomDoorFrames } = await import('/src/play/navigation/places.js');
+  const room = window.__ahdusStore.getState().rooms[cabinId];
+  const [f] = roomDoorFrames(room);
+  const from = { x: f.x - f.inX * 2.5, z: f.z - f.inZ * 2.5 };
+  window.__ahdusPlay.setPose({ ...from, yaw: Math.atan2(f.inX, f.inZ), pitch: -0.25, floor: 0 });
+  return { ...f, from };
+}, cabin?.id);
+await frames(3); await wait(400); await frames(2);
+// a click's walk ends within 1 m of the spot clicked: 2 m in, so it ends about 1 m inside the door
+await clickAt(door.x + door.inX * 2.0, 0.02, door.z + door.inZ * 2.0);
+const walkedIn = await p.evaluate(async (cabinId) => {
+  const room = window.__ahdusStore.getState().rooms[cabinId];
+  const sc = window.__ahdusScene;
+  const t0 = performance.now();
+  for (;;) {
+    const v = window.__ahdusPlay.getPosition();
+    if (Math.abs(v.x - room.x) < room.width / 2 - 0.2 && Math.abs(v.z - room.z) < room.depth / 2 - 0.2) return { x: v.x, z: v.z };
+    if (performance.now() - t0 > 90000) return { x: v.x, z: v.z, timeout: true };
+    await new Promise((res) => { const o = sc.onAfterRenderObservable.addOnce(() => res()); void o; });
+  }
+}, cabin?.id);
+log('you can walk into the cabin: a click inside, seen through its door, walks in through it', !walkedIn.timeout, JSON.stringify(walkedIn));
+await p.click('[aria-label="Back to Studio"]'); await wait(800);
 await undo();
 st = await store();
 log('one Undo removes the cabin and what is in it', st.rooms.length === roomsBefore && !st.objects.some((o) => o.roomId === cabin?.id));
@@ -354,7 +403,16 @@ const look = async (at, { alpha, beta, radius, y = 0.6 }) => {
 if (process.env.SHOTS) {
   for (const [id, at] of Object.entries(gallery)) {
     const big = id === 'WS_CABIN' || id === 'WS_CLUSTER_8' ? 1.3 : 1;
-    await look(at, { alpha: -Math.PI / 2, beta: 0.05, radius: 9 * big });
+    if (id === 'WS_CABIN') {
+      // the cabin from above, a little from its door's side: the whole room and its doorway in the picture
+      const view = await p.evaluate(async () => {
+        const { roomDoorFrames } = await import('/src/play/navigation/places.js');
+        const room = window.__ahdusStore.getState().rooms.room_WS_CABIN;
+        const [f] = roomDoorFrames(room);
+        return { at: { x: room.x, z: room.z }, alpha: Math.atan2(-f.inZ, -f.inX), radius: Math.max(room.width, room.depth) * 3 };
+      });
+      await look(view.at, { alpha: view.alpha, beta: 0.38, radius: view.radius, y: 0 });
+    } else await look(at, { alpha: -Math.PI / 2, beta: 0.05, radius: 9 * big });
     await shot(`prefab-${id}-above.png`);
     await look(at, { alpha: -Math.PI / 2 - 0.5, beta: 1.32, radius: 6 * big, y: 1.1 });
     await shot(`prefab-${id}-eye.png`);

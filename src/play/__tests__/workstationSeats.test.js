@@ -14,6 +14,7 @@ import { entranceSpawn } from '../navigation/entrance';
 import { standingSpot } from '../live';
 import { itemFootprints } from '../navigation/walkMap';
 import { rectsOverlap } from '../turnedRect';
+import { checkLayout } from '../navigation/checkLayout';
 
 const floors = { 0: { id: 0, name: 'Ground Floor', height: 3.5 }, 1: { id: 1, name: 'Floor 1', height: 3.5 } };
 const office = (floor = 0) => ({
@@ -97,6 +98,27 @@ describe('people at workstation seats (v0.18.0)', () => {
       const chair = seats.get(p.deskId);
       expect(Math.hypot(end.x - chair.x, end.z - chair.z)).toBeLessThan(1.6);
     }
+  });
+
+  it('a private cabin: a room with a door, walked into, its desk reached by Take me there', () => {
+    const rooms = [office()];
+    const { room, objects } = prefabPlacement(prefabById('WS_CABIN'), {}, ASSET_TYPES, { x: 6.5, z: 3.5, rotationY: 0, floor: 0 }, rooms,
+      { groupId: 'grp_cabin', newId: (() => { let n = 0; return () => `cab_${++n}`; })(), roomId: 'room_cabin' });
+    const layout = { rooms: [...rooms, room], objects, floors };
+    expect(room.doors).toHaveLength(1);
+    const desk = objects.find((o) => o.assetType === 'DESK_MANAGER');
+    expect(desk.roomId).toBe('room_cabin');
+    const blocking = checkLayout(layout, { catalog: ASSET_TYPES }).problems.filter((p) => p.severity === 'error');
+    expect(blocking.map((p) => p.message)).toEqual([]);
+    const index = buildPlaces(layout, [{ personId: 'boss', deskId: desk.id, name: 'Boss', department: 'Sales' }]);
+    const from = { ...entranceSpawn(layout, { catalog: ASSET_TYPES }), floor: 0 };
+    const route = findNearestRoute(layout, from, index.byId.get('person:boss').goals, { catalog: ASSET_TYPES });
+    expect(route.problem, route.message).toBeUndefined();
+    const end = route.legs.at(-1).points.at(-1);
+    // the walk ends inside the cabin, at its desk
+    expect(Math.abs(end.x - room.x)).toBeLessThan(room.width / 2);
+    expect(Math.abs(end.z - room.z)).toBeLessThan(room.depth / 2);
+    expect(Math.hypot(end.x - desk.x, end.z - desk.z)).toBeLessThan(1.8);
   });
 
   it('on an upper floor too', () => {
