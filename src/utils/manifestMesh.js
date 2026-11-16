@@ -12,6 +12,7 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { getAssetMaterial } from './materialLibrary';
 import { parseMaterial } from '../catalog/manifest';
+import { buildWorkstation } from './workstationMesh';
 
 const WOOD_FINISH = { wood: 'veneer' };
 
@@ -51,12 +52,8 @@ export function buildParts(scene, root, parts) {
   return root;
 }
 
-const builders = new Map(); // name → (scene, root, def, opts) => void
-
-/** utils/workstationMesh.js registers 'workstation' here. */
-export function registerBuilder(name, build) {
-  builders.set(name, build);
-}
+/** The parametric builders by name (catalog/manifest.js `builder`). */
+const builders = new Map([['workstation', buildWorkstation]]);
 
 /**
  * The mesh of a manifest item.

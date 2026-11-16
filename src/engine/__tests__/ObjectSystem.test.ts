@@ -7,9 +7,9 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 // for one here (utils/assetInstances.js has its own look and merge logic).
 vi.mock('../../utils/materialLibrary', () => ({ getAssetMaterial: () => null }));
 vi.mock('../../utils/assetInstances', () => ({
-  createItemMesh: vi.fn((assetType: string, scene: Scene, objectId: string, { rise, floorId = 0 }: any = {}) => {
+  createItemMesh: vi.fn((assetType: string, scene: Scene, objectId: string, { rise, variant, floorId = 0 }: any = {}) => {
     const root = new TransformNode(`item_${objectId}`, scene);
-    root.metadata = { assetType, objectId, floorId, ...(rise !== undefined ? { rise } : {}) };
+    root.metadata = { assetType, objectId, floorId, ...(rise !== undefined ? { rise } : {}), ...(variant ? { variant: variant.key } : {}) };
     return root;
   }),
   disposeItemMesh: vi.fn((root: TransformNode) => root.dispose()),
@@ -110,5 +110,27 @@ describe('ObjectSystem', () => {
     objects.disposeAll();
     expect(objects.meshes.size).toBe(0);
     expect(d.isDisposed()).toBe(true);
+  });
+
+  it('v0.18.0: draws a workstation desk at its real size, rebuilt when its size or options change', () => {
+    const objects = system();
+    const ws = item('w', { assetType: 'DESK_WORKSTATION', scaleX: 1.6 / 1.4, scaleZ: -1 });
+    objects.sync({ objects: { w: ws }, floors: FLOORS });
+    const first = objects.getObjectMesh('w')!;
+    // the size is in its template: the node keeps only the mirror
+    expect([first.scaling.x, first.scaling.y, first.scaling.z]).toEqual([1, 1, -1]);
+    const call = vi.mocked(createItemMesh).mock.calls[0][3] as any;
+    expect(call.variant.params).toMatchObject({ width: 1.6, depth: 0.7, partition: 'fabric', screen: true });
+    // moving it keeps the mesh
+    objects.sync({ objects: { w: { ...ws, x: 3 } }, floors: FLOORS });
+    expect(objects.getObjectMesh('w')).toBe(first);
+    // a glass partition is another shape
+    objects.sync({ objects: { w: { ...ws, metadata: { ws: { partition: 'glass' } } } }, floors: FLOORS });
+    const second = objects.getObjectMesh('w')!;
+    expect(second).not.toBe(first);
+    expect(first.isDisposed()).toBe(true);
+    // an ordinary item keeps its scale
+    objects.sync({ objects: { d: item('d', { scaleX: 2 }) }, floors: FLOORS });
+    expect(objects.getObjectMesh('d')!.scaling.x).toBe(2);
   });
 });

@@ -95,14 +95,15 @@ function asTemplate(mesh, metadata) {
   return mesh;
 }
 
-function templateEntry(scene, assetType, rise) {
+function templateEntry(scene, assetType, rise, variant) {
   let cache = templates.get(scene);
   if (!cache) templates.set(scene, (cache = new Map()));
-  const key = rise === undefined ? assetType : `${assetType}@${rise}`;
+  // v0.18.0: a parametric item (a workstation desk) has one template per variant (wsKey)
+  const key = variant ? `${assetType}#${variant.key}` : rise === undefined ? assetType : `${assetType}@${rise}`;
   const hit = cache.get(key);
   if (hit && !hit.mesh.isDisposed()) return hit;
 
-  const root = buildAssetMesh(assetType, scene, 'template', { rise });
+  const root = buildAssetMesh(assetType, scene, 'template', { rise, variant: variant?.params });
   const parts = [root, ...root.getChildMeshes(false)].filter((m) => m.getTotalVertices?.() > 0);
   for (const p of parts) p.computeWorldMatrix(true);
   const mesh = asTemplate(mergeByMaterial(parts, `template_${key}`), { template: assetType });
@@ -219,17 +220,19 @@ function refreshItems(scene, entry) {
  * @param {string} assetType
  * @param {Scene} scene
  * @param {string} objectId
- * @param {{ rise?: number, floorId?: number, solid?: boolean, shadowGenerator?: object|null }} [options]
- *   rise: a staircase's floor height; solid: furniture blocks the character in Preview
+ * @param {{ rise?: number, variant?: { key: string, params: object }, floorId?: number, solid?: boolean, shadowGenerator?: object|null }} [options]
+ *   rise: a staircase's floor height; variant: a workstation desk's drawn shape (play/workstation.js); solid: furniture blocks the character in Preview
  * @returns {TransformNode}
  */
-export function createItemMesh(assetType, scene, objectId, { rise, floorId = 0, solid = true, shadowGenerator = null } = {}) {
+export function createItemMesh(assetType, scene, objectId, { rise, variant, floorId = 0, solid = true, shadowGenerator = null } = {}) {
   watchLook(scene);
-  const entry = templateEntry(scene, assetType, rise);
+  const entry = templateEntry(scene, assetType, rise, variant);
   const template = activeTemplate(scene, entry);
   // Same name as the catalog gives it (e.g. arch_stair_<id>), with this item's id
   const root = new TransformNode(entry.rootName.replace(/template$/, objectId), scene);
-  root.metadata = { assetType, objectId, floorId, ...(rise !== undefined ? { rise } : {}) };
+  root.metadata = {
+    assetType, objectId, floorId, ...(rise !== undefined ? { rise } : {}), ...(variant ? { variant: variant.key } : {}),
+  };
   items.set(root, {
     entry, template, solid, castShadow: castsShadow(assetType), shadowGenerator, looks: new Set(), mesh: null,
   });
