@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { OBJECT_ITEMS } from '../play/hotbarItems';
+import { MANIFEST_TYPES } from '../catalog/manifest';
 
 // ── Pictures for each kind of thing ──────────────────────────────────────
 
@@ -74,8 +75,13 @@ export const ASSET_ICONS = {
   RUG: RectangleHorizontal,
 };
 
+/** v0.18.0: the icon names a manifest item may give (catalog/manifest.js `icon`). */
+export const MANIFEST_ICONS = { desk: Table2, chair: Armchair, drawers: Archive, partition: RectangleHorizontal, cluster: Users };
+
 export function assetIcon(assetType) {
   if (ASSET_ICONS[assetType]) return ASSET_ICONS[assetType];
+  const named = MANIFEST_ICONS[MANIFEST_TYPES[assetType]?.icon];
+  if (named) return named;
   if (assetType?.startsWith('SOFA')) return Sofa;
   return Box;
 }

@@ -223,7 +223,7 @@ export const ITEM_PARTS = {
  */
 export function itemFootprints(obj, catalog = {}) {
   const fp = itemFootprint(obj, catalog);
-  const parts = ITEM_PARTS[obj.assetType];
+  const parts = ITEM_PARTS[obj.assetType] ?? manifestParts(catalog[obj.assetType]);
   if (!parts) return [fp];
   const sx = Math.sign(obj.scaleX ?? obj.scale?.x ?? 1) || 1;
   const sz = Math.sign(obj.scaleZ ?? obj.scale?.z ?? 1) || 1;
@@ -240,6 +240,19 @@ export function itemFootprints(obj, catalog = {}) {
       hd: (p.z1 - p.z0) * fp.hd,
     };
   });
+}
+
+/**
+ * v0.18.0: a manifest item's `footprint` boxes (metres at its catalogue size, catalog/manifest.js) as
+ * ITEM_PARTS fractions; null = one box of its size.
+ */
+export function manifestParts(def) {
+  if (!def?.footprint?.length || !(def.defaultWidth > 0) || !(def.defaultDepth > 0)) return null;
+  const W = def.defaultWidth;
+  const D = def.defaultDepth;
+  return def.footprint.map((f) => ({
+    x0: (f.x - f.w / 2) / W, x1: (f.x + f.w / 2) / W, z0: (f.z - f.d / 2) / D, z1: (f.z + f.d / 2) / D,
+  }));
 }
 
 /** Solid items of one floor as rectangles (itemFootprints: an L-shaped desk is two). */

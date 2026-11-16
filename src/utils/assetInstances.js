@@ -38,6 +38,7 @@ const NO_SHADOW = new Set([
 
 export function castsShadow(assetType) {
   if (NO_SHADOW.has(assetType)) return false;
+  if (ASSET_TYPES[assetType]?.shadow === false) return false; // v0.18.0: a manifest item says so
   return ASSET_TYPES[assetType]?.category !== OBJECT_CATEGORIES.MARKER;
 }
 

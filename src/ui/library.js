@@ -39,7 +39,7 @@ export function filterRooms(query, tiles = ROOM_TILES) {
 // ── Furniture ──────────────────────────────────────────────────────────
 
 /** The category chips, in order. "More" holds what fits none of the others. */
-export const FURNITURE_CHIPS = ['Desks', 'Seating', 'Meeting', 'Kitchen', 'Storage', 'Plants', 'More'];
+export const FURNITURE_CHIPS = ['Desks', 'Workstations', 'Seating', 'Meeting', 'Kitchen', 'Storage', 'Plants', 'More'];
 
 const CHIP_OF = {
   DESK_STANDARD: 'Desks', DESK_CORNER: 'Desks', RECEPTION_DESK: 'Desks', MONITOR_DUAL: 'Desks',
@@ -55,6 +55,8 @@ const CHIP_OF = {
 
 export function chipOf(assetType) {
   if (CHIP_OF[assetType]) return CHIP_OF[assetType];
+  const def = ASSET_TYPES[assetType];
+  if (def?.manifest && FURNITURE_CHIPS.includes(def.chip)) return def.chip; // v0.18.0: the manifest says
   if (assetType?.startsWith('SOFA')) return 'Seating';
   return 'More';
 }

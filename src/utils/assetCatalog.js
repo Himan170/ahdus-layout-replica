@@ -22,6 +22,8 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { CSG } from '@babylonjs/core/Meshes/csg';
 import { getAssetMaterial } from './materialLibrary';
 import { STAIR, stairDims } from '../play/building';
+import { MANIFEST, MANIFEST_TYPES } from '../catalog/manifest';
+import { buildManifestMesh } from './manifestMesh';
 
 // ─── Categories ───
 export const OBJECT_CATEGORIES = {
@@ -1349,6 +1351,20 @@ export const ASSET_TYPES = {
     },
   },
 };
+
+// ─── v0.18.0: items described by the asset manifest (catalog/*.json) ───
+// They join ASSET_TYPES with the same fields (label, category, default sizes, solid) plus the
+// manifest's own (chip, parts / builder, params, footprint, seats, desk); utils/manifestMesh.js
+// draws them. An id the hand-built catalogue already has is never replaced.
+for (const problem of MANIFEST.problems) console.warn(`[asset manifest] ${problem}`);
+for (const [type, def] of Object.entries(MANIFEST_TYPES)) {
+  if (ASSET_TYPES[type]) { console.warn(`[asset manifest] ${type}: already in the catalogue`); continue; }
+  ASSET_TYPES[type] = {
+    ...def,
+    color: '#9aa1a8',
+    buildMesh: (scene, id, opts) => buildManifestMesh(scene, type, def, id, opts),
+  };
+}
 
 // ─── Build a mesh instance from a type key ───
 

@@ -10,6 +10,10 @@
  */
 
 import { elevationOf } from './building';
+import { manifestDesks } from '../catalog/manifest';
+
+// v0.18.0: desks described by the asset manifest (workstations), with their size and work side
+const MANIFEST_DESKS = manifestDesks();
 
 // ── Desks and chairs ──
 
@@ -18,6 +22,7 @@ export const DESK_SIZES = {
   DESK_STANDARD: { width: 1.6, depth: 0.8 },
   DESK_CORNER: { width: 2.4, depth: 2.4 },
   RECEPTION_DESK: { width: 2.5, depth: 0.85 },
+  ...Object.fromEntries(Object.entries(MANIFEST_DESKS).map(([t, d]) => [t, { width: d.width, depth: d.depth }])),
 };
 
 /** How far from the desk's edge its chair may stand (m). */
@@ -34,7 +39,12 @@ export const STAND_GAP = 0.35;
  * put their chairs); the reception desk: −Z, behind the counter (visitors
  * come to its +Z side, where its raised front and its reception anchor are).
  */
-export const DESK_WORK_SIDE = { DESK_STANDARD: 1, DESK_CORNER: 1, RECEPTION_DESK: -1 };
+export const DESK_WORK_SIDE = {
+  DESK_STANDARD: 1, DESK_CORNER: 1, RECEPTION_DESK: -1,
+  ...Object.fromEntries(Object.entries(MANIFEST_DESKS).map(([t, d]) => [t, d.workSide])),
+};
+/** v0.18.0: desks whose own screen and keyboard (drawn with the desk) make their person type. */
+export const TYPING_DESKS = new Set(Object.entries(MANIFEST_DESKS).filter(([, d]) => d.typing === 'screen').map(([t]) => t));
 
 /** A visitor at a reception desk stands this far in front of its counter (m): the body clear of it. */
 export const COUNTER_GAP = 0.45;
