@@ -354,16 +354,20 @@ function ridersOf(item, objects, catalog) {
 /**
  * The nearest spot for an item (and its chair, and what stands on it) where it blocks no door and no
  * stairs, inside its room, clear of the walls and of other furniture. Same floor, same turn.
+ * v0.18.0: `members` = a whole saved group (a workstation cluster) moved together, with what stands on them.
  * @returns {{ moves: [string, { x, z, roomId }][] } | null}
  */
-export function findItemSpot(item, layout, { catalog = {}, radius = 8 } = {}) {
+export function findItemSpot(item, layout, { catalog = {}, radius = 8, members = null } = {}) {
   if (!item) return null;
   const ctx = fitContext(layout, catalog);
   const f = floorOf(item);
   const rooms = ctx.floorData(f).rooms;
   const objects = ctx.objects;
-  const group = [item, ...ridersOf(item, objects, catalog)];
-  const chair = isDesk(item.assetType) ? deskSeat(item, objects) : null;
+  const group = members ? [...members] : [item, ...ridersOf(item, objects, catalog)];
+  if (members) {
+    for (const m of members) for (const r of ridersOf(m, objects, catalog)) if (!group.some((g) => g.id === r.id)) group.push(r);
+  }
+  const chair = !members && isDesk(item.assetType) ? deskSeat(item, objects) : null;
   if (chair && !chair.isLocked && !group.includes(chair)) group.push(chair);
   const ignore = new Set(group.map((o) => o.id));
   const room = innermostAt(rooms, item.x ?? 0, item.z ?? 0);

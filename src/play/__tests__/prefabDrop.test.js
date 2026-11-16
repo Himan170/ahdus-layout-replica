@@ -40,6 +40,13 @@ describe('dropping a prefab (v0.18.0)', () => {
     expect(drop('WS_CABIN', { x: -4, z: -2 }).problem).toBeNull();
   });
 
+  it('warns when it leaves an aisle under 0.9 m, but still lets it go there', () => {
+    const plan = drop('WS_CLUSTER_4', { x: -8 + 0.075 + 0.5 + 1.4, z: 0 });
+    expect(plan.problem).toBeNull();
+    expect(plan.warning).toMatch(/^Leaves 0.[0-9] m to the wall: an aisle needs 0.9 m$/);
+    expect(drop('WS_CLUSTER_4', { x: 0, z: 0 }).warning).toBeNull();
+  });
+
   it('works on an upper floor', () => {
     expect(drop('WS_CLUSTER_4', { x: 0, z: 0 }, [], 1).problem).toBeNull();
     expect(roomHolding(layout().rooms, 1, 0, 0).id).toBe('r_up');

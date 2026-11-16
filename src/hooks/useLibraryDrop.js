@@ -94,7 +94,7 @@ export function useLibraryDrop({
       const point = groundAt(at);
       const plan = point && planPrefab(tile, point, st, snap);
       if (!plan) return null;
-      return { rect: plan.room ?? plan.rect, valid: !plan.problem, problem: plan.problem };
+      return { rect: plan.room ?? plan.rect, valid: !plan.problem, problem: plan.problem, note: plan.warning };
     }
     const mgr = placementManagerRef.current;
     if (!mgr) return null;
@@ -154,7 +154,9 @@ export function useLibraryDrop({
       now.selectRoom?.(null);
       now.setObjectSelection(objects.map((o) => o.id).filter((id) => now.objects[id]));
       const seatsText = tile.seats ? `${tile.seats} ${tile.seats === 1 ? 'seat' : 'seats'}` : '';
-      showStudioMessage(`Placed ${tile.label}${seatsText ? `, ${seatsText}` : ''}. Ctrl+Z to undo.`);
+      showStudioMessage(plan.warning
+        ? `Placed ${tile.label}. ${plan.warning}.`
+        : `Placed ${tile.label}${seatsText ? `, ${seatsText}` : ''}. Ctrl+Z to undo.`);
       return true;
     }
     const mgr = placementManagerRef.current;

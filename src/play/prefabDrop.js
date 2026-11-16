@@ -11,6 +11,7 @@ import { layoutPrefab, prefabItems, prefabOutline, CABIN_DOOR } from './prefab';
 import { planRoomAt, wallThicknessOf } from './geometry';
 import { itemFootprints, isSolidItem } from './navigation/walkMap';
 import { rectsOverlap, boxOf } from './turnedRect';
+import { dropAisle } from './aisles';
 
 const EPS = 1e-6;
 const floorOf = (o) => o.floor ?? 0;
@@ -43,6 +44,7 @@ const boxesCross = (a, b) => a.x0 < b.x1 - EPS && a.x1 > b.x0 + EPS && a.z0 < b.
  * @param {{ params?, snapStep?, rotationY?, catalog }} opts
  * @returns {{ at, rect: { x, z, width, depth }, outline, room: object|null, problem: string|null }}
  *   room: a cabin's room rectangle (planRoomAt: snapped like a drawn room)
+ *   warning: it can go there, but leaves an aisle under 0.9 m (play/aisles.js), else null
  */
 export function planPrefabDrop(prefab, point, layout, { params = {}, snapStep = 0, rotationY = 0, catalog }) {
   const { width, depth, room: cabin } = layoutPrefab(prefab, params, catalog);
@@ -74,7 +76,8 @@ export function planPrefabDrop(prefab, point, layout, { params = {}, snapStep = 
     const hit = items.find((o) => itemFootprints(o, catalog).some((fp) => rectsOverlap(fp, outline, 0.02)));
     if (hit) problem = `Overlaps ${nameOf(hit, catalog)}`;
   }
-  return { at, rect: { x: at.x, z: at.z, width, depth }, outline, room: roomRect, problem };
+  const warning = !problem && !cabin && prefab.layout !== 'manager' ? dropAisle(outline, layout, layout.floor, catalog)?.text ?? null : null;
+  return { at, rect: { x: at.x, z: at.z, width, depth }, outline, room: roomRect, problem, warning };
 }
 
 /**

@@ -29,6 +29,9 @@ import {
 import { entranceSpawn, outsideDoors, nearestFree } from './entrance';
 import { floorLinks, areaOf, roomHasDoor, roomAt } from './route';
 import { WALL_ITEM_TYPES, isWallItem, isOnWall, wallPieces } from '../wallMount';
+import { groupOf } from '../prefab';
+import { prefabById } from '../../catalog/manifest';
+import { narrowAisles } from '../aisles';
 
 const list = (v) => (Array.isArray(v) ? v : Object.values(v ?? {}));
 const floorOf = (r) => r.floor ?? r.floorId ?? 0;
@@ -47,6 +50,7 @@ export const CHECK_KINDS = {
   WINDOW_BLOCKED: 'WINDOW_BLOCKED',
   STAIRS: 'STAIRS',
   WALL_ITEM_OFF_WALL: 'WALL_ITEM_OFF_WALL', // v0.15.6: a TV, a clock… that doesn't hang on a wall
+  AISLE_NARROW: 'AISLE_NARROW', // v0.18.0: less than 0.9 m beside a workstation cluster or desk row
 };
 
 /** Worst first. */
@@ -297,6 +301,17 @@ export function checkLayout(layout, options = {}) {
           const zone = { x: c.x, z: c.z, hw: alongX ? o.width / 2 - 0.05 : across, hd: alongX ? across : o.width / 2 - 0.05, rot: 0 };
           for (const item of furniture) {
             if (blockers.has(item.id) || !fp(item).some((r) => !far(r, zone) && rectsOverlap(r, zone, 0.04))) continue;
+            // v0.18.0: a cluster blocks it as a whole, named once ("6-person cluster blocks a door of …")
+            const group = groupOf(item);
+            const prefab = group && prefabById(group.prefab);
+            if (prefab) {
+              if (blockers.has(group.id)) continue;
+              blockers.add(group.id);
+              const members = all.filter((o) => groupOf(o)?.id === group.id);
+              add(CHECK_KINDS.DOOR_BLOCKED, 'warning', `The ${prefab.label.toLowerCase()} blocks a door of ${roomName(room)}`,
+                members.map((o) => o.id), id, { objectId: item.id, doorAt: c, groupId: group.id, groupLabel: prefab.label });
+              continue;
+            }
             blockers.add(item.id);
             add(CHECK_KINDS.DOOR_BLOCKED, 'warning', `${itemName(item)} blocks a door of ${roomName(room)}`,
               [item.id], id, { objectId: item.id, doorAt: c });
@@ -319,6 +334,11 @@ export function checkLayout(layout, options = {}) {
         }
       }
     }
+  }
+
+  // ── 6b. Aisles beside workstation clusters and desk rows (v0.18.0, play/aisles.js) ──
+  for (const a of narrowAisles(safe, catalog)) {
+    add(CHECK_KINDS.AISLE_NARROW, 'warning', a.message, a.ids, a.floor, { objectId: a.objectId });
   }
 
   // ── 7. Stairs (play/stairFit.js: the same words as the Inspector). Stairs nobody can use are errors ──
@@ -385,9 +405,13 @@ function addFixes(problems, layout, { catalog, floorIds, check }) {
       const fix = stairsDone.get(obj.id);
       if (fix) { p.fix = fix; culprits.push({ problem: p, obj, moves: fix.moves }); }
     } else if (p.kind === CHECK_KINDS.DOOR_BLOCKED) {
-      const spot = findItemSpot(obj, layout, { catalog });
+      // v0.18.0: a cluster moves as a whole (none of it locked)
+      const members = p.groupId ? objects.filter((o) => p.ids.includes(o.id)) : null;
+      if (members?.some((o) => o.isLocked)) continue;
+      const spot = findItemSpot(obj, layout, { catalog, members });
       if (spot) {
-        p.fix = { moves: spot.moves, label: `Move ${String(obj.label ?? '').trim() || catalog[obj.assetType]?.label || 'the item'}` };
+        const name = p.groupLabel ? `the ${p.groupLabel.toLowerCase()}` : String(obj.label ?? '').trim() || catalog[obj.assetType]?.label || 'the item';
+        p.fix = { moves: spot.moves, label: `Move ${name}` };
         culprits.push({ problem: p, obj, moves: spot.moves });
       }
     }
