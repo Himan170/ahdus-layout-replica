@@ -483,14 +483,16 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
   max-width: 560px;
   margin: 0 0 6px;
   padding: 6px 14px;
-  border-radius: 999px;
+  border-radius: 16px; /* one line looks like a pill; more lines a rounded box */
   background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
   box-shadow: var(--shadow-card);
   font-size: 13px;
+  line-height: 1.35;
   text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* v0.18.0: a long hint (the red stairs warning) wraps onto more lines instead of being cut off */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
   pointer-events: none;
 }
 .canvas-footer .studio-footer__hint:empty { visibility: hidden; padding: 0; }
