@@ -99,7 +99,7 @@ describe('a cluster in front of a door (v0.18.0)', () => {
     const layout = layoutOf(items);
     const blocked = kinds(layout, CHECK_KINDS.DOOR_BLOCKED);
     expect(blocked).toHaveLength(1);
-    expect(blocked[0].message).toBe('The 4-person cluster blocks a door of Open Office');
+    expect(blocked[0].message).toBe('The 4-person cluster blocks the door of Open Office');
     expect(blocked[0].ids.sort()).toEqual(items.map((o) => o.id).sort());
     const { fix } = blocked[0];
     expect(fix.label).toBe('Move the 4-person cluster');
@@ -115,6 +115,39 @@ describe('a cluster in front of a door (v0.18.0)', () => {
     const moved = { ...layout, objects: layout.objects.map((o) => ({ ...o, ...(fix.moves.find(([id]) => id === o.id)?.[1] ?? {}) })) };
     expect(kinds(moved, CHECK_KINDS.DOOR_BLOCKED)).toHaveLength(0);
     for (const o of moved.objects) expect(groupOf(o).id).toBe(groupOf(items[0]).id);
+  });
+
+  it('one message per cluster: no "Nobody can walk to Workstation Desk" lines, and Fix it clears it', () => {
+    const inner = office.depth / 2 - 0.075;
+    const hd = (id) => prefabOutline(prefabById(id), {}, ASSET_TYPES, { x: 0, z: 0 }).hd;
+    const cases = [
+      // 0.5 m from the north wall: the middle seat on that side is more than 1 m from any free floor
+      ['WS_CLUSTER_6', inner - 0.5 - hd('WS_CLUSTER_6'), 'The 6-person cluster in Open Office leaves no way to one of its seats: only 0.5 m to the wall', 'Move the 6-person cluster'],
+      ['WS_CLUSTER_8', inner - 0.3 - hd('WS_CLUSTER_8'), 'The 8-person cluster in Open Office leaves no way to 2 of its seats: only 0.3 m to the wall', 'Move the 8-person cluster'],
+      // 0.6 m from the south wall, in front of its door: nobody gets into the room
+      ['WS_CLUSTER_4', -inner + 0.6 + hd('WS_CLUSTER_4'), 'The 4-person cluster blocks the door of Open Office: only 0.6 m to the wall', 'Move the 4-person cluster'],
+    ];
+    for (const [prefab, z, message, label] of cases) {
+      const items = place(prefab, 0, z);
+      const layout = layoutOf(items);
+      const all = checkLayout(layout, { catalog: ASSET_TYPES }).problems.filter((p) => p.severity !== 'info');
+      // one line: the cluster, what it leaves out and why (the aisle is not listed again)
+      expect(all.map((p) => p.message)).toEqual([message]);
+      expect(all[0]).toMatchObject({ severity: 'error', blocksWalking: true, groupId: groupOf(items[0]).id });
+      expect(all[0].fix.label).toBe(label);
+      expect(all[0].fix.moves.map(([id]) => id).sort()).toEqual(items.map((o) => o.id).sort());
+      const moved = { ...layout, objects: layout.objects.map((o) => ({ ...o, ...(all[0].fix.moves.find(([id]) => id === o.id)?.[1] ?? {}) })) };
+      expect(checkLayout(moved, { catalog: ASSET_TYPES }).problems.filter((p) => p.severity !== 'info').map((p) => p.message)).toEqual([]);
+    }
+  });
+
+  it('a cluster across the door: one line naming it, the room and desks behind it folded in', () => {
+    const door = place('WS_CLUSTER_4', 0, -5.6);
+    const behind = place('WS_CLUSTER_6', -3, 3);
+    const all = checkLayout(layoutOf(door, behind), { catalog: ASSET_TYPES }).problems.filter((p) => p.severity !== 'info');
+    expect(all.map((p) => p.message)).toEqual(['The 4-person cluster blocks the door of Open Office']);
+    expect(all[0]).toMatchObject({ severity: 'error', blocksWalking: true, groupId: groupOf(door[0]).id });
+    expect(all[0].fix.moves.map(([id]) => id).sort()).toEqual(door.map((o) => o.id).sort());
   });
 
   it('a locked cluster gets no Fix it', () => {

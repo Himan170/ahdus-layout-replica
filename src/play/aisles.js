@@ -121,7 +121,8 @@ export function wallGap(outline, rooms, floor) {
   return best && best.gap < AISLE_MIN - 1e-3 ? best : null;
 }
 
-const metres = (v) => `${(Math.floor(v * 10) / 10).toFixed(1)} m`;
+/** "0.6 m": a gap as Check and the hints say it (rounded down, so 0.89 is never "0.9 m"). */
+export const metres = (v) => `${(Math.floor(v * 10) / 10).toFixed(1)} m`;
 
 /**
  * Every aisle narrower than AISLE_MIN on a layout: [{ ids, groups, gap, message, floor, objectId }].
@@ -141,6 +142,7 @@ export function narrowAisles(layout, catalog) {
       if (gap <= AISLE_TOUCH || gap >= AISLE_MIN - 1e-3) continue;
       out.push({
         ids: [...a.members, ...b.members].map((o) => o.id), groups: [a.groupId, b.groupId], gap, floor: a.floor, objectId: deskOf(a),
+        sides: { [a.groupId]: `the ${b.prefab.label.toLowerCase()}`, [b.groupId]: `the ${a.prefab.label.toLowerCase()}` },
         message: `Only ${metres(gap)} between the ${a.prefab.label.toLowerCase()} and the ${b.prefab.label.toLowerCase()}: an aisle needs ${AISLE_MIN} m`,
       });
     }
@@ -149,6 +151,7 @@ export function narrowAisles(layout, catalog) {
       const name = String(w.room.name ?? '').trim() || 'the room';
       out.push({
         ids: a.members.map((o) => o.id), groups: [a.groupId], gap: w.gap, floor: a.floor, objectId: deskOf(a),
+        sides: { [a.groupId]: w.what === 'wall' ? 'the wall' : `the walls of ${w.room.name}` },
         message: `Only ${metres(w.gap)} between the ${a.prefab.label.toLowerCase()} and the wall of ${name}: an aisle needs ${AISLE_MIN} m`,
       });
     }

@@ -357,7 +357,7 @@ function ridersOf(item, objects, catalog) {
  * v0.18.0: `members` = a whole saved group (a workstation cluster) moved together, with what stands on them.
  * @returns {{ moves: [string, { x, z, roomId }][] } | null}
  */
-export function findItemSpot(item, layout, { catalog = {}, radius = 8, members = null } = {}) {
+export function findItemSpot(item, layout, { catalog = {}, radius = 8, members = null, clearance = 0 } = {}) {
   if (!item) return null;
   const ctx = fitContext(layout, catalog);
   const f = floorOf(item);
@@ -390,10 +390,12 @@ export function findItemSpot(item, layout, { catalog = {}, radius = 8, members =
       for (const r0 of rects) {
         const r = { ...r0, x: r0.x + dx, z: r0.z + dz };
         const b = boxOf(r);
-        if (!wallsClear(ctx, f, b, room)) return false;
+        // v0.18.0: `clearance` = room to walk round it (a cluster's aisle) from walls and other furniture
+        const wide = clearance > 0 ? { ...r, hw: r.hw + clearance, hd: r.hd + clearance } : r;
+        if (!wallsClear(ctx, f, clearance > 0 ? boxOf(wide) : b, room)) return false;
         if (doors.some((z) => overlapsBox(b, z, ITEM_TOL))) return false;
         if (stairZones.some((z) => !farApart(z, r) && rectsOverlap(z, r, ITEM_TOL))) return false;
-        if (blockerIn(ctx, f, r, ignore)) return false;
+        if (blockerIn(ctx, f, wide, ignore)) return false;
       }
     }
     return true;

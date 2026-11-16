@@ -31,7 +31,7 @@ import { floorLinks, areaOf, roomHasDoor, roomAt } from './route';
 import { WALL_ITEM_TYPES, isWallItem, isOnWall, wallPieces } from '../wallMount';
 import { groupOf } from '../prefab';
 import { prefabById } from '../../catalog/manifest';
-import { narrowAisles } from '../aisles';
+import { narrowAisles, AISLE_MIN, metres } from '../aisles';
 
 const list = (v) => (Array.isArray(v) ? v : Object.values(v ?? {}));
 const floorOf = (r) => r.floor ?? r.floorId ?? 0;
@@ -204,6 +204,7 @@ export function checkLayout(layout, options = {}) {
   if (entrance) {
     for (const id of floorIds) {
       if (lostFloors.has(id)) continue;
+      const clusters = new Map(); // v0.18.0: a cluster's lost seats are ONE line, naming the cluster
       for (const desk of itemsOn.get(id) ?? []) {
         if (!isDesk(desk.assetType)) continue;
         const room = roomAt(safe, id, desk.x ?? 0, desk.z ?? 0);
@@ -213,9 +214,24 @@ export function checkLayout(layout, options = {}) {
         const near = (x, z) => rects.some((r) => distanceTo(r, x, z) <= DESK_REACH) &&
           (roomAt(safe, id, x, z)?.id ?? null) === (room?.id ?? null);
         if (!reachableIn(id, desk.x - reach, desk.x + reach, desk.z - reach, desk.z + reach, near, 1)) {
+          const group = groupOf(desk);
+          const prefab = group && prefabById(group.prefab);
+          if (prefab) {
+            if (!clusters.has(group.id)) clusters.set(group.id, { prefab, room, desks: [] });
+            clusters.get(group.id).desks.push(desk);
+            continue;
+          }
           add(CHECK_KINDS.DESK_UNREACHABLE, 'error',
             `Nobody can walk to ${itemName(desk)}${room ? ` in ${roomName(room)}` : ''}`, [desk.id], id, { objectId: desk.id });
         }
+      }
+      for (const [groupId, { prefab, room, desks }] of clusters) {
+        const members = (itemsOn.get(id) ?? []).filter((o) => groupOf(o)?.id === groupId);
+        const seats = members.filter((o) => groupOf(o).role === 'desk').length;
+        const which = desks.length >= seats ? (seats === 1 ? 'its seat' : 'its seats') : desks.length === 1 ? 'one of its seats' : `${desks.length} of its seats`;
+        add(CHECK_KINDS.DESK_UNREACHABLE, 'error',
+          `The ${prefab.label.toLowerCase()}${room ? ` in ${roomName(room)}` : ''} leaves no way to ${which}`,
+          members.map((o) => o.id), id, { objectId: desks[0].id, groupId, groupLabel: prefab.label, cluster: true });
       }
     }
   }
@@ -308,7 +324,8 @@ export function checkLayout(layout, options = {}) {
               if (blockers.has(group.id)) continue;
               blockers.add(group.id);
               const members = all.filter((o) => groupOf(o)?.id === group.id);
-              add(CHECK_KINDS.DOOR_BLOCKED, 'warning', `The ${prefab.label.toLowerCase()} blocks a door of ${roomName(room)}`,
+              const doors = (room.doors ?? []).length;
+              add(CHECK_KINDS.DOOR_BLOCKED, 'warning', `The ${prefab.label.toLowerCase()} blocks ${doors === 1 ? 'the' : 'a'} door of ${roomName(room)}`,
                 members.map((o) => o.id), id, { objectId: item.id, doorAt: c, groupId: group.id, groupLabel: prefab.label });
               continue;
             }
@@ -337,8 +354,20 @@ export function checkLayout(layout, options = {}) {
   }
 
   // ── 6b. Aisles beside workstation clusters and desk rows (v0.18.0, play/aisles.js) ──
-  for (const a of narrowAisles(safe, catalog)) {
-    add(CHECK_KINDS.AISLE_NARROW, 'warning', a.message, a.ids, a.floor, { objectId: a.objectId });
+  const aisles = narrowAisles(safe, catalog);
+  // a cluster whose seats can't be reached says why in its own line ("…: only 0.6 m to the wall"), and
+  // that aisle is not listed again
+  const folded = new Set();
+  for (const p of problems) {
+    if (!p.cluster) continue;
+    const cause = aisles.filter((a) => a.floor === p.floorId && a.sides?.[p.groupId]).sort((a, b) => a.gap - b.gap)[0];
+    if (!cause) continue;
+    folded.add(cause);
+    p.message += `: only ${metres(cause.gap)} to ${cause.sides[p.groupId]}`;
+  }
+  for (const a of aisles) {
+    if (folded.has(a)) continue;
+    add(CHECK_KINDS.AISLE_NARROW, 'warning', a.message, a.ids, a.floor, { objectId: a.objectId, gap: a.gap, sides: a.sides, groups: a.groups });
   }
 
   // ── 7. Stairs (play/stairFit.js: the same words as the Inspector). Stairs nobody can use are errors ──
@@ -360,11 +389,15 @@ export function checkLayout(layout, options = {}) {
 
   // one line per key (two parts of an L-shaped desk in one wall), floor by floor, the worst first
   const seen = new Set();
-  const unique = problems.filter((p) => !seen.has(p.key) && seen.add(p.key));
+  let unique = problems.filter((p) => !seen.has(p.key) && seen.add(p.key));
+  for (const p of unique) if (blocksWalking(p)) p.blocksWalking = true;
+  if (options.fixes !== false) {
+    // v0.18.0: what a cluster's move clears is said once, in that cluster's own line
+    const absorbed = addFixes(unique, safe, { catalog, floorIds, check: checkLayout });
+    if (absorbed.size) unique = unique.filter((p) => !absorbed.has(p));
+  }
   unique.sort((a, b) => (order.get(a.floorId) ?? 0) - (order.get(b.floorId) ?? 0) ||
     SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.message.localeCompare(b.message));
-  for (const p of unique) if (blocksWalking(p)) p.blocksWalking = true;
-  if (options.fixes !== false) addFixes(unique, safe, { catalog, floorIds, check: checkLayout });
   return { problems: unique, ms: now() - t0 };
 }
 
@@ -376,7 +409,7 @@ const WALKING_KINDS = new Set([
   CHECK_KINDS.ROOM_UNREACHABLE, CHECK_KINDS.DESK_UNREACHABLE, CHECK_KINDS.STAIRS,
 ]);
 export function blocksWalking(p) {
-  return !!p && WALKING_KINDS.has(p.kind);
+  return !!p && (WALKING_KINDS.has(p.kind) || p.blocksWalking === true);
 }
 
 /**
@@ -404,18 +437,85 @@ function addFixes(problems, layout, { catalog, floorIds, check }) {
       }
       const fix = stairsDone.get(obj.id);
       if (fix) { p.fix = fix; culprits.push({ problem: p, obj, moves: fix.moves }); }
-    } else if (p.kind === CHECK_KINDS.DOOR_BLOCKED) {
-      // v0.18.0: a cluster moves as a whole (none of it locked)
+    } else if (p.kind === CHECK_KINDS.DOOR_BLOCKED || p.cluster) {
+      // v0.18.0: a cluster moves as a whole (none of it locked); its lost seats: to a spot with aisles round it
       const members = p.groupId ? objects.filter((o) => p.ids.includes(o.id)) : null;
       if (members?.some((o) => o.isLocked)) continue;
-      const spot = findItemSpot(obj, layout, { catalog, members });
-      if (spot) {
+      const spot = findItemSpot(obj, layout, { catalog, members, clearance: p.cluster ? AISLE_MIN : 0 });
+      if (spot && spot.moves.some(([id, at]) => at.x !== byId.get(id)?.x || at.z !== byId.get(id)?.z)) {
         const name = p.groupLabel ? `the ${p.groupLabel.toLowerCase()}` : String(obj.label ?? '').trim() || catalog[obj.assetType]?.label || 'the item';
         p.fix = { moves: spot.moves, label: `Move ${name}` };
         culprits.push({ problem: p, obj, moves: spot.moves });
       }
     }
   }
+  const lost = problems.filter((p) => [CHECK_KINDS.ROOM_UNREACHABLE, CHECK_KINDS.DESK_UNREACHABLE, CHECK_KINDS.FLOOR_UNREACHABLE].includes(p.kind));
+  // v0.18.0: a cluster whose move makes desks, a room or its own seats reachable again takes those lines into
+  // its own ("The 6-person cluster blocks the door of Open Office"): one line per cluster, an error then
+  const absorbed = new Set();
+  const withMoves = (moves) => {
+    const m = new Map(moves);
+    return { ...layout, objects: objects.map((o) => (m.has(o.id) ? { ...o, ...m.get(o.id) } : o)) };
+  };
+  // a cluster beside an aisle too narrow to walk (in front of a door, say) may be what shuts people out
+  const tried = new Set(culprits.map((c) => c.problem.groupId).filter(Boolean));
+  const aisleCulprits = [];
+  if (lost.some((p) => p.kind !== CHECK_KINDS.FLOOR_UNREACHABLE)) {
+    for (const p of problems) {
+      if (p.kind !== CHECK_KINDS.AISLE_NARROW) continue;
+      for (const gid of p.groups ?? []) {
+        if (tried.has(gid)) continue;
+        tried.add(gid);
+        const members = objects.filter((o) => groupOf(o)?.id === gid);
+        const obj = members.find((o) => groupOf(o).role === 'desk') ?? members[0];
+        if (!obj || members.some((o) => o.isLocked)) continue;
+        const spot = findItemSpot(obj, layout, { catalog, members, clearance: AISLE_MIN });
+        if (spot) aisleCulprits.push({ problem: p, obj, moves: spot.moves, groupId: gid });
+      }
+    }
+  }
+  const ordered = [...culprits.filter((c) => c.problem.groupId)
+    .sort((a, b) => (a.problem.kind === CHECK_KINDS.DOOR_BLOCKED ? 0 : 1) - (b.problem.kind === CHECK_KINDS.DOOR_BLOCKED ? 0 : 1)),
+  ...aisleCulprits];
+  for (const c of ordered) {
+    if (absorbed.has(c.problem) || (c.groupId && c.problem.fix)) continue;
+    const near = (p) => p.kind !== CHECK_KINDS.FLOOR_UNREACHABLE && p.floorId === floorOf(c.obj);
+    const mine = lost.filter((p) => p !== c.problem && !absorbed.has(p) && near(p));
+    if (!mine.length && !c.problem.cluster) continue;
+    const still = new Set(check(withMoves(c.moves), { catalog, fixes: false }).problems.map((p) => p.key));
+    if (c.problem.cluster && still.has(c.problem.key)) {
+      // moving it doesn't give its seats a way in: no Fix it of its own
+      delete c.problem.fix;
+      culprits.splice(culprits.indexOf(c), 1);
+      continue;
+    }
+    const cleared = mine.filter((p) => !still.has(p.key));
+    if (c.groupId) {
+      // an aisle's cluster: its line becomes the cause ("…blocks the door of Open Office: only 0.6 m to the wall")
+      if (!cleared.length) continue;
+      const prefab = prefabById(groupOf(c.obj).prefab);
+      const label = prefab.label.toLowerCase();
+      const why = `only ${metres(c.problem.gap)} to ${c.problem.sides[c.groupId]}`;
+      const shut = cleared.find((p) => p.kind === CHECK_KINDS.ROOM_UNREACHABLE);
+      const room = shut && list(layout.rooms).find((r) => r.id === shut.roomId);
+      c.problem.kind = room ? CHECK_KINDS.DOOR_BLOCKED : CHECK_KINDS.DESK_UNREACHABLE;
+      c.problem.message = room
+        ? `The ${label} blocks ${(room.doors ?? []).length === 1 ? 'the' : 'a'} door of ${roomName(room)}: ${why}`
+        : `The ${label} leaves no way to the seats around it: ${why}`;
+      c.problem.ids = objects.filter((o) => groupOf(o)?.id === c.groupId).map((o) => o.id);
+      c.problem.objectId = c.obj.id;
+      c.problem.groupId = c.groupId;
+      c.problem.groupLabel = prefab.label;
+      c.problem.fix = { moves: c.moves, label: `Move the ${label}` };
+      culprits.push(c);
+    }
+    for (const p of cleared) {
+      absorbed.add(p);
+      c.problem.severity = 'error';
+      c.problem.blocksWalking = true;
+    }
+  }
+  const open = lost.filter((p) => !absorbed.has(p) && !(p.cluster && p.fix));
   // "Nobody can walk to …": the stairs and door blockers near it (FLOOR_UNREACHABLE: the stairs below it)
   const rooms = list(layout.rooms);
   const nextFloor = (id) => floorIds[floorIds.indexOf(id) + 1] ?? null;
@@ -432,9 +532,8 @@ function addFixes(problems, layout, { catalog, floorIds, check }) {
     const pad = isStairs ? 3 : 0.6; // a flight is 4 m long: its ends reach that far from its middle
     return Math.abs(at.x - room.x) <= room.width / 2 + pad && Math.abs(at.z - room.z) <= room.depth / 2 + pad;
   };
-  const lost = problems.filter((p) => [CHECK_KINDS.ROOM_UNREACHABLE, CHECK_KINDS.DESK_UNREACHABLE, CHECK_KINDS.FLOOR_UNREACHABLE].includes(p.kind));
-  const plans = lost.map((p) => ({ p, from: culprits.filter((c) => near(p, c)) })).filter((x) => x.from.length);
-  if (!plans.length) return;
+  const plans = open.map((p) => ({ p, from: culprits.filter((c) => c.problem !== p && near(p, c)) })).filter((x) => x.from.length);
+  if (!plans.length) return absorbed;
   // one check with every culprit moved tells which of them fix what
   const moved = new Map();
   for (const { from } of plans) for (const c of from) for (const [id, patch] of c.moves) moved.set(id, patch);
@@ -447,6 +546,7 @@ function addFixes(problems, layout, { catalog, floorIds, check }) {
     for (const c of from) for (const [id, patch] of c.moves) moves.set(id, patch);
     p.fix = { moves: [...moves], label: from.every((c) => c.problem.kind === CHECK_KINDS.STAIRS) ? 'Move the stairs' : 'Move what blocks the way' };
   }
+  return absorbed;
 }
 
 // ── What Studio shows ────────────────────────────────────────────────────
