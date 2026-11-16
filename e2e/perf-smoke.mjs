@@ -9,6 +9,9 @@
 //   The company tour (v0.14.4): the same building in viewer.html (each ground
 //   floor room a department), the tour walking and at a stop, against the same
 //   limits (TOUR=off skips it).
+//   Workstations (v0.18.0): a 300-seat office (2 floors, 50 six-person clusters) in Studio and walking in
+//   viewer.html with 300 people seated, against the same limits, next to the same seats built as v0.17
+//   desks (desk + chair + monitor + keyboard). WS=off skips it; SHOTS=<dir>: its screenshots.
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run dev          (in one terminal)
@@ -402,7 +405,7 @@ if (process.env.TOUR !== 'off') {
   if (!realistic) await v.addInitScript(() => localStorage.setItem('ahdus.realisticLook', 'off'));
   v.on('pageerror', (e) => errs.push('viewer pageerror: ' + e.message));
   v.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('BJS')) errs.push('viewer ' + m.text()); });
-  await v.goto(url + 'viewer.html?mode=view', { waitUntil: 'load' });
+  await v.goto(url + 'viewer.html?mode=view', { waitUntil: 'load', timeout: 120000 });
   await v.waitForFunction(() => window.__ahdusViewer && window.__ahdusSetPeople, null, { timeout: 120000 });
   const loaded = await v.evaluate(async (layout) => {
     const e = window.__ahdusViewer;
@@ -466,6 +469,182 @@ if (process.env.TOUR !== 'off') {
   log(`the tour at a stop (camera higher and further back): ≤ ${MAX_DRAW_CALLS} draw calls, ≤ ${MAX_MESHES} meshes`,
     atStop.drawCalls <= MAX_DRAW_CALLS && atStop.meshes <= MAX_MESHES, JSON.stringify(atStop));
   await v.close();
+}
+
+// ── v0.18.0: a 300-seat office in workstation clusters (Meridian's size: 2 floors, 300 people) ──
+// The same seats twice: as v0.17 built them (a standard desk + chair + dual monitor + keyboard each) and
+// as 6-person clusters (a workstation desk with its screen and partitions built in + a chair). Both in
+// Studio (all floors shown) and in viewer.html walking with 300 people seated. WS=off skips it.
+// SHOTS=<dir>: screenshots of the cluster office (from above, walking).
+if (process.env.WS !== 'off') {
+  const shots = process.env.SHOTS;
+  if (shots) mkdirSync(shots, { recursive: true });
+  // FPS over 20 frames (no GPU here: compare the two only)
+  const fpsOf = (pg, sceneOf) => pg.evaluate((sceneOf) => new Promise((res) => {
+    const sc = eval(sceneOf); let c = 0; let t0 = 0;
+    const o = sc.onAfterRenderObservable.add(() => {
+      if (c === 0) t0 = performance.now();
+      if (++c > 20) { sc.onAfterRenderObservable.remove(o); res(Math.round(20000 / (performance.now() - t0) * 10) / 10); }
+    });
+  }), sceneOf);
+  const office = (style) => p.evaluate(async (style) => {
+    const [{ prefabPlacement }, { prefabById }] = await Promise.all([
+      import('/src/play/prefabDrop.js'), import('/src/catalog/manifest.js'),
+    ]);
+    const { ASSET_TYPES } = await import('/src/utils/assetCatalog.js');
+    const floors = { 0: { id: 0, name: 'Ground Floor', height: 3.5 }, 1: { id: 1, name: 'Floor 1', height: 3.5 } };
+    const rooms = [];
+    const objects = [];
+    let n = 0;
+    for (const f of [0, 1]) {
+      const room = {
+        id: `ws_open_${f}`, type: 'OFFICE', name: `Open Office ${f}`, floor: f, x: 0, z: 0, width: 34, depth: 26, wallHeight: 3.2,
+        doors: [{ wall: 'south', offset: 0, width: 1.4, height: 2.1 }], windows: [],
+      };
+      rooms.push(room);
+      for (let i = 0; i < 5; i++) {
+        for (let j = 0; j < 5; j++) {
+          const at = { x: (i - 2) * 6.2, z: (j - 2) * 4.6 + 0.6, rotationY: 0, floor: f };
+          const { objects: items } = prefabPlacement(prefabById('WS_CLUSTER_6'), {}, ASSET_TYPES, at, [room],
+            { groupId: `grp_${f}_${i}_${j}`, newId: () => `ws_${++n}` });
+          if (style === 'clusters') { objects.push(...items); continue; }
+          // v0.17: a standard desk where each workstation is, its chair, and a monitor and keyboard on it
+          for (const o of items) {
+            const { metadata, ...plain } = o;
+            if (metadata.group.role === 'chair') { objects.push(plain); continue; }
+            const c = Math.cos(o.rotationY);
+            const s = Math.sin(o.rotationY);
+            const on = (lz) => ({ x: o.x + lz * s, z: o.z + lz * c });
+            objects.push({ ...plain, assetType: 'DESK_STANDARD', scaleX: 1, scaleZ: 1 });
+            objects.push({ id: `ws_${++n}`, assetType: 'MONITOR_DUAL', floor: f, roomId: room.id, ...on(-0.15), y: 0.75, rotationY: o.rotationY });
+            objects.push({ id: `ws_${++n}`, assetType: 'KEYBOARD', floor: f, roomId: room.id, ...on(0.15), y: 0.75, rotationY: o.rotationY });
+          }
+        }
+      }
+    }
+    const desks = objects.filter((o) => o.assetType.startsWith('DESK_'));
+    const t0 = performance.now();
+    window.__ahdusStore.getState().loadWorkspace({ layoutName: `300 seats (${style})`, floors, rooms, objects });
+    // the build starts on the next frames (and a new scene may come with it): wait until every item has its mesh
+    await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const meshed = () => new Set(window.__ahdusScene.meshes.map((m) => m.metadata?.objectId).filter(Boolean)).size;
+    for (const end = performance.now() + 180000; performance.now() < end;) {
+      await window.__ahdusBuild?.whenBuilt();
+      if (meshed() >= objects.length) break;
+      await new Promise((res) => setTimeout(res, 250));
+    }
+    const builtMs = Math.round(performance.now() - t0);
+    // draw calls counted on whatever WebGL context the scene draws with now
+    const gl = window.__ahdusScene.getEngine()._gl;
+    if (!gl.__counted) {
+      gl.__counted = true;
+      for (const fn of ['drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']) {
+        const orig = gl[fn]?.bind(gl);
+        if (orig) gl[fn] = (...a) => { window.__drawCalls++; return orig(...a); };
+      }
+    }
+    await window.__ahdusAssets.whenLoaded();
+    window.__ahdusStore.getState().selectFloor?.(1); // all floors shown
+    window.__ahdusCharacters.setPeople(desks.map((d, i) => ({ personId: `ws_person_${i}`, deskId: d.id, name: `Person ${i}`, department: 'Sales' })));
+    await window.__ahdusCharacters.whenSettled();
+    const sc = window.__ahdusScene;
+    // the shapes the items are drawn from (each item an instance of one): v0.17's desk, chair, monitor, keyboard;
+    // a cluster's workstation desk (one for all 300: same options) and chair
+    const itemMeshes = sc.meshes.filter((m) => m.metadata?.objectId);
+    const templates = new Set(itemMeshes.map((m) => (m.sourceMesh ?? m).uniqueId)).size;
+    const deskIds = new Set(desks.map((d) => d.id));
+    const deskShapes = new Set(itemMeshes.filter((m) => deskIds.has(m.metadata.objectId)).map((m) => (m.sourceMesh ?? m).uniqueId)).size;
+    return { items: objects.length, desks: desks.length, meshed: meshed(), builtMs, templates, deskShapes, placed: window.__ahdusCharacters.getPlaced().length };
+  }, style);
+  const studioRun = async (style) => {
+    const info = await office(style);
+    await p.click('[aria-label="Fit view"]'); await p.waitForTimeout(800); await frames(4);
+    const m = await measure();
+    m.fps = await fpsOf(p, 'window.__ahdusScene');
+    const check = await p.evaluate(async () => {
+      const { checkLayout } = await import('/src/play/navigation/checkLayout.js');
+      const { ASSET_TYPES } = await import('/src/utils/assetCatalog.js');
+      const r = checkLayout(window.__ahdusStore.getState(), { catalog: ASSET_TYPES });
+      // the cluster rules only: this probe has no stairs, so Floor 1 can't be walked to (an error of its own)
+      const mine = r.problems.filter((x) => ['AISLE_NARROW', 'DOOR_BLOCKED', 'DESK_UNREACHABLE'].includes(x.kind) && x.floorId === 0);
+      return { ms: Math.round(r.ms), problems: mine.map((x) => x.message).slice(0, 3) };
+    });
+    return { ...info, ...m, check };
+  };
+  const before = await studioRun('desks');
+  const after = await studioRun('clusters');
+  if (shots) await p.screenshot({ path: `${shots}/300-seats-studio.png` });
+  log('300 seats, v0.17 style (desk + chair + monitor + keyboard): measured (reported)', true, JSON.stringify(before));
+  log(`300 seats in 6-person clusters (2 floors, all shown): ≤ ${MAX_DRAW_CALLS} draw calls, ≤ ${MAX_MESHES} meshes, 300 people seated`,
+    after.desks === 300 && after.placed === 300 && after.drawCalls <= MAX_DRAW_CALLS && after.meshes <= MAX_MESHES, JSON.stringify(after));
+  // the clusters: half the items and meshes; their desks have more materials (top, frame, fabric, screen), so a few
+  // more draw calls (still a handful per shape, whatever the number of desks)
+  log('300 seats in clusters: half the items and meshes of the same seats as v0.17 desks, draw calls still a few per shape (≤ 120)',
+    after.items * 2 === before.items && after.meshes < before.meshes * 0.6 && after.drawCalls <= 120 && after.meshed === after.items,
+    `clusters ${after.drawCalls} vs desks ${before.drawCalls} draw calls; ${after.items} vs ${before.items} items; ${after.meshes} vs ${before.meshes} meshes`);
+  // a 6-person cluster's desks come in 2 variants (the end desk closes its side: 'both'; the others 'left'): 2 shapes for all 300
+  log('300 seats in clusters: the 300 desks are drawn from one shape per variant (2)', after.deskShapes === 2,
+    `desks drawn from ${after.deskShapes} shapes, ${after.templates} item shapes in all (v0.17 style ${before.templates})`);
+  log('300 seats in clusters: Check my layout under 2 s, no aisle / door / desk problems on the ground floor', after.check.ms < 2000 && after.check.problems.length === 0, JSON.stringify(after.check));
+
+  // the viewer, walking among them with everyone seated (and typing): the clusters, then the same seats as v0.17 desks
+  const layoutNow = () => p.evaluate(() => {
+    const st = window.__ahdusStore.getState();
+    return { layoutName: '300 seats', floors: st.floors, rooms: Object.values(st.rooms), objects: Object.values(st.objects) };
+  });
+  const vRun = async (layout, shotName) => {
+  const v = await b.newPage({ viewport: { width: 1280, height: 720 } });
+  v.on('pageerror', (e) => errs.push('viewer pageerror: ' + e.message));
+  v.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('BJS')) errs.push('viewer ' + m.text()); });
+  await v.goto(url + 'viewer.html?mode=view', { waitUntil: 'load', timeout: 120000 });
+  await v.waitForFunction(() => window.__ahdusViewer && window.__ahdusSetPeople, null, { timeout: 120000 });
+  const walk = await v.evaluate(async (layout) => {
+    const e = window.__ahdusViewer;
+    await e.whenBuilt();
+    e.scene.getEngine().setHardwareScalingLevel(2);
+    const gl = e.scene.getEngine()._gl;
+    window.__drawCalls = 0;
+    for (const fn of ['drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']) {
+      const orig = gl[fn]?.bind(gl);
+      if (orig) gl[fn] = (...a) => { window.__drawCalls++; return orig(...a); };
+    }
+    e.loadLayout(layout);
+    const desks = layout.objects.filter((o) => o.assetType.startsWith('DESK_'));
+    window.__ahdusSetPeople(desks.map((d, i) => ({ personId: `p${i}`, deskId: d.id, name: `Person ${i}`, department: 'Sales' })));
+    await e.whenBuilt();
+    await e.whenNavigationReady();
+    e.setMode('walkthrough');
+    // in the middle of the ground floor's office, between two clusters
+    e.walkthrough.setPose({ x: 3.1, z: -2.9, yaw: 0, pitch: -0.1, floor: 0 });
+    const { workClip } = await import('/src/play/people.js');
+    const placed = e.characters?.getPlaced() ?? [];
+    const typing = placed.filter((pp) => workClip(pp, layout.objects) === 'Type').length;
+    return { placed: placed.length, typing };
+  }, layout);
+  await v.waitForTimeout(1500);
+  const vMeasure = () => v.evaluate(() => new Promise((res) => {
+    const sc = window.__ahdusViewer.scene;
+    let first = true; let t = 0;
+    const o = sc.onBeforeRenderObservable.add(() => { if (first) { window.__drawCalls = 0; first = false; t = performance.now(); } });
+    sc.onAfterRenderObservable.addOnce(() => {
+      sc.onBeforeRenderObservable.remove(o);
+      res({ meshes: sc.meshes.length, active: sc.getActiveMeshes().length, drawCalls: window.__drawCalls, frameMs: Math.round(performance.now() - t) });
+    });
+  }));
+  const walking = await vMeasure();
+  walking.fps = await fpsOf(v, 'window.__ahdusViewer.scene');
+  if (shots && shotName) await v.screenshot({ path: `${shots}/${shotName}`, timeout: 120000 });
+  await v.close();
+  return { ...walk, ...walking };
+  };
+  const walkClusters = await vRun(await layoutNow(), '300-seats-walking.png');
+  log(`walking among 300 seats with 300 people seated (all typing): ≤ ${MAX_DRAW_CALLS} draw calls, ≤ ${MAX_MESHES} meshes`,
+    walkClusters.placed === 300 && walkClusters.typing === 300 && walkClusters.drawCalls <= MAX_DRAW_CALLS && walkClusters.meshes <= MAX_MESHES,
+    JSON.stringify(walkClusters));
+  await office('desks');
+  const walkDesks = await vRun(await layoutNow(), shots ? '300-seats-walking-v017.png' : null);
+  log('walking: 300 seats in clusters against the same seats as v0.17 desks (reported)', true,
+    `clusters ${walkClusters.meshes} meshes, ${walkClusters.drawCalls} draw calls, ${walkClusters.fps} FPS | v0.17 desks ${walkDesks.meshes} meshes, ${walkDesks.drawCalls} draw calls, ${walkDesks.fps} FPS`);
 }
 
 log('no page errors', errs.length === 0, errs.slice(0, 3).join(' | '));
