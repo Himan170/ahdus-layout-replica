@@ -40,6 +40,9 @@ import {
 } from '../building';
 import { CORNER_DESK_ARM } from '../people';
 import { hangsOnWall } from '../wallMount';
+import { UNKNOWN_ITEM_SIZE } from '../../catalog/manifest';
+
+const UNKNOWN_DEF = { defaultWidth: UNKNOWN_ITEM_SIZE.width, defaultDepth: UNKNOWN_ITEM_SIZE.depth };
 
 /** Cell size (m): a 1 m door minus the body leaves ~3 cells; narrower doors are opened along their centre line. */
 export const CELL = 0.1;
@@ -120,7 +123,8 @@ export const MODEL_SIZES = {
  * An item type the catalogue doesn't know counts as 1 × 1 m.
  */
 export function itemFootprint(obj, catalog = {}) {
-  const def = catalog[obj.assetType] ?? {};
+  // v0.18.0: a type this version doesn't know is drawn as a desk-sized box: walked round as one
+  const def = catalog[obj.assetType] ?? (catalog.DESK_STANDARD ? UNKNOWN_DEF : {});
   const size = MODEL_SIZES[obj.assetType];
   return {
     x: obj.x ?? 0,

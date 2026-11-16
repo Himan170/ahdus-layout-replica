@@ -166,6 +166,12 @@ export function prefabById(id) {
 }
 
 /** Desks of the manifest: type → { width, depth, workSide, typing } (play/people.js). */
+/**
+ * v0.18.0: an item of a type this version doesn't know (a layout made with a newer Studio): drawn as a
+ * plain grey box of a desk's size standing on the floor, and walked round as that size (one warning per type).
+ */
+export const UNKNOWN_ITEM_SIZE = Object.freeze({ width: 1.4, depth: 0.7, height: 0.75 });
+
 export function manifestDesks(types = MANIFEST_TYPES) {
   const out = {};
   for (const [id, d] of Object.entries(types)) {

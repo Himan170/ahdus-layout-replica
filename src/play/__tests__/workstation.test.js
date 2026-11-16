@@ -3,6 +3,8 @@ import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
 import { wsParams, wsKey, wsPatch, isWorkstation, hasOwnScreen, PARTITION_HEIGHT_MAX } from '../workstation';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
+import { UNKNOWN_ITEM_SIZE } from '../../catalog/manifest';
+import { itemFootprint } from '../navigation/walkMap';
 import { createItemMesh, disposeItemMesh } from '../../utils/assetInstances';
 
 // Node has no canvas: a texture whose 2D context takes every drawing call
@@ -95,5 +97,30 @@ describe('workstation meshes (v0.18.0)', () => {
     const low = make('n', desk({ metadata: { ws: { partition: 'none' } } }));
     expect(sizeOf(low).h).toBeCloseTo(0.75 + 0.1 + 0.34, 2);
     disposeItemMesh(low);
+  });
+});
+
+describe('a type this version does not know (v0.18.0)', () => {
+  let engine;
+  let scene;
+  beforeEach(() => { engine = new NullEngine(); scene = new Scene(engine); });
+  afterEach(() => { scene.dispose(); engine.dispose(); vi.restoreAllMocks(); });
+
+  it('is a plain desk-sized box on the floor, with one warning per type, never a crash', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const a = createItemMesh('DESK_FROM_THE_FUTURE', scene, 'u1');
+    const b = createItemMesh('DESK_FROM_THE_FUTURE', scene, 'u2');
+    const mesh = a.getChildMeshes()[0];
+    mesh.computeWorldMatrix(true);
+    const { minimumWorld: min, maximumWorld: max } = mesh.getBoundingInfo().boundingBox;
+    expect(max.x - min.x).toBeCloseTo(UNKNOWN_ITEM_SIZE.width, 3);
+    expect(max.y - min.y).toBeCloseTo(UNKNOWN_ITEM_SIZE.height, 3);
+    expect(max.z - min.z).toBeCloseTo(UNKNOWN_ITEM_SIZE.depth, 3);
+    expect(min.y).toBeCloseTo(0, 3);
+    expect(warn.mock.calls.filter(([m]) => String(m).includes('DESK_FROM_THE_FUTURE'))).toHaveLength(1);
+    // walked round as that size
+    const fp = itemFootprint({ assetType: 'DESK_FROM_THE_FUTURE', x: 0, z: 0 }, ASSET_TYPES);
+    expect([fp.hw * 2, fp.hd * 2]).toEqual([UNKNOWN_ITEM_SIZE.width, UNKNOWN_ITEM_SIZE.depth]);
+    for (const r of [a, b]) disposeItemMesh(r);
   });
 });
