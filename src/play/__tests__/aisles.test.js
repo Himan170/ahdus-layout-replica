@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { prefabById } from '../../catalog/manifest';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
-import { prefabPlacement } from '../prefabDrop';
+import { prefabPlacement, planPrefabDrop } from '../prefabDrop';
 import { prefabOutline, groupOf } from '../prefab';
 import { aisleGroups, groupOutline, rectGap, narrowAisles, dropAisle, AISLE_MIN } from '../aisles';
 import { checkLayout, CHECK_KINDS } from '../navigation/checkLayout';
@@ -76,6 +76,20 @@ describe('aisles beside clusters (v0.18.0)', () => {
     expect(hint.text).toBe('Leaves 0.5 m to the 6-person cluster: an aisle needs 0.9 m');
     expect(hint.gap).toBeLessThan(AISLE_MIN);
     expect(dropAisle({ ...outline, x: outline.x + 1 }, layout, 0, ASSET_TYPES)).toBeNull();
+  });
+
+  it('the drop hint and Check give the same number for the same spot', () => {
+    const first = place('WS_CLUSTER_6', -3, 2);
+    const layout = { ...layoutOf(first), floor: 0 };
+    const [g] = aisleGroups(first, ASSET_TYPES);
+    for (const gap of [0.2, 0.35, 0.6]) {
+      const point = { x: g.outline.x + g.outline.hw * 2 + gap, z: g.outline.z };
+      const plan = planPrefabDrop(prefabById('WS_CLUSTER_6'), point, layout, { catalog: ASSET_TYPES });
+      const placed = place('WS_CLUSTER_6', plan.at.x, plan.at.z);
+      const [narrow] = narrowAisles(layoutOf(first, placed), ASSET_TYPES);
+      const number = (text) => text.match(/(\d+\.\d) m/)[1];
+      expect(number(plan.warning)).toBe(number(narrow.message));
+    }
   });
 });
 

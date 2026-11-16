@@ -11,7 +11,7 @@ import { layoutPrefab, prefabItems, prefabOutline, CABIN_DOOR } from './prefab';
 import { planRoomAt, wallThicknessOf } from './geometry';
 import { itemFootprints, isSolidItem } from './navigation/walkMap';
 import { rectsOverlap, boxOf } from './turnedRect';
-import { dropAisle } from './aisles';
+import { dropAisle, groupOutline, AISLE_LAYOUTS } from './aisles';
 
 const EPS = 1e-6;
 const floorOf = (o) => o.floor ?? 0;
@@ -76,7 +76,13 @@ export function planPrefabDrop(prefab, point, layout, { params = {}, snapStep = 
     const hit = items.find((o) => itemFootprints(o, catalog).some((fp) => rectsOverlap(fp, outline, 0.02)));
     if (hit) problem = `Overlaps ${nameOf(hit, catalog)}`;
   }
-  const warning = !problem && !cabin && prefab.layout !== 'manager' ? dropAisle(outline, layout, layout.floor, catalog)?.text ?? null : null;
+  // measured as Check measures it (the members' own footprints), so the hint and Check give the same number
+  let warning = null;
+  if (!problem && AISLE_LAYOUTS.has(prefab.layout)) {
+    let n = 0;
+    const members = prefabItems(prefab, params, catalog, at, { groupId: 'drop', idFor: () => `drop_${++n}` });
+    warning = dropAisle(groupOutline(prefab, members, catalog) ?? outline, layout, layout.floor, catalog)?.text ?? null;
+  }
   return { at, rect: { x: at.x, z: at.z, width, depth }, outline, room: roomRect, problem, warning };
 }
 
