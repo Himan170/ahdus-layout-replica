@@ -3,6 +3,58 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.18.0 (16 Nov 2026): workstations
+
+Open offices are built from workstation clusters, not one desk at a time
+(`private-docs/REALISTIC_WORKPLACE_PLAN.md`).
+- **The asset manifest:** furniture can now be described as data (`src/catalog/workstations.json`: size, parts,
+  footprint boxes, seats, desk rules) and joins the catalogue through one adapter (`catalog/manifest.js`). The 53
+  hand-built items are unchanged.
+- **Workstation desks** are drawn at their real size from simple parts: top, frame, pedestal, fabric or glass
+  partitions, side screens, a built-in monitor and keyboard. There is no third-party branding. Desks with the same
+  options share one instanced shape (`play/workstation.js`, `utils/workstationMesh.js`).
+- **Prefabs** are in the Furniture library under **Workstations**, each with a plan picture: Desk with partition, 2-,
+  4-, 6- and 8-person clusters, Desk row (4), Manager workstation (with 2 visitor chairs) and Private cabin (a room
+  with a door and its desk). Drag one onto the floor and it is placed in one undo step. The drop says what is in the
+  way ("Overlaps …", "Crosses the wall of …") and warns when it would leave less than 0.9 m to walk.
+- **A click selects the whole cluster; Alt+click selects one desk or chair** (listed in Shortcuts). The cluster's
+  Inspector has:
+  - Desk width / depth, Partition (None / Fabric / Glass) and its height. A change rebuilds the cluster in one undo
+    step and keeps every desk's id, so the people seated there stay.
+  - A **Seats** list (Seat 1…N). Inside AHDUS each seat has its own **Who sits here**. Hovering a row tints that
+    desk amber.
+  - **Ungroup**.
+- **A copy, paste or duplicate** of a cluster is a new group with new desks, so its seats are empty: nobody sits
+  twice.
+- **Every seat is a desk like any other:** people sit there and **type at the built-in screen** (switch off "Monitor
+  and keyboard" and they just sit). Find, Take me there, the tour and live presence work for every seat, upstairs
+  too. A manager's visitor chairs are never anyone's seat.
+- **Check my layout:**
+  - "Only 0.6 m between the 6-person cluster and the 6-person cluster: an aisle needs 0.9 m" (also to the walls).
+    Clusters pushed together are fine.
+  - A cluster that shuts a door or leaves seats nobody can walk to is ONE line naming it and the cause ("The
+    4-person cluster blocks the door of Open Office", "The 6-person cluster in Open Office leaves no way to one of
+    its seats: only 0.5 m to the wall"), never a "Nobody can walk to Workstation Desk" line per desk; the narrow
+    aisle behind it is folded into that line. **Fix it** moves the whole cluster, 0.9 m clear.
+  - A private cabin is placed with its door: you walk in through it, and Take me there reaches its desk.
+- **An item type this version doesn't know** (a layout from a newer version) is a plain grey desk-sized box standing
+  on the floor, with one warning per type, and never an error. Before this it was a magenta 1 m cube half under the
+  floor: the v0.17.4 embed opens a workstation layout without an error but draws those cubes, so AHDUS should
+  update its embed before editors place workstations.
+- **Small notes from Himan:**
+  - Studio's hint along the bottom wraps onto more lines instead of being cut off (the red stairs warning).
+  - The Publish dialog has **Fix all** when several walking problems come from one item: "2 of these come from one
+    item. Move the stairs fixes them all."
+- **Performance** (e2e:perf, 300 seats on 2 floors, 50 six-person clusters, everyone seated and typing; SwiftShader
+  with no GPU, so the FPS only compare the two): the same seats as v0.17 desks (desk + chair + monitor + keyboard)
+  against v0.18 clusters:
+  - Studio, both floors shown: 1,200 → 600 items, 1,263 → 665 meshes, 46 → 72 draw calls, 2.3 → 3.2 FPS.
+  - Walking among them in the viewer: 1,266 → 664 meshes, 60 → 84 draw calls, 1.3 → 1.4 FPS.
+  - The 300 desks are drawn from 2 shapes (a cluster's end desk and the others). A workstation desk has more materials
+    (top, frame, fabric, screen), so a few more draw calls, still far under the 1,500 limit, whatever the number of
+    desks. Check my layout on the 300 seats: ~40 ms.
+- New: `npm run e2e:workstations` (32 checks); e2e:perf adds the 300-seat office (WS=off skips it).
+
 ## 0.17.4 (16 Nov 2026): stairs that always work
 
 Found in a real layout on Render: the ground-floor stairs stood 0.3 m from a wall, in front of the stair room's only
