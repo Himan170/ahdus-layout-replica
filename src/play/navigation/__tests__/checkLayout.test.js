@@ -2,7 +2,7 @@
 // problem, the rules that keep the list quiet, the keys "Ignore" relies on, and how long it takes.
 import { describe, expect, it } from 'vitest';
 import {
-  checkLayout, checkSummary, toggleIgnored, liveIgnored, countText, rectsOverlap, CHECK_KINDS,
+  checkLayout, checkSummary, toggleIgnored, liveIgnored, countText, rectsOverlap, CHECK_KINDS, sharedFixes, walkingProblems,
 } from '../checkLayout';
 import { meridianLike } from './meridianLike';
 import { createWalkMapCache } from '../walkMap';
@@ -266,6 +266,22 @@ describe('stairs and floors', () => {
       ['STICKS_OUT', 'error', 'The stairs stick out of Hall'],
     ]);
     expect(found.every((p) => p.blocksWalking && p.fix?.moves?.[0]?.[0] === 's')).toBe(true);
+  });
+
+  it('v0.18.0: two problems from the same stairs get one Fix all (the Publish dialog)', () => {
+    const layout = twoFloors();
+    layout.objects.push(item('STAIRCASE', 2.6, 0, { id: 's' }));
+    const walking = walkingProblems(check(layout));
+    const [shared, ...rest] = sharedFixes(walking);
+    expect(rest).toEqual([]);
+    expect(shared).toMatchObject({ key: 's', count: 2, fix: { label: 'Move the stairs' } });
+    expect(shared.fix.moves).toHaveLength(1);
+    // moved there, both are gone
+    const moved = { ...layout, objects: layout.objects.map((o) => (o.id === 's' ? { ...o, ...shared.fix.moves[0][1] } : o)) };
+    expect(of(moved, CHECK_KINDS.STAIRS)).toEqual([]);
+    // one problem per item: nothing to share
+    expect(sharedFixes(walking.slice(0, 1))).toEqual([]);
+    expect(sharedFixes([{ key: 'x' }])).toEqual([]);
   });
 
   it('an upper floor no stairs lead to: one line for the floor, not one per room', () => {

@@ -501,6 +501,29 @@ export function walkingProblems(problems = [], ignored = []) {
   return problems.filter(blocksWalking).map((p) => (hidden.has(p.key) ? { ...p, ignored: true } : p));
 }
 
+/**
+ * v0.18.0: problems that one move fixes together (the stairs that can't be used AND the room nobody can
+ * reach because of them): their Fix it moves the same items. → [{ key, keys, count, fix }] for every item
+ * (or set of items) behind 2 or more problems, the most first; `fix` = one moveObjects for all of them.
+ */
+export function sharedFixes(problems = []) {
+  const byItems = new Map();
+  for (const p of problems) {
+    if (!p.fix?.moves?.length) continue;
+    const key = p.fix.moves.map(([id]) => id).sort().join('|');
+    if (!byItems.has(key)) byItems.set(key, []);
+    byItems.get(key).push(p);
+  }
+  const out = [];
+  for (const [key, list] of byItems) {
+    if (list.length < 2) continue;
+    const moves = new Map();
+    for (const p of list) for (const [id, patch] of p.fix.moves) if (!moves.has(id)) moves.set(id, patch);
+    out.push({ key, keys: list.map((p) => p.key), count: list.length, fix: { moves: [...moves], label: list[0].fix.label } });
+  }
+  return out.sort((a, b) => b.count - a.count);
+}
+
 /** "No problems" / "1 problem" / "12 problems". */
 export function countText(count) {
   return count === 0 ? 'No problems' : `${count} problem${count === 1 ? '' : 's'}`;
