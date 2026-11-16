@@ -317,6 +317,11 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
       if (!obj || obj.isLocked) return;
       // Strip id (a duplicate needs a NEW id) and UI state
       const { id: _oldId, name: _oldName, ...rest } = withoutUiState(obj);
+      // v0.18.0: one item of a cluster, copied on its own, joins no group
+      if (rest.metadata?.group) {
+        rest.metadata = { ...rest.metadata };
+        delete rest.metadata.group;
+      }
       run(new AddObjectCommand(s, {
         ...rest,
         x: obj.x + 1.0,
@@ -359,6 +364,18 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
       if (removes.length + adds.length === 0) return;
       const cmd = new CompositeCommand(label, [...removes, ...adds]);
       run(cmd);
+    },
+    /**
+     * v0.18.0: a prefab placed as ONE undo step: a cabin's room (with its door) and its items, or a
+     * cluster's items. The room keeps the id given (its items' roomId names it).
+     * @param {{ room?: object|null, objects: object[], label?: string }} plan
+     */
+    placePrefab({ room = null, objects = [], label = 'Add workstations' }) {
+      const cmds = [];
+      if (room) cmds.push(new AddRoomCommand(s, room));
+      for (const data of objects) cmds.push(new AddObjectCommand(s, data));
+      if (!cmds.length) return;
+      run(new CompositeCommand(label, cmds));
     },
     /**
      * Lock or unlock several items as ONE undo step (v0.15.5: a group's "Lock all" / L).

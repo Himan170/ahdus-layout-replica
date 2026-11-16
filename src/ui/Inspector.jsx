@@ -17,7 +17,7 @@ import { useEffect, useState, useMemo, useCallback, useSyncExternalStore } from 
 import { livePosition } from '../utils/livePosition';
 import {
   X, Copy, Lock, LockOpen, Trash2, Link2, Unlink2, LayoutGrid, DoorOpen, AppWindow, RotateCcw, Volume2, VolumeX, Plus,
-  RotateCw, Boxes, ClipboardCopy, Search, Eye, EyeOff,
+  RotateCw, Boxes, ClipboardCopy, Search, Eye, EyeOff, Ungroup,
 } from 'lucide-react';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { ROOM_TYPES } from '../utils/roomStore';
@@ -30,6 +30,9 @@ import { FLOOR_FINISHES, floorKindOf } from '../utils/materialLibrary';
 import { MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, STAIRS_KEEP_SIZE } from '../play/building';
 import { describeRoom, describeObject, describeAccessibilityRoutes } from '../utils/accessibleSummary';
 import SeatSection from './SeatSection';
+import { isWorkstation, wsParams, wsPatch, PARTITION_HEIGHT_MIN, PARTITION_HEIGHT_MAX } from '../play/workstation';
+import { groupOf, DESK_WIDTH_MIN, DESK_WIDTH_MAX, DESK_DEPTH_MIN, DESK_DEPTH_MAX } from '../play/prefab';
+import { prefabById } from '../catalog/manifest';
 import { itemSize, scaleForSize, sizeLimits } from './itemSize';
 import { departmentOptions, departmentPatch, MAX_DEPARTMENT_NAME } from './roomDepartment';
 import { isCommitEnter, isComposing } from '../utils/keys';
@@ -54,8 +57,10 @@ const toRad = (deg) => (deg * Math.PI) / 180;
  * value, and shows the stored value again when you leave it (so undo and
  * gizmo drags always show up).
  */
-function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2, suffix, disabled = false, title }) {
+function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2, suffix, disabled = false, title, lazy = false }) {
   const [draft, setDraft] = useState(null);
+  // lazy (v0.18.0): sent once, on Enter or leaving the box (a cluster is rebuilt for each value)
+  const clampV = (v) => (min !== undefined || max !== undefined ? Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v)) : v);
   const shown = draft ?? Number(value ?? 0).toFixed(digits);
   return (
     <label className="insp-field">
@@ -75,10 +80,13 @@ function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2,
           onChange={(e) => {
             setDraft(e.target.value);
             const v = parseFloat(e.target.value);
-            if (Number.isFinite(v)) onCommit(min !== undefined || max !== undefined
-              ? Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v)) : v);
+            if (!lazy && Number.isFinite(v)) onCommit(clampV(v));
           }}
-          onBlur={() => setDraft(null)}
+          onBlur={() => {
+            const v = parseFloat(draft);
+            if (lazy && draft !== null && Number.isFinite(v) && Math.abs(clampV(v) - Number(value)) > 1e-6) onCommit(clampV(v));
+            setDraft(null);
+          }}
           onKeyDown={(e) => { if (isCommitEnter(e)) e.currentTarget.blur(); }}
         />
         {suffix && <span className="insp-field__suffix">{suffix}</span>}
@@ -220,6 +228,8 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
           </div>
         </Section>
       )}
+
+      {isWorkstation(def) && <WorkstationSection object={object} onUpdate={onUpdate} />}
 
       <Section title="Details">
         <label className="insp-field insp-field--wide">
@@ -605,6 +615,114 @@ export function groupSummary(items = []) {
   return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
 
+// ── v0.18.0: workstations ──────────────────────────────────────────────
+
+const PARTITION_LABELS = [['none', 'None'], ['fabric', 'Fabric'], ['glass', 'Glass']];
+const SIDE_LABELS = [['none', 'None'], ['left', 'Left'], ['right', 'Right'], ['both', 'Both']];
+
+/** A workstation desk's own options (play/workstation.js): partition, side screens, drawers, screen. */
+function WorkstationSection({ object, onUpdate }) {
+  const def = ASSET_TYPES[object.assetType];
+  const p = wsParams(object, def);
+  const set = (changes) => onUpdate(object.id, wsPatch(object, changes));
+  const group = groupOf(object);
+  return (
+    <Section title="Workstation">
+      {group && (
+        <p className="insp-note" data-ws-in-group>
+          Part of a {prefabById(group.prefab)?.label ?? 'cluster'}. Click it without Alt to change the whole cluster.
+        </p>
+      )}
+      <div className="ui-segmented insp-quick" role="group" aria-label="Partition" data-ws-partition={p.partition}>
+        {PARTITION_LABELS.map(([k, label]) => (
+          <button key={k} aria-pressed={p.partition === k} onClick={() => set({ partition: k })}>{label}</button>
+        ))}
+      </div>
+      {p.partition !== 'none' && (
+        <div className="insp-grid">
+          <NumberField label="Partition height" value={p.partitionHeight} step={0.05} min={PARTITION_HEIGHT_MIN}
+            max={PARTITION_HEIGHT_MAX} suffix="m" title="Above the desk top" onCommit={(v) => set({ partitionHeight: v })} />
+          <label className="insp-field">
+            <span className="insp-field__label">Side screens</span>
+            <select className="ui-select" aria-label="Side screens" value={p.sides} onChange={(e) => set({ sides: e.target.value })}>
+              {SIDE_LABELS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
+      <div className="insp-row">
+        <label className="insp-check"><input type="checkbox" checked={p.pedestal} onChange={(e) => set({ pedestal: e.target.checked })} /> Drawers</label>
+        <label className="insp-check"><input type="checkbox" checked={p.screen} onChange={(e) => set({ screen: e.target.checked })} /> Monitor and keyboard</label>
+      </div>
+    </Section>
+  );
+}
+
+/**
+ * A selected cluster (a saved group, play/prefab.js): its options for every desk at once, its seats
+ * (Seat 1…N, each with "Who sits here" inside AHDUS; hovering a row outlines that desk) and Ungroup.
+ */
+function PrefabBody({ cluster, onChange, onUngroup, seatPanelFor, onHoverSeat, onPickSeat }) {
+  const { prefab, params, seats } = cluster;
+  const roomy = prefab.layout === 'manager' || prefab.layout === 'cabin';
+  return (
+    <>
+      <Section title="Desks">
+        <div className="insp-grid">
+          <NumberField lazy label="Desk width" value={params.deskWidth} step={0.1} min={DESK_WIDTH_MIN} max={DESK_WIDTH_MAX}
+            suffix="m" onCommit={(v) => onChange({ deskWidth: v })} />
+          <NumberField lazy label="Desk depth" value={params.deskDepth} step={0.05} min={DESK_DEPTH_MIN} max={DESK_DEPTH_MAX}
+            suffix="m" onCommit={(v) => onChange({ deskDepth: v })} />
+        </div>
+        {!roomy && (
+          <>
+            <div className="ui-segmented insp-quick" role="group" aria-label="Partition" data-prefab-partition={params.partition}>
+              {PARTITION_LABELS.map(([k, label]) => (
+                <button key={k} aria-pressed={params.partition === k} onClick={() => onChange({ partition: k })}>{label}</button>
+              ))}
+            </div>
+            {params.partition !== 'none' && (
+              <div className="insp-grid">
+                <NumberField lazy label="Partition height" value={params.partitionHeight} step={0.05} min={PARTITION_HEIGHT_MIN}
+                  max={PARTITION_HEIGHT_MAX} suffix="m" title="Above the desk tops" onCommit={(v) => onChange({ partitionHeight: v })} />
+              </div>
+            )}
+          </>
+        )}
+      </Section>
+      <Section title="Seats">
+        <ul className="insp-seats" role="list" aria-label="Seats" data-seats={seats.length}>
+          {seats.map((s) => {
+            const panel = seatPanelFor?.(s.desk.id) ?? null;
+            return (
+              <li key={s.desk.id} className="insp-seat" data-seat={s.n} data-desk-id={s.desk.id}
+                onMouseEnter={() => onHoverSeat?.(s)} onMouseLeave={() => onHoverSeat?.(null)}
+                onFocus={() => onHoverSeat?.(s)} onBlur={() => onHoverSeat?.(null)}>
+                <div className="insp-seat__head">
+                  <span className="insp-seat__name">Seat {s.n}</span>
+                  <button className="ui-btn is-ghost insp-small" onClick={() => onPickSeat?.(s)} title="Select only this desk (Alt+click)">
+                    Select desk
+                  </button>
+                </div>
+                {panel && <SeatSection key={s.desk.id} {...panel} />}
+              </li>
+            );
+          })}
+        </ul>
+        {!seatPanelFor && <p className="insp-note">People are given their desks in AHDUS.</p>}
+      </Section>
+      <Section title="Group">
+        <p className="insp-note">A click selects the whole {prefab.label.toLowerCase()}; Alt+click one desk or chair.</p>
+        <div className="insp-row">
+          <button className="ui-btn" data-ungroup onClick={onUngroup} title="Make them separate items (one undo step)">
+            <Ungroup {...ICON} /> Ungroup
+          </button>
+        </div>
+      </Section>
+    </>
+  );
+}
+
 function GroupBody({ items }) {
   const locked = items.filter((o) => o.isLocked).length;
   return (
@@ -667,6 +785,12 @@ export default function Inspector({
   hiddenNote = null,    // v0.15.6: '3 hidden' or null
   onToggleHidden,       // v0.15.6: ('rooms' | 'objects', id) => void
   onShowAllHidden,      // v0.15.6: () => void
+  cluster = null,       // v0.18.0: a selected saved group: { groupId, prefab, params, seats }
+  onClusterChange,      // (params) => void: rebuilt with the new options (one undo step)
+  onUngroup,            // () => void
+  seatPanelFor = null,  // (deskId) => SeatSection's props (AHDUS), else null
+  onHoverSeat,          // (seat | null) => void: the desk outlined in 3D
+  onPickSeat,           // (seat) => void: select just that desk
 }) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -765,8 +889,10 @@ export default function Inspector({
           )}
           {mode === 'group' && (
             <>
-              <h2 className="inspector__title" data-group-count={group.length}>{group.length} items selected</h2>
-              <span className="inspector__type">On {floorName}</span>
+              <h2 className="inspector__title" data-group-count={group.length} data-cluster={cluster ? cluster.prefab.id : undefined}>
+                {cluster ? cluster.prefab.label : `${group.length} items selected`}
+              </h2>
+              <span className="inspector__type">{cluster ? `${cluster.seats.length} seats · ${group.length} items · ` : ''}On {floorName}</span>
             </>
           )}
           {mode === 'layers' && (
@@ -812,7 +938,11 @@ export default function Inspector({
             hidden={hiddenLayers} hiddenNote={hiddenNote} onToggleHidden={onToggleHidden} onShowAll={onShowAllHidden}
             onToggleRoomLock={onToggleRoomLock} onToggleLock={onToggleLock} />
         )}
-        {mode === 'group' && <GroupBody items={group} />}
+        {mode === 'group' && cluster && (
+          <PrefabBody cluster={cluster} onChange={onClusterChange} onUngroup={onUngroup}
+            seatPanelFor={seatPanelFor} onHoverSeat={onHoverSeat} onPickSeat={onPickSeat} />
+        )}
+        {mode === 'group' && !cluster && <GroupBody items={group} />}
       </div>
 
       {mode === 'group' && groupActions && (

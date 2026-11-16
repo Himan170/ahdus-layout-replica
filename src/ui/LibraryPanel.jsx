@@ -22,6 +22,7 @@ import {
 import { LAYOUT_TEMPLATES } from '../templates';
 import RoomPicture from './RoomPicture';
 import ItemPicture from './ItemPicture';
+import PrefabPicture from './PrefabPicture';
 import { isComposing } from '../utils/keys';
 
 
@@ -174,7 +175,9 @@ export default function LibraryPanel({
             </div>
             <div className="lib-grid">
               {filterFurniture(query, chip).map((t) => (
-                <Tile key={t.id} {...tileProps(t)} picture={<ItemPicture assetType={t.assetType} thumb={t.thumb} />} />
+                <Tile key={t.id} {...tileProps(t)} picture={t.kind === 'prefab'
+                  ? <PrefabPicture prefabId={t.prefabId} />
+                  : <ItemPicture assetType={t.assetType} thumb={t.thumb} />} />
               ))}
             </div>
             {filterFurniture(query, chip).length === 0 && <p className="lib__empty">Nothing matches “{query}”.</p>}

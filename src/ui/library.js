@@ -15,6 +15,8 @@ import { ASSET_TYPES } from '../utils/assetCatalog';
 import { thumbnailFor } from '../utils/modelRegistry';
 import { planRoomAt } from '../play/geometry';
 import { FURNITURE_ITEMS, sizeLabel } from './tools';
+import { PREFABS } from '../catalog/manifest';
+import { layoutPrefab } from '../play/prefab';
 
 // ── Rooms ──────────────────────────────────────────────────────────────
 
@@ -83,11 +85,33 @@ export const FURNITURE_TILES = FURNITURE_ITEMS.map((i) => {
   };
 });
 
-/** Items with a real model come first in each chip (they have pictures). */
-export function filterFurniture(query, chip, tiles = FURNITURE_TILES) {
+/**
+ * v0.18.0: the prefabs (catalog/workstations.json) as tiles in the Workstations chip:
+ * { kind: 'prefab', prefabId, label, chip, width, depth, sizeText, seats }
+ */
+export const PREFAB_TILES = PREFABS.map((p) => {
+  const { width, depth, members } = layoutPrefab(p, {}, ASSET_TYPES);
+  const seats = members.filter((m) => m.role === 'desk').length;
+  return {
+    kind: 'prefab',
+    id: p.id,
+    prefabId: p.id,
+    label: p.label,
+    chip: 'Workstations',
+    width,
+    depth,
+    seats,
+    sizeText: `${sizeLabel(width, depth)}${p.layout === 'cabin' ? ' · room' : ` · ${seats} ${seats === 1 ? 'seat' : 'seats'}`}`,
+    thumb: null,
+  };
+});
+
+/** Prefabs first, then items with a real model (they have pictures), in each chip. */
+export function filterFurniture(query, chip, tiles = [...PREFAB_TILES, ...FURNITURE_TILES]) {
   const q = query.trim().toLowerCase();
   const shown = q ? tiles.filter((t) => matches(t.label, q) || matches(t.chip, q)) : tiles.filter((t) => t.chip === chip);
-  return [...shown].sort((a, b) => Number(!a.thumb) - Number(!b.thumb));
+  const rank = (t) => (t.kind === 'prefab' ? 0 : t.thumb ? 1 : 2);
+  return [...shown].sort((a, b) => rank(a) - rank(b));
 }
 
 /** How many items have a picture ("Search 28 models"; Reception Desk: of its primitive model). */

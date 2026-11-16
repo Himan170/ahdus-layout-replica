@@ -224,6 +224,7 @@ export const SHORTCUT_GROUPS = [
     title: 'Several items',
     keys: [
       [['Shift', 'Click'], 'Add or remove an item'], [['Shift', 'Drag'], 'Select the items in a box'],
+      [['Alt', 'Click'], 'One desk or chair of a cluster'],
       [['Drag'], 'Move them all'], [['Arrows'], 'Move them'], [['R'], 'Turn them 90° (Shift+R: 15°)'],
       [['L'], 'Lock or unlock them'], [['Delete'], 'Delete them (locked ones stay)'],
     ],

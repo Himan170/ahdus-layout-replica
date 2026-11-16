@@ -21,11 +21,26 @@ import { formatRoomSize } from '../play/geometry';
 import { projectPoint } from '../ui/projection';
 import { footprintAt, planRoomDrop } from '../ui/library';
 import { mountText } from '../play/wallMount';
+import { planPrefabDrop, prefabPlacement } from '../play/prefabDrop';
+import { prefabById } from '../catalog/manifest';
+import { ASSET_TYPES } from '../utils/assetCatalog';
+import { v4 as uuidv4 } from 'uuid';
 
 const DRAG_SLOP = 6; // px the pointer travels before a press on a tile is a drag
 
 const ROOM_HINT = 'Drop the room on the floor. Hold Shift to keep it square, Esc to cancel.';
 const ITEM_HINT = 'Drop it on the floor or a table top. Esc cancels.';
+const PREFAB_HINT = 'Drop it on the floor. Esc cancels.';
+/** Tiles placed through the placement manager (its ghost): items, not rooms or prefabs (v0.18.0). */
+const usesManager = (tile) => tile.kind !== 'room' && tile.kind !== 'prefab';
+
+/** v0.18.0: a prefab tile at a point on the floor (play/prefabDrop.js). */
+function planPrefab(tile, point, st, snap) {
+  const prefab = prefabById(tile.prefabId);
+  if (!prefab) return null;
+  return planPrefabDrop(prefab, point, { rooms: Object.values(st.rooms), objects: Object.values(st.objects), floor: st.currentFloor },
+    { snapStep: snap.enabled ? snap.step : 0, catalog: ASSET_TYPES });
+}
 
 function floorRooms(st) {
   return Object.values(st.rooms).filter((r) => r.floor === st.currentFloor);
@@ -75,6 +90,12 @@ export function useLibraryDrop({
       const plan = planRoomDrop(tile, point, floorRooms(st), roomsBelow(st), { snapStep: snap.enabled ? snap.step : 0, square });
       return { rect: plan.rect, valid: !plan.blocker, problem: plan.blocker ? `Overlaps ${plan.blocker.name}` : null };
     }
+    if (tile.kind === 'prefab') {
+      const point = groundAt(at);
+      const plan = point && planPrefab(tile, point, st, snap);
+      if (!plan) return null;
+      return { rect: plan.room ?? plan.rect, valid: !plan.problem, problem: plan.problem };
+    }
     const mgr = placementManagerRef.current;
     if (!mgr) return null;
     if (!mgr.isActive()) mgr.startPlacement(tile.assetType);
@@ -118,6 +139,24 @@ export function useLibraryDrop({
       showStudioMessage(`Built ${tile.label} room, ${formatRoomSize(plan.rect.width, plan.rect.depth)}. Ctrl+Z to undo.`);
       return true;
     }
+    if (tile.kind === 'prefab') {
+      const point = groundAt(at);
+      if (!point) { showStudioMessage('Drop it on the floor', true); return false; }
+      const plan = planPrefab(tile, point, st, snapRef.current);
+      if (!plan) return false;
+      if (plan.problem) { showStudioMessage(`${plan.problem}. Drop it somewhere else.`, true); return false; }
+      const prefab = prefabById(tile.prefabId);
+      const { room, objects } = prefabPlacement(prefab, {}, ASSET_TYPES, plan.at, Object.values(st.rooms), {
+        groupId: `grp_${uuidv4()}`, newId: () => `obj_${uuidv4()}`, roomId: plan.room ? `room_${uuidv4()}` : null, roomRect: plan.room,
+      });
+      editor.placePrefab({ room, objects, label: `Add ${tile.label.toLowerCase()}` });
+      const now = useWorkspaceStore.getState();
+      now.selectRoom?.(null);
+      now.setObjectSelection(objects.map((o) => o.id).filter((id) => now.objects[id]));
+      const seatsText = tile.seats ? `${tile.seats} ${tile.seats === 1 ? 'seat' : 'seats'}` : '';
+      showStudioMessage(`Placed ${tile.label}${seatsText ? `, ${seatsText}` : ''}. Ctrl+Z to undo.`);
+      return true;
+    }
     const mgr = placementManagerRef.current;
     if (!mgr) return false;
     planAt(tile, at, false);
@@ -133,7 +172,7 @@ export function useLibraryDrop({
     const p = press.current;
     press.current = null;
     document.body.classList.remove('is-dragging-tile');
-    if (p?.tile.kind !== 'room' && !placed) {
+    if (p && usesManager(p.tile) && !placed) {
       placementManagerRef.current?.cancelPlacement();
       useWorkspaceStore.getState().setPlacementMode(null);
     }
@@ -149,7 +188,7 @@ export function useLibraryDrop({
       if (!p) return;
       const at = canvasPoint(e.clientX, e.clientY);
       if (!at) {
-        if (p.tile.kind !== 'room') placementManagerRef.current?.cancelPlacement();
+        if (usesManager(p.tile)) placementManagerRef.current?.cancelPlacement();
         setDrag({ tile: p.tile, footprint: null });
         return;
       }
@@ -208,6 +247,9 @@ export function useLibraryDrop({
       lastPointerType.current = 'mouse';
       if (tile.kind === 'room') {
         handleSetPlannerTool({ kind: 'room', roomType: tile.roomType, stamp: { width: tile.width, depth: tile.depth } });
+      } else if (tile.kind === 'prefab') {
+        const canvas = canvasRef.current; // a tap: in the middle of the view, then drag it where it goes
+        if (canvas) commit(tile, { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }, false);
       } else {
         handleStartPlacement(tile.assetType);
       }
@@ -218,7 +260,7 @@ export function useLibraryDrop({
     commit(tile, { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }, false);
   }, [canvasRef, commit, handleSetPlannerTool, handleStartPlacement]);
 
-  const hint = drag ? (drag.footprint?.problem ?? drag.footprint?.note ?? (drag.tile.kind === 'room' ? ROOM_HINT : ITEM_HINT)) : null;
+  const hint = drag ? (drag.footprint?.problem ?? drag.footprint?.note ?? (drag.tile.kind === 'room' ? ROOM_HINT : drag.tile.kind === 'prefab' ? PREFAB_HINT : ITEM_HINT)) : null;
 
   return { drag, hint, hintBad: !!drag?.footprint?.problem, onTilePointerDown, onPlaceTile };
 }

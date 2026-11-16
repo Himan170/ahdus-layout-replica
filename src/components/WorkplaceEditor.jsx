@@ -98,7 +98,10 @@ import { DEFAULT_HOTBAR, EMPTY_HAND, catalogSlot } from '../play/hotbarItems';
 import { layoutBridge } from '../integration/layoutBridge';
 import { lockPointer } from '../utils/pointerLock';
 import { anchorsForObject } from '../integration/anchorsFromStore';
-import { createGroupActions, GROUP_HIGHLIGHT } from '../planner/groupActions';
+import { createGroupActions, GROUP_HIGHLIGHT, SEAT_HIGHLIGHT } from '../planner/groupActions';
+import { selectionFor, selectedGroup, groupItems, groupSeats, groupOf, rebuildGroup, ungroupMoves, prefabParams } from '../play/prefab';
+import { prefabById } from '../catalog/manifest';
+import { v4 as uuidv4 } from 'uuid';
 import { HighlightSystem } from '../engine/systems/HighlightSystem';
 import { readHidden, writeHidden, toggleHidden, liveHidden, hiddenText } from '../ui/hiddenLayers';
 import { lockedText } from '../play/locks';
@@ -1126,12 +1129,47 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     groupHighlightRef.current = lights;
     return () => { lights.clear(); groupHighlightRef.current = null; };
   }, [sceneReady]);
+  // v0.18.0: a selected cluster (a saved group of the whole selection): its prefab, options and seats
+  const [hoveredSeat, setHoveredSeat] = useState(null);
+  const cluster = useMemo(() => {
+    const groupId = selectedGroup(objectsMap, selectedObjectIds);
+    if (!groupId) return null;
+    const members = groupItems(objectsMap, groupId);
+    const info = groupOf(members[0]);
+    const prefab = prefabById(info?.prefab);
+    if (!prefab) return null;
+    return { groupId, prefab, members, params: prefabParams(prefab, info.params), seats: groupSeats(members) };
+  }, [objectsMap, selectedObjectIds]);
+  useEffect(() => { setHoveredSeat(null); }, [cluster?.groupId]);
   useEffect(() => {
     const lights = groupHighlightRef.current;
     if (!lights) return;
     lights.clear();
-    if (selectedObjectIds.length > 1 && !isPlaying) lights.add(selectedObjectIds, GROUP_HIGHLIGHT, { tint: true });
-  }, [selectedObjectIds, objectsMap, isPlaying, sceneReady, buildProgress?.allBuilt]);
+    if (selectedObjectIds.length < 2 || isPlaying) return;
+    const seatIds = hoveredSeat ? [hoveredSeat.desk.id, hoveredSeat.chair?.id].filter(Boolean) : [];
+    const rest = seatIds.length ? selectedObjectIds.filter((id) => !seatIds.includes(id)) : selectedObjectIds;
+    lights.add(rest, GROUP_HIGHLIGHT, { tint: true });
+    if (seatIds.length) lights.add(seatIds, SEAT_HIGHLIGHT, { tint: true });
+  }, [selectedObjectIds, objectsMap, isPlaying, sceneReady, buildProgress?.allBuilt, hoveredSeat]);
+  const handleClusterChange = useCallback((changes) => {
+    if (!cluster) return;
+    if (cluster.members.some((o) => o.isLocked)) { showStudioMessage('Unlock the cluster first (L)', true); return; }
+    const params = { ...cluster.params, ...changes };
+    const { removeIds, add } = rebuildGroup(cluster.prefab, cluster.members, params, ASSET_TYPES, () => `obj_${uuidv4()}`);
+    const res = editor.replaceObjects(removeIds, add, { label: `Change ${cluster.prefab.label.toLowerCase()}` });
+    if (res?.problem) { showStudioMessage(res.problem, true); return; }
+    useWorkspaceStore.getState().setObjectSelection(add.map((o) => o.id));
+  }, [cluster, editor, showStudioMessage]);
+  const handleUngroup = useCallback(() => {
+    if (!cluster) return;
+    if (cluster.members.some((o) => o.isLocked)) { showStudioMessage('Unlock the cluster first (L)', true); return; }
+    const res = editor.moveObjects(ungroupMoves(cluster.members), { label: 'Ungroup' });
+    showStudioMessage(res?.problem ?? `Ungrouped: ${cluster.members.length} separate items`, !!res?.problem);
+  }, [cluster, editor, showStudioMessage]);
+  const handlePickSeat = useCallback((seat) => {
+    setHoveredSeat(null);
+    useWorkspaceStore.getState().selectObject(seat.desk.id);
+  }, []);
 
   const selectedObject = selectedObjectId ? objectsMap[selectedObjectId] ?? null : null;
   const selectedRoom = !selectedObject && selectedRoomId ? roomsMap[selectedRoomId] ?? null : null;
@@ -1263,18 +1301,20 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   useEffect(() => {
     if (sceneReady) characterSystemRef.current?.setPeople(studioPeople ?? []);
   }, [sceneReady, studioPeople]);
-  const seatPanel = seats.access !== 'none' && selectedObject && isDesk(selectedObject.assetType) ? {
+  // "Who sits here" for one desk (a selected desk, or a row of a cluster's Seats list)
+  const seatPanelFor = seats.access === 'none' ? null : (deskId) => ({
     access: seats.access,
-    seat: seatAtDesk(seats.seats, selectedObject.id),
+    seat: seatAtDesk(seats.seats, deskId),
     busy: seats.busy,
-    onAssign: (person) => seats.assign(selectedObject.id, person),
-    onRemove: () => seats.remove(selectedObject.id),
+    onAssign: (person) => seats.assign(deskId, person),
+    onRemove: () => seats.remove(deskId),
     search: seats.search,
     whereSits: (userId) => {
       const seat = seatOfPerson(seats.seats, userId);
       return seat ? `Sits at ${seats.label(seat.deskId)}` : null;
     },
-  } : null;
+  });
+  const seatPanel = seatPanelFor && selectedObject && isDesk(selectedObject.assetType) ? seatPanelFor(selectedObject.id) : null;
 
   // Footer hint: a short message after a change, else what the tool says
   // (problems in red, sizes while dragging), else the tool's own hint
@@ -1593,8 +1633,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
                 storeActions.selectRoom(id);
                 storeActions.selectObject(null);
               }}
-              onSelectObject={(id) => {
-                storeActions.selectObject(id);
+              onSelectObject={(id, { alone = false } = {}) => {
+                // v0.18.0: a saved group (a cluster) is selected whole, Alt+click one item
+                const st = useWorkspaceStore.getState();
+                const ids = id && st.objects[id] ? selectionFor(st.objects, st.objects[id], { alone }) : [id];
+                if (ids.length > 1) storeActions.setObjectSelection(ids);
+                else storeActions.selectObject(id);
                 storeActions.selectRoom(null);
               }}
               snap={{ enabled: snapEnabled, step: snapStep }}
@@ -1774,6 +1818,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           departmentChoices={departmentNames}
           group={groupObjects}
           groupActions={groupActions}
+          cluster={cluster}
+          onClusterChange={handleClusterChange}
+          onUngroup={handleUngroup}
+          seatPanelFor={seatPanelFor}
+          onHoverSeat={setHoveredSeat}
+          onPickSeat={handlePickSeat}
           onToggleRoomLock={handleToggleRoomLock}
           hiddenLayers={hiddenSets}
           hiddenNote={hiddenNote}
