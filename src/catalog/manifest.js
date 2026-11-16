@@ -169,7 +169,7 @@ export function prefabById(id) {
 export function manifestDesks(types = MANIFEST_TYPES) {
   const out = {};
   for (const [id, d] of Object.entries(types)) {
-    if (d.desk) out[id] = { width: d.defaultWidth, depth: d.defaultDepth, workSide: d.desk.workSide, typing: d.desk.typing };
+    if (d.desk) out[id] = { width: d.defaultWidth, depth: d.defaultDepth, workSide: d.desk.workSide, typing: d.desk.typing, screen: d.params?.screen !== false };
   }
   return out;
 }

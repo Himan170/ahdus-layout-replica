@@ -118,7 +118,8 @@ export function seatScore(desk, chair) {
 export function deskSeats(objects) {
   const all = list(objects);
   const desks = all.filter((o) => isDesk(o.assetType));
-  const chairs = all.filter((o) => isChair(o.assetType));
+  // v0.18.0: a prefab's visitor chairs (in front of a manager's desk) are never its person's seat
+  const chairs = all.filter((o) => isChair(o.assetType) && !o.metadata?.visitor);
   const best = new Map(); // deskId → { chair, score }
   for (const chair of chairs) {
     let mine = null;
@@ -183,8 +184,18 @@ export function seatPose(deskId, objects, floors, seats = null) {
 export const TYPING_TYPES = Object.freeze(['KEYBOARD', 'LAPTOP', 'MONITOR_DUAL']);
 
 /**
+ * v0.18.0: does this desk come with its own screen and keyboard (a workstation with "Monitor and keyboard" on)?
+ */
+export function hasBuiltInScreen(desk) {
+  if (!TYPING_DESKS.has(desk?.assetType)) return false;
+  const own = desk.metadata?.ws?.screen;
+  return typeof own === 'boolean' ? own : MANIFEST_DESKS[desk.assetType].screen;
+}
+
+/**
  * v0.16.0: the clip a person at a desk plays: 'Type' seated at a desk with a keyboard, laptop or monitor on it
- * (its middle inside the desk's outline, on its floor), 'Sit' seated at any other desk, 'Idle' standing.
+ * (its middle inside the desk's outline, on its floor) or, v0.18.0, its own built in (hasBuiltInScreen),
+ * 'Sit' seated at any other desk, 'Idle' standing.
  * @param {{ seated?: boolean, deskId: string }} person a placed person (seatPose)
  * @param {object[] | Record<string, object>} objects
  * @returns {'Type' | 'Sit' | 'Idle'}
@@ -194,6 +205,7 @@ export function workClip(person, objects) {
   const all = list(objects);
   const desk = all.find((o) => o.id === person.deskId);
   if (!desk || !isDesk(desk.assetType)) return 'Sit';
+  if (hasBuiltInScreen(desk)) return 'Type';
   const { w, d } = halfSize(desk);
   const on = all.some((o) => TYPING_TYPES.includes(o.assetType) && floorOf(o) === floorOf(desk) && (() => {
     const p = toLocal(desk, o.x, o.z);
