@@ -27,8 +27,12 @@ export function stopTitle(status: Pick<TourStatus, 'index' | 'count' | 'stop'>):
 }
 
 /** The line under the title: what the tour is doing now, in touch or key words. PURE: tested. */
-export function stateLine(status: Pick<TourStatus, 'state' | 'follow' | 'pausedFrom' | 'remaining' | 'dwell'>, touch = false): string {
+export function stateLine(status: Pick<TourStatus, 'state' | 'follow' | 'pausedFrom' | 'remaining' | 'dwell'> & { message?: string | null }, touch = false): string {
   const go = touch ? 'Tap Resume to go on' : 'Press P to go on';
+  // v0.18.2: a walk that failed waits where you are (the problem shows under this line)
+  if (status.state === 'paused' && status.pausedFrom === 'walking' && status.message) {
+    return `Stopped · ${touch ? 'Tap Resume to try again' : 'Press P to try again'}, or Skip the walk`;
+  }
   switch (status.state) {
     case 'walking': {
       const m = status.remaining !== null ? ` · ${Math.max(0, Math.round(status.remaining))} m` : '';

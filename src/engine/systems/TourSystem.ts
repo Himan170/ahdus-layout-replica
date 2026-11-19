@@ -374,14 +374,24 @@ export class TourSystem {
       { walk: this.follow === 'auto' ? 'auto' : 'guide', face: this.reduced ? undefined : { yaw: stop.yaw, pitch: STOP_PITCH } },
     );
     if (r.problem) {
-      // planned as reachable, but not from here (walked off somewhere): there with a fade
-      this.message = r.message ?? 'No walking route';
-      this.emit('problem');
-      void this.jump(i);
+      // planned as reachable, but not from here (walked off somewhere)
+      this.walkFailed(r.message ?? 'No walking route');
       return;
     }
     this.remaining = r.length ?? this.remaining;
     this.emit('walking');
+  }
+
+  /**
+   * v0.18.2: a walk that fails (stuck, no route from here): you stay where you are, the stop is not
+   * ticked, the panel says why (paused). Resume (P) tries the walk again from here; Skip the walk still
+   * goes there on purpose. (Until v0.18.1 a fade took you to the stop and ticked it.)
+   */
+  private walkFailed(message: string): void {
+    this.state = 'paused';
+    this.pausedFrom = 'walking';
+    this.message = message;
+    this.emit('problem');
   }
 
   /** There at once, behind a fade (Skip the walk, Previous, the list). */
@@ -509,9 +519,7 @@ export class TourSystem {
         }
       }
     } else if (e.state === 'failed') {
-      this.message = e.message ?? 'The walk stopped';
-      this.emit('problem');
-      void this.jump(this.index); // there with a fade
+      this.walkFailed(e.message ?? 'The walk stopped');
     } else if (e.state === 'stopped' && !this.stopping) {
       // ended by someone else (Esc outside our keys, another layout, leaving walking): the tour ends
       this.end();
