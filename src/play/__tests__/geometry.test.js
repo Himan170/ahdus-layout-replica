@@ -121,6 +121,14 @@ describe('findRoomAt', () => {
     expect(findRoomAt(rooms, 1, 1, 1).id).toBe('b');
     expect(findRoomAt(rooms, 5, 5, 0)).toBeNull();
   });
+  it('v0.18.2: a cabin inside an open office is the room there, whichever was added first', () => {
+    const office = { id: 'office', floor: 0, x: 0, z: 0, width: 20, depth: 12 };
+    const cabin = { id: 'cabin', floor: 0, x: 5, z: 2, width: 4, depth: 3 };
+    for (const list of [[office, cabin], [cabin, office]]) {
+      expect(findRoomAt(list, 5, 2, 0).id).toBe('cabin');
+      expect(findRoomAt(list, -5, -3, 0).id).toBe('office');
+    }
+  });
 });
 
 import { snapRectToNeighbours, partnerWall, rectsOverlap } from '../geometry';

@@ -205,16 +205,20 @@ export function splitWall(length, height, openings) {
 
 /** Room containing a world point (on a given floor), or null. */
 export function findRoomAt(rooms, x, z, floor) {
+  // v0.18.2: the innermost (smallest) room holding the point: a cabin inside an open office, whichever was
+  // added first (an item in the cabin got the office's id when the office came first in the list)
+  let best = null;
   for (const room of rooms) {
     if (floor !== undefined && room.floor !== floor) continue;
     if (
       x >= room.x - room.width / 2 && x <= room.x + room.width / 2 &&
-      z >= room.z - room.depth / 2 && z <= room.z + room.depth / 2
+      z >= room.z - room.depth / 2 && z <= room.z + room.depth / 2 &&
+      (!best || room.width * room.depth < best.width * best.depth)
     ) {
-      return room;
+      best = room;
     }
   }
-  return null;
+  return best;
 }
 
 /** "6.0 × 4.5 m, 27 m²" */
