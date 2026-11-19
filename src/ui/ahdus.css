@@ -788,3 +788,28 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
   /* The selection bar: still icon + word, a little smaller */
   .selection-toolbar.is-labelled .ui-icon-btn.has-text { height: 40px; padding: 0 8px; gap: 5px; font-size: 13px; }
 }
+
+/* ── v0.18.2: a small laptop (601–1199 px) with the library AND the Inspector open ──────────────
+   Both panels a little narrower, so the 3D view keeps room (1024 px: 312 → ~450 px wide). */
+@media (min-width: 601px) and (max-width: 1199px) {
+  .library { width: clamp(200px, 22vw, 260px); }
+  :root .studio-inspector-col.is-open,
+  :root .studio-inspector-col > * { width: 264px; }
+}
+/* The canvas's own width decides how its controls fit (not the window's) */
+:root .canvas-card:not(.is-preview) { container-type: inline-size; container-name: studio-canvas; }
+@container studio-canvas (max-width: 640px) {
+  /* Export / Measure as icons (their names stay in aria-label and title) */
+  .canvas-card__controls .canvas-btn__label { display: none; }
+  :root .canvas-card__controls .has-label { padding: 0 8px; }
+  /* the selection bar: icons only */
+  .selection-toolbar.is-labelled .selection-toolbar__text { display: none; }
+  .selection-toolbar.is-labelled .ui-icon-btn.has-text { padding: 0 8px; }
+  /* the floor buttons and the hint stack */
+  .canvas-footer { grid-template-columns: minmax(0, auto) minmax(0, 1fr); }
+}
+@container studio-canvas (max-width: 480px) {
+  /* the camera card below the top-right controls, so neither covers the other */
+  .camera-controls:not(.is-compact) { top: 64px; }
+  .canvas-footer__add-text { display: none; }
+}
