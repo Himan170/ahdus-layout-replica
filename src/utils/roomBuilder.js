@@ -51,6 +51,7 @@ import { mergeByMaterial } from './assetInstances';
 const FLOOR_Y = 0.02;          // just above the site ground, avoids z-fighting
 const SKIRTING_H = 0.1;
 const FRAME_W = 0.07;          // door/window frame profile width
+const PANEL_FRAME_W = 0.04;    // a full-height glass panel's thin metal frame (v0.18.1)
 const FRAME_DEPTH_EXTRA = 0.04; // frames stick out slightly from the wall
 const ROOF_T = 0.2;            // roof slab thickness
 const PARAPET_H = 0.25;        // low wall around the roof edge
@@ -347,14 +348,28 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         const pane = placeBox(`${tag}_pick`, u0, u1, o.bottom, o.top, segT, null, { ...meta, pickPane: true }, { castShadow: false });
         pane.visibility = 0;
 
-        placeBox(`${tag}_jl`, u0, u0 + FRAME_W, o.bottom, o.top, D, frameMat, meta, { castShadow: false });
-        placeBox(`${tag}_jr`, u1 - FRAME_W, u1, o.bottom, o.top, D, frameMat, meta, { castShadow: false });
-        placeBox(`${tag}_hd`, u0, u1, o.top - FRAME_W, o.top, D, frameMat, meta, { castShadow: false });
+        // v0.18.1: a full-height glass panel has a thin metal frame, no sill, no mullion
+        const panel = o.kind === 'window' && o.style === 'panel';
+        const fw = panel ? PANEL_FRAME_W : FRAME_W;
+        const fd = panel ? Math.min(D, 0.08) : D;
+        placeBox(`${tag}_jl`, u0, u0 + fw, o.bottom, o.top, fd, frameMat, meta, { castShadow: false });
+        placeBox(`${tag}_jr`, u1 - fw, u1, o.bottom, o.top, fd, frameMat, meta, { castShadow: false });
+        placeBox(`${tag}_hd`, u0, u1, o.top - fw, o.top, fd, frameMat, meta, { castShadow: false });
 
         if (o.kind === 'window') {
-          placeBox(`${tag}_sl`, u0, u1, o.bottom, o.bottom + FRAME_W, D + 0.06, frameMat, meta, { castShadow: false });
-          placeBox(`${tag}_mu`, o.offset - 0.025, o.offset + 0.025, o.bottom, o.top, D * 0.6, frameMat, meta, { castShadow: false });
-          placeBox(`${tag}_gl`, u0 + FRAME_W, u1 - FRAME_W, o.bottom + FRAME_W, o.top - FRAME_W, 0.02,
+          if (panel) {
+            placeBox(`${tag}_sl`, u0, u1, o.bottom, o.bottom + fw, fd, frameMat, meta, { castShadow: false });
+          } else {
+            placeBox(`${tag}_sl`, u0, u1, o.bottom, o.bottom + FRAME_W, D + 0.06, frameMat, meta, { castShadow: false });
+            // a tall window under 1.2 m wide is one pane, with a transom near its top
+            if (o.style !== 'tall' || o.width >= 1.2) {
+              placeBox(`${tag}_mu`, o.offset - 0.025, o.offset + 0.025, o.bottom, o.top, D * 0.6, frameMat, meta, { castShadow: false });
+            }
+            if (o.style === 'tall') {
+              placeBox(`${tag}_tr`, u0, u1, o.top - 0.55, o.top - 0.52, D * 0.6, frameMat, meta, { castShadow: false });
+            }
+          }
+          placeBox(`${tag}_gl`, u0 + fw, u1 - fw, o.bottom + fw, o.top - fw, 0.02,
             mats.glass(), meta, { castShadow: false });
         }
       }

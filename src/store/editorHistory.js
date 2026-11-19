@@ -609,7 +609,8 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
         const key = OPENING_LIST[o.kind];
         if (!room || !(room[key] ?? [])[o.index]) continue;
         const current = byRoom.get(o.roomId) ?? { doors: room.doors ?? [], windows: room.windows ?? [] };
-        current[key] = current[key].map((op, i) => (i === o.index ? { ...op, ...o.patch } : op));
+        // a whole new record (setOpeningStyle: fields can go away), else a patch
+        current[key] = current[key].map((op, i) => (i !== o.index ? op : o.record ? { ...o.record } : { ...op, ...o.patch }));
         byRoom.set(o.roomId, current);
       }
       const patches = [...byRoom].filter(([roomId, patch]) => {
@@ -619,6 +620,15 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
       });
       if (patches.length === 0) return;
       run(new RoomGroupCommand(label ?? `Resize ${list[0].kind}`, patches, mergeKey, s));
+    },
+
+    /**
+     * A door / window changed to another type (v0.18.1), in this room and a back-to-back neighbour: one undo step.
+     * Pass the list from geometry.planOpeningStyle ({ roomId, kind, index, record }).
+     */
+    setOpeningStyle(list, { label } = {}) {
+      if (!list?.length) return;
+      api.resizeOpening(list, { label: label ?? `Change ${list[0].kind} type` });
     },
 
     // ── Anchors (hook points for other modules) ──

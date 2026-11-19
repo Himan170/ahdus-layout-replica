@@ -51,6 +51,7 @@
  * Room/object meshes are still drawn by WorkplaceEditor's sync effects.
  */
 
+import { styleDef } from './openingStyles';
 import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
@@ -696,7 +697,7 @@ export function createPlayController(scene, canvas, {
 
   function updateOpeningTool() {
     const kind = tool.kind; // 'door' | 'window'
-    const kindLabel = kind === 'door' ? 'Door' : 'Window';
+    const kindLabel = tool.style ? styleDef(kind, tool.style).label : kind === 'door' ? 'Door' : 'Window';
     const wallItemOf = (m) => {
       const id = objectIdOf(m);
       const o = id && state().objects.find((x) => x.id === id);
@@ -737,7 +738,7 @@ export function createPlayController(scene, canvas, {
     const room = floorRooms().find((r) => r.id === roomId);
     if (!room) { pv.hide('box'); aim = null; return { title: kindLabel }; }
 
-    const plan = planOpening(floorRooms(), room, wallName, hit.pickedPoint, kind);
+    const plan = planOpening(floorRooms(), room, wallName, hit.pickedPoint, kind, tool.style);
     // Ghost box sitting in the wall
     pv.opening(room, wallName, plan.offset ?? 0, plan.defaults, levelElev(), !plan.problem);
 

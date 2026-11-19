@@ -9,6 +9,7 @@
  * after the first frame of the built floor (App then hides its loading screen).
  */
 
+import { styleDef } from '../play/openingStyles';
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 
 import { storedRealisticLook, storeRealisticLook, setRealistic } from '../utils/realLook';
@@ -88,7 +89,7 @@ import { isAhdusBackendOn } from '../services/backendFlags';
 import { activeTile, toolHint, phoneIdleHint, PLAN_HINT } from '../ui/tools';
 
 import {
-  openingData, openingPartner, openingCentre, resizeOpening, planRemoveOpening,
+  openingData, openingPartner, openingCentre, resizeOpening, planOpeningStyle, planRemoveOpening,
   planRoomResize, planWallThickness, planRoomTurn, planRoomCopy, planRoomMove,
 } from '../play/geometry';
 import { FLOOR_BY_ROOM_TYPE } from '../utils/materialLibrary';
@@ -582,6 +583,23 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       return result.problem;
     }
     editor.resizeOpening(result.list, { label: `Resize ${sel.kind}`, mergeKey: 'opening-fields' });
+    return null;
+  }, [editor, showStudioMessage]);
+
+  /** The Inspector's door / window type (v0.18.1): both records of a shared door, one undo step. */
+  const handleSetOpeningStyle = useCallback((style) => {
+    const st = useWorkspaceStore.getState();
+    const sel = st.selectedOpening;
+    const room = sel && st.rooms[sel.roomId];
+    if (!room) return null;
+    const result = planOpeningStyle(
+      Object.values(st.rooms).filter((r) => r.floor === room.floor), room, sel.kind, sel.index, style,
+      { stairs: Object.values(st.objects).filter((o) => o.assetType === 'STAIRCASE') });
+    if (result.problem) {
+      showStudioMessage(result.problem, true);
+      return result.problem;
+    }
+    editor.setOpeningStyle(result.list, { label: `Change to ${styleDef(sel.kind, style).name.toLowerCase()}` });
     return null;
   }, [editor, showStudioMessage]);
 
@@ -1789,6 +1807,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           room={selectedRoom}
           opening={selectedOpening}
           onResizeOpening={handleResizeOpening}
+          onSetOpeningStyle={handleSetOpeningStyle}
           onDeleteOpening={handleDeleteOpening}
           floorName={floorName}
           rooms={rooms}

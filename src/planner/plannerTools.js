@@ -23,6 +23,7 @@
  * On an upper floor, new rooms line up with the walls of the floor below.
  */
 
+import { styleDef } from '../play/openingStyles';
 import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
@@ -264,6 +265,8 @@ export function createPlannerTools(scene, canvas, {
     place(hs, start, midY, S, Math.min(0.6, t.data.height * 0.5));
     place(he, end, midY, S, Math.min(0.6, t.data.height * 0.5));
     place(ht, centre, e + t.data.sill + t.data.height, Math.min(0.6, t.data.width * 0.5), S);
+    // a full-height glass panel (v0.18.1) is as high as its wall: no top handle
+    if (t.kind === 'window' && t.data.style === 'panel') ht.setEnabled(false);
   }
 
   /** Where the mouse meets the vertical plane of a wall: { along, y }, or null. */
@@ -718,7 +721,7 @@ export function createPlannerTools(scene, canvas, {
 
   function updateOpening() {
     const kind = tool.kind;
-    const label = kind === 'door' ? 'Door' : 'Window';
+    const label = tool.style ? styleDef(kind, tool.style).label : kind === 'door' ? 'Door' : 'Window';
     const wallItemOf = (m) => {
       const o = st().objects[objectIdOf(m)];
       return o?.assetType === 'WALL_SEGMENT' ? o : null;
@@ -782,7 +785,7 @@ export function createPlannerTools(scene, canvas, {
       hover = null;
       return { title: label, detail: 'Point at a wall' };
     }
-    const plan = planOpening(rooms, room, meta.wallName, point, kind);
+    const plan = planOpening(rooms, room, meta.wallName, point, kind, tool.style);
     pv.opening(room, meta.wallName, plan.offset ?? 0, plan.defaults, elev(), !plan.problem);
     setCursor(plan.problem ? 'not-allowed' : 'pointer');
     if (plan.problem) {

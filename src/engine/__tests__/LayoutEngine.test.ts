@@ -450,6 +450,7 @@ const EDITS: Record<string, unknown[]> = {
   addOpenings: [[{ roomId: 'room_a', kind: 'window', wall: 'east', offset: 0, width: 1, height: 1, sill: 1 }]],
   removeOpenings: [[{ roomId: 'room_a', kind: 'door', index: 0 }]],
   resizeOpening: [[{ roomId: 'room_a', kind: 'door', index: 0, patch: { width: 1.0 } }]],
+  setOpeningStyle: [[{ roomId: 'room_a', kind: 'door', index: 0, record: { wall: 'north', offset: 0, width: 1.0, height: 2.1, style: 'glass' } }]],
   setAnchorData: [anchorId('obj_desk', 'workstation'), { positionRef: 'P-9' }],
   addFloor: [{ copyRooms: true }],
   removeFloor: [1],

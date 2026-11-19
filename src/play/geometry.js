@@ -11,6 +11,7 @@
  *     (X for north/south walls, Z for east/west walls).
  */
 
+import { styleOf, styleDef, styleSize, styleFields, withStyle } from './openingStyles.js';
 import { stairOpening, overhangs } from './building';
 
 /** A room's walls are this thick unless it says otherwise (`room.wallThickness`). */
@@ -98,6 +99,9 @@ export function roomWalls(room) {
   ];
 }
 
+/** Where a full-height glass panel ends: its wall's top less the 0.1 m every opening keeps (v0.18.1). */
+export const panelTop = (room) => Math.round(((room.wallHeight ?? 3) - 0.1) * 100) / 100;
+
 /** Usable (inner) length of a wall for openings. */
 export function innerWallLength(room, wallName) {
   return wallName === 'north' || wallName === 'south' ? room.width : room.depth;
@@ -113,9 +117,13 @@ export function roomOpenings(room) {
     width: d.width ?? DOOR_DEFAULTS.width,
     bottom: 0,
     top: d.height ?? DOOR_DEFAULTS.height,
+    ...(d.style ? { style: d.style } : {}),
+    ...(d.swing ? { swing: d.swing } : {}),
   }));
   const windows = (room.windows ?? []).map((w, index) => {
-    const sill = w.sill ?? WINDOW_DEFAULTS.sill;
+    // v0.18.1: a full-height glass panel reaches its wall's top less 0.1 m whatever height it saved
+    const panel = w.style === 'panel';
+    const sill = panel ? 0 : (w.sill ?? WINDOW_DEFAULTS.sill);
     return {
       kind: 'window',
       index,
@@ -123,7 +131,8 @@ export function roomOpenings(room) {
       offset: w.offset ?? 0,
       width: w.width ?? WINDOW_DEFAULTS.width,
       bottom: sill,
-      top: sill + (w.height ?? WINDOW_DEFAULTS.height),
+      top: panel ? panelTop(room) : sill + (w.height ?? WINDOW_DEFAULTS.height),
+      ...(w.style ? { style: w.style } : {}),
     };
   });
   return [...doors, ...windows];
@@ -1097,21 +1106,22 @@ export const OVERHANG_WARNING = 'Part of it has nothing under it';
  *           { problem: null, offset: number, partner, defaults, list: object[] }}
  *   list: ready for editorHistory.addOpenings (includes the back-to-back neighbour's wall)
  */
-export function planOpening(rooms, room, wallName, point, kind) {
-  const defaults = kind === 'door' ? DOOR_DEFAULTS : WINDOW_DEFAULTS;
+export function planOpening(rooms, room, wallName, point, kind, style) {
+  const defaults = styleSize(kind, styleOf(kind, { style }), room.wallHeight ?? 3);
   const spot = placeOpening(rooms, room, wallName, point, defaults.width);
   const { partner } = spot;
   let problem = spot.problem ?? null;
-  if (!problem && kind === 'window' && (room.wallHeight ?? 3) < defaults.sill + defaults.height + 0.1) {
+  if (!problem && kind === 'window' && (room.wallHeight ?? 3) < defaults.sill + defaults.height + 0.1 - 1e-6) {
     problem = 'This wall is too low for a window';
   }
   if (problem) return { problem, partner, defaults };
   const opening = kind === 'door'
     ? { width: defaults.width, height: defaults.height }
     : { width: defaults.width, height: defaults.height, sill: defaults.sill };
-  const list = [{ roomId: room.id, kind, wall: wallName, offset: spot.offset, ...opening }];
+  const list = [{ roomId: room.id, kind, wall: wallName, offset: spot.offset, ...opening, ...styleFields(kind, style, true) }];
   if (partner) {
-    list.push({ roomId: partner.room.id, kind, wall: partner.wallName, offset: spot.partnerOffset, ...opening });
+    list.push({ roomId: partner.room.id, kind, wall: partner.wallName, offset: spot.partnerOffset, ...opening,
+      ...styleFields(kind, style, false) });
   }
   return { problem: null, offset: spot.offset, partner, defaults, list };
 }
@@ -1208,8 +1218,8 @@ export function openingData(room, kind, index) {
     wall: o.wall ?? 'north',
     offset: o.offset ?? 0,
     width: o.width ?? d.width,
-    height: o.height ?? d.height,
-    sill: kind === 'door' ? 0 : (o.sill ?? d.sill),
+    height: kind === 'window' && o.style === 'panel' ? panelTop(room) : (o.height ?? d.height),
+    sill: kind === 'door' || o.style === 'panel' ? 0 : (o.sill ?? d.sill),
   };
 }
 
@@ -1292,7 +1302,7 @@ export function resizeOpening(rooms, room, kind, index, change = {}, { stairs = 
   const o = openingData(room, kind, index);
   if (!o) return { problem: `This ${kind} is gone`, width: 0, height: 0, list: [] };
   const width = round2(change.width ?? o.width);
-  const height = round2(change.height ?? o.height);
+  const height = o.style === 'panel' && kind === 'window' ? o.height : round2(change.height ?? o.height);
   const keep = change.keep ?? 'centre';
   const start = o.offset - o.width / 2;
   const end = o.offset + o.width / 2;
@@ -1318,10 +1328,58 @@ export function resizeOpening(rooms, room, kind, index, change = {}, { stairs = 
   return { problem: null, width, height, list };
 }
 
-/** Back to the standard size (door 1.0 × 2.1 m, window 1.4 × 1.2 m), keeping its centre. */
+/** Back to its type's standard size (a door 1.0 × 2.1 m, a window 1.4 × 1.2 m, …), keeping its centre. */
 export function resetOpeningSize(rooms, room, kind, index, context) {
-  const d = kind === 'door' ? DOOR_DEFAULTS : WINDOW_DEFAULTS;
+  const o = openingData(room, kind, index);
+  const d = styleSize(kind, styleOf(kind, o), room?.wallHeight ?? 3);
   return resizeOpening(rooms, room, kind, index, { width: d.width, height: d.height }, context);
+}
+
+/**
+ * Change a door / window to another type (v0.18.1), in this room and in a back-to-back neighbour (a door
+ * between two rooms is stored in each: both change). A window takes the type's sill and height; the width
+ * becomes the type's when it was the old type's or is too narrow for the new one, else it stays (and when
+ * the type's width doesn't fit, the old width is tried). An emergency exit opens out of THIS room (its
+ * record swing 'out', the neighbour's 'in').
+ * @returns {{ problem: string|null, list: {roomId, kind, index, record}[] }}  list: editorHistory.setOpeningStyle
+ */
+export function planOpeningStyle(rooms, room, kind, index, style, { stairs = [] } = {}) {
+  const o = openingData(room, kind, index);
+  if (!o) return { problem: `This ${kind} is gone`, list: [] };
+  const next = styleOf(kind, { style });
+  const wallHeight = room.wallHeight ?? 3;
+  const was = styleSize(kind, styleOf(kind, o), wallHeight);
+  const size = styleSize(kind, next, wallHeight);
+  const min = styleDef(kind, next).minWidth;
+  const widthFits = o.width >= min - 1e-6;
+  const keepWidth = Math.abs(o.width - was.width) > 0.005 && widthFits;
+  const widths = keepWidth ? [o.width, size.width] : [size.width];
+  if (widthFits && !widths.includes(o.width)) widths.push(o.width);
+  const height = kind === 'door' ? o.height : size.height;
+  const sill = kind === 'door' ? 0 : size.sill;
+  const stairRects = stairs
+    .filter((s) => (s.floor ?? 0) === (room.floor ?? 0))
+    .map((s) => stairOpening(s, undefined, 0));
+  const targets = [{ room, index, own: true }];
+  const partner = openingPartner(rooms, room, kind, index);
+  if (partner) targets.push({ ...partner, own: false });
+  let firstProblem = null;
+  for (const width of widths) {
+    const list = [];
+    let problem = null;
+    for (const t of targets) {
+      const mine = openingData(t.room, kind, t.index);
+      problem = openingProblem(t.room, kind, t.index, mine.wall, mine.offset, width, height, sill, stairRects);
+      if (problem) { problem = t.room === room ? problem : `${problem} (in ${t.room.name})`; break; }
+      const raw = t.room[LIST_OF[kind]][t.index];
+      const sized = kind === 'door' ? { width, height } : { width, height, sill };
+      list.push({ roomId: t.room.id, kind, index: t.index, record: withStyle({ ...raw, ...sized }, kind, next, t.own) });
+    }
+    if (!problem) return { problem: null, list };
+    firstProblem ??= problem;
+  }
+  const name = styleDef(kind, next).name;
+  return { problem: `${name} doesn't fit here: ${firstProblem.charAt(0).toLowerCase()}${firstProblem.slice(1)}`, list: [] };
 }
 
 // ── The AHDUS look's selection bar on a room: Rotate and Duplicate ──────
