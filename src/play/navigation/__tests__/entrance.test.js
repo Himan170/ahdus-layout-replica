@@ -192,3 +192,16 @@ describe('200 random layouts', () => {
     expect(sources.buildingSide ?? 0).toBeGreaterThan(0);
   });
 });
+
+describe('v0.18.2: the start is outside even when the front of the entrance is blocked', () => {
+  it('a solid block filling the 6 m in front of the door: the nearest free spot OUTSIDE, never inside the room', () => {
+    const rooms = [room('hall', 0, 0, 10, 8, { doors: [{ wall: 'south', offset: 0, width: 1.2 }] })];
+    // 24 × 12 m of solid item right in front of the door (z −4.3 … −16.3)
+    const objects = [item('block', 'COLUMN', 0, -10.3, { scaleX: 60, scaleY: 1, scaleZ: 30, rotationX: 0, rotationZ: 0 })];
+    const s = spawnOf(rooms, objects);
+    expect(s.source).toBe('entrance');
+    expect(s.moved).toBe(true);
+    expect(insideAnyRoom(rooms, s.x, s.z, CLEARANCE)).toBe(false); // was inside the hall, 3.5 m from the spot
+    expect(clearOfEverything({ rooms, objects, floors }, s)).toBeNull();
+  });
+});
