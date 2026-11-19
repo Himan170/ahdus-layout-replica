@@ -25,6 +25,7 @@ import { planPrefabDrop, prefabPlacement } from '../play/prefabDrop';
 import { prefabById } from '../catalog/manifest';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { v4 as uuidv4 } from 'uuid';
+import { canvasIsUnder } from '../ui/canvasHit';
 
 const DRAG_SLOP = 6; // px the pointer travels before a press on a tile is a drag
 
@@ -61,8 +62,10 @@ export function useLibraryDrop({
 
   /** Canvas pixels of a client point, or null when it is not over the canvas. */
   const canvasPoint = useCallback((clientX, clientY) => {
-    const r = canvasRef.current?.getBoundingClientRect();
-    if (!r || clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null;
+    const canvas = canvasRef.current;
+    // v0.18.2: a control drawn over the canvas (Reset view, the selection bar, a menu) is not the floor
+    if (!canvas || !canvasIsUnder(canvas, clientX, clientY)) return null;
+    const r = canvas.getBoundingClientRect();
     return { x: clientX - r.left, y: clientY - r.top };
   }, [canvasRef]);
 
@@ -211,12 +214,18 @@ export function useLibraryDrop({
       endDrag(false);
       showStudioMessage('Cancelled');
     };
+    // v0.18.2: a cancelled pointer (the browser took it, the window lost the focus) drops nothing
+    const onCancel = () => { if (press.current) endDrag(false); };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('blur', onCancel);
     window.addEventListener('keydown', onKey, true);
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('blur', onCancel);
       window.removeEventListener('keydown', onKey, true);
     };
   }, [dragging, canvasPoint, project, planAt, commit, endDrag, placementManagerRef, showStudioMessage]);
