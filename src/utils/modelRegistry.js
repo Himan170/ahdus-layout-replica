@@ -131,6 +131,12 @@ export const REALISTIC_SURFACES = {
   'floor:smallTile': 'floor_tiles',      // RESTROOM
   'floor:concrete': 'concrete_floor',    // PRODUCTION, STAIRCASE
   'floor:raised': 'metal_plate',         // SERVER_ROOM
+  // v0.18.1's room types: an existing photo in their own colour (materialLibrary.FLOOR_TINTS)
+  'floor:cafeteria': 'floor_tiles',      // CAFETERIA
+  'floor:lounge': 'laminate_floor',      // LOUNGE
+  'floor:cabin': 'herringbone_parquet',  // CABIN
+  'floor:training': 'concrete_floor',    // TRAINING
+  'floor:lobby': 'floor_tiles',          // LOBBY
   plaster: 'beige_wall',                 // walls
   structure: 'grey_plaster',             // slab, roof, parapet, wall band
   ceiling: 'office_ceiling',

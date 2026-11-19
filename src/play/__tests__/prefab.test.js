@@ -97,7 +97,7 @@ describe('prefab layouts (v0.18.0)', () => {
 
   it('a cabin has its room, big enough for what is in it', () => {
     const { room, width, depth } = layoutPrefab(prefabById('WS_CABIN'), {}, ASSET_TYPES);
-    expect(room).toMatchObject({ type: 'OFFICE', name: 'Cabin' });
+    expect(room).toMatchObject({ type: 'CABIN', name: 'Cabin' });
     expect([width, depth]).toEqual([room.width, room.depth]);
   });
 

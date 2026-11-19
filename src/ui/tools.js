@@ -13,7 +13,7 @@ import {
   Lock, Warehouse, Monitor, Server, Projector, Printer, Tv, Leaf, Sprout, CupSoda,
   Droplets, FireExtinguisher, Siren, Cross, MapPin, Square, Cog, Wrench, Columns3,
   RectangleHorizontal, Users, Laptop, Keyboard, Mouse, Library, Trash2, Refrigerator, Microwave,
-  Circle, Rows3, LampFloor, Shirt, Toilet, Bath, Clock, AirVent, LibraryBig,
+  Circle, Rows3, LampFloor, Shirt, Toilet, Bath, Clock, AirVent, LibraryBig, DoorClosed, Building2,
 } from 'lucide-react';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { OBJECT_ITEMS } from '../play/hotbarItems';
@@ -96,6 +96,11 @@ export const ROOM_ICONS = {
   STAIRCASE: ArrowUpDown,
   SERVER_ROOM: Server,
   RESTROOM: Toilet,
+  CAFETERIA: Coffee,
+  LOUNGE: Sofa,
+  CABIN: DoorClosed,
+  TRAINING: Presentation,
+  LOBBY: Building2,
 };
 
 /** Icon for anything you can hold in Preview (hotbarItems.js items). */

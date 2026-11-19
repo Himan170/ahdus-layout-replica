@@ -247,10 +247,27 @@ const painters = {
 export const TILE_SIZE = {
   wood: 2, carpet: 1, tile: 1.2, corridor: 1.2, smallTile: 0.8, concrete: 4,
   raised: 1.2, plaster: 2, paving: 2, grass: 4, ceiling: 1.2,
+  // v0.18.1's room types: their painter's size
+  cafeteria: 0.8, lounge: 2, cabin: 2, training: 4, lobby: 1.2,
+};
+
+/**
+ * v0.18.1: the floors of the newer room types are an older painter's picture in their own colour (multiplied), and
+ * their photo-texture twins (realistic look) the same photo in that colour (PBR albedoColor): no new files.
+ */
+export const FLOOR_TINTS = {
+  cafeteria: { painter: 'smallTile', tint: '#eea040' }, // amber tiles
+  lounge: { painter: 'wood', tint: '#b5d090' },          // sage wood
+  cabin: { painter: 'wood', tint: '#a8826c' },           // dark walnut
+  training: { painter: 'concrete', tint: '#5fc4b0' },    // teal floor
+  lobby: { painter: 'tile', tint: '#f6efe2' },           // light stone
 };
 
 /** Painter of each procedural floor (a corridor looks like reception, but has its own photo texture). */
-const PAINTER = { corridor: 'tile' };
+const PAINTER = {
+  corridor: 'tile',
+  ...Object.fromEntries(Object.entries(FLOOR_TINTS).map(([k, v]) => [k, v.painter])),
+};
 
 /** Which floor each room type gets. */
 export const FLOOR_BY_ROOM_TYPE = {
@@ -262,11 +279,17 @@ export const FLOOR_BY_ROOM_TYPE = {
   STAIRCASE: 'concrete',
   SERVER_ROOM: 'raised',
   RESTROOM: 'smallTile',
+  CAFETERIA: 'cafeteria',
+  LOUNGE: 'lounge',
+  CABIN: 'cabin',
+  TRAINING: 'training',
+  LOBBY: 'lobby',
 };
 
 /** Floors a room can be given instead of its type's (room field `floorFinish`; 'default' = the type's). */
 export const FLOOR_FINISHES = ['wood', 'carpet', 'tile', 'concrete'];
-const FLOOR_KINDS = new Set(['wood', 'carpet', 'tile', 'corridor', 'smallTile', 'concrete', 'raised']);
+const BASE_FLOOR_KINDS = ['wood', 'carpet', 'tile', 'corridor', 'smallTile', 'concrete', 'raised'];
+const FLOOR_KINDS = new Set([...BASE_FLOOR_KINDS, ...Object.keys(FLOOR_TINTS)]);
 
 /** The floor a room is built with: its `floorFinish` when it names a floor, else its type's. */
 export function floorKindOf(room) {
@@ -306,6 +329,7 @@ function paintTile(ctx, painter, size) {
 const FLAT_COLOUR = {
   wood: '#a9825a', carpet: '#5e6873', tile: '#9a958d', smallTile: '#b6babd', concrete: '#8d918f',
   raised: '#585d62', plaster: '#e8e4dc',
+  cafeteria: '#b8894a', lounge: '#8f9a74', cabin: '#715440', training: '#5f938a', lobby: '#958f86',
 };
 
 function makeTextureMaterial(scene, key, { specular = 0.05, size = 512, later = false } = {}) {
@@ -314,7 +338,16 @@ function makeTextureMaterial(scene, key, { specular = 0.05, size = 512, later = 
   mat.specularPower = 64;
   const paint = () => {
     const tex = new DynamicTexture(`tex_${key}`, { width: size, height: size }, scene, true);
-    paintTile(tex.getContext(), PAINTER[key] ?? key, size);
+    const ctx = tex.getContext();
+    paintTile(ctx, PAINTER[key] ?? key, size);
+    const tint = FLOOR_TINTS[key]?.tint;
+    if (tint) { // v0.18.1: the painter's picture in this floor's colour
+      ctx.save();
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.fillStyle = tint;
+      ctx.fillRect(0, 0, size, size);
+      ctx.restore();
+    }
     tex.update();
     tex.wrapU = Texture.WRAP_ADDRESSMODE;
     tex.wrapV = Texture.WRAP_ADDRESSMODE;
@@ -322,7 +355,7 @@ function makeTextureMaterial(scene, key, { specular = 0.05, size = 512, later = 
     mat.diffuseTexture = tex;
     mat.diffuseColor = new Color3(1, 1, 1);
   };
-  const flat = FLAT_COLOUR[PAINTER[key] ?? key];
+  const flat = FLAT_COLOUR[key] ?? FLAT_COLOUR[PAINTER[key] ?? key];
   if (later && flat) {
     mat.diffuseColor = Color3.FromHexString(flat);
     unpainted.set(mat, paint);
@@ -513,6 +546,8 @@ function twinFor(scene, key, proc, tile) {
   m.metallic = set.metallic ?? 0;
   m.roughness = set.roughness ?? 1;
   if (key === 'ceiling') m.emissiveColor = new Color3(0.18, 0.18, 0.17); // never black from below
+  const tint = FLOOR_TINTS[key.replace(/^floor:/, '')]?.tint;
+  if (tint) m.albedoColor = Color3.FromHexString(tint); // v0.18.1: the same photo in this floor's colour
   twin.material = markShared(m);
   return twin;
 }
@@ -553,10 +588,11 @@ export function getMaterials(scene) {
   const cache = {};
   const lazy = (key, create) => () => (cache[key] ??= create());
   const floorGetters = Object.fromEntries(
-    ['wood', 'carpet', 'tile', 'corridor', 'smallTile', 'concrete', 'raised'].map((k) => [
+    [...BASE_FLOOR_KINDS, ...Object.keys(FLOOR_TINTS)].map((k) => [
       k,
       lazy(k, () => makeTextureMaterial(scene, k, {
-        specular: k === 'tile' || k === 'corridor' ? 0.25 : k === 'wood' ? 0.12 : 0.04, later: isRealistic(scene),
+        specular: ['tile', 'corridor', 'lobby', 'cafeteria'].includes(k) ? 0.25 : k === 'wood' || k === 'lounge' ? 0.12 : 0.04,
+        later: isRealistic(scene),
       })),
     ]),
   );

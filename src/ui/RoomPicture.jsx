@@ -52,6 +52,49 @@ const FURNITURE = {
       <ellipse className="room-pic__item" cx="43" cy="16" rx="3.5" ry="4.5" />
     </>
   ),
+  // v0.18.1
+  CAFETERIA: (
+    <>
+      {[20, 44].map((x) => [16, 29].map((y) => (
+        <g key={`${x}-${y}`}>
+          <circle className="room-pic__wood" cx={x} cy={y} r="4" />
+          <circle className="room-pic__dot" cx={x - 6} cy={y} r="1.6" />
+          <circle className="room-pic__dot" cx={x + 6} cy={y} r="1.6" />
+        </g>
+      )))}
+    </>
+  ),
+  LOUNGE: (
+    <>
+      <path className="room-pic__item" d="M14 13h22v6H20v12h-6z" />
+      <rect className="room-pic__wood" x="26" y="23" width="12" height="7" rx="2" />
+      <circle className="room-pic__dot" cx="46" cy="28" r="3" />
+    </>
+  ),
+  CABIN: (
+    <>
+      <rect className="room-pic__wood" x="22" y="14" width="20" height="8" rx="1" />
+      <circle className="room-pic__dot" cx="32" cy="11" r="2" />
+      <circle className="room-pic__dot" cx="27" cy="28" r="2" />
+      <circle className="room-pic__dot" cx="37" cy="28" r="2" />
+    </>
+  ),
+  TRAINING: (
+    <>
+      <line className="room-pic__line" x1="22" y1="10" x2="42" y2="10" />
+      {[17, 25, 33].map((y) => [16, 28, 40].map((x) => (
+        <rect key={`${x}-${y}`} className="room-pic__item" x={x} y={y} width="9" height="3.5" rx="0.8" />
+      )))}
+    </>
+  ),
+  LOBBY: (
+    <>
+      <path className="room-pic__item" d="M20 12h24a4 4 0 0 1 4 4v1H20z" />
+      <rect className="room-pic__wood" x="14" y="26" width="10" height="5" rx="1.5" />
+      <rect className="room-pic__wood" x="40" y="26" width="10" height="5" rx="1.5" />
+      <circle className="room-pic__dot" cx="32" cy="29" r="2.5" />
+    </>
+  ),
 };
 
 export default function RoomPicture({ roomType }) {

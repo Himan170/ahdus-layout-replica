@@ -91,7 +91,8 @@ export function outsideDoors(layout, floorId = groundFloorId(layout.floors)) {
 export function mainEntrance(layout, floorId) {
   const doors = outsideDoors(layout, floorId);
   if (!doors.length) return null;
-  const rank = (d) => (d.room.type === 'RECEPTION' ? 1 : 0);
+  // a Reception's door first, then a Lobby's (v0.18.1)
+  const rank = (d) => (d.room.type === 'RECEPTION' ? 2 : d.room.type === 'LOBBY' ? 1 : 0);
   return [...doors].sort((a, b) => rank(b) - rank(a) || b.width - a.width || a.z - b.z || a.x - b.x)[0];
 }
 
