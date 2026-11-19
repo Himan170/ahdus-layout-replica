@@ -368,3 +368,21 @@ describe('workClip (v0.16.0)', () => {
     expect(workClip({ seated: false, deskId: 'd' }, [desk, o('l', 'LAPTOP', 0, 0)])).toBe('Idle');
   });
 });
+
+describe('uniqueSeats (v0.18.2)', () => {
+  it('one seat per person, one person per desk: the first entry wins; empty ids are left out', async () => {
+    const { uniqueSeats } = await import('../people');
+    const list = [
+      { personId: 'a', deskId: 'd1' },
+      { personId: 'a', deskId: 'd2' }, // a second seat for a
+      { personId: 'b', deskId: 'd1' }, // d1 is a's
+      { personId: 'c', deskId: 'd3' },
+      { personId: '', deskId: 'd4' },
+      { personId: 'e', deskId: null },
+      { personId: 7, deskId: 'd5' },
+      { personId: '7', deskId: 'd6' }, // the same id as text
+    ];
+    expect(uniqueSeats(list).map((p) => `${p.personId}@${p.deskId}`)).toEqual(['a@d1', 'c@d3', '7@d5']);
+    expect(uniqueSeats(null)).toEqual([]);
+  });
+});

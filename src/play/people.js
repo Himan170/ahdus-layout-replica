@@ -544,3 +544,24 @@ export function clipSpeed({ duration, hipsTravel, footRange }) {
   if (Math.abs(hipsTravel) >= ROOT_MOTION_MIN) return Math.abs(hipsTravel) / duration;
   return footRange > 0 ? (2 * footRange) / duration : 0;
 }
+
+/**
+ * v0.18.2: who sits where, one rule for the people drawn, Find and live presence: a person has ONE seat
+ * and a desk ONE person; the first entry wins (the list from the page, in its order). Entries with no
+ * personId or deskId are left out; ids are compared as text. The entries themselves are kept as given.
+ */
+export function uniqueSeats(people) {
+  const persons = new Set();
+  const desks = new Set();
+  const out = [];
+  for (const p of Array.isArray(people) ? people : []) {
+    if (!p || p.personId == null || p.deskId == null || p.personId === '' || p.deskId === '') continue;
+    const person = String(p.personId);
+    const desk = String(p.deskId);
+    if (persons.has(person) || desks.has(desk)) continue;
+    persons.add(person);
+    desks.add(desk);
+    out.push(p);
+  }
+  return out;
+}

@@ -34,6 +34,7 @@ import { findNearestRoute, prepareMap, roomAt } from '../../play/navigation/rout
 import { createWalkMapCache } from '../../play/navigation/walkMap';
 import { entranceSpawn } from '../../play/navigation/entrance';
 import { createFollower, routeMarks, headingOf, turnTowards, TURN_RATE } from '../../play/navigation/follow';
+import { uniqueSeats } from '../../play/people';
 import { supportHeight, elevationOf, floorsInOrder } from '../../play/building';
 
 /** What search results look like to the page (places.publicPlace). */
@@ -353,7 +354,7 @@ export class NavigationSystem {
 
   /** Who sits where (LayoutEngine.setPeople): only personId, deskId, name and department are kept. */
   setPeople(people: { personId: string | number; deskId: string | number; name?: unknown; department?: unknown }[]): void {
-    this.people = (Array.isArray(people) ? people : []).map((p) => ({
+    this.people = uniqueSeats(Array.isArray(people) ? people : []).map((p) => ({
       personId: String(p?.personId ?? ''), deskId: String(p?.deskId ?? ''),
       name: typeof p?.name === 'string' ? p.name : undefined,
       department: typeof p?.department === 'string' ? p.department : undefined,

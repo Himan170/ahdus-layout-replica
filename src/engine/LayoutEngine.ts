@@ -77,7 +77,7 @@ import { FullCapMonitor } from './systems/FullCap';
 import { QualityMonitor } from './systems/QualityMonitor';
 import type { QualityStep } from './systems/QualityMonitor';
 import { createPoseThrottle, poseOf, liveStateOf } from '../play/live';
-import { seatPose } from '../play/people';
+import { seatPose, uniqueSeats } from '../play/people';
 import { SceneBuilder } from './systems/SceneBuilder';
 import type { BuildProgress } from './systems/SceneBuilder';
 import { elevationOf } from '../play/building';
@@ -792,6 +792,7 @@ export class LayoutEngine {
    * Nothing is drawn with quality 'low'. Not part of the layout (never saved).
    */
   setPeople(people: Person[]): void {
+    people = uniqueSeats(people) as Person[]; // v0.18.2: one seat per person, one person per desk, for all of them
     this._people = [...people];
     this.characters?.setPeople(people);
     this.navigation.setPeople(people); // searched by name and department (also with quality 'low')

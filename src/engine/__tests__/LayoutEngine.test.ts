@@ -498,6 +498,19 @@ describe('navigation: search and show places (v0.13.3)', () => {
     expect(engine.navigation.find('asha')).toEqual([]);
   });
 
+  it('v0.18.2: one seat per person and one person per desk, the same for Find and the people drawn', () => {
+    const engine = makeEngine({ mode: 'view', quality: 'low' });
+    engine.loadLayout(save());
+    engine.setPeople([
+      { personId: 'p1', deskId: 'obj_desk', name: 'Asha Patel', department: 'Engineering' },
+      { personId: 'p1', deskId: 'obj_desk', name: 'Asha Patel', department: 'Engineering' }, // sent twice
+      { personId: 'p2', deskId: 'obj_desk', name: 'Bina Rao', department: 'Sales' }, // the desk is Asha's
+    ] as any);
+    expect(engine.navigation.find('asha').map((p) => p.id)).toEqual(['person:p1']);
+    expect(engine.navigation.find('bina')).toEqual([]); // drawn nowhere: not found either
+    expect((engine as any)._people.map((p: { personId: string }) => p.personId)).toEqual(['p1']);
+  });
+
   it('show from above: its floor, the camera on it (looking down), outlined; clear takes the outline away', () => {
     const engine = makeEngine({ mode: 'view', quality: 'low' });
     engine.loadLayout(save());
