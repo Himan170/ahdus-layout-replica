@@ -21,6 +21,9 @@ import { turnStep } from '../play/carry';
 import { adjacentFloor } from '../floorplan/planFloors';
 import { isTypingTarget } from '../ui/typing';
 
+/** The 3D view's canvas (the wheel sets a placed item's height only there). */
+export const isStudioCanvas = (el) => el?.tagName === 'CANVAS' && !!el.closest?.('.canvas-card');
+
 export function useStudioKeyboard({
   editor, handleCancelPlacement, handleToggleGizmo, handleTurnItem, handleTurnRoom, handleEnterPlay, handleSetPlannerTool,
   handleDeleteOpening, showStudioMessage, isPlayingRef, plannerToolsRef, measureModeRef, measureStartRef,
@@ -299,21 +302,23 @@ export function useStudioKeyboard({
       }
     };
 
-    // Scroll wheel: adjust height of ghost during placement
+    // Scroll wheel: adjust height of ghost during placement. v0.18.2: only over the 3D view (a panel's
+    // wheel scrolls the panel), and then ONLY the height: caught on the way down (capture), so the
+    // camera's own wheel listener on the canvas doesn't zoom as well.
     const handleWheel = (e) => {
       if (isPlayingRef.current) return;
       const mgr = placementManagerRef.current;
-      if (mgr?.isActive()) {
-        e.preventDefault();
-        mgr.adjustHeight(e.deltaY > 0 ? -1 : 1);
-      }
+      if (!mgr?.isActive() || !isStudioCanvas(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      mgr.adjustHeight(e.deltaY > 0 ? -1 : 1);
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('wheel', handleWheel, { passive: false, capture: true });
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('wheel', handleWheel, { capture: true });
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the refs and state setters passed in are stable
   }, [editor, handleCancelPlacement, handleToggleGizmo, handleTurnItem, handleTurnRoom, handleEnterPlay, handleSetPlannerTool, handleDeleteOpening, showStudioMessage, groupActions, pasteTarget]);
