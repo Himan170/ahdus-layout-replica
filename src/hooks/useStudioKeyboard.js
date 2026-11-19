@@ -21,6 +21,10 @@ import { turnStep } from '../play/carry';
 import { adjacentFloor } from '../floorplan/planFloors';
 import { isTypingTarget } from '../ui/typing';
 
+/** Tab goes to Walk through only from the 3D view or with nothing focused (v0.18.2). */
+export const tabEntersPreview = (el) => !el || el === document.body || el === document.documentElement
+  || el.tagName === 'CANVAS';
+
 /** The 3D view's canvas (the wheel sets a placed item's height only there). */
 export const isStudioCanvas = (el) => el?.tagName === 'CANVAS' && !!el.closest?.('.canvas-card');
 
@@ -87,6 +91,9 @@ export function useStudioKeyboard({
 
       switch (e.key) {
         case 'Tab':
+          // v0.18.2: Tab on a button, a menu or a plan shape moves the focus as everywhere else;
+          // only with nothing focused (or the 3D view) is it the shortcut to Walk through
+          if (!tabEntersPreview(e.target)) break;
           e.preventDefault();
           handleEnterPlay();
           break;
