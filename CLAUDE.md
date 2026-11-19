@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1690, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1705, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -91,6 +91,12 @@ npm run e2e:doors    # 24 checks   e2e/doors-smoke.mjs     (v0.18.1: the Doors &
                      #                                       through glass, the floor behind glass walks via the door, no door =
                      #                                       "it has no door"; SHOTS=<dir>: each door shut / open, a glass room
                      #                                       with people inside, the library, the new room types)
+npm run e2e:stability # 12 checks e2e/stability-smoke.mjs (v0.18.2: a library drop over Reset view places nothing, on
+                     #                                       the floor one; right / middle presses neither select nor place
+                     #                                       the armed stairs; the wheel over a panel / over the view; a
+                     #                                       cancelled drag; the hidden selection bar out of the Tab order;
+                     #                                       Tab from Settings / on the canvas; 1024 × 768 with both panels:
+                     #                                       every canvas control clickable; Esc on a phone: one level)
 npm run e2e:perf     # 29 checks   e2e/perf-smoke.mjs (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
                      #                                       and in viewer.html with the company tour walking / at a stop (TOUR=off skips it);
                      #                                       one room change rebuilds only it + its neighbours; all items
@@ -465,6 +471,36 @@ Door items in drawn walls are visibly open doorways, matching room doors; floor 
 
 Measured on 72 rooms / 864 items: 132 ms cold, 112 ms with warm walk maps (11 Nov 2026).
 Regression script: `npm run e2e:check` (14 checks) (template door removed/restored, selection, floor switching, Ignore/undo/reopen, phone).
+
+## Stability (v0.18.2, how it works)
+
+private-docs/V0.18.2_PLAN.md (the audit's items, real / wrong / already changed). Studio's input rules:
+- **Drops and placing over controls:** `ui/canvasHit.js` `canvasIsUnder(canvas, x, y)`: the topmost element must be
+  the canvas or a plain overlay (pointer-events none, or not a control: `CONTROL_SELECTOR`). `useLibraryDrop.canvasPoint`
+  uses it; a tile drag ends with nothing on `pointercancel` / window blur.
+- **Buttons:** `studioPointer` returns for any button but the main one (after the measure tool), only passing it to
+  `plannerTools.pointerDown` (which cancels a drag on a secondary press).
+- **Interrupted drags** (`plannerTools`): `pointerId` is kept while dragging (a second finger never takes over);
+  `watchLost`: `pointercancel`, canvas `lostpointercapture`, window `blur` → `cancelDrag` (items restored, no undo
+  step, camera attached); `onWindowPointerUp` / `onPendingUp` ignore another pointer.
+- **Wheel** (`useStudioKeyboard`): window listener in the CAPTURE phase, only when `isStudioCanvas(e.target)` and a
+  placement is active: preventDefault + stopPropagation (the camera's canvas listener doesn't zoom too).
+- **Tab:** `tabEntersPreview(target)`: the shortcut from the 3D view, nothing focused, or a control the mouse clicked
+  (capture keydown / pointerdown / focusin note how the focus came); a control reached by Tab, or with a `.ui-pop` /
+  dialog open, keeps the browser's Tab. Test `hooks/__tests__/tabEntersPreview.test.js`.
+- **Esc:** `usePopover` keeps a stack (`openPopovers()`); only the popover opened last takes Esc; onClose read
+  through a ref (its stack place survives re-renders).
+- **Selection bar:** `inert` while hidden for being off screen / busy, unless the focus is in it.
+- **Small laptops:** ahdus.css: 601–1199 px = narrower library (`clamp(200px, 22vw, 260px)`) and Inspector (264 px);
+  `.canvas-card` is a container (`studio-canvas`): ≤ 640 px Export / Measure / the selection bar as icons, ≤ 480 px
+  the camera card under the top controls and Add floor's text hidden.
+- **Engine / pure:** `entranceSpawn`'s `settle` looks up to 24 m for a free spot OUTSIDE before giving up "outside";
+  `people.uniqueSeats` (first entry wins, per person and per desk) in LayoutEngine / CharacterSystem /
+  NavigationSystem.setPeople; `geometry.findRoomAt` = the smallest room holding the point; TourSystem `walkFailed`.
+- **Timing tests:** `navigation/__tests__/timing.js` `measureUntil` (fastest per case, up to 4 rounds only while over
+  the limit); route.test.js / tour.test.js use it.
+- Tests: `ui/__tests__/canvasHit.test.js`, `popoverStack.test.jsx`, entrance / people / geometry / TourSystem /
+  LayoutEngine tests ("v0.18.2"), `timing.test.js`, `npm run e2e:stability`.
 
 ## Doors, windows and glass (v0.18.1, how they work)
 
@@ -1167,8 +1203,9 @@ only (Studio's Preview has no tour). Free walking, Find and Take me there are un
   `TOUR_ARRIVE_WITHIN` 0.35 m of the spot (other routes: 1 m), so it ends well inside the room. "Walk me" = 'auto', "I'll walk" =
   'guide' (the line; arriving within 1 m completes the stop); `setFollow` switches the walk in progress
   (`navigation.setWalk`). Walking away from a stop (> 0.8 m): "I'll walk" goes on to the next, "Walk me" pauses.
-  A click on the floor (source 'click') pauses the tour; resume = a new route. A failed walk (stuck, no route) = a fade
-  there, and the panel says why. A route stopped by anything else (a new layout, leaving walkthrough) ends the tour.
+  A click on the floor (source 'click') pauses the tour; resume = a new route. A failed walk (stuck, no route) = paused
+  where you are (v0.18.2, `walkFailed`: not ticked, "Stopped · Press P to try again, or Skip the walk" + the reason);
+  Resume walks again, Skip the walk still jumps. A route stopped by anything else (a new layout, leaving walkthrough) ends the tour.
 - **Jumps** (Skip the walk, Previous, a stop from the list) go through the viewer's fader (`tour.setFader`: 250 ms to
   dark, `setPose` at the stop facing it, back; `[data-tour-fade="on"]`). **prefers-reduced-motion:** no turning on
   arrival, a fade + `setPose` with the yaw instead.
@@ -1997,6 +2034,13 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: stability (v0.18.2, 20 Nov 2026, branch `fix/v0.18.2-stability`)
+
+An outside audit (private-docs/WORKPLACE_AUDIT.md) checked on v0.18.1, then fixed one commit each: drops over
+controls, secondary buttons, the wheel, cancelled drags, Tab, Esc, the hidden selection bar, 1024 px panels, the
+entrance fallback, the tour's failed walk, one seat per person, rooms inside rooms, the timing tests (see "Stability";
+CHANGELOG.md). An indoor spawn point stays by design. e2e:stability 12 checks.
 
 ## DONE: doors, windows and glass (v0.18.1, 20 Nov 2026, branch `feature/v0.18.1-doors-windows-glass`)
 
