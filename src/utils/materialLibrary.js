@@ -256,11 +256,11 @@ export const TILE_SIZE = {
  * their photo-texture twins (realistic look) the same photo in that colour (PBR albedoColor): no new files.
  */
 export const FLOOR_TINTS = {
-  cafeteria: { painter: 'smallTile', tint: '#eea040' }, // amber tiles
-  lounge: { painter: 'wood', tint: '#b5d090' },          // sage wood
-  cabin: { painter: 'wood', tint: '#a8826c' },           // dark walnut
-  training: { painter: 'concrete', tint: '#5fc4b0' },    // teal floor
-  lobby: { painter: 'tile', tint: '#f6efe2' },           // light stone
+  cafeteria: { painter: 'smallTile', tint: '#e8861c' }, // amber tiles
+  lounge: { painter: 'wood', tint: '#8fbf58' },          // sage wood
+  cabin: { painter: 'wood', tint: '#8a5638' },           // dark walnut
+  training: { painter: 'concrete', tint: '#26b096' },    // teal floor
+  lobby: { painter: 'tile', tint: '#e8d6b4' },           // light stone
 };
 
 /** Painter of each procedural floor (a corridor looks like reception, but has its own photo texture). */
@@ -655,7 +655,7 @@ export function getMaterials(scene) {
       return m;
     }),
     glass: lazy('glass', () => {
-      const m = makeColorMaterial(scene, 'mat_glass', '#a9d2ec', { specular: 0.9, alpha: 0.28 });
+      const m = makeColorMaterial(scene, 'mat_glass', '#d4ebf7', { specular: 0.6, alpha: 0.16 }); // v0.18.1: lighter, people show through
       m.specularPower = 128;
       m.metadata = { ...(m.metadata ?? {}), glass: true }; // v0.18.1: clicks in the viewer go through (pickHelpers)
       return m;
