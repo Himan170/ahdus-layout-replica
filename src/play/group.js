@@ -5,6 +5,8 @@
  * moved, turned or deleted with a group: they are counted, so Studio can say so.
  */
 
+import { regroupCopies } from './prefab';
+
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const byId = (objects) => (Array.isArray(objects) ? Object.fromEntries(objects.map((o) => [o.id, o])) : objects ?? {});
 
@@ -121,13 +123,15 @@ export function pasteOffset(clip, { at = null, same = false, aside = 0.5, times 
  * The items to add for a paste: new ids (`newId()`), on `floor`, moved by `offset`, each in the room
  * it lands in (`roomAt(x, z)` → id or null). One undo step for all of them (editor.replaceObjects).
  */
-export function pasteItems(clip, { floor, offset = { x: 0, z: 0 }, newId, roomAt = () => null }) {
+export function pasteItems(clip, { floor, offset = { x: 0, z: 0 }, newId, roomAt = () => null, newGroupId = null }) {
   if (!clip?.items?.length) return [];
-  return clip.items.map((data) => {
+  // v0.18.0: a copied cluster is a new cluster (its own group id); one item of it alone is no group
+  const groupId = newGroupId ?? (() => `grp_${String(newId()).replace(/^obj_/, '')}`);
+  return regroupCopies(clip.items.map((data) => {
     const x = r3((Number(data.x) || 0) + offset.x);
     const z = r3((Number(data.z) || 0) + offset.z);
     return { ...data, id: newId(), floor, x, z, roomId: roomAt(x, z) ?? null, metadata: { ...(data.metadata ?? {}) } };
-  });
+  }), groupId);
 }
 
 /** "2 locked items were not moved" (null when none). */

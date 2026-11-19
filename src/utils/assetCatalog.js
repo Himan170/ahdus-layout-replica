@@ -22,6 +22,8 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { CSG } from '@babylonjs/core/Meshes/csg';
 import { getAssetMaterial } from './materialLibrary';
 import { STAIR, stairDims } from '../play/building';
+import { MANIFEST, MANIFEST_TYPES, UNKNOWN_ITEM_SIZE } from '../catalog/manifest';
+import { buildManifestMesh } from './manifestMesh';
 
 // ─── Categories ───
 export const OBJECT_CATEGORIES = {
@@ -1350,6 +1352,20 @@ export const ASSET_TYPES = {
   },
 };
 
+// ─── v0.18.0: items described by the asset manifest (catalog/*.json) ───
+// They join ASSET_TYPES with the same fields (label, category, default sizes, solid) plus the
+// manifest's own (chip, parts / builder, params, footprint, seats, desk); utils/manifestMesh.js
+// draws them. An id the hand-built catalogue already has is never replaced.
+for (const problem of MANIFEST.problems) console.warn(`[asset manifest] ${problem}`);
+for (const [type, def] of Object.entries(MANIFEST_TYPES)) {
+  if (ASSET_TYPES[type]) { console.warn(`[asset manifest] ${type}: already in the catalogue`); continue; }
+  ASSET_TYPES[type] = {
+    ...def,
+    color: '#9aa1a8',
+    buildMesh: (scene, id, opts) => buildManifestMesh(scene, type, def, id, opts),
+  };
+}
+
 // ─── Build a mesh instance from a type key ───
 
 /**
@@ -1362,17 +1378,27 @@ export const ASSET_TYPES = {
  * @param {object} [opts]   asset options, e.g. { rise } for a staircase (its floor's height)
  * @returns {TransformNode}
  */
+const warnedTypes = new Set();
+
 export function buildAssetMesh(assetType, scene, objectId = 'tmp', opts = {}) {
   const def = ASSET_TYPES[assetType];
   if (!def) {
-    console.warn('Unknown asset type:', assetType);
-    // Fallback: plain box
+    // v0.18.0: a type this version doesn't know (a layout from a newer Studio): a plain grey box of a
+    // desk's size on the floor, never a crash; one warning per type
+    if (!warnedTypes.has(assetType)) {
+      warnedTypes.add(assetType);
+      console.warn(`Unknown item type "${assetType}": drawn as a plain box. A newer AHDUS Workplace version knows it.`);
+    }
+    const { width, depth, height } = UNKNOWN_ITEM_SIZE;
     const fallback = new TransformNode('unknown_' + objectId, scene);
-    const m = MeshBuilder.CreateBox('fb', { width: 1, height: 1, depth: 1 }, scene);
-    m.material = new StandardMaterial('fbm', scene);
-    m.material.diffuseColor = new Color3(1, 0, 1);
+    const m = MeshBuilder.CreateBox('unknown_box', { width, height, depth }, scene);
+    m.position.y = height / 2;
+    const mat = new StandardMaterial('unknown_item', scene);
+    mat.diffuseColor = new Color3(0.62, 0.64, 0.66);
+    mat.specularColor = new Color3(0.05, 0.05, 0.05);
+    m.material = mat;
     m.parent = fallback;
-    fallback.metadata = { assetType, objectId };
+    fallback.metadata = { assetType, objectId, unknown: true };
     return fallback;
   }
   const root = def.buildMesh(scene, objectId, opts);

@@ -111,7 +111,8 @@ export function shortLabel(item) {
     name = full.replace(/\s+(room|area)$/i, '') || full;
   } else if (item.kind === 'object') {
     const full = String(item.label ?? '').trim();
-    name = SHORT_NAMES[item.assetType] ?? (full.length <= SHORT_NAME_MAX ? full : full.split(/\s+/).pop());
+    name = SHORT_NAMES[item.assetType] ?? ASSET_TYPES[item.assetType]?.short
+      ?? (full.length <= SHORT_NAME_MAX ? full : full.split(/\s+/).pop());
   } else {
     name = STRUCTURE_SHORT[item.kind] ?? String(item.label ?? '');
   }

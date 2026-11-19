@@ -354,16 +354,20 @@ function ridersOf(item, objects, catalog) {
 /**
  * The nearest spot for an item (and its chair, and what stands on it) where it blocks no door and no
  * stairs, inside its room, clear of the walls and of other furniture. Same floor, same turn.
+ * v0.18.0: `members` = a whole saved group (a workstation cluster) moved together, with what stands on them.
  * @returns {{ moves: [string, { x, z, roomId }][] } | null}
  */
-export function findItemSpot(item, layout, { catalog = {}, radius = 8 } = {}) {
+export function findItemSpot(item, layout, { catalog = {}, radius = 8, members = null, clearance = 0 } = {}) {
   if (!item) return null;
   const ctx = fitContext(layout, catalog);
   const f = floorOf(item);
   const rooms = ctx.floorData(f).rooms;
   const objects = ctx.objects;
-  const group = [item, ...ridersOf(item, objects, catalog)];
-  const chair = isDesk(item.assetType) ? deskSeat(item, objects) : null;
+  const group = members ? [...members] : [item, ...ridersOf(item, objects, catalog)];
+  if (members) {
+    for (const m of members) for (const r of ridersOf(m, objects, catalog)) if (!group.some((g) => g.id === r.id)) group.push(r);
+  }
+  const chair = !members && isDesk(item.assetType) ? deskSeat(item, objects) : null;
   if (chair && !chair.isLocked && !group.includes(chair)) group.push(chair);
   const ignore = new Set(group.map((o) => o.id));
   const room = innermostAt(rooms, item.x ?? 0, item.z ?? 0);
@@ -386,10 +390,12 @@ export function findItemSpot(item, layout, { catalog = {}, radius = 8 } = {}) {
       for (const r0 of rects) {
         const r = { ...r0, x: r0.x + dx, z: r0.z + dz };
         const b = boxOf(r);
-        if (!wallsClear(ctx, f, b, room)) return false;
+        // v0.18.0: `clearance` = room to walk round it (a cluster's aisle) from walls and other furniture
+        const wide = clearance > 0 ? { ...r, hw: r.hw + clearance, hd: r.hd + clearance } : r;
+        if (!wallsClear(ctx, f, clearance > 0 ? boxOf(wide) : b, room)) return false;
         if (doors.some((z) => overlapsBox(b, z, ITEM_TOL))) return false;
         if (stairZones.some((z) => !farApart(z, r) && rectsOverlap(z, r, ITEM_TOL))) return false;
-        if (blockerIn(ctx, f, r, ignore)) return false;
+        if (blockerIn(ctx, f, wide, ignore)) return false;
       }
     }
     return true;

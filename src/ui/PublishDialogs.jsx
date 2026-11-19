@@ -12,11 +12,14 @@ import { useEffect, useState } from 'react';
 import { Send, AlertTriangle } from 'lucide-react';
 import Dialog from './Dialog';
 import { lastPublishedAt, lastPublishedText } from './publishFlow';
+import { sharedFixes } from '../play/navigation/checkLayout';
 
 /** loadVersions: () => Promise<versions[]> (newest first; may reject). */
 export function PublishDialog({ siteName, state, busy, loadVersions, seatWarning = null, checkCount = 0, walking = [], onFix, onShowChecks, onCancel, onConfirm }) {
   // v0.17.4: what stops people walking somewhere is listed even when ignored, with Fix it; then "Publish anyway"
   const blocked = walking.length > 0;
+  // v0.18.0: several of them from one item (the stairs): one "Fix all" for them
+  const shared = blocked ? sharedFixes(walking) : [];
   const never = state === 'never';
   const [last, setLast] = useState(never ? null : undefined); // undefined: still asking
 
@@ -62,6 +65,13 @@ export function PublishDialog({ siteName, state, busy, loadVersions, seatWarning
               </li>
             ))}
           </ul>
+          {onFix && shared.map((s) => (
+            <p key={s.key} className="publish-fix-all" data-publish-fix-all={s.count}>
+              <span>{s.count} of these come from one item. {s.fix.label} fixes them all.</span>
+              <button className="ui-btn is-primary" onClick={() => onFix({ key: s.key, fix: s.fix, floorId: walking.find((p) => p.key === s.keys[0])?.floorId })}
+                disabled={busy}>Fix all</button>
+            </p>
+          ))}
         </div>
       )}
       {checkCount > 0 && <p data-layout-check-warning>Check found {checkCount} {checkCount === 1 ? 'problem' : 'problems'} in this layout. <button className="ui-btn" onClick={onShowChecks}>Show</button></p>}

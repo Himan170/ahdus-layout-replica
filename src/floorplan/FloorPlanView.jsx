@@ -21,6 +21,7 @@ import { sizeLabel } from '../ui/tools';
 import { anchorsForObject } from '../integration/anchorsFromStore';
 import { floorBelow, planStairs, loadPlanPrefs, savePlanPrefs } from './planFloors';
 import AllFloorsView from './AllFloorsView';
+import { selectionFor } from '../play/prefab';
 import {
   planDrop, itemSize, roomWallPieces, wallSegmentEnds,
   toPlan, screenToWorld, planAngle, planViewBox,
@@ -221,8 +222,10 @@ export default function FloorPlanView({
     event.preventDefault();
     event.stopPropagation();
     // an item of the selected group drags the whole group; any other item is selected first
-    const inGroup = group.has(object.id);
-    if (!inGroup) onSelectObject(object.id);
+    // v0.18.0: an item of a saved group (a cluster) takes its whole group along, unless Alt is held
+    const saved = !event.altKey && selectionFor(objects, object).length > 1;
+    const inGroup = group.has(object.id) || saved;
+    if (!group.has(object.id)) onSelectObject(object.id, { alone: event.altKey });
 
     const start = pointerWorld(event.clientX, event.clientY);
     startDrag({
@@ -755,7 +758,7 @@ export default function FloorPlanView({
                 e.stopPropagation();
                 if (e.shiftKey) return; // Shift+click toggled it on press
                 if (justDraggedRef.current) { justDraggedRef.current = false; return; } // the end of a drag
-                onSelectObject(object.id); // a click on an item of a group: just that item
+                onSelectObject(object.id, { alone: e.altKey }); // an item of a group: just it (a saved group: all, Alt: just it)
               }}
               onPointerDown={(event) => handleItemPointerDown(event, object)}
               onKeyDown={(e) => {

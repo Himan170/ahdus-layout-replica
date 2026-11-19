@@ -31,3 +31,6 @@
 .dialog-warning[data-publish-walking] { flex-direction: column; align-items: stretch; gap: 0; }
 .dialog-warning[data-publish-walking] > p { display: flex; gap: var(--space-2); align-items: flex-start; margin: 0; font-weight: 600; }
 .publish-walking .is-ignored { color: var(--text-muted, #5f6b63); font-size: 12px; }
+/* v0.18.0: several walking problems from one item: one Fix all */
+.publish-fix-all { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--bg-panel, #fff); font-size: 13px; }
+.publish-fix-all > span { flex: 1; }

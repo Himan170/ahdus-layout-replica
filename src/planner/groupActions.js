@@ -22,6 +22,8 @@ const plural = (n, one = 'item', many = `${one}s`) => `${n} ${n === 1 ? one : ma
 
 /** The outline of a selected group in the 3D / 2D view and the plan. */
 export const GROUP_HIGHLIGHT = '#2563eb';
+/** v0.18.0: the desk and chair of the seat hovered in a cluster's Seats list. */
+export const SEAT_HIGHLIGHT = '#f59e0b';
 
 /**
  * @param {{

@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1580, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1632, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -75,10 +75,20 @@ npm run e2e:measurements # 23   e2e/measurements-smoke.mjs (off at start, the Me
 npm run e2e:templates # 9 checks  e2e/templates-smoke.mjs (new layout from a template: small office, clinic, factory floor)
 npm run e2e:save     # 30 checks   e2e/save-smoke.mjs      (auto-save, reopen, version history, old saves, list, delete, export/import,
                      #                                       companies, two tabs on one layout)
-npm run e2e:perf     # 21 checks   e2e/perf-smoke.mjs      (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
+npm run e2e:workstations # 32 checks e2e/workstations-smoke.mjs (v0.18.0: the 8 prefab tiles, a 6-person cluster dropped (one
+                     #                                       undo), a click = the cluster + Seats 1–6, hover = an amber desk,
+                     #                                       Glass keeps ids, Alt+click, Shortcuts, Ungroup, paste = new ids,
+                     #                                       the 0.9 m drop hint + Check's aisle warning, a cluster at a door (ONE line) +
+                     #                                       Fix it, manager + cabin (Take me there's route to its desk, a click walks in), Floor 1, the hint wraps, people typing,
+                     #                                       an unknown type's box; SHOTS=<dir>: each prefab above + eye level)
+npm run e2e:perf     # 28 checks   e2e/perf-smoke.mjs (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
                      #                                       and in viewer.html with the company tour walking / at a stop (TOUR=off skips it);
                      #                                       one room change rebuilds only it + its neighbours; all items
-                     #                                       real models; REALISTIC=off measures the simple look)
+                     #                                       real models; REALISTIC=off measures the simple look;
+                     #                                       v0.18.0: a 300-seat office of 6-person clusters on 2 floors,
+                     #                                       Studio + walking with 300 people, beside the same seats as
+                     #                                       v0.17 desks: half the items / meshes, 2 desk shapes, draw calls
+                     #                                       ≤ 120, FPS of both; SHOTS=<dir>: 300-seats-*.png; WS=off skips it)
 npm run e2e:shared-walls  # 17     e2e/shared-walls-smoke.mjs (one wall + one doorway; picks with either owner;
                           #                                    Inspector "Wall thickness" 0.4 m + Ctrl+Z)
 npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
@@ -445,6 +455,67 @@ Door items in drawn walls are visibly open doorways, matching room doors; floor 
 Measured on 72 rooms / 864 items: 132 ms cold, 112 ms with warm walk maps (11 Nov 2026).
 Regression script: `npm run e2e:check` (14 checks) (template door removed/restored, selection, floor switching, Ignore/undo/reopen, phone).
 
+## Workstations (v0.18.0, how they work)
+
+`private-docs/REALISTIC_WORKPLACE_PLAN.md`. Nothing new is saved outside an item's `metadata`; no schema change.
+- **Manifest** (`src/catalog/workstations.json`, read by PURE `catalog/manifest.js` `readManifest`, tested in
+  `catalog/__tests__/manifest.test.js`): `types` (size, `parts` boxes in local metres, `footprint` boxes for the walk
+  map, `chip`, `icon`, `short`, `desk` rules, `params` defaults, `seats`) and `prefabs` (id, label, `layout` single |
+  cluster | row | manager | cabin, seats, desk / chair types, params, a cabin's `room`). `MANIFEST_TYPES` join
+  `ASSET_TYPES` (`def.manifest`); the 53 hand-built items are unchanged. `manifestDesks` = desk sizes / work side /
+  `screen` for `people.js`. `UNKNOWN_ITEM_SIZE` 1.4 × 0.7 × 0.75.
+- **Workstation desk** (`DESK_WORKSTATION`, `DESK_MANAGER`): size = scale as for every item; options in
+  `metadata.ws` = { partition none | fabric | glass, partitionHeight (`PARTITION_HEIGHT_MIN` 0.2 to `_MAX` 0.9 m
+  above the top), sides none | left | right | both, drawers, screen }. PURE `play/workstation.js` (`wsParams`,
+  `wsKey`, `wsPatch`, `hasOwnScreen`); the mesh `utils/workstationMesh.js` `buildWorkstation` (merged parts, no
+  branding); `assetInstances` keeps ONE template per variant (`${type}#${wsKey}`), so 300 desks with the same options
+  are one instanced shape. Other manifest items: `utils/manifestMesh.js`.
+- **Prefabs** (PURE `play/prefab.js`: `layoutPrefab`, `prefabItems`, `rebuildGroup`, `ungroupMoves`,
+  `regroupCopies`, `groupSeats`, `prefabOutline`; drop rules PURE `play/prefabDrop.js` `planPrefabDrop` /
+  `prefabPlacement`; tests `prefab.test.js`, `prefabDrop.test.js`): every member carries `metadata.group` = { id,
+  prefab, slot, role desk | chair | visitor, params }; a manager's visitor chairs also `metadata.visitor: true` (never
+  a seat: `people.deskSeats` skips them). Placed by `editor.placePrefab({ room, objects, label })` (one
+  CompositeCommand: a cabin's room + its items). Library tiles (`ui/library.js` `PREFAB_TILES`, chip
+  Workstations, `ui/PrefabPicture.jsx` `[data-prefab-picture]` = the plan from `layoutPrefab`), `useLibraryDrop`
+  (red with the reason, the aisle warning in the hint; a click = the middle of the view; touch: tap, then the floor).
+- **Selecting:** a click selects the whole group (`selectionFor`; studioPointer, Plan view), **Alt+click** one item
+  (`Shortcuts`: "One desk or chair of a cluster"). A whole group selected = `selectedGroup` → the Inspector's
+  `PrefabBody` (header `[data-cluster]`): Desk width / depth, Partition (`[data-prefab-partition]`) + height (not for
+  manager / cabin), **Seats** (`ul[aria-label=Seats][data-seats=N]`, rows `li[data-seat=n][data-desk-id]`: hover =
+  that desk + chair tinted `SEAT_HIGHLIGHT` #f59e0b, the rest `GROUP_HIGHLIGHT`; Select desk; AHDUS: a `SeatSection`
+  per row via `seatPanelFor(deskId)`), Ungroup (`[data-ungroup]`, `editor.moveObjects`, "Ungrouped: N separate
+  items"). A change = `rebuildGroup` → `editor.replaceObjects` ("Change 6-person cluster"): ids kept by role + slot,
+  so seats stay; refused while a member is locked. A single desk's Inspector has `WorkstationSection`
+  (`[data-ws-partition]`, Side screens, Drawers, Monitor and keyboard; `[data-ws-in-group]` note).
+- **Copies** (Ctrl+C / V, Duplicate): `regroupCopies` = a new group id, new item ids: "Who sits here" stays with the
+  old desks.
+- **People:** `people.hasBuiltInScreen(desk)` (metadata.ws.screen, else the manifest's default): seated there =
+  `workClip` 'Type'. Find, routes, the tour, live presence: unchanged code (a seat is a desk); tested in
+  `play/__tests__/workstationSeats.test.js`.
+- **Aisles** (PURE `play/aisles.js`, tests `aisles.test.js`): clusters and rows (`AISLE_LAYOUTS`) need `AISLE_MIN`
+  0.9 m to the next one, the room's walls and rooms inside it (`groupOutline` from the members' footprints in the
+  group's frame; ≤ `AISLE_TOUCH` 0.05 m = pushed together, fine). Check's `AISLE_NARROW` warning (`narrowAisles`)
+  and the drop hint (`dropAisle`; entries' `sides`: { groupId: what is on the other side }). **One line per cluster:**
+  DOOR_BLOCKED names it ("The 4-person cluster blocks the door of Open Office" (a room with several doors: "a door
+  of"), every member's id), its unreachable seats are ONE DESK_UNREACHABLE ("The 6-person cluster in Open Office
+  leaves no way to one of its seats", `cluster: true`, `groupId`), never one per desk; an aisle on that cluster is
+  folded in (": only 0.5 m to the wall"). In `addFixes` a cluster (DOOR_BLOCKED, its seats, or a narrow aisle that
+  turns out to shut a room / seats: then rewritten as one of those) is tried first: `findItemSpot(…, { members,
+  clearance: AISLE_MIN })` (stairFit: the rect widened for walls and furniture), kept only when the re-check clears
+  it; the room / desk problems it clears are absorbed (`blocksWalking`, error). "Move the 4-person cluster"; none
+  while one is locked. Tests: `aisles.test.js` ("a cluster in front of a door"), the cabin in
+  `workstationSeats.test.js`.
+- **Unknown types** (a newer version's layout): `buildAssetMesh` draws a grey `UNKNOWN_ITEM_SIZE` box on the floor
+  (`metadata.unknown`), `console.warn` once per type; the walk map uses the same size. The v0.17.4 embed opens such a
+  layout without an error but draws magenta 1 m cubes (released builds can't change).
+- **Publish's Fix all** (`checkLayout.sharedFixes`): walking problems whose fix moves the same items →
+  `[data-publish-fix-all=N]` "N of these come from one item. Move the stairs fixes them all."
+- Studio's hint (`[data-studio="hint"]`) wraps (`white-space: normal`), never cut off.
+- **Measured** (e2e:perf, 300 seats on 2 floors, SwiftShader, 17 Nov 2026), v0.17 desks → clusters: Studio 1,200 → 600
+  items, 1,263 → 665 meshes, 46 → 72 draw calls (the workstation's materials × its 2 variants: end desk 'both', the
+  others 'left'), 2.3 → 3.2 FPS; walking 1,266 → 664 meshes, 60 → 84 draw calls, 1.3 → 1.4 FPS; Check ~40 ms.
+- Tests: the unit tests above, `npm run e2e:workstations`, e2e:perf's 300-seat office.
+
 ## Stairs that always work (v0.17.4, how it works)
 
 Editors never need coordinates. PURE `src/play/stairFit.js` (tests `play/__tests__/stairFit.test.js`), turned
@@ -575,6 +646,16 @@ src/ui/hiddenLayers.js             Layers' eye (v0.15.6): hidden rooms / items p
 src/play/stairFit.js               PURE (v0.17.4): stairs that work: stairFit (problems + the floor they miss), stairPreview,
                                    stairProblems, stairSpots / findStairSpot (nearest spot that works), findItemSpot
 src/play/turnedRect.js             PURE (v0.17.4): turned rectangles (rectsOverlap, boxOf, distanceTo, farApart)
+src/catalog/                       v0.18.0: workstations.json (the asset manifest: item types + prefabs) + manifest.js (PURE:
+                                   readManifest, MANIFEST_TYPES, PREFABS, prefabById, manifestDesks, UNKNOWN_ITEM_SIZE)
+src/play/workstation.js            PURE (v0.18.0): a workstation desk's options (wsParams, wsKey, wsPatch, hasOwnScreen)
+src/play/prefab.js                 PURE (v0.18.0): prefabs (layoutPrefab, prefabItems, groupOf, selectionFor, selectedGroup,
+                                   rebuildGroup, ungroupMoves, regroupCopies, groupSeats, prefabOutline)
+src/play/prefabDrop.js             PURE (v0.18.0): dropping a prefab (planPrefabDrop: where, what's in the way; prefabPlacement)
+src/play/aisles.js                 PURE (v0.18.0): 0.9 m aisles beside clusters / rows (narrowAisles, dropAisle, groupOutline)
+src/utils/workstationMesh.js       v0.18.0: the workstation desk's mesh (top, frame, pedestal, partitions, screen, keyboard)
+src/utils/manifestMesh.js          v0.18.0: a manifest item's mesh from its parts boxes
+src/ui/PrefabPicture.jsx           v0.18.0: a prefab's plan as the library tile's picture
 src/utils/altKey.js                v0.17.4: isAltDown() (Alt held: stairs placed exactly where dropped)
 src/play/carry.js                  PURE (v0.15.1): what an item takes along (carriedBy: a desk's chair + riders), carryMoves,
                                    turnStep (R 90°, Shift+R 15°), carryDrop (v0.15.2: putting it down in Walk through)
@@ -630,7 +711,7 @@ db/schema.sql                      PostgreSQL schema (base for the Supabase back
 ## Rules (follow these)
 
 1. **Every layout change goes through `editorHistory`** (`createEditorHistory()`: addObject, updateObject,
-   deleteObject, duplicateObject, moveObjects, replaceObjects, toggleLock, lockObjects, lockRooms, toggleRoomLock, addRoom, updateRoom, moveRoom, turnRoom, deleteRoom, toggleDoor, addOpenings,
+   deleteObject, duplicateObject, moveObjects, replaceObjects, placePrefab, toggleLock, lockObjects, lockRooms, toggleRoomLock, addRoom, updateRoom, moveRoom, turnRoom, deleteRoom, toggleDoor, addOpenings,
    removeOpenings, resizeOpening, setWallHeight, setFloorHeight, setAnchorData, addFloor({ copyRooms }), removeFloor,
    renameFloor, restoreVersion). Never call store mutators directly from
    UI or tools, or undo breaks. Continuous edits (slider drag, typing, + / − bursts) pass `{ mergeKey }` so they are
@@ -1538,6 +1619,8 @@ site on the server (local mode renames the layout), the leave check. Saving, und
   the libraries (`Rooms library`, …; `data-library`), `Add floor`, `Full screen` / `Exit full screen`, `Reset view`, `Zoom in`, `Zoom out`, `Orbit`, `Pan`, `Top view`,
   `Front view`, `Side view`, `Room type`, `Room department`; on a phone `More` (menu `More actions`) and `Close the library`.
   AHDUS seats: the section `Who sits here`, `Search people`, `People found`, the banner `People without a desk`.
+  Workstations (v0.18.0): `Seats`, `Partition`, `Desk width`, `Desk depth`, `Partition height`, library tiles titled
+  "<prefab label>: drag onto the floor…" (e2e:workstations finds them by `title^=`).
   `Export floor plan` and `Measurements` keep their labels (the visible text is "Export" / "Measure").
   e2e scripts pick a tool with `pick(tile, option)`: it opens the tile's library unless it is open (a click on an open
   tile closes it), then clicks the option; Rooms = "Draw your own size". Furniture: drag the tile onto the floor.
@@ -1853,6 +1936,16 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: workstations (v0.18.0, 16 Nov 2026, branch `feature/v0.18.0-workstations`)
+
+private-docs/REALISTIC_WORKPLACE_PLAN.md: the asset manifest, parametric workstation desks, prefabs (single, 2 / 4 / 6
+/ 8 clusters, desk row, manager, cabin) in one undo step with size, partition, a Seats list and Ungroup, seats that
+work everywhere (typing at the built-in screen), 0.9 m aisles + a cluster at a door in Check, unknown types as a plain
+box, plus Himan's two notes (the hint wraps, Publish's Fix all); after his review (17 Nov): ONE Check line per cluster
+(its door or its seats, Fix it moves all of it) and the cabin checked (walk in, Take me there); see "Workstations".
+300 seats: half the meshes of v0.17 desks (numbers there). Screenshots:
+private-docs/screenshots/v0.18.0/ (not in git).
 
 ## DONE: stairs that always work (v0.17.4, 16 Nov 2026, branch `fix/v0.17.4-stairs-always-work`)
 

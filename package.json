@@ -1,7 +1,7 @@
 {
   "name": "company-digital-twin",
   "private": true,
-  "version": "0.17.4",
+  "version": "0.18.0",
   "type": "module",
   "engines": {
     "node": ">=20.19"
@@ -46,7 +46,8 @@
     "characters:placeholder": "node scripts/make-placeholder-character.mjs",
     "e2e:check": "node e2e/check-smoke.mjs",
     "e2e:faster": "node e2e/faster-building-smoke.mjs",
-    "e2e:layers": "node e2e/layers-walls-smoke.mjs"
+    "e2e:layers": "node e2e/layers-walls-smoke.mjs",
+    "e2e:workstations": "node e2e/workstations-smoke.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^7.0.0",

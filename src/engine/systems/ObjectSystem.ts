@@ -13,6 +13,7 @@ import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 
 import { ASSET_TYPES, OBJECT_CATEGORIES } from '../../utils/assetCatalog';
 import { createItemMesh, disposeItemMesh, setItemSolid } from '../../utils/assetInstances';
+import { isWorkstation, wsParams, wsKey } from '../../play/workstation';
 import { isWallItem, hangsOnWall } from '../../play/wallMount';
 import { applyLockVisual, removeLockVisual } from '../../utils/lockIndicator';
 import { elevationOf, floorHeight, stairDrawn } from '../../play/building';
@@ -65,7 +66,13 @@ export class ObjectSystem {
       if (mesh?.isDisposed()) mesh = null;
       // Stairs climb exactly their floor's height: a taller or lower floor rebuilds them
       const rise = obj.assetType === 'STAIRCASE' ? floorHeight(floors, obj.floor ?? 0) : undefined;
-      const stale = !!mesh && (mesh.metadata?.rise !== rise || mesh.metadata?.floorId !== (obj.floor ?? 0));
+      // v0.18.0: a workstation desk is drawn at its real size and options (one template per variant)
+      const def = (ASSET_TYPES as Record<string, { category?: string; solid?: boolean; builder?: string }>)[obj.assetType];
+      const parametric = isWorkstation(def);
+      const params = parametric ? wsParams(obj, def) : null;
+      const variant = params ? { key: wsKey(params), params } : undefined;
+      const stale = !!mesh && (mesh.metadata?.rise !== rise || mesh.metadata?.floorId !== (obj.floor ?? 0)
+        || mesh.metadata?.variant !== variant?.key);
       if ((!mesh || stale) && budget && !budget.take()) {
         pending++; // made in a later slice (a stale one keeps its old mesh until then)
         if (!mesh) continue;
@@ -80,9 +87,9 @@ export class ObjectSystem {
         // An instance of its type's template, tagged for picking. Furniture
         // blocks the character in Preview; markers (spawn points) and rugs
         // don't, and stairs are walked ON (Preview computes the slope).
-        const def = (ASSET_TYPES as Record<string, { category?: string; solid?: boolean }>)[obj.assetType];
         mesh = createItemMesh(obj.assetType, this.scene, obj.id, {
           rise,
+          variant,
           floorId: obj.floor ?? 0,
           solid: def?.category !== OBJECT_CATEGORIES.MARKER && def?.solid !== false && obj.assetType !== 'STAIRCASE',
           shadowGenerator: this.shadowGenerator,
@@ -98,6 +105,12 @@ export class ObjectSystem {
           y: elevationOf(floors, obj.floor ?? 0) + (obj.y ?? 0), rotationX: obj.rotationX, rotationZ: obj.rotationZ,
           scaleX: obj.scaleX, scaleY: obj.scaleY, scaleZ: obj.scaleZ,
         };
+      // its size is in the template: only a mirror (a negative scale) is left to draw
+      if (parametric) {
+        drawn.scaleX = Math.sign(obj.scaleX ?? 1) || 1;
+        drawn.scaleY = Math.sign(obj.scaleY ?? 1) || 1;
+        drawn.scaleZ = Math.sign(obj.scaleZ ?? 1) || 1;
+      }
       mesh.position.x = obj.x;
       mesh.position.y = drawn.y;
       mesh.position.z = obj.z;

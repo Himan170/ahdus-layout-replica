@@ -49,6 +49,7 @@ import { snapTargets, snapDrag, snapText } from '../play/dragSnap';
 import { livePosition } from '../utils/livePosition';
 import { isDesk } from '../play/people';
 import { groupMembers, lockedNote } from '../play/group';
+import { selectedGroup, selectionFor } from '../play/prefab';
 import { stairPreview, findStairSpot } from '../play/stairFit';
 
 const FLOOR_Y = 0.02;
@@ -1053,7 +1054,7 @@ export function createPlannerTools(scene, canvas, {
     const d = pendingMove?.drag;
     disarmMove(); // it was a click
     // a click (no drag) on an item of a group selects just that item (v0.15.5)
-    if (d?.group && d.objectId) st().selectObject(d.objectId);
+    if (d?.group && d.objectId && !d.keepGroup) st().selectObject(d.objectId);
     const camera = getCamera();
     if (camera && scene.activeCamera === camera) camera.attachControl(canvas, true);
   }
@@ -1176,7 +1177,14 @@ export function createPlannerTools(scene, canvas, {
       return true;
     }
     if (tool.kind === 'select') {
-      const group = st().selectedObjectIds ?? [];
+      let group = st().selectedObjectIds ?? [];
+      // v0.18.0: an item of a saved group (a cluster) presses its whole group, unless Alt is held
+      const pressed = hover?.type === 'grabItem' ? st().objects[hover.objectId] : null;
+      let saved = !!selectedGroup(st().objects, group) && !evt.altKey;
+      if (pressed && !group.includes(pressed.id) && !evt.altKey && !pressed.isLocked) {
+        const ids = selectionFor(st().objects, pressed);
+        if (ids.length > 1) { group = ids; saved = true; }
+      }
       if (hover?.type === 'grabItem' && group.includes(hover.objectId)) {
         // an item of the selected group: the whole group moves (v0.15.5), each with what it carries
         const p = groundPoint();
@@ -1186,9 +1194,11 @@ export function createPlannerTools(scene, canvas, {
           const first = members.findIndex((m) => m.item.id === obj.id);
           if (first > 0) members.unshift(members.splice(first, 1)[0]);
           const items = members.map(({ item: o }) => ({ id: o.id, x: o.x, y: o.y ?? 0, z: o.z, onTop: false }));
-          armMove({ kind: 'item', objectId: obj.id, start: p, items, group: group.length, locked: locked.length });
+          armMove({ kind: 'item', objectId: obj.id, start: p, items, group: group.length, locked: locked.length, keepGroup: saved });
         }
-        return true; // the group stays selected (a click without a drag selects just this item)
+        // the group stays selected (a click without a drag selects just this item; a saved group stays);
+        // a saved group not selected yet: Studio's click selects it (studioPointer)
+        return group === (st().selectedObjectIds ?? []);
       }
       if (hover?.type === 'grabItem') {
         // A click selects it as usual; it moves once the mouse has really been dragged (CLICK_SLOP)

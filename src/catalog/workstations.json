@@ -1,0 +1,105 @@
+{
+  "format": "ahdus-catalog",
+  "version": 1,
+  "pack": "workstations",
+  "items": [
+    {
+      "id": "DESK_WORKSTATION",
+      "label": "Workstation Desk",
+      "short": "Workstation",
+      "chip": "Workstations",
+      "icon": "desk",
+      "size": { "w": 1.4, "d": 0.7, "h": 0.75 },
+      "builder": "workstation",
+      "params": { "partition": "fabric", "partitionHeight": 0.45, "sides": "none", "pedestal": true, "screen": true },
+      "desk": { "workSide": 1, "typing": "screen" },
+      "seats": [{ "x": 0, "z": 0.6, "yaw": 3.141592653589793 }],
+      "source": "Built-in (parametric shapes, v0.18.0)"
+    },
+    {
+      "id": "DESK_MANAGER",
+      "label": "Manager Desk",
+      "short": "Mgr desk",
+      "chip": "Workstations",
+      "icon": "desk",
+      "size": { "w": 1.8, "d": 0.85, "h": 0.75 },
+      "builder": "workstation",
+      "params": { "partition": "none", "partitionHeight": 0.45, "sides": "none", "pedestal": true, "screen": true, "modesty": true },
+      "desk": { "workSide": 1, "typing": "screen" },
+      "seats": [{ "x": 0, "z": 0.7, "yaw": 3.141592653589793 }],
+      "source": "Built-in (parametric shapes, v0.18.0)"
+    },
+    {
+      "id": "CHAIR_VISITOR",
+      "label": "Visitor Chair",
+      "short": "Visitor",
+      "chip": "Seating",
+      "icon": "chair",
+      "size": { "w": 0.52, "d": 0.52, "h": 0.85 },
+      "shadow": false,
+      "parts": [
+        { "shape": "box", "size": [0.48, 0.06, 0.46], "at": [0, 0.42, 0.02], "material": "fabric:#4a5568" },
+        { "shape": "box", "size": [0.48, 0.38, 0.05], "at": [0, 0.46, -0.215], "material": "fabric:#4a5568" },
+        { "shape": "box", "size": [0.03, 0.42, 0.03], "at": [-0.22, 0, -0.2], "material": "metal:#606870", "pick": false },
+        { "shape": "box", "size": [0.03, 0.42, 0.03], "at": [0.22, 0, -0.2], "material": "metal:#606870", "pick": false },
+        { "shape": "box", "size": [0.03, 0.42, 0.03], "at": [-0.22, 0, 0.22], "material": "metal:#606870", "pick": false },
+        { "shape": "box", "size": [0.03, 0.42, 0.03], "at": [0.22, 0, 0.22], "material": "metal:#606870", "pick": false }
+      ],
+      "source": "Built-in (simple shapes, v0.18.0)"
+    },
+    {
+      "id": "PEDESTAL_DRAWERS",
+      "label": "Drawer Pedestal",
+      "short": "Drawers",
+      "chip": "Storage",
+      "icon": "drawers",
+      "size": { "w": 0.4, "d": 0.55, "h": 0.6 },
+      "parts": [
+        { "shape": "box", "size": [0.4, 0.6, 0.55], "at": [0, 0, 0], "material": "matte:#d9dcde" },
+        { "shape": "box", "size": [0.36, 0.17, 0.01], "at": [0, 0.41, 0.275], "material": "matte:#c4c8cc" },
+        { "shape": "box", "size": [0.36, 0.17, 0.01], "at": [0, 0.22, 0.275], "material": "matte:#c4c8cc" },
+        { "shape": "box", "size": [0.36, 0.17, 0.01], "at": [0, 0.03, 0.275], "material": "matte:#c4c8cc" }
+      ],
+      "source": "Built-in (simple shapes, v0.18.0)"
+    },
+    {
+      "id": "PARTITION_SCREEN",
+      "label": "Partition Screen",
+      "short": "Screen",
+      "chip": "Workstations",
+      "icon": "partition",
+      "size": { "w": 1.2, "d": 0.4, "h": 1.2 },
+      "parts": [
+        { "shape": "box", "size": [1.2, 1.1, 0.04], "at": [0, 0.08, 0], "material": "fabric:#5b6b7a" },
+        { "shape": "box", "size": [1.2, 0.02, 0.05], "at": [0, 1.18, 0], "material": "metal:#9aa1a8" },
+        { "shape": "box", "size": [0.05, 0.08, 0.4], "at": [-0.55, 0, 0], "material": "metal:#606870", "pick": false },
+        { "shape": "box", "size": [0.05, 0.08, 0.4], "at": [0.55, 0, 0], "material": "metal:#606870", "pick": false }
+      ],
+      "footprint": [
+        { "x": 0, "z": 0, "w": 1.2, "d": 0.05 },
+        { "x": -0.55, "z": 0, "w": 0.05, "d": 0.4 },
+        { "x": 0.55, "z": 0, "w": 0.05, "d": 0.4 }
+      ],
+      "source": "Built-in (simple shapes, v0.18.0)"
+    }
+  ],
+  "prefabs": [
+    { "id": "WS_SINGLE", "label": "Desk with partition", "layout": "single", "seats": 1, "desk": "DESK_WORKSTATION",
+      "params": { "deskWidth": 1.4, "deskDepth": 0.7, "partition": "fabric", "partitionHeight": 0.45 } },
+    { "id": "WS_CLUSTER_2", "label": "2-person cluster", "layout": "cluster", "seats": 2, "desk": "DESK_WORKSTATION",
+      "params": { "deskWidth": 1.4, "deskDepth": 0.7, "partition": "fabric", "partitionHeight": 0.45 } },
+    { "id": "WS_CLUSTER_4", "label": "4-person cluster", "layout": "cluster", "seats": 4, "desk": "DESK_WORKSTATION",
+      "params": { "deskWidth": 1.4, "deskDepth": 0.7, "partition": "fabric", "partitionHeight": 0.45 } },
+    { "id": "WS_CLUSTER_6", "label": "6-person cluster", "layout": "cluster", "seats": 6, "desk": "DESK_WORKSTATION",
+      "params": { "deskWidth": 1.4, "deskDepth": 0.7, "partition": "fabric", "partitionHeight": 0.45 } },
+    { "id": "WS_CLUSTER_8", "label": "8-person cluster", "layout": "cluster", "seats": 8, "desk": "DESK_WORKSTATION",
+      "params": { "deskWidth": 1.4, "deskDepth": 0.7, "partition": "fabric", "partitionHeight": 0.45 } },
+    { "id": "WS_ROW_4", "label": "Desk row (4)", "layout": "row", "seats": 4, "desk": "DESK_WORKSTATION",
+      "params": { "deskWidth": 1.4, "deskDepth": 0.7, "partition": "glass", "partitionHeight": 0.45 } },
+    { "id": "WS_MANAGER", "label": "Manager workstation", "layout": "manager", "seats": 1, "desk": "DESK_MANAGER",
+      "params": { "deskWidth": 1.8, "deskDepth": 0.85, "partition": "none", "partitionHeight": 0.45 } },
+    { "id": "WS_CABIN", "label": "Private cabin", "layout": "cabin", "seats": 1, "desk": "DESK_MANAGER",
+      "params": { "deskWidth": 1.6, "deskDepth": 0.8, "partition": "none", "partitionHeight": 0.45 },
+      "room": { "type": "OFFICE", "name": "Cabin", "width": 3.6, "depth": 3.2 } }
+  ]
+}

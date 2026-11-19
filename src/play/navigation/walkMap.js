@@ -40,6 +40,9 @@ import {
 } from '../building';
 import { CORNER_DESK_ARM } from '../people';
 import { hangsOnWall } from '../wallMount';
+import { UNKNOWN_ITEM_SIZE } from '../../catalog/manifest';
+
+const UNKNOWN_DEF = { defaultWidth: UNKNOWN_ITEM_SIZE.width, defaultDepth: UNKNOWN_ITEM_SIZE.depth };
 
 /** Cell size (m): a 1 m door minus the body leaves ~3 cells; narrower doors are opened along their centre line. */
 export const CELL = 0.1;
@@ -120,7 +123,8 @@ export const MODEL_SIZES = {
  * An item type the catalogue doesn't know counts as 1 × 1 m.
  */
 export function itemFootprint(obj, catalog = {}) {
-  const def = catalog[obj.assetType] ?? {};
+  // v0.18.0: a type this version doesn't know is drawn as a desk-sized box: walked round as one
+  const def = catalog[obj.assetType] ?? (catalog.DESK_STANDARD ? UNKNOWN_DEF : {});
   const size = MODEL_SIZES[obj.assetType];
   return {
     x: obj.x ?? 0,
@@ -223,7 +227,7 @@ export const ITEM_PARTS = {
  */
 export function itemFootprints(obj, catalog = {}) {
   const fp = itemFootprint(obj, catalog);
-  const parts = ITEM_PARTS[obj.assetType];
+  const parts = ITEM_PARTS[obj.assetType] ?? manifestParts(catalog[obj.assetType]);
   if (!parts) return [fp];
   const sx = Math.sign(obj.scaleX ?? obj.scale?.x ?? 1) || 1;
   const sz = Math.sign(obj.scaleZ ?? obj.scale?.z ?? 1) || 1;
@@ -240,6 +244,19 @@ export function itemFootprints(obj, catalog = {}) {
       hd: (p.z1 - p.z0) * fp.hd,
     };
   });
+}
+
+/**
+ * v0.18.0: a manifest item's `footprint` boxes (metres at its catalogue size, catalog/manifest.js) as
+ * ITEM_PARTS fractions; null = one box of its size.
+ */
+export function manifestParts(def) {
+  if (!def?.footprint?.length || !(def.defaultWidth > 0) || !(def.defaultDepth > 0)) return null;
+  const W = def.defaultWidth;
+  const D = def.defaultDepth;
+  return def.footprint.map((f) => ({
+    x0: (f.x - f.w / 2) / W, x1: (f.x + f.w / 2) / W, z0: (f.z - f.d / 2) / D, z1: (f.z + f.d / 2) / D,
+  }));
 }
 
 /** Solid items of one floor as rectangles (itemFootprints: an L-shaped desk is two). */

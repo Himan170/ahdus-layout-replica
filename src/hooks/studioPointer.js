@@ -16,6 +16,7 @@ import { elevationOf } from '../play/building';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { itemOverFloorPoint, wallTargetOf } from '../utils/pickHelpers';
 import { openingAt } from '../play/geometry';
+import { selectionFor } from '../play/prefab';
 import { distanceBetweenPoints } from '../utils/measurements';
 
 export function installStudioPointer({
@@ -134,8 +135,10 @@ export function installStudioPointer({
         // An item of the selected group (v0.15.5): the group stays (a drag moves it; plannerTools
         // selects just this item when the press turns out to be a click)
       } else if (meta?.objectId) {
-        // Clicked an object
-        store.selectObject(meta.objectId);
+        // Clicked an object; v0.18.0: an item of a saved group (a cluster) selects the group, Alt+click just it
+        const ids = store.objects[meta.objectId] ? selectionFor(store.objects, store.objects[meta.objectId], { alone: !!_evt?.altKey }) : [meta.objectId];
+        if (ids.length > 1) store.setObjectSelection(ids);
+        else store.selectObject(meta.objectId);
         store.selectRoom(null);
       } else if (meta?.roomId) {
         // Clicked a room

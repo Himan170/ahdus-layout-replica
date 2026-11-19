@@ -438,6 +438,7 @@ const EDITS: Record<string, unknown[]> = {
   turnRoom: ['room_a', { problem: null, patch: { width: 4, depth: 6, doors: [], windows: [] }, rooms: [], objects: [['obj_desk', { x: 1, z: 0, rotationY: 1.57 }]] }],
   toggleLock: ['obj_desk'],
   lockObjects: [['obj_desk'], true],
+  placePrefab: [{ objects: [{ id: 'obj_pf', assetType: 'DESK_WORKSTATION', floor: 0, x: 9, z: 9 }] }],
   lockRooms: [['room_a'], true],
   toggleRoomLock: ['room_a'],
   addRoom: [{ type: 'OFFICE', x: 20, z: 0, width: 4, depth: 4 }],
