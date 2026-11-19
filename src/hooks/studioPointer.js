@@ -88,6 +88,13 @@ export function installStudioPointer({
       return;
     }
 
+    // v0.18.2: only the main button places, builds or selects. A right / middle press turns or pans the
+    // camera; it may still cancel a drag in progress (plannerTools), never confirm an armed item or select.
+    if (_evt.button !== 0) {
+      plannerTools.pointerDown(_evt);
+      return;
+    }
+
     // If in placement mode, try to confirm placement
     if (placementMgr.isActive()) {
       // A tap on a touch screen has no pointer move before it: aim the ghost at the tap first

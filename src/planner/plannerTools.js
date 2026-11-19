@@ -1005,6 +1005,20 @@ export function createPlannerTools(scene, canvas, {
     try { canvas.setPointerCapture?.(pointerId); } catch { /* not captured: moves over other elements are missed */ }
   }
 
+  // v0.18.2: the pointer the browser cancels, a lost capture or the window losing the focus ends a drag
+  // (or a pressed room / item about to move) with no change and no undo step; the camera works again.
+  function onPointerLost(e) {
+    if (!drag && !pendingMove) return;
+    if (e?.type !== 'blur' && pointerId !== null && e?.pointerId != null && e.pointerId !== pointerId) return;
+    cancelDrag();
+  }
+  function watchLost(on) {
+    const f = on ? 'addEventListener' : 'removeEventListener';
+    window[f]('pointercancel', onPointerLost);
+    window[f]('blur', onPointerLost);
+    canvas[f]?.('lostpointercapture', onPointerLost);
+  }
+
   function startDrag(d) {
     drag = d;
     onMessage(null); // the last change's message would hide this drag's hint
@@ -1013,6 +1027,7 @@ export function createPlannerTools(scene, canvas, {
     getCamera()?.detachControl();
     capturePointer();
     window.addEventListener('pointerup', onWindowPointerUp);
+    watchLost(true);
   }
 
   function endDrag() {
@@ -1021,6 +1036,7 @@ export function createPlannerTools(scene, canvas, {
     livePosition.clear();
     pv.hideAll();
     window.removeEventListener('pointerup', onWindowPointerUp);
+    if (!pendingMove) watchLost(false);
     const camera = getCamera();
     if (camera && scene.activeCamera === camera) camera.attachControl(canvas, true);
   }
@@ -1047,13 +1063,16 @@ export function createPlannerTools(scene, canvas, {
     getCamera()?.detachControl();
     capturePointer();
     window.addEventListener('pointerup', onPendingUp);
+    watchLost(true);
   }
   function disarmMove() {
     if (!pendingMove) return;
     pendingMove = null;
     window.removeEventListener('pointerup', onPendingUp);
+    if (!drag) watchLost(false);
   }
-  function onPendingUp() {
+  function onPendingUp(e) {
+    if (pointerId !== null && e?.pointerId != null && e.pointerId !== pointerId) return; // another finger
     const d = pendingMove?.drag;
     disarmMove(); // it was a click
     // a click (no drag) on an item of a group selects just that item (v0.15.5)
@@ -1064,6 +1083,7 @@ export function createPlannerTools(scene, canvas, {
 
   // Releasing the mouse outside the canvas still finishes the drag
   function onWindowPointerUp(e) {
+    if (pointerId !== null && e?.pointerId != null && e.pointerId !== pointerId) return; // another finger (v0.18.2)
     if (drag && e.button === 0) {
       commitDrag();
       refresh();
@@ -1160,7 +1180,7 @@ export function createPlannerTools(scene, canvas, {
   /** @returns {boolean} true if the tool used the click (no selection / camera drag) */
   function pointerDown(evt) {
     if (!enabled) return false;
-    pointerId = evt.pointerId ?? null;
+    if (!drag && !pendingMove) pointerId = evt.pointerId ?? null; // a second finger never takes over a drag (v0.18.2)
     if (evt.button !== 0) {
       if (drag) { cancelDrag(); return true; }
       return false;

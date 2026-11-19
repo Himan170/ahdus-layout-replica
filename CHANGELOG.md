@@ -3,6 +3,44 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.18.2 (20 Nov 2026): stability
+
+Fixes from an outside audit of Studio's input and the viewer (`private-docs/V0.18.2_PLAN.md`: each item checked
+on v0.18.1 first; only the ones that really happened were fixed). Nothing in the layout format changes.
+- **A drop over a control places nothing:** a library tile released over Reset view, the selection bar or a menu
+  used to place the item on the floor behind it (`ui/canvasHit.js`). A tile drag whose pointer is cancelled drops
+  nothing.
+- **Only the main mouse button edits:** a right or middle press never confirms an armed item (stairs after a tap on
+  the tile) nor changes the selection; it still turns / pans the camera and cancels a drag.
+- **The wheel:** over a panel it scrolls the panel (it used to lift the armed item instead); over the 3D view it
+  lifts the item and no longer zooms the camera at the same time.
+- **A cancelled drag changes nothing:** after a `pointercancel`, a lost pointer capture or the window losing the
+  focus, a later release (another finger, a stale one) no longer finishes the move; no undo step, the camera works
+  again. A second finger never takes over a drag.
+- **Tab:** for someone moving through Studio with the keyboard, or inside an open menu or popover (Settings), it
+  moves the focus as everywhere else; after a mouse click (or on the 3D view) it is still the shortcut to Walk
+  through.
+- **Esc closes one level:** the phone's More → Settings: the first Esc closes Settings, the second More.
+- **The hidden selection bar** (its item off screen or dragged) is out of the Tab order.
+- **A small laptop:** 1024 × 768 with the library and the Inspector open: the 3D view is 443 px wide instead of
+  312, and every canvas control is visible and clickable (narrower panels between 601 and 1199 px; Export /
+  Measure, the selection bar and Add floor turn into icons when the canvas itself is narrow).
+- **The walk starts outside** even when a big blocked area fills the front of the main door (it could start inside
+  the room behind it). An indoor spawn point is still the editor's choice.
+- **The tour:** a walk that fails (stuck, no route from here) leaves you where you are, unticked, with the reason
+  ("Stopped · Press P to try again, or Skip the walk"); Resume walks again. It used to fade you to the stop and tick it.
+- **One seat per person:** a person sent twice, or two people at one desk, are drawn, found and seated once (the
+  first entry wins), the same for Find and the people drawn (`people.uniqueSeats`).
+- **Rooms inside rooms:** an item placed, moved or pasted in a cabin inside an open office belongs to the cabin,
+  whichever room was added first (`findRoomAt`: the smallest room there).
+- **Steadier timing tests:** the route (100 ms) and tour (500 ms) checks measure again, after a pause, only while
+  over their limit; the limits are unchanged.
+- Not changed (checked, by design): an indoor SPAWN_POINT stays the start; the audit's CAD import, wardrobe and
+  build-size points are backlog, not stability bugs.
+- New: `npm run e2e:stability` (12 checks: drop over Reset view, the drop on the floor, right / middle presses with
+  a selection and with the stairs armed, the wheel over a panel and over the view, a cancelled drag, the hidden bar,
+  Tab from Settings and on the canvas, 1024 × 768 with both panels, Esc on a phone).
+
 ## 0.18.1 (20 Nov 2026): doors, windows and glass
 
 Real doors that open, more kinds of windows, glass walls and five new room types (`private-docs/V0.18.1_PLAN.md`).

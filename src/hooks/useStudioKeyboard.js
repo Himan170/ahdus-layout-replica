@@ -21,6 +21,33 @@ import { turnStep } from '../play/carry';
 import { adjacentFloor } from '../floorplan/planFloors';
 import { isTypingTarget } from '../ui/typing';
 
+// How the focus got where it is (v0.18.2): a control clicked with the mouse keeps Tab as the Walk through
+// shortcut (as before); a control reached with the keyboard, or anything in an open popover / dialog, moves on.
+let lastInput = 'pointer';
+let focusByKeyboard = false;
+const noteKey = () => { lastInput = 'key'; };
+const notePointer = () => { lastInput = 'pointer'; };
+const noteFocus = () => { focusByKeyboard = lastInput === 'key'; };
+/** For tests: how the focus came (true = by the keyboard). */
+export const setFocusByKeyboard = (v) => { focusByKeyboard = !!v; };
+
+const POPOVER = '.ui-pop, [role="dialog"], [aria-modal="true"]';
+
+/**
+ * Tab goes to Walk through (v0.18.2) from the 3D view, with nothing focused, or from a control the mouse
+ * clicked while no popover / dialog is open. A control reached by Tab, or one in a popover, keeps the
+ * browser's Tab.
+ */
+export const tabEntersPreview = (el, doc = document) => {
+  if (!el || el === doc.body || el === doc.documentElement || el.tagName === 'CANVAS') return true;
+  if (focusByKeyboard) return false;
+  if (el.closest?.(POPOVER) || doc.querySelector(POPOVER)) return false;
+  return true;
+};
+
+/** The 3D view's canvas (the wheel sets a placed item's height only there). */
+export const isStudioCanvas = (el) => el?.tagName === 'CANVAS' && !!el.closest?.('.canvas-card');
+
 export function useStudioKeyboard({
   editor, handleCancelPlacement, handleToggleGizmo, handleTurnItem, handleTurnRoom, handleEnterPlay, handleSetPlannerTool,
   handleDeleteOpening, showStudioMessage, isPlayingRef, plannerToolsRef, measureModeRef, measureStartRef,
@@ -84,6 +111,9 @@ export function useStudioKeyboard({
 
       switch (e.key) {
         case 'Tab':
+          // v0.18.2: Tab on a control reached by Tab, or in an open popover, moves the focus as everywhere
+          // else; on the 3D view, nothing focused or a control just clicked it is the shortcut to Walk through
+          if (!tabEntersPreview(e.target)) break;
           e.preventDefault();
           handleEnterPlay();
           break;
@@ -299,21 +329,29 @@ export function useStudioKeyboard({
       }
     };
 
-    // Scroll wheel: adjust height of ghost during placement
+    // Scroll wheel: adjust height of ghost during placement. v0.18.2: only over the 3D view (a panel's
+    // wheel scrolls the panel), and then ONLY the height: caught on the way down (capture), so the
+    // camera's own wheel listener on the canvas doesn't zoom as well.
     const handleWheel = (e) => {
       if (isPlayingRef.current) return;
       const mgr = placementManagerRef.current;
-      if (mgr?.isActive()) {
-        e.preventDefault();
-        mgr.adjustHeight(e.deltaY > 0 ? -1 : 1);
-      }
+      if (!mgr?.isActive() || !isStudioCanvas(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      mgr.adjustHeight(e.deltaY > 0 ? -1 : 1);
     };
 
+    window.addEventListener('keydown', noteKey, true);
+    window.addEventListener('pointerdown', notePointer, true);
+    window.addEventListener('focusin', noteFocus, true);
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('wheel', handleWheel, { passive: false, capture: true });
     return () => {
+      window.removeEventListener('keydown', noteKey, true);
+      window.removeEventListener('pointerdown', notePointer, true);
+      window.removeEventListener('focusin', noteFocus, true);
       window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('wheel', handleWheel, { capture: true });
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the refs and state setters passed in are stable
   }, [editor, handleCancelPlacement, handleToggleGizmo, handleTurnItem, handleTurnRoom, handleEnterPlay, handleSetPlannerTool, handleDeleteOpening, showStudioMessage, groupActions, pasteTarget]);

@@ -56,7 +56,7 @@ import '@babylonjs/core/Meshes/thinInstanceMesh';
 
 import {
   deskSeats, seatPose, personNear, chooseFullCharacters, canonicalBoneName, boneKey, SEATED_POSE, STANDING_POSE,
-  SEAT_HEIGHT, HIPS_ABOVE_SEAT, HIPS_BEHIND_SEAT, breathing, phaseOf, MAX_FULL_CHARACTERS, MAX_ANIMATED, workClip,
+  SEAT_HEIGHT, HIPS_ABOVE_SEAT, HIPS_BEHIND_SEAT, breathing, phaseOf, MAX_FULL_CHARACTERS, MAX_ANIMATED, workClip, uniqueSeats,
 } from '../../play/people';
 import { levelForY } from '../../play/building';
 import { cleanClothing, outfitLook, partName } from '../../play/outfit';
@@ -277,12 +277,7 @@ export class CharacterSystem {
    * the layout isn't drawn; one desk = one person (the first one listed).
    */
   setPeople(people: Person[]): void {
-    const seen = new Set<string>();
-    this.people = (people ?? []).filter((p) => {
-      if (!p || typeof p.personId !== 'string' || typeof p.deskId !== 'string' || seen.has(p.deskId)) return false;
-      seen.add(p.deskId);
-      return true;
-    }).map((p) => ({ ...p, character: validCharacter(p.character), clothing: cleanClothing(p.clothing) }));
+    this.people = (uniqueSeats((people ?? []).filter((p) => p && typeof p.personId === 'string' && typeof p.deskId === 'string')) as Person[]).map((p) => ({ ...p, character: validCharacter(p.character), clothing: cleanClothing(p.clothing) }));
     this.placedFor = null;
     this.lastChoice = -Infinity;
     this.update();

@@ -64,7 +64,14 @@ export default function SelectionToolbar({
       const b = getBounds();
       const card = el.parentElement;
       const box = b && projectBox(scene, b.min, b.max);
-      if (!box || !box.visible || !card || isBusy()) { el.dataset.hidden = 'true'; return; }
+      if (!box || !box.visible || !card || isBusy()) {
+        // v0.18.2: hidden for now (the item is off screen, or being dragged): out of the Tab order too,
+        // unless the focus is already in it (a keyboard user keeps their place)
+        el.dataset.hidden = 'true';
+        if (!el.contains(document.activeElement)) el.inert = true;
+        return;
+      }
+      el.inert = false;
 
       const w = el.offsetWidth;
       const h = el.offsetHeight;

@@ -222,7 +222,7 @@ export default function StudioFooter({
       )}
       <button className="ui-btn canvas-footer__add" aria-label="Add floor" title="Add a floor above the top one"
         aria-expanded={open === 'add'} onClick={() => setOpen((v) => (v === 'add' ? false : 'add'))}>
-        <Plus {...ICON} /> Add floor
+        <Plus {...ICON} /> <span className="canvas-footer__add-text">Add floor</span>
       </button>
       {hiddenNote && (
         <span className="canvas-footer__hidden" role="status" data-hidden-note={hiddenNote}>

@@ -294,17 +294,34 @@ describe('the company tour (TourSystem)', () => {
     expect(tour.running).toBe(false);
   });
 
-  it('a walk that fails (stuck) or can\'t start: there with a fade, and says why', async () => {
-    const { tour, hooks, navEvent } = setup();
+  it('v0.18.2: a walk that fails (stuck) or can\'t start: you stay where you are, nothing ticked, it says why; Resume tries again', async () => {
+    const { tour, hooks, navEvent, me, types } = setup();
     tour.start();
-    tour.next();
+    tour.next(); // walking to stop 2 (index 1)
+    const at = { ...me };
+    hooks.setPose.mockClear();
     navEvent('failed', { message: "Can't get past here" });
     await Promise.resolve();
-    expect(tour.status).toMatchObject({ state: 'stop', index: 1 });
+    expect(hooks.setPose).not.toHaveBeenCalled(); // no fade to the stop
+    expect({ x: me.x, z: me.z, floor: me.floor }).toEqual({ x: at.x, z: at.z, floor: at.floor });
+    expect(tour.status).toMatchObject({ state: 'paused', pausedFrom: 'walking', index: 1, message: "Can't get past here" });
+    expect(tour.status.visited).toEqual(['entrance']); // not ticked
+    expect(types()).toContain('problem');
+    // Resume: the walk again from here
+    hooks.routeTo.mockClear();
+    expect(tour.resume()).toBe(true);
+    expect(hooks.routeTo).toHaveBeenCalledTimes(1);
+    expect(tour.status).toMatchObject({ state: 'walking', index: 1, message: null });
+    // a walk that can't even start: the same, and Skip the walk still goes there on purpose
     hooks.routeTo.mockReturnValueOnce({ problem: 'NO_ROUTE', message: 'No walking route to Sales' } as never);
     tour.next();
     await Promise.resolve();
-    expect(tour.status).toMatchObject({ state: 'stop', index: 2, message: 'No walking route to Sales' });
+    expect(hooks.setPose).not.toHaveBeenCalled();
+    expect(tour.status).toMatchObject({ state: 'paused', index: 2, message: 'No walking route to Sales' });
+    tour.skip();
+    await Promise.resolve();
+    expect(hooks.setPose).toHaveBeenCalledTimes(1);
+    expect(tour.status).toMatchObject({ state: 'stop', index: 2 });
   });
 
   it('prefers-reduced-motion: no turning on the way; arriving faces the stop behind a fade', async () => {
