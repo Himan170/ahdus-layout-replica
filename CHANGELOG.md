@@ -3,6 +3,61 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.18.1 (20 Nov 2026): doors, windows and glass
+
+Real doors that open, more kinds of windows, glass walls and five new room types (`private-docs/V0.18.1_PLAN.md`).
+- **Door types** (Doors & windows library, one tile each; a selected door's Inspector: **Type**, one undo step):
+  wooden door (as before), glass door with a metal frame, double glass entrance door (1.8 m), sliding glass door
+  (1.8 m) and emergency exit (green EXIT sign above it; it swings OUT of the room it was placed from). A door in a
+  shared wall is one door: changing it from either room changes both.
+- **Doors open:** in the viewer, the embed and Walk through a door opens smoothly (0.5 s) when someone walking comes
+  within 1.5 m (you, Take me there, the tour, live people walking) and closes 1 s after they have gone; someone
+  standing in an open doorway holds it open. Seated people never open a door, nor does someone on another floor; at
+  most 4 doors move at once, yours first. Studio shows every door half open, so you see which way it swings. Plan
+  view and the floor plan export draw the same swing. The leaves are drawn apart from the rooms (`DoorSystem`, at most
+  4 meshes for all doors), are not pickable and never block: a doorway is walkable as before (walk map, routes and
+  Check are unchanged).
+- **Window types:** standard (as before), tall (1.0 × 2.2 m, low sill, with a transom) and a full-height glass panel
+  (floor to ceiling, 2.0 m, it follows its wall's height). Windows still block walking.
+- **Glass walls:** the room Inspector's **Walls**: North / East / South / West each Solid or Glass, + All glass (one
+  undo step). A glass wall has a thin metal frame; people and desks inside show through it; it still blocks walking
+  and is selected like a wall. A shared wall is glass when either room says so. **A new Meeting room's first door
+  makes its wall glass** (in the same undo step); a wall set by hand, Cabins and rooms from before stay as they are.
+  In the viewer a click or hover through glass reaches the person or desk behind it, and a click on the floor behind
+  it walks there through the door (no door: "…: it has no door").
+- **Room types:** Cafeteria, Lounge, Cabin, Training Room and Lobby, each with its own floor, default name and size,
+  library tile, icon and catalog item. Find: "Nearest cafeteria" (canteen, pantry, lunch…) and a kind for each in the
+  browse menu; Cafeteria, Lounge, Training Room and Lobby are shared rooms (no department from their seats), a Cabin
+  takes its person's department. The tour stops at one cafeteria per floor; with no Reception, a Lobby's door is the
+  main entrance. New private cabins (the workstation prefab) are Cabins.
+- **Save format:** only new optional fields (an opening's `style` and an exit's `swing`, a room's `glassWalls` and
+  `glassOnFirstDoor`, in v2 a room's `subtype`). v0.18.0 layouts open unchanged. **What older embeds and viewers
+  (v0.18.0, v0.17.x) do with a v0.18.1 layout:** every door is a plain open doorway with a wooden frame at its saved
+  size; a tall window or glass panel is a standard window frame at its saved size; glass walls are solid walls; the
+  new room types show as their nearest older type (Cafeteria and Lounge: Custom; Lobby: Reception; Training Room:
+  Meeting Room; Cabin: Office), with their names. Never an error, never a magenta box. **Saving again from an older
+  Studio drops the new settings** (doors wooden, walls solid, room types their older type). From now on an unknown
+  room type, door or window style reads as Custom / the plain one instead of failing.
+- **Performance:** measured before (v0.18.0) and after on the same machine.
+  - **Meridian on a real GPU** (Intel UHD, the built embed, 300 people seated, the same camera spots and scripted walk;
+    `private-docs/screenshots/v0.18.1/perf/`). With no glass: +2 draw calls (the door leaves: 174 → 176 from above,
+    151 → 153 walking), +2 meshes (1,149 → 1,151), the same frame times (looking along a corridor: median 9.7 ms both).
+    With its 3 meeting rooms all glass, looking through them from the corridor: median 9.7 → 12.0 ms, p90 10.3 →
+    12.6 ms, the worst frame unchanged (~30 ms), the same draw calls (153), fewer meshes (1,154: a glass wall has no
+    skirting). The stress case, every office and meeting room all glass (17 rooms): median 11.6 ms, 1,111 meshes. Far
+    under the limits (≤ 2,000 meshes, ≤ 1,500 draw calls).
+  - **e2e:perf** (SwiftShader, 72 rooms + 864 items): Studio 1,796 → 1,798 meshes, 285 → 287 draw calls (ground floor),
+    921 → 923 (all floors); the tour walking 371 → 372; the 300-seat office 72 → 74 in Studio. 300 seated people and
+    a walker standing among them: 0 doors open.
+- **Old embeds checked for real** (A1): a layout made in v0.18.1 Studio with every new type, style and a glass wall,
+  as its AHDUS save and as its exported file, opened in the v0.17.3 and v0.18.0 embeds built from their tags: no error,
+  no magenta, every room walkable through its door, the glass wall solid, drawn as described above; reopened in v0.18.1
+  everything is still there (`private-docs/screenshots/v0.18.1/a1/`).
+- **Fixed on the way:** a jump (Back to entrance, a tour fade, a live person's 5 m snap) never opens the door where you
+  land.
+- New: `npm run e2e:doors` (24 checks, `SHOTS=<dir>`: each door shut and open, a glass meeting room with people
+  inside); e2e:perf checks that 300 seated people open no door.
+
 ## 0.18.0 (16 Nov 2026): workstations
 
 Open offices are built from workstation clusters, not one desk at a time

@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1632, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1690, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -81,14 +81,25 @@ npm run e2e:workstations # 32 checks e2e/workstations-smoke.mjs (v0.18.0: the 8 
                      #                                       the 0.9 m drop hint + Check's aisle warning, a cluster at a door (ONE line) +
                      #                                       Fix it, manager + cabin (Take me there's route to its desk, a click walks in), Floor 1, the hint wraps, people typing,
                      #                                       an unknown type's box; SHOTS=<dir>: each prefab above + eye level)
-npm run e2e:perf     # 28 checks   e2e/perf-smoke.mjs (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
+npm run e2e:doors    # 24 checks   e2e/doors-smoke.mjs     (v0.18.1: the Doors & windows tiles, a glass door half open in
+                     #                                       Studio, a shared door = ONE door, exit from the other room swings out
+                     #                                       of it + its sign + one undo, a new Meeting room's first door makes its
+                     #                                       wall glass (one undo / redo), the Inspector's glass walls, save +
+                     #                                       reopen, Floor 1; viewer: shut from above, each style opens as you walk
+                     #                                       up, closes behind you, Take me there through a double glass door, a
+                     #                                       live person opens one (upstairs: none), at most 4, a click / pick
+                     #                                       through glass, the floor behind glass walks via the door, no door =
+                     #                                       "it has no door"; SHOTS=<dir>: each door shut / open, a glass room
+                     #                                       with people inside, the library, the new room types)
+npm run e2e:perf     # 29 checks   e2e/perf-smoke.mjs (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
                      #                                       and in viewer.html with the company tour walking / at a stop (TOUR=off skips it);
                      #                                       one room change rebuilds only it + its neighbours; all items
                      #                                       real models; REALISTIC=off measures the simple look;
                      #                                       v0.18.0: a 300-seat office of 6-person clusters on 2 floors,
                      #                                       Studio + walking with 300 people, beside the same seats as
                      #                                       v0.17 desks: half the items / meshes, 2 desk shapes, draw calls
-                     #                                       ≤ 120, FPS of both; SHOTS=<dir>: 300-seats-*.png; WS=off skips it)
+                     #                                       ≤ 120, FPS of both; v0.18.1: 300 seated people open no door;
+                     #                                       SHOTS=<dir>: 300-seats-*.png; WS=off skips it)
 npm run e2e:shared-walls  # 17     e2e/shared-walls-smoke.mjs (one wall + one doorway; picks with either owner;
                           #                                    Inspector "Wall thickness" 0.4 m + Ctrl+Z)
 npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
@@ -455,6 +466,50 @@ Door items in drawn walls are visibly open doorways, matching room doors; floor 
 Measured on 72 rooms / 864 items: 132 ms cold, 112 ms with warm walk maps (11 Nov 2026).
 Regression script: `npm run e2e:check` (14 checks) (template door removed/restored, selection, floor switching, Ignore/undo/reopen, phone).
 
+## Doors, windows and glass (v0.18.1, how they work)
+
+private-docs/V0.18.1_PLAN.md (decisions + acceptance checks A1–A6). Rooms stay rectangles; nothing new is an item.
+- **Styles** (PURE `play/openingStyles.js`, tests `openingStyles.test.js`): a door's `style` = wood (missing) | glass |
+  double-glass (1.8 m, ≥ 1.4) | sliding-glass (1.8 m, ≥ 1.2) | exit (≥ 0.9, `swing: 'out'` saved); a window's = standard
+  (missing) | tall (1.0 × 2.2 m, sill 0.3, a transom) | panel (sill 0, up to the wall top less 0.1 m whatever height it
+  saved). A record saves `style` only when not the default. Library: a tile per style (Doors & windows,
+  `OpeningPicture`); the Inspector's `Door type` / `Window type` (`data-opening-style`) = `geometry.planOpeningStyle`
+  + `editor.setOpeningStyle` (a shared door: both records, one undo step; too narrow = why).
+- **Door leaves** (PURE `play/doorSwing.js`, tests `doorSwing.test.js`; `engine/systems/DoorSystem.ts`, tests
+  `DoorSystem.test.ts`): `doorOf(rooms, room, i)` = ONE door per doorway (a shared door: the record with a swing, else
+  the room whose id sorts first; `drawsDoor`), its hinge, `side` = the way it swings (into its room; an exit OUT of the
+  room that placed it). `doorParts(door, open)` = boxes (leaf, glass, frame, push bar, handle; double = two leaves from
+  the middle; sliding = panels along the wall), `leafLines` = the same swing for Plan view (`roomWallPieces(room,
+  rooms)` → doors / slides, `data-plan-door` = style) and the export (`drawDoor`). DoorSystem: 4 thin-instance meshes
+  (`door_leaves_wood | steel | glass | metal`), not pickable, no collisions, no shadows; redrawn only when a door's
+  amount changes; shown with its room's node. Studio's planner: all `STUDIO_OPEN` 0.5. Elsewhere
+  `createDoorAnimator`: a door opens (`OPEN_TIME_S` 0.5) for a MOVING person (> `MOVING_SPEED` 0.25 m/s, from their
+  positions; a jump faster than `JUMP_SPEED` 12 m/s is not walking) within `OPEN_RADIUS` 1.5 m on the floor shown,
+  stays while someone is in its doorway (`HOLD_RADIUS` 0.7), closes `CLOSE_AFTER_S` 1 s after; at most
+  `MAX_ANIMATED_DOORS` 4 not shut, the local walker's first. Movers: LayoutEngine = the walker ('me', local) + live
+  people with a position, not at their desk (seated people never); Studio's Walk through = the walker. Dev hook
+  `__ahdusDoors` (Studio), `engine.doors`. The walk map, routes and Check are unchanged: a doorway is always open.
+- **Exit sign:** roomBuilder builds it into an exit door's frame (`mats.exitSign`, emissive green) when it fits under
+  the wall top.
+- **Glass walls** (room fields `glassWalls: ['north' …]` and `glassOnFirstDoor`, optional; `geometry.isGlassWall`; in
+  `roomBuildInput`; they turn with the room): roomBuilder builds rails, posts ≤ 1.5 m apart and a pane (material
+  `metadata.glass`), still part "wall" (it collides, the walk map is unchanged). A shared wall is glass when either room
+  says so. Inspector `GlassWalls` (`data-glass-wall` = side, aria-pressed; `data-glass-all`; `data-glass-first-door`),
+  one undo step. `editor.addRoom` sets `glassOnFirstDoor` on a new MEETING room; `addOpenings` turns the first door's
+  wall glass in the same step (a wall set by hand clears the flag). Plan view / export: a light-blue line.
+- **Through glass** (`pickHelpers.hitIsGlass` / `pickThroughGlass`, multiPickWithRay): playController's `clickTarget`,
+  `CharacterSystem.pickPerson` and LiveSystem's name tags see through it; a click on the floor behind walks by the real
+  route (through the door; none: "…: it has no door"). Studio selects a glass wall like any wall.
+- **Room types** CAFETERIA, LOUNGE, CABIN, TRAINING_ROOM, LOBBY: `roomStore` defaults, `materialLibrary` floor kinds
+  (existing painters / photo sets, tinted), `RoomPicture`, `tools.ROOM_ICONS`, the catalog. Find: CAFETERIA is a
+  facility ("Nearest cafeteria"); browse kinds; CAFETERIA / LOUNGE / TRAINING_ROOM / LOBBY in `SHARED_ROOM_TYPES`; the
+  tour: one cafeteria per floor; `entrance.js`: a LOBBY's door when there is no RECEPTION. Tests `newRoomTypes.test.js`.
+- **Format** (`engine/model/roomTypes.ts`, `formatCompat.test.ts` against a frozen v0.18.0 schema): the store keeps the
+  real type; v2 and exported files write the nearest OLD type (Cafeteria / Lounge: CUSTOM, Lobby: RECEPTION, Training
+  Room: MEETING, Cabin: OFFICE) + `subtype`. An unknown room type / style reads as CUSTOM / the default. Older builds
+  (v0.18.0, v0.17.x) open such a layout without an error: plain wooden doorways, standard window frames, solid walls,
+  the older types; **saving from an older Studio drops the new settings** (docs/ROOM_FORMAT.md).
+
 ## Workstations (v0.18.0, how they work)
 
 `private-docs/REALISTIC_WORKPLACE_PLAN.md`. Nothing new is saved outside an item's `metadata`; no schema change.
@@ -646,6 +701,11 @@ src/ui/hiddenLayers.js             Layers' eye (v0.15.6): hidden rooms / items p
 src/play/stairFit.js               PURE (v0.17.4): stairs that work: stairFit (problems + the floor they miss), stairPreview,
                                    stairProblems, stairSpots / findStairSpot (nearest spot that works), findItemSpot
 src/play/turnedRect.js             PURE (v0.17.4): turned rectangles (rectsOverlap, boxOf, distanceTo, farApart)
+src/play/doorSwing.js              PURE (v0.18.1): one door per doorway (doorOf), its leaves (doorParts / leafLines), who
+                                   opens which (createDoorAnimator: moving people only, ≤ 4)
+src/engine/systems/DoorSystem.ts   v0.18.1: the door leaves (4 thin-instance meshes), half open in Studio, opening elsewhere
+src/play/openingStyles.js          PURE (v0.18.1): door / window styles, their sizes, what a record saves
+src/engine/model/roomTypes.ts      v0.18.1: newer room types → the nearest older type + subtype in v2
 src/catalog/                       v0.18.0: workstations.json (the asset manifest: item types + prefabs) + manifest.js (PURE:
                                    readManifest, MANIFEST_TYPES, PREFABS, prefabById, manifestDesks, UNKNOWN_ITEM_SIZE)
 src/play/workstation.js            PURE (v0.18.0): a workstation desk's options (wsParams, wsKey, wsPatch, hasOwnScreen)
@@ -1619,6 +1679,7 @@ site on the server (local mode renames the layout), the leave check. Saving, und
   the libraries (`Rooms library`, …; `data-library`), `Add floor`, `Full screen` / `Exit full screen`, `Reset view`, `Zoom in`, `Zoom out`, `Orbit`, `Pan`, `Top view`,
   `Front view`, `Side view`, `Room type`, `Room department`; on a phone `More` (menu `More actions`) and `Close the library`.
   AHDUS seats: the section `Who sits here`, `Search people`, `People found`, the banner `People without a desk`.
+  Doors & glass (v0.18.1): `Door type`, `Window type`, the glass wall buttons (`data-glass-wall`, aria-pressed).
   Workstations (v0.18.0): `Seats`, `Partition`, `Desk width`, `Desk depth`, `Partition height`, library tiles titled
   "<prefab label>: drag onto the floor…" (e2e:workstations finds them by `title^=`).
   `Export floor plan` and `Measurements` keep their labels (the visible text is "Export" / "Measure").
@@ -1936,6 +1997,13 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: doors, windows and glass (v0.18.1, 20 Nov 2026, branch `feature/v0.18.1-doors-windows-glass`)
+
+private-docs/V0.18.1_PLAN.md: five door types whose leaves open for people walking (≤ 4 at once; half open in Studio),
+three window types, glass walls (a new Meeting room's first door wall in glass), five room types, a save format older
+embeds open (see "Doors, windows and glass"; CHANGELOG.md). e2e:doors 24 checks. Screenshots:
+private-docs/screenshots/v0.18.1/ (not in git).
 
 ## DONE: workstations (v0.18.0, 16 Nov 2026, branch `feature/v0.18.0-workstations`)
 
