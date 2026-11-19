@@ -26,6 +26,8 @@ export const OPEN_RADIUS = 1.5;
 export const HOLD_RADIUS = 0.7;
 /** Faster than this (m/s) = moving; slower = standing (they only HOLD a door that is open). */
 export const MOVING_SPEED = 0.25;
+/** Faster than this between two frames is a jump, not walking (running 4.5, flying 6 m/s). */
+export const JUMP_SPEED = 12;
 export const OPEN_TIME_S = 0.5;
 export const CLOSE_AFTER_S = 1;
 /** Studio: every door half open (45°, a sliding door half way). */
@@ -276,7 +278,8 @@ export function createDoorAnimator({ max = MAX_ANIMATED_DOORS, openTime = OPEN_T
         let speed = p.speed;
         if (!Number.isFinite(speed)) {
           const v = was && step > 0 ? Math.hypot(p.x - was.x, p.z - was.z) / step : 0;
-          speed = was ? was.speed + (v - was.speed) * Math.min(1, step / 0.2) : 0;
+          // faster than anyone walks, runs or flies = a jump (setPose, Back to entrance, a fade, a live snap): standing
+          speed = !was || v > JUMP_SPEED ? 0 : was.speed + (v - was.speed) * Math.min(1, step / 0.2);
         }
         last.set(p.id, { x: p.x, z: p.z, speed });
         moving.push({ ...p, speed, moves: speed > MOVING_SPEED });

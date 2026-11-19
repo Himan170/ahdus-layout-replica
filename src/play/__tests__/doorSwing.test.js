@@ -141,6 +141,19 @@ describe('who opens a door (A5)', () => {
     expect(open.get(doors[5].key)).toBe(1);
   });
 
+  it('a jump (setPose, Back to entrance, a fade, a live snap) is not walking: no door opens where you land', () => {
+    const anim = createDoorAnimator();
+    const d = doors[2];
+    anim.update(0.05, doors, [{ id: 'me', x: 40, z: 40, floor: 0, local: true }]);
+    anim.update(0.05, doors, [{ id: 'me', x: 40, z: 40, floor: 0, local: true }]);
+    const landed = { id: 'me', x: d.centre.x, z: d.centre.z - 0.8, floor: 0, local: true };
+    expect(run(anim, [landed], 2).size).toBe(0);
+    // walking on from there opens it as usual
+    let open;
+    for (let t = 0, z = landed.z; t < 1; t += 0.05, z += 0.05) open = anim.update(0.05, doors, [{ ...landed, z }]);
+    expect(open.get(d.key)).toBeGreaterThan(0);
+  });
+
   it(`a mover only opens doors within ${OPEN_RADIUS} m`, () => {
     const anim = createDoorAnimator();
     const d = doors[0];

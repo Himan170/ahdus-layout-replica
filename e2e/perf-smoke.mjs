@@ -628,7 +628,9 @@ if (process.env.WS !== 'off') {
     const o = sc.onBeforeRenderObservable.add(() => { if (first) { window.__drawCalls = 0; first = false; t = performance.now(); } });
     sc.onAfterRenderObservable.addOnce(() => {
       sc.onBeforeRenderObservable.remove(o);
-      res({ meshes: sc.meshes.length, active: sc.getActiveMeshes().length, drawCalls: window.__drawCalls, frameMs: Math.round(performance.now() - t) });
+      const doors = window.__ahdusViewer.doors;
+      res({ meshes: sc.meshes.length, active: sc.getActiveMeshes().length, drawCalls: window.__drawCalls, frameMs: Math.round(performance.now() - t),
+        doors: doors?.list.length ?? 0, doorsAnimated: doors?.animated ?? -1 });
     });
   }));
   const walking = await vMeasure();
@@ -641,6 +643,9 @@ if (process.env.WS !== 'off') {
   log(`walking among 300 seats with 300 people seated (all typing): ≤ ${MAX_DRAW_CALLS} draw calls, ≤ ${MAX_MESHES} meshes`,
     walkClusters.placed === 300 && walkClusters.typing === 300 && walkClusters.drawCalls <= MAX_DRAW_CALLS && walkClusters.meshes <= MAX_MESHES,
     JSON.stringify(walkClusters));
+  // v0.18.1 (A5): doors open only for people who move: 300 seated people and a walker standing still move none
+  log('v0.18.1: 300 people seated near the doors, the walker standing: no door opens', walkClusters.doors > 0 && walkClusters.doorsAnimated === 0,
+    `${walkClusters.doors} doors, ${walkClusters.doorsAnimated} not shut`);
   await office('desks');
   const walkDesks = await vRun(await layoutNow(), shots ? '300-seats-walking-v017.png' : null);
   log('walking: 300 seats in clusters against the same seats as v0.17 desks (reported)', true,
