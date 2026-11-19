@@ -17,6 +17,7 @@
 
 import { WALL_THICKNESS, wallThicknessOf, roomOpenings } from '../play/geometry';
 import { ROOM_TYPES } from './roomStore';
+import { doorOf, leafLines } from '../play/doorSwing';
 import { ASSET_TYPES } from './assetCatalog';
 
 // ── Drawing constants ─────────────────────────────────────────────────────
@@ -96,92 +97,65 @@ function floorBounds(rooms, objects) {
 // ── Door arc helper ───────────────────────────────────────────────────────
 
 /**
- * Draw a door:  a filled rectangle (threshold) + a quarter-circle sweep arc.
- * `wallAxis`: 'x' if the wall runs along X, 'z' if along Z.
- * The arc swings into the room interior.
+ * Draw a door: the opening blanked (white over the wall), then each leaf open with its quarter-circle sweep.
+ * v0.18.1: the swing comes from doorSwing (the same rule as Plan view and the 3D leaves): into the room, an
+ * emergency exit out of it, a double door from the middle; a sliding door draws its two panels along the wall.
+ * A doorway in a shared wall is drawn once, by the room its swing comes from.
  */
-function drawDoor(ctx, opening, room, tx, ty, pxPerM, detailScale) {
-  const { wall, offset, width } = opening;
-  const T   = wallThicknessOf(room);
-  const cx = room.x;
-  const cz = room.z;
-
-  // Wall centre in world coords
-  const wallCentre = {
-    north: { wx: cx,         wz: cz + room.depth / 2 },
-    south: { wx: cx,         wz: cz - room.depth / 2 },
-    east:  { wx: cx + room.width / 2, wz: cz },
-    west:  { wx: cx - room.width / 2, wz: cz },
-  }[wall];
-
-  const { wx: wcx, wz: wcz } = wallCentre;
-  const alongX = wall === 'north' || wall === 'south';
-
-  // Pivot of the door (hinge) in world space
-  const pivotX = alongX ? wcx + offset - width / 2 : wcx;
-  const pivotZ = alongX ? wcz : wcz + offset - width / 2;
-
-  // Tip of the door panel (the end of the arc) in world space
-  const tipX = alongX ? pivotX + width : pivotX;
-  const tipZ = alongX ? pivotZ : pivotZ + width;
-
-  const p  = toCanvas(pivotX, pivotZ, tx, ty, pxPerM);
-  const t  = toCanvas(tipX, tipZ, tx, ty, pxPerM);
-  const wPx = width * pxPerM;
+function drawDoor(ctx, opening, room, rooms, tx, ty, pxPerM, detailScale) {
+  const door = doorOf(rooms, room, opening.index);
+  if (!door || door.roomId !== room.id) return;
+  const T = door.thickness;
+  const pa = toCanvas(door.a.x, door.a.z, tx, ty, pxPerM);
+  const pb = toCanvas(door.b.x, door.b.z, tx, ty, pxPerM);
 
   // Blank the wall opening (white rectangle over the wall)
   ctx.save();
   ctx.fillStyle = '#ffffff';
-  if (alongX) {
-    const ox = toCanvas(pivotX, pivotZ, tx, ty, pxPerM);
-    ctx.fillRect(ox.cx, ox.cy - T * pxPerM, wPx, T * pxPerM * 2);
-  } else {
-    const oz = toCanvas(pivotX, pivotZ, tx, ty, pxPerM);
-    ctx.fillRect(oz.cx - T * pxPerM, oz.cy - wPx, T * pxPerM * 2, wPx);
-  }
+  const half = T * pxPerM;
+  ctx.fillRect(Math.min(pa.cx, pb.cx) - (pa.cx === pb.cx ? half : 0), Math.min(pa.cy, pb.cy) - (pa.cy === pb.cy ? half : 0),
+    Math.abs(pb.cx - pa.cx) || half * 2, Math.abs(pb.cy - pa.cy) || half * 2);
   ctx.restore();
 
-  // Door panel line + arc
   ctx.save();
   ctx.strokeStyle = DOOR_COLOR;
-  ctx.fillStyle   = DOOR_FILL;
-  ctx.lineWidth   = 1.5 * detailScale;
+  ctx.lineWidth = 1.5 * detailScale;
   ctx.globalAlpha = 0.9;
-
-  // Draw thin door panel
-  ctx.beginPath();
-  ctx.moveTo(p.cx, p.cy);
-  ctx.lineTo(t.cx, t.cy);
-  ctx.stroke();
-
-  // Quarter-circle sweep into the room
-  let startAngle, endAngle;
-  const intoRoom = (wall === 'north') ? 1 : (wall === 'south') ? -1 : 0;
-  const intoRoomZ = (wall === 'east') ? 1 : (wall === 'west') ? -1 : 0;
-
-  if (alongX) {
-    const base = Math.atan2(t.cy - p.cy, t.cx - p.cx);
-    // Interior is toward room centre; north wall sweeps "down" (positive cy), south "up"
-    endAngle   = base;
-    startAngle = (wall === 'north') ? base + Math.PI / 2 : base - Math.PI / 2;
-  } else {
-    const base = Math.atan2(t.cy - p.cy, t.cx - p.cx);
-    endAngle   = base;
-    startAngle = (wall === 'east') ? base + Math.PI / 2 : base - Math.PI / 2;
+  if (door.style === 'sliding-glass') {
+    for (const l of leafLines(door, 0)) {
+      const p = toCanvas(l.from.x, l.from.z, tx, ty, pxPerM);
+      const q = toCanvas(l.to.x, l.to.z, tx, ty, pxPerM);
+      ctx.beginPath(); ctx.moveTo(p.cx, p.cy); ctx.lineTo(q.cx, q.cy); ctx.stroke();
+    }
+    ctx.restore();
+    return;
   }
-
-  ctx.beginPath();
-  ctx.moveTo(p.cx, p.cy);
-  ctx.arc(p.cx, p.cy, wPx, startAngle, endAngle, false);
-  ctx.closePath();
-  ctx.globalAlpha = 0.15;
-  ctx.fillStyle   = DOOR_COLOR;
-  ctx.fill();
-  ctx.globalAlpha = 0.9;
-  ctx.strokeStyle = DOOR_COLOR;
-  ctx.lineWidth   = detailScale;
-  ctx.stroke();
-
+  for (const l of leafLines(door, 1)) {
+    const p = toCanvas(l.from.x, l.from.z, tx, ty, pxPerM);
+    const open = toCanvas(l.to.x, l.to.z, tx, ty, pxPerM);
+    const shut = toCanvas(l.closed.x, l.closed.z, tx, ty, pxPerM);
+    const r = Math.hypot(open.cx - p.cx, open.cy - p.cy);
+    // the open leaf
+    ctx.globalAlpha = 0.9;
+    ctx.lineWidth = 1.5 * detailScale;
+    ctx.beginPath(); ctx.moveTo(p.cx, p.cy); ctx.lineTo(open.cx, open.cy); ctx.stroke();
+    // its quarter-circle sweep, the short way from shut to open
+    const a0 = Math.atan2(shut.cy - p.cy, shut.cx - p.cx);
+    const a1 = Math.atan2(open.cy - p.cy, open.cx - p.cx);
+    let d = a1 - a0;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    ctx.beginPath();
+    ctx.moveTo(p.cx, p.cy);
+    ctx.arc(p.cx, p.cy, r, a0, a1, d < 0);
+    ctx.closePath();
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = DOOR_COLOR;
+    ctx.fill();
+    ctx.globalAlpha = 0.9;
+    ctx.lineWidth = detailScale;
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -443,7 +417,7 @@ export function renderFloorPlanToCanvas({ rooms, objects = {}, floors, floorId, 
       if (op.kind === 'window') drawWindow(ctx, op, room, tx, ty, pxPerM, detailScale);
     }
     for (const op of openings) {
-      if (op.kind === 'door') drawDoor(ctx, op, room, tx, ty, pxPerM, detailScale);
+      if (op.kind === 'door') drawDoor(ctx, op, room, floorRooms, tx, ty, pxPerM, detailScale);
     }
   }
 

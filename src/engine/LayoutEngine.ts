@@ -71,6 +71,7 @@ import type { Person, PlacedPerson, CharacterFile, Clothing } from './systems/Ch
 import { cleanClothing } from '../play/outfit';
 import { createPlayerCharacter } from './systems/PlayerCharacter';
 import { LiveSystem } from './systems/LiveSystem';
+import { DoorSystem, type DoorMover } from './systems/DoorSystem';
 import type { LivePersonInput, LiveInfo } from './systems/LiveSystem';
 import { FullCapMonitor } from './systems/FullCap';
 import { QualityMonitor } from './systems/QualityMonitor';
@@ -323,6 +324,9 @@ export class LayoutEngine {
    * quality 'low' too (simple figures and name tags only).
    */
   readonly live: LiveSystem;
+  /** v0.18.1: the door leaves; they open for people who walk (play/doorSwing). */
+  readonly doors: DoorSystem;
+  private _doorTick: (() => void) | null = null;
   /** v0.16.1: how many full characters this device draws (measured from its frame rate). */
   readonly fullCap: FullCapMonitor;
   /** v0.17.0: the drawing quality, lowered by itself when frames are slow (QualityMonitor). */
@@ -467,6 +471,33 @@ export class LayoutEngine {
       },
       getMe: () => (this._player?.personId != null ? String(this._player.personId) : null),
     });
+    // v0.18.1: door leaves. Edit mode = half open; else they open for the walker and live people who move, on the
+    // floor shown (the walker's, else the one chosen), at most MAX_ANIMATED_DOORS at once
+    this.doors = new DoorSystem(this.scene, {
+      getLayout: () => this._store.getState(),
+      roomNode: (id) => this.rooms.getRoomMesh(id),
+      studio: () => this._mode === 'edit',
+      shownFloor: () => {
+        const walk = this._walkthrough;
+        return this._mode === 'walkthrough' && walk?.isActive() ? walk.getLevel() : (this._store.getState().currentFloor ?? 0);
+      },
+      movers: () => {
+        const out: DoorMover[] = [];
+        const walk = this._walkthrough;
+        if (this._mode === 'walkthrough' && walk?.isActive()) {
+          const p = walk.getPosition();
+          out.push({ id: 'me', x: p.x, z: p.z, floor: walk.getLevel(), local: true });
+        }
+        if (this.live.count) {
+          for (const l of this.live.list()) {
+            if (l.at && !l.atDesk) out.push({ id: `live:${l.personId}`, x: l.at.x, z: l.at.z, floor: l.floor as number });
+          }
+        }
+        return out;
+      },
+    });
+    this._doorTick = () => this.doors.update((this.babylonEngine.getDeltaTime?.() ?? 16) / 1000);
+    this.scene.onBeforeRenderObservable.add(this._doorTick);
     this.fullCap = new FullCapMonitor({
       weak: () => this.weakDevice,
       wanted: () => (this.characters?.wantedFull ?? 0) + this.live.wantedFull,
@@ -1198,6 +1229,8 @@ export class LayoutEngine {
     if (this._liveTick) this.scene.onBeforeRenderObservable.removeCallback(this._liveTick);
     if (this._capTick) this.scene.onAfterRenderObservable.removeCallback(this._capTick);
     this.live.dispose();
+    if (this._doorTick) this.scene.onBeforeRenderObservable.removeCallback(this._doorTick);
+    this.doors.dispose();
     this.characters?.dispose();
     this._unsubscribe();
     this._unsubscribeFloor();

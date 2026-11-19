@@ -651,7 +651,7 @@ export default function FloorPlanView({
         {/* ── Walls with Door Arcs and Windows (glass walls: drawn again over them, below) ── */}
         <g className="floor-plan-walls" pointerEvents="none" aria-hidden="true">
           {plan.rooms.map((room) => {
-            const pieces = roomWallPieces(room);
+            const pieces = roomWallPieces(room, plan.rooms);
             const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => at({
               x: room.x + (sx * room.width) / 2, z: room.z + (sz * room.depth) / 2,
             }));
@@ -682,11 +682,14 @@ export default function FloorPlanView({
                     <line {...line(w)} stroke="#0ea5e9" strokeWidth={T / 2.5} />
                   </g>
                 ))}
+                {pieces.slides.map((p, i) => (
+                  <line key={`slide${i}`} data-plan-door="sliding" {...line(p)} stroke="#1f2937" strokeWidth={0.05} />
+                ))}
                 {pieces.doors.map((door, i) => {
                   const b = at(door.b);
                   const open = at(door.open);
                   return (
-                    <g key={`door${i}`} data-plan-door="">
+                    <g key={`door${i}`} data-plan-door={door.style}>
                       <line {...line({ a: door.hinge, b: door.open })} stroke="#1f2937" strokeWidth={0.05} />
                       <path
                         d={`M ${b.x} ${b.y} A ${door.width} ${door.width} 0 0 ${door.sweep} ${open.x} ${open.y}`}

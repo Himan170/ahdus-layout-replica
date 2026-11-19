@@ -6,6 +6,7 @@
  * plan (SVG) x = world x, plan y = −world z (toPlan / toWorld).
  */
 
+import { doorOf, leafLines } from '../play/doorSwing.js';
 import { snap, roomOpenings, WALL_ASSET_LENGTH } from '../play/geometry';
 import { placementHeight, canStandOn, floorOnlyText, FLOOR_LIKE_TYPES } from '../play/building';
 import { carriedBy } from '../play/carry';
@@ -108,15 +109,19 @@ function roomEdges(room) {
 /**
  * A room's walls as plan lines, cut where its doors and windows are
  * (geometry.roomOpenings: the same data the 3D walls are built from).
- * Doors come with their swing: the leaf opens into the room from `hinge`.
- * @returns {{ walls: Array<{a,b}>, doors: Array<{a,b,hinge,open,sweep,width}>, windows: Array<{a,b}> }}
+ * Doors come with their swing (v0.18.1: doorSwing, as the 3D leaves): a leaf opens from `hinge` into the room,
+ * out of it for an emergency exit; a double door has two leaves, a sliding door none (`slide`: its panels).
+ * Given the floor's `rooms`, a doorway in a shared wall is drawn once, by the room its swing comes from.
+ * @returns {{ walls: Array<{a,b}>, doors: Array<{a,b,hinge,open,sweep,width,style}>, slides: Array<{a,b}>, windows: Array<{a,b}> }}
  *          points in world metres; sweep = SVG arc sweep flag from b to open, in plan coordinates
  */
-export function roomWallPieces(room) {
+export function roomWallPieces(room, rooms = null) {
   const edges = roomEdges(room);
   const walls = [];
   const doors = [];
+  const slides = [];
   const windows = [];
+  const all = rooms ? Object.values(rooms) : [room];
   for (const [name, edge] of Object.entries(edges)) {
     const glass = (room.glassWalls ?? []).includes(name); // v0.18.1: drawn light blue, over a neighbour's solid line
     const spans = roomOpenings(room)
@@ -133,17 +138,25 @@ export function roomWallPieces(room) {
       if (s.o.kind === 'window') {
         windows.push({ a, b });
       } else {
-        const width = s.u1 - s.u0;
-        const open = { x: a.x + edge.inward.x * width, z: a.z + edge.inward.z * width };
-        const v1 = { x: b.x - a.x, z: b.z - a.z };
-        const v2 = { x: open.x - a.x, z: open.z - a.z };
-        // plan y = −z mirrors the turn: a clockwise turn in x, z is counter-clockwise in the plan
-        doors.push({ a, b, hinge: a, open, width, sweep: v1.x * v2.z - v1.z * v2.x < 0 ? 1 : 0 });
+        const door = doorOf(all.includes(room) ? all : [...all, room], room, s.o.index);
+        if (!door || door.roomId !== room.id) continue; // the neighbour draws it
+        if (door.style === 'sliding-glass') {
+          for (const l of leafLines(door, 0)) slides.push({ a: l.from, b: l.to });
+          continue;
+        }
+        for (const l of leafLines(door, 1)) {
+          const width = Math.hypot(l.to.x - l.from.x, l.to.z - l.from.z);
+          const v1 = { x: l.closed.x - l.from.x, z: l.closed.z - l.from.z };
+          const v2 = { x: l.to.x - l.from.x, z: l.to.z - l.from.z };
+          // plan y = −z mirrors the turn: a clockwise turn in x, z is counter-clockwise in the plan
+          doors.push({ a: l.from, b: l.closed, hinge: l.from, open: l.to, width, style: door.style,
+            sweep: v1.x * v2.z - v1.z * v2.x < 0 ? 1 : 0 });
+        }
       }
     }
     if (u < edge.half) walls.push({ a: edge.at(u), b: edge.at(edge.half), wall: name, glass });
   }
-  return { walls, doors, windows };
+  return { walls, doors, slides, windows };
 }
 
 /**

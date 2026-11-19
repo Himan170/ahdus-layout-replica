@@ -35,6 +35,7 @@
  * changes is rebuilt, see roomGeometryKey).
  */
 
+import { isGlassDoor } from '../play/openingStyles';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
@@ -52,6 +53,8 @@ const FLOOR_Y = 0.02;          // just above the site ground, avoids z-fighting
 const SKIRTING_H = 0.1;
 const FRAME_W = 0.07;          // door/window frame profile width
 const PANEL_FRAME_W = 0.04;
+const EXIT_SIGN_W = 0.4;       // an emergency exit's sign over the door (v0.18.1)
+const EXIT_SIGN_H = 0.14;
 // A glass wall (v0.18.1): panes in a thin metal frame, a post at least every GLASS_BAY metres
 const GLASS_FRAME_W = 0.05;
 const GLASS_FRAME_D = 0.09;
@@ -365,7 +368,9 @@ export function buildRoomMesh(roomData, scene, options = {}) {
           part: o.kind, wallName: o.sourceWall, openingKind: o.kind, openingIndex: o.index,
           roomId: o.roomId, ...shared(o.roomId),
         };
-        const frameMat = o.kind === 'door' ? mats.doorFrame() : mats.windowFrame();
+        // v0.18.1: glass doors have aluminium frames; the leaves themselves are DoorSystem's (they move)
+        const metalDoor = o.kind === 'door' && isGlassDoor(o.style);
+        const frameMat = o.kind === 'door' && !metalDoor ? mats.doorFrame() : mats.windowFrame();
         const D = segT + FRAME_DEPTH_EXTRA;
         const tag = `${o.kind}_${id}_${wall.name}_${segmentIndex}_${o.roomId}_${o.index}`;
 
@@ -380,6 +385,17 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         placeBox(`${tag}_jl`, u0, u0 + fw, o.bottom, o.top, fd, frameMat, meta, { castShadow: false });
         placeBox(`${tag}_jr`, u1 - fw, u1, o.bottom, o.top, fd, frameMat, meta, { castShadow: false });
         placeBox(`${tag}_hd`, u0, u1, o.top - fw, o.top, fd, frameMat, meta, { castShadow: false });
+
+        // an emergency exit: a green EXIT sign over it, on both faces (where the wall leaves room above the door)
+        if (o.kind === 'door' && o.style === 'exit' && o.top + EXIT_SIGN_H + 0.08 <= (roomData.wallHeight ?? 3)) {
+          const y0 = o.top + 0.05;
+          placeBox(`${tag}_exit`, o.offset - EXIT_SIGN_W / 2, o.offset + EXIT_SIGN_W / 2, y0, y0 + EXIT_SIGN_H, D + 0.04,
+            mats.exitSign(), meta, { castShadow: false });
+          placeBox(`${tag}_exitbar`, o.offset - 0.11, o.offset + 0.05, y0 + 0.055, y0 + 0.085, D + 0.05,
+            mats.lightPanel(), meta, { castShadow: false });
+          placeBox(`${tag}_exitarrow`, o.offset + 0.07, o.offset + 0.12, y0 + 0.035, y0 + 0.105, D + 0.05,
+            mats.lightPanel(), meta, { castShadow: false });
+        }
 
         if (o.kind === 'window') {
           if (panel) {

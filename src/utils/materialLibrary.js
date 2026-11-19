@@ -647,6 +647,13 @@ export function getMaterials(scene) {
       m.disableLighting = true;
       return m;
     }),
+    // v0.18.1: an emergency exit's sign above the door (it glows, as real ones do)
+    exitSign: lazy('exitSign', () => {
+      const m = makeColorMaterial(scene, 'mat_exitSign', '#15a34a', { specular: 0 });
+      m.emissiveColor = new Color3(0.05, 0.55, 0.22);
+      m.disableLighting = true;
+      return m;
+    }),
     glass: lazy('glass', () => {
       const m = makeColorMaterial(scene, 'mat_glass', '#a9d2ec', { specular: 0.9, alpha: 0.28 });
       m.specularPower = 128;
