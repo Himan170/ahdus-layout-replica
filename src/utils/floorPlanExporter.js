@@ -28,6 +28,8 @@ const PIXELS_PER_METER = BASE_SCALE * SCALE_FACTOR;
 const MAX_CANVAS_DIM = 8192;  // cap canvas size to stay within GPU/browser limits
 
 const WALL_COLOR    = '#1a1a2e';
+/** A glass wall's light blue (v0.18.1). */
+const GLASS_COLOR = '#7dc3e8';
 const WALL_STROKE   = 2.5;
 const DOOR_COLOR    = '#1a1a2e';
 const DOOR_FILL     = '#ffffff';
@@ -404,6 +406,34 @@ export function renderFloorPlanToCanvas({ rooms, objects = {}, floors, floorId, 
     const wPx = room.width * pxPerM;
     const hPx = room.depth * pxPerM;
     ctx.strokeRect(tl.cx, tl.cy, wPx, hPx);
+  }
+
+  // ── Glass walls (v0.18.1): light blue over the outline, as in Plan view ─
+  for (const room of floorRooms) {
+    const glass = room.glassWalls ?? [];
+    if (!glass.length) continue;
+    const w = room.width / 2;
+    const d = room.depth / 2;
+    const ends = {
+      north: [[room.x - w, room.z + d], [room.x + w, room.z + d]],
+      south: [[room.x - w, room.z - d], [room.x + w, room.z - d]],
+      east: [[room.x + w, room.z - d], [room.x + w, room.z + d]],
+      west: [[room.x - w, room.z - d], [room.x - w, room.z + d]],
+    };
+    const base = WALL_STROKE * detailScale * (wallThicknessOf(room) / WALL_THICKNESS);
+    for (const name of glass) {
+      const [[ax, az], [bx, bz]] = ends[name] ?? [[0, 0], [0, 0]];
+      const a = toCanvas(ax, az, tx, ty, pxPerM);
+      const b = toCanvas(bx, bz, tx, ty, pxPerM);
+      for (const [style, width] of [['#ffffff', base], [GLASS_COLOR, base * 0.55]]) {
+        ctx.strokeStyle = style;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(a.cx, a.cy);
+        ctx.lineTo(b.cx, b.cy);
+        ctx.stroke();
+      }
+    }
   }
 
   // ── Draw openings (doors then windows) ────────────────────────────────

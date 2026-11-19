@@ -477,10 +477,20 @@ export function roomBuildInput(room, rooms) {
   return [
     floorOf(room), room.x, room.z, room.width, room.depth, room.wallHeight, wallThicknessOf(room), room.type, room.color,
     room.floorFinish ?? 'default',
-    room.doors ?? [], room.windows ?? [],
+    room.doors ?? [], room.windows ?? [], room.glassWalls ?? [],
     touchingRooms(room, rooms).map((r) => [r.id, r.x, r.z, r.width, r.depth, r.wallHeight, wallThicknessOf(r),
-      r.doors ?? [], r.windows ?? []]),
+      r.doors ?? [], r.windows ?? [], r.glassWalls ?? []]),
   ];
+}
+
+/**
+ * Is this piece of a room's wall glass (v0.18.1)? Its own `glassWalls` names the wall, or, for a wall shared
+ * with a neighbour (built once), the neighbour's names its side of it: glass if either room says so.
+ */
+export function isGlassWall(room, wallName, segment) {
+  if ((room.glassWalls ?? []).includes(wallName)) return true;
+  if (!segment?.shared) return false;
+  return (segment.partnerRoom.glassWalls ?? []).includes(segment.partnerWall ?? OPPOSITE[wallName]);
 }
 
 /**
@@ -1387,6 +1397,11 @@ export function planOpeningStyle(rooms, room, kind, index, style, { stairs = [] 
 /** A quarter turn clockwise on the plan (north up, east right): where each wall goes, and the offset's sign. */
 const QUARTER_TURN = { north: ['east', -1], east: ['south', 1], south: ['west', -1], west: ['north', 1] };
 
+/** A room's glass walls after a quarter turn (v0.18.1): { glassWalls } only when it has some. */
+const turnGlassWalls = (room) => (room.glassWalls?.length
+  ? { glassWalls: ['north', 'south', 'east', 'west'].filter((w) => room.glassWalls.some((g) => QUARTER_TURN[g]?.[0] === w)) }
+  : {});
+
 /** A room's doors or windows after a quarter turn clockwise (each goes round with its wall). */
 const turnOpenings = (list = []) => list.map((o) => {
   const [wall, sign] = QUARTER_TURN[o.wall] ?? [o.wall, 1];
@@ -1438,9 +1453,11 @@ export function planRoomTurn(room, rooms, objects = []) {
   const about = (x, z) => ({ x: r3(room.x + (z - room.z)), z: r3(room.z - (x - room.x)) });
   return {
     problem: null,
-    patch: { width: rect.width, depth: rect.depth, doors: turnOpenings(room.doors), windows: turnOpenings(room.windows) },
+    patch: { width: rect.width, depth: rect.depth, doors: turnOpenings(room.doors), windows: turnOpenings(room.windows),
+      ...turnGlassWalls(room) },
     rooms: inside.map((r) => [r.id, {
       ...about(r.x, r.z), width: r.depth, depth: r.width, doors: turnOpenings(r.doors), windows: turnOpenings(r.windows),
+      ...turnGlassWalls(r),
     }]),
     objects: objects.filter((o) => itemInRoom(room, o))
       .map((o) => [o.id, { ...about(o.x ?? 0, o.z ?? 0), rotationY: (o.rotationY ?? 0) + Math.PI / 2 }]),

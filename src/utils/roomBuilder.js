@@ -43,7 +43,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { getMaterials, TILE_SIZE, floorKindOf } from './materialLibrary';
 import {
-  roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, wallThicknessOf, OPPOSITE, roomBuildInput,
+  roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, wallThicknessOf, OPPOSITE, roomBuildInput, isGlassWall,
 } from '../play/geometry';
 import { subtractRects, SLAB } from '../play/building';
 import { mergeByMaterial } from './assetInstances';
@@ -51,7 +51,13 @@ import { mergeByMaterial } from './assetInstances';
 const FLOOR_Y = 0.02;          // just above the site ground, avoids z-fighting
 const SKIRTING_H = 0.1;
 const FRAME_W = 0.07;          // door/window frame profile width
-const PANEL_FRAME_W = 0.04;    // a full-height glass panel's thin metal frame (v0.18.1)
+const PANEL_FRAME_W = 0.04;
+// A glass wall (v0.18.1): panes in a thin metal frame, a post at least every GLASS_BAY metres
+const GLASS_FRAME_W = 0.05;
+const GLASS_FRAME_D = 0.09;
+const GLASS_RAIL_H = 0.08;      // the bottom rail (stands in for the skirting)
+const GLASS_BAY = 1.5;
+const GLASS_PANE_T = 0.02;    // a full-height glass panel's thin metal frame (v0.18.1)
 const FRAME_DEPTH_EXTRA = 0.04; // frames stick out slightly from the wall
 const ROOF_T = 0.2;            // roof slab thickness
 const PARAPET_H = 0.25;        // low wall around the roof edge
@@ -319,10 +325,29 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         // standing on the outer room's wall: from inside it is this room's, from outside the outer room's
         ...(segment.sameSide ? { sameSide: true, innerRoom: id, outerRoom: partner } : {}),
       });
-      const wallMeta = { part: 'wall', wallName: wall.name, ...shared(id) };
+      // glass: one mesh as before (part 'wall': picked, collides, on the walk map), its panes see-through
+      const glass = isGlassWall(roomData, wall.name, segment);
+      const wallMeta = { part: 'wall', wallName: wall.name, ...shared(id), ...(glass ? { glass: true } : {}) };
       pieces.forEach((p, i) => {
         const u0 = p.u0 + segmentCentre;
         const u1 = p.u1 + segmentCentre;
+        if (glass) {
+          const tag = `glass_${id}_${wall.name}_${segmentIndex}_${i}`;
+          const fd = Math.min(wallT, GLASS_FRAME_D);
+          const frame = mats.windowFrame();
+          const opts = { castShadow: false };
+          const bottom = p.y0 === 0 ? GLASS_RAIL_H : GLASS_FRAME_W;
+          placeBox(`${tag}_b`, u0, u1, p.y0, p.y0 + bottom, fd, frame, wallMeta, opts);
+          placeBox(`${tag}_t`, u0, u1, p.y1 - GLASS_FRAME_W, p.y1, fd, frame, wallMeta, opts);
+          const bays = Math.max(1, Math.ceil((u1 - u0) / GLASS_BAY - 1e-6));
+          for (let k = 0; k <= bays; k++) {
+            const at = u0 + (u1 - u0) * (k / bays);
+            const a = Math.min(u1 - GLASS_FRAME_W, Math.max(u0, at - GLASS_FRAME_W / 2));
+            placeBox(`${tag}_p${k}`, a, a + GLASS_FRAME_W, p.y0, p.y1, fd, frame, wallMeta, opts);
+          }
+          placeBox(`${tag}_g`, u0, u1, p.y0 + bottom, p.y1 - GLASS_FRAME_W, GLASS_PANE_T, mats.glass(), wallMeta, opts);
+          return;
+        }
         placeBox(`wall_${id}_${wall.name}_${segmentIndex}_${i}`, u0, u1, p.y0, p.y1, wallT, mats.plaster(), wallMeta);
         // Skirting: not pickable, a click on it goes through to the wall behind it.
         if (p.y0 === 0) {

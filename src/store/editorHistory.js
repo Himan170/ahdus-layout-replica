@@ -15,6 +15,7 @@
  *   editor.undo();
  */
 
+import { cleanGlassWalls } from '../engine/model/roomTypes';
 import { useWorkspaceStore } from './workspaceStore';
 import {
   STOREY_HEIGHT, floorHeight, floorsInOrder, wallSpace, planWallHeight, planFloorHeight, copyRoomsUp, isGroundFloor,
@@ -398,6 +399,10 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
 
     // ── Rooms ──
     addRoom(data) {
+      // v0.18.1: a new Meeting room is solid until its first door: that wall then turns glass (addOpenings)
+      if (data.type === 'MEETING' && !data.doors?.length && data.glassWalls === undefined && data.glassOnFirstDoor === undefined) {
+        data = { ...data, glassOnFirstDoor: true };
+      }
       const floor = data.floor ?? store().currentFloor;
       if (!(data.wallHeight > wallSpace(store().floors, floor) + 1e-6)) {
         run(new AddRoomCommand(s, data));
@@ -567,8 +572,15 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
         const current = byRoom.get(o.roomId) ?? { doors: room.doors ?? [], windows: room.windows ?? [] };
         const { roomId: _r, kind: _k, ...opening } = o;
         current[key] = [...current[key], opening];
+        // v0.18.1: a new Meeting room's first door makes its wall glass, in the same undo step
+        if (o.kind === 'door' && room.glassOnFirstDoor && !(room.doors ?? []).length && !current.glassOnFirstDoorUsed) {
+          current.glassWalls = cleanGlassWalls([...(room.glassWalls ?? []), o.wall]);
+          current.glassOnFirstDoor = undefined;
+          current.glassOnFirstDoorUsed = true;
+        }
         byRoom.set(o.roomId, current);
       }
+      for (const patch of byRoom.values()) delete patch.glassOnFirstDoorUsed;
       if (byRoom.size === 0) return;
       const kind = list[0].kind;
       run(new CompositeCommand(`Add ${kind}`, [...byRoom].map(([roomId, patch]) =>

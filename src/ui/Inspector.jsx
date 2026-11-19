@@ -301,6 +301,43 @@ const FLOOR_SWATCH = {
 };
 const SIDE = { north: 'North wall', south: 'South wall', east: 'East wall', west: 'West wall' };
 
+const WALL_ORDER = ['north', 'east', 'south', 'west'];
+
+/**
+ * Glass walls (v0.18.1): each wall Solid or Glass (room.glassWalls), and all at once. A choice made here is the
+ * editor's own: a new Meeting room's "first door makes its wall glass" (glassOnFirstDoor) no longer applies.
+ */
+function GlassWalls({ room, onUpdate }) {
+  const glass = room.glassWalls ?? [];
+  const set = (list) => onUpdate(room.id, { glassWalls: WALL_ORDER.filter((w) => list.includes(w)), glassOnFirstDoor: undefined });
+  const all = glass.length === 4;
+  return (
+    <div className="insp-glass" data-glass-walls={glass.join(' ') || 'none'}>
+      <div className="insp-glass__head">
+        <span className="insp-field__label" id={`insp-glass-${room.id}`}>Solid or glass</span>
+        <button type="button" className="ui-btn is-ghost insp-glass__all" data-glass-all={all ? 'solid' : 'glass'}
+          onClick={() => set(all ? [] : WALL_ORDER)}>{all ? 'All solid' : 'All glass'}</button>
+      </div>
+      <div className="insp-glass__walls" role="group" aria-labelledby={`insp-glass-${room.id}`}>
+        {WALL_ORDER.map((w) => {
+          const on = glass.includes(w);
+          return (
+            <button key={w} type="button" className="insp-glass__wall" aria-pressed={on} data-glass-wall={w}
+              aria-label={`${SIDE[w]}: ${on ? 'glass' : 'solid'}`} title={on ? 'Glass: click for a solid wall' : 'Solid: click for glass'}
+              onClick={() => set(on ? glass.filter((x) => x !== w) : [...glass, w])}>
+              <span>{SIDE[w].replace(' wall', '')}</span>
+              <span className="insp-glass__state">{on ? 'Glass' : 'Solid'}</span>
+            </button>
+          );
+        })}
+      </div>
+      {room.glassOnFirstDoor && (
+        <p className="insp-room__note" data-glass-first-door>The wall that gets the first door turns glass.</p>
+      )}
+    </div>
+  );
+}
+
 /**
  * The room's department (v0.14.9, room.departmentRef: Find and the company tour use it): the page's departments + None,
  * or free text when the page gives none. A pick is one undo step; typing is one step per burst.
@@ -399,6 +436,7 @@ function RoomBody({ room, departmentChoices: choices, onUpdate, onSetFloor, onSe
             min={MIN_WALL_THICKNESS} max={MAX_WALL_THICKNESS} digits={2} suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { wallThickness: v })} />
         </div>
+        <GlassWalls room={room} onUpdate={onUpdate} />
       </div>
 
       <div className="insp-room__group">

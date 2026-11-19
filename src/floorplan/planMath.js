@@ -118,6 +118,7 @@ export function roomWallPieces(room) {
   const doors = [];
   const windows = [];
   for (const [name, edge] of Object.entries(edges)) {
+    const glass = (room.glassWalls ?? []).includes(name); // v0.18.1: drawn light blue, over a neighbour's solid line
     const spans = roomOpenings(room)
       .filter((o) => o.wall === name)
       .map((o) => ({ o, u0: Math.max(-edge.half, o.offset - o.width / 2), u1: Math.min(edge.half, o.offset + o.width / 2) }))
@@ -125,7 +126,7 @@ export function roomWallPieces(room) {
       .sort((p, q) => p.u0 - q.u0);
     let u = -edge.half;
     for (const s of spans) {
-      if (s.u0 > u) walls.push({ a: edge.at(u), b: edge.at(s.u0) });
+      if (s.u0 > u) walls.push({ a: edge.at(u), b: edge.at(s.u0), wall: name, glass });
       u = Math.max(u, s.u1);
       const a = edge.at(s.u0);
       const b = edge.at(s.u1);
@@ -140,7 +141,7 @@ export function roomWallPieces(room) {
         doors.push({ a, b, hinge: a, open, width, sweep: v1.x * v2.z - v1.z * v2.x < 0 ? 1 : 0 });
       }
     }
-    if (u < edge.half) walls.push({ a: edge.at(u), b: edge.at(edge.half) });
+    if (u < edge.half) walls.push({ a: edge.at(u), b: edge.at(edge.half), wall: name, glass });
   }
   return { walls, doors, windows };
 }

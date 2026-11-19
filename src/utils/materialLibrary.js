@@ -650,6 +650,7 @@ export function getMaterials(scene) {
     glass: lazy('glass', () => {
       const m = makeColorMaterial(scene, 'mat_glass', '#a9d2ec', { specular: 0.9, alpha: 0.28 });
       m.specularPower = 128;
+      m.metadata = { ...(m.metadata ?? {}), glass: true }; // v0.18.1: clicks in the viewer go through (pickHelpers)
       return m;
     }),
   };

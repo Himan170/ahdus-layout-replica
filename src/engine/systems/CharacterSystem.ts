@@ -37,6 +37,7 @@
  * Reads the layout with the store's (v1) field names, like the other systems.
  */
 
+import { pickThroughGlass } from '../../utils/pickHelpers';
 import type { Scene } from '@babylonjs/core/scene';
 import type { Observer } from '@babylonjs/core/Misc/observable';
 import type { AssetContainer } from '@babylonjs/core/assetContainer';
@@ -311,7 +312,11 @@ export class CharacterSystem {
   pickPerson(x: number, y: number): PlacedPerson | null {
     if (!this.enabled || this.people.length === 0) return null;
     const objectOf = (m: AbstractMesh | null) => m?.metadata?.objectId ?? m?.parent?.metadata?.objectId ?? null;
-    const hit = this.scene.pick(x, y, (m) => m.isPickable && m.isEnabled() && m.isVisible && !m.metadata?.pickPane);
+    // v0.18.1: through glass to the desk / the person behind it
+    const camera = this.scene.activeCamera;
+    if (!camera) return null;
+    const ray = this.scene.createPickingRay(x, y, null, camera);
+    const hit = pickThroughGlass(this.scene, ray, (m: AbstractMesh) => m.isPickable && m.isEnabled() && m.isVisible && !m.metadata?.pickPane);
     if (!hit?.hit) return null;
     const byObject = this.personForObject(objectOf(hit.pickedMesh));
     if (byObject && this.isShown(byObject)) return byObject;

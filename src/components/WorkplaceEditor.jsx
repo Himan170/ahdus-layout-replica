@@ -680,6 +680,11 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       editor.updateRoom(id, { departmentRef: patch.departmentRef }, { mergeKey: typing ? 'room-department' : undefined, label: 'Change department' });
       return;
     }
+    if ('glassWalls' in patch) {
+      // Solid or glass walls (v0.18.1): its own undo step
+      editor.updateRoom(id, { glassWalls: patch.glassWalls, glassOnFirstDoor: patch.glassOnFirstDoor }, { label: 'Change walls' });
+      return;
+    }
     const locked = useWorkspaceStore.getState().rooms[id];
     if (locked?.isLocked && ['x', 'z', 'width', 'depth', 'wallHeight', 'wallThickness'].some((k) => k in patch)) {
       showStudioMessage(lockedText(locked.name), true); // a locked room keeps its shape (v0.15.6)

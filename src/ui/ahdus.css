@@ -553,6 +553,30 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 .insp-room__group .insp-field__label { color: var(--text-muted); font-weight: 400; }
 .insp-room__note { margin: 0; font-size: 13px; color: var(--text-muted); }
 .insp-swatches { display: flex; gap: 10px; }
+/* Glass walls (v0.18.1) */
+.insp-glass { display: flex; flex-direction: column; gap: 8px; }
+.insp-glass__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.insp-glass__all { padding: 4px 10px; font-size: 13px; }
+.insp-glass__walls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.insp-glass__wall {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.insp-glass__wall:hover { border-color: var(--accent); }
+.insp-glass__wall:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.insp-glass__state { font-size: 11px; color: var(--text-muted); }
+.insp-glass__wall[aria-pressed="true"] { border-color: #6aa9cf; background: #e3f1fa; color: #134a6b; }
+.insp-glass__wall[aria-pressed="true"] .insp-glass__state { color: #1d6390; font-weight: 600; }
 .insp-swatch {
   width: 44px;
   height: 44px;

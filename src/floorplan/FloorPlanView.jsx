@@ -648,7 +648,7 @@ export default function FloorPlanView({
           </g>
         )}
 
-        {/* ── Walls with Door Arcs and Windows ── */}
+        {/* ── Walls with Door Arcs and Windows (glass walls: drawn again over them, below) ── */}
         <g className="floor-plan-walls" pointerEvents="none" aria-hidden="true">
           {plan.rooms.map((room) => {
             const pieces = roomWallPieces(room);
@@ -700,6 +700,23 @@ export default function FloorPlanView({
                 })}
               </g>
             );
+          })}
+        </g>
+
+        {/* ── Glass walls (v0.18.1): light blue, over the walls (a shared wall is glass if either room says so) ── */}
+        <g className="floor-plan-glass" pointerEvents="none" aria-hidden="true">
+          {plan.rooms.flatMap((room) => {
+            const T = wallThicknessOf(room);
+            return roomWallPieces(room).walls.filter((w) => w.glass).map((w, i) => {
+              const a = at(w.a);
+              const b = at(w.b);
+              return (
+                <g key={`${room.id}-g${i}`} data-plan-glass={w.wall}>
+                  <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#ffffff" strokeWidth={T} strokeLinecap="square" />
+                  <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#7dc3e8" strokeWidth={T * 0.55} />
+                </g>
+              );
+            });
           })}
         </g>
 

@@ -63,7 +63,7 @@ import { buildAssetMesh, ASSET_TYPES } from '../utils/assetCatalog';
 import { setItemLook } from '../utils/assetInstances';
 import { disposeMaterialIfOwned } from '../utils/materialLibrary';
 import { createBuildPreview } from '../utils/buildPreview';
-import { itemOverFloorPoint, wallTargetOf } from '../utils/pickHelpers';
+import { itemOverFloorPoint, wallTargetOf, pickThroughGlass } from '../utils/pickHelpers';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { createCharacter } from './character';
 import { moveWithSteps, createNearbyMeshes } from './movement';
@@ -1690,7 +1690,8 @@ export function createPlayController(scene, canvas, {
    */
   function clickTarget(x, y) {
     const ray = scene.createPickingRay(x, y, null, camera);
-    const hit = scene.pickWithRay(ray, (m) =>
+    // v0.18.1: through glass (a glass wall, a window, a glass door) to what is behind it: walking there goes by the door
+    const hit = pickThroughGlass(scene, ray, (m) =>
       m.isPickable && m.isEnabled() && m.isVisible !== false && !isPlayerMesh(m) && !isGhostMesh(m) &&
       !m.metadata?.pickPane && (!!objectIdOf(m) || !!roomPartOf(m) || m.name === 'ground'));
     if (!hit?.hit || !hit.pickedPoint) return { screen: { x, y }, point: null, target: null, walkTo: null, kind: null, stairs: null };
