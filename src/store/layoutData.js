@@ -13,6 +13,7 @@
 
 import { STOREY_HEIGHT, SLAB, MIN_FLOOR_HEIGHT, MAX_FLOOR_HEIGHT } from '../play/building';
 import { DOOR_DEFAULTS, WINDOW_DEFAULTS, wallThicknessOf } from '../play/geometry';
+import { storeRoomType, cleanGlassWalls, fileRoomType } from '../engine/model/roomTypes';
 
 const num = (v, fallback) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 /** rooms/objects were saved as arrays; accept a { id: record } map too. */
@@ -29,11 +30,17 @@ function normaliseOpening(o, kind) {
     height: num(o?.height, d.height),
   };
   if (kind === 'window') out.sill = num(o?.sill, d.sill);
+  // v0.18.1: a style / swing that isn't a short string / in | out is dropped (drawn as the default)
+  if (!(typeof out.style === 'string' && out.style && out.style.length <= 40)) delete out.style;
+  if (out.swing !== 'in' && out.swing !== 'out') delete out.swing;
   return out;
 }
 
 function normaliseRoom(r, i) {
-  const { isSelected: _sel, ...rest } = r;
+  const { isSelected: _sel, subtype, glassWalls, glassOnFirstDoor, ...rest } = r;
+  // v0.18.1: an exported file's { type: 'CUSTOM', subtype: 'CAFETERIA' } is a Cafeteria again (roomTypes.ts)
+  const type = storeRoomType(r.type, subtype);
+  const glass = cleanGlassWalls(glassWalls);
   return {
     type: 'OFFICE',
     name: `Room ${i + 1}`,
@@ -50,6 +57,9 @@ function normaliseRoom(r, i) {
     wallThickness: cm(wallThicknessOf(r)),
     doors: asList(r.doors).filter(Boolean).map((o) => normaliseOpening(o, 'door')),
     windows: asList(r.windows).filter(Boolean).map((o) => normaliseOpening(o, 'window')),
+    ...(type ? { type } : {}),
+    ...(glass.length ? { glassWalls: glass } : {}),
+    ...(glassOnFirstDoor === true ? { glassOnFirstDoor: true } : {}),
   };
 }
 
@@ -165,6 +175,24 @@ function normaliseFloors(saved, rooms, objects) {
  * @returns {{ layoutName: string, layoutVersion: number, floors: object,
  *             rooms: object[], objects: object[], anchorData: object, ignoredChecks: string[] }}
  */
+/**
+ * v0.18.1: a save as an exported Studio file writes it: newer room types as the nearest older type + `subtype`
+ * (model/roomTypes.ts), so an older build that opens the file shows that type instead of a Custom room.
+ * normaliseRoom reads it back.
+ */
+export function fileLayout(layout) {
+  if (!layout || typeof layout !== 'object') return layout;
+  const rooms = asList(layout.rooms);
+  if (!rooms.some((r) => fileRoomType(r?.type).subtype)) return layout;
+  return {
+    ...layout,
+    rooms: rooms.map((r) => {
+      const { type, subtype } = fileRoomType(r?.type);
+      return subtype ? { ...r, type, subtype } : r;
+    }),
+  };
+}
+
 export function normaliseLayout(data) {
   const src = data && typeof data === 'object' ? data : {};
   const rooms = asList(src.rooms).filter((r) => r && typeof r === 'object').map(normaliseRoom);

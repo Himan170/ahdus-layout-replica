@@ -13,6 +13,7 @@
  *           ui/hiddenLayers.js) and lock (v0.15.6)
  */
 
+import { styleOf, styleSize, styleOptions, styleName } from '../play/openingStyles';
 import { useEffect, useState, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { livePosition } from '../utils/livePosition';
 import {
@@ -23,7 +24,7 @@ import { ASSET_TYPES } from '../utils/assetCatalog';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { assetIcon, sizeLabel } from './tools';
 import {
-  DOOR_DEFAULTS, MAX_ROOM_SIZE, WINDOW_DEFAULTS,
+  MAX_ROOM_SIZE,
   wallThicknessOf, MIN_WALL_THICKNESS, MAX_WALL_THICKNESS, WALL_THICKNESS_STEP, roomOpenings,
 } from '../play/geometry';
 import { FLOOR_FINISHES, floorKindOf } from '../utils/materialLibrary';
@@ -300,6 +301,43 @@ const FLOOR_SWATCH = {
 };
 const SIDE = { north: 'North wall', south: 'South wall', east: 'East wall', west: 'West wall' };
 
+const WALL_ORDER = ['north', 'east', 'south', 'west'];
+
+/**
+ * Glass walls (v0.18.1): each wall Solid or Glass (room.glassWalls), and all at once. A choice made here is the
+ * editor's own: a new Meeting room's "first door makes its wall glass" (glassOnFirstDoor) no longer applies.
+ */
+function GlassWalls({ room, onUpdate }) {
+  const glass = room.glassWalls ?? [];
+  const set = (list) => onUpdate(room.id, { glassWalls: WALL_ORDER.filter((w) => list.includes(w)), glassOnFirstDoor: undefined });
+  const all = glass.length === 4;
+  return (
+    <div className="insp-glass" data-glass-walls={glass.join(' ') || 'none'}>
+      <div className="insp-glass__head">
+        <span className="insp-field__label" id={`insp-glass-${room.id}`}>Solid or glass</span>
+        <button type="button" className="ui-btn is-ghost insp-glass__all" data-glass-all={all ? 'solid' : 'glass'}
+          onClick={() => set(all ? [] : WALL_ORDER)}>{all ? 'All solid' : 'All glass'}</button>
+      </div>
+      <div className="insp-glass__walls" role="group" aria-labelledby={`insp-glass-${room.id}`}>
+        {WALL_ORDER.map((w) => {
+          const on = glass.includes(w);
+          return (
+            <button key={w} type="button" className="insp-glass__wall" aria-pressed={on} data-glass-wall={w}
+              aria-label={`${SIDE[w]}: ${on ? 'glass' : 'solid'}`} title={on ? 'Glass: click for a solid wall' : 'Solid: click for glass'}
+              onClick={() => set(on ? glass.filter((x) => x !== w) : [...glass, w])}>
+              <span>{SIDE[w].replace(' wall', '')}</span>
+              <span className="insp-glass__state">{on ? 'Glass' : 'Solid'}</span>
+            </button>
+          );
+        })}
+      </div>
+      {room.glassOnFirstDoor && (
+        <p className="insp-room__note" data-glass-first-door>The wall that gets the first door turns glass.</p>
+      )}
+    </div>
+  );
+}
+
 /**
  * The room's department (v0.14.9, room.departmentRef: Find and the company tour use it): the page's departments + None,
  * or free text when the page gives none. A pick is one undo step; typing is one step per burst.
@@ -398,6 +436,7 @@ function RoomBody({ room, departmentChoices: choices, onUpdate, onSetFloor, onSe
             min={MIN_WALL_THICKNESS} max={MAX_WALL_THICKNESS} digits={2} suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { wallThickness: v })} />
         </div>
+        <GlassWalls room={room} onUpdate={onUpdate} />
       </div>
 
       <div className="insp-room__group">
@@ -408,7 +447,7 @@ function RoomBody({ room, departmentChoices: choices, onUpdate, onSetFloor, onSe
               <li key={`${o.kind}-${o.index}`}>
                 <button type="button" className="insp-opening" title={`Select this ${o.kind}`}
                   onClick={() => onSelectOpening({ roomId: room.id, kind: o.kind, index: o.index })}>
-                  <span className="insp-opening__kind">{o.kind === 'door' ? 'Door' : 'Window'}</span>
+                  <span className="insp-opening__kind">{openingTitle(o.kind, o)}</span>
                   <span className="insp-opening__where">{SIDE[o.wall] ?? o.wall} · {o.width.toFixed(1)} m</span>
                 </button>
               </li>
@@ -428,21 +467,47 @@ function RoomBody({ room, departmentChoices: choices, onUpdate, onSetFloor, onSe
 
 const WALL_NAME = { north: 'North', south: 'South', east: 'East', west: 'West' };
 
-function OpeningBody({ opening, floorName, onResize }) {
+/** "Door" / "Window" for the plain ones, else the type: "Glass door", "Tall window" (v0.18.1). */
+const openingTitle = (kind, data) => (data?.style && styleOf(kind, data) === data.style
+  ? styleName(kind, data) : kind === 'door' ? 'Door' : 'Window');
+
+function OpeningBody({ opening, floorName, onResize, onSetStyle }) {
   const { kind, data, room, partnerRoom } = opening;
   const [problem, setProblem] = useState(null);
   const key = `${opening.roomId}:${kind}:${opening.index}`;
   useEffect(() => setProblem(null), [key]);
   const resize = (change) => setProblem(onResize(change));
-  const defaults = kind === 'door' ? DOOR_DEFAULTS : WINDOW_DEFAULTS;
+  const style = styleOf(kind, data);
+  const defaults = styleSize(kind, style, room.wallHeight ?? 3);
+  const panel = kind === 'window' && style === 'panel';
   const isDefault = Math.abs(data.width - defaults.width) < 1e-6 && Math.abs(data.height - defaults.height) < 1e-6;
   return (
+    <>
+    {onSetStyle && (
+      <Section title="Type">
+        <label className="insp-field">
+          <span className="insp-field__label">{kind === 'door' ? 'Door type' : 'Window type'}</span>
+          <select className="ui-select" aria-label={kind === 'door' ? 'Door type' : 'Window type'} value={style}
+            data-opening-style={style} onChange={(e) => setProblem(onSetStyle(e.target.value))}>
+            {styleOptions(kind).map((o) => <option key={o.style} value={o.style}>{o.name}</option>)}
+          </select>
+        </label>
+        {kind === 'door' && style === 'exit' && (
+          <p className="insp-note" data-opening-swing={data.swing ?? 'in'}>
+            Opens out of {data.swing === 'in' && partnerRoom ? partnerRoom.name : room.name}, with an EXIT sign above it.
+          </p>
+        )}
+      </Section>
+    )}
     <Section title="Size">
       <div className="insp-grid">
         <NumberField label="Width" value={data.width} step={0.1} digits={2} suffix="m"
           onCommit={(v) => resize({ width: v })} />
-        <NumberField label="Height" value={data.height} step={0.1} digits={2} suffix="m"
-          onCommit={(v) => resize({ height: v })} />
+        {panel
+          ? <NumberField label="Height" value={data.height} step={0.1} digits={2} suffix="m" disabled
+              title="A glass panel reaches the top of its wall" onCommit={() => {}} />
+          : <NumberField label="Height" value={data.height} step={0.1} digits={2} suffix="m"
+              onCommit={(v) => resize({ height: v })} />}
       </div>
       {problem && <p className="insp-note is-bad" role="alert">{problem}</p>}
       <dl className="insp-facts">
@@ -458,6 +523,7 @@ function OpeningBody({ opening, floorName, onResize }) {
         <RotateCcw {...ICON} /> Standard size
       </button>
     </Section>
+    </>
   );
 }
 
@@ -761,6 +827,7 @@ export default function Inspector({
   onFixStairs = null,   // v0.17.4: move it to the nearest spot where it works (null: none, or nothing wrong)
   opening,              // { roomId, kind, index, room, data, partnerRoom } (a selected door/window)
   onResizeOpening,      // (change) => problem text or null
+  onSetOpeningStyle,    // (style) => problem text or null (v0.18.1: the door / window type)
   onDeleteOpening,
   rooms, objects,       // layers: this floor
   floors = [],
@@ -805,7 +872,7 @@ export default function Inspector({
       return describeRoom(room, objects, floorName);
     }
     if (mode === 'opening' && opening) {
-      const kind = opening.kind === 'door' ? 'Door' : 'Window';
+      const kind = openingTitle(opening.kind, opening.data);
       const w = (Number(opening.data?.width) || 0).toFixed(1);
       return `${kind}, ${w} metres wide on ${opening.room?.name || 'wall'}.`;
     }
@@ -881,7 +948,7 @@ export default function Inspector({
           )}
           {mode === 'opening' && (
             <>
-              <h2 className="inspector__title">{opening.kind === 'door' ? 'Door' : 'Window'}</h2>
+              <h2 className="inspector__title">{openingTitle(opening.kind, opening.data)}</h2>
               <span className="inspector__type">
                 {opening.data.width.toFixed(1)} × {opening.data.height.toFixed(1)} m · {opening.room.name}
               </span>
@@ -932,7 +999,7 @@ export default function Inspector({
           <RoomBody room={room} departmentChoices={departmentChoices} onUpdate={onUpdateRoom} onSetFloor={onSetFloorFinish}
             onSelectOpening={onSelectOpening} onAddOpening={onAddOpening} />
         )}
-        {mode === 'opening' && <OpeningBody opening={opening} floorName={floorName} onResize={onResizeOpening} />}
+        {mode === 'opening' && <OpeningBody opening={opening} floorName={floorName} onResize={onResizeOpening} onSetStyle={onSetOpeningStyle} />}
         {mode === 'layers' && (
           <LayersBody rooms={rooms} objects={objects} floors={floors} routes={routes} onPick={onPickLayer}
             hidden={hiddenLayers} hiddenNote={hiddenNote} onToggleHidden={onToggleHidden} onShowAll={onShowAllHidden}

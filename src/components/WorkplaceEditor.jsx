@@ -9,6 +9,7 @@
  * after the first frame of the built floor (App then hides its loading screen).
  */
 
+import { styleDef } from '../play/openingStyles';
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 
 import { storedRealisticLook, storeRealisticLook, setRealistic } from '../utils/realLook';
@@ -88,7 +89,7 @@ import { isAhdusBackendOn } from '../services/backendFlags';
 import { activeTile, toolHint, phoneIdleHint, PLAN_HINT } from '../ui/tools';
 
 import {
-  openingData, openingPartner, openingCentre, resizeOpening, planRemoveOpening,
+  openingData, openingPartner, openingCentre, resizeOpening, planOpeningStyle, planRemoveOpening,
   planRoomResize, planWallThickness, planRoomTurn, planRoomCopy, planRoomMove,
 } from '../play/geometry';
 import { FLOOR_BY_ROOM_TYPE } from '../utils/materialLibrary';
@@ -585,6 +586,23 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     return null;
   }, [editor, showStudioMessage]);
 
+  /** The Inspector's door / window type (v0.18.1): both records of a shared door, one undo step. */
+  const handleSetOpeningStyle = useCallback((style) => {
+    const st = useWorkspaceStore.getState();
+    const sel = st.selectedOpening;
+    const room = sel && st.rooms[sel.roomId];
+    if (!room) return null;
+    const result = planOpeningStyle(
+      Object.values(st.rooms).filter((r) => r.floor === room.floor), room, sel.kind, sel.index, style,
+      { stairs: Object.values(st.objects).filter((o) => o.assetType === 'STAIRCASE') });
+    if (result.problem) {
+      showStudioMessage(result.problem, true);
+      return result.problem;
+    }
+    editor.setOpeningStyle(result.list, { label: `Change to ${styleDef(sel.kind, style).name.toLowerCase()}` });
+    return null;
+  }, [editor, showStudioMessage]);
+
   const handleDeleteOpening = useCallback(() => {
     const st = useWorkspaceStore.getState();
     const sel = st.selectedOpening;
@@ -660,6 +678,11 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     if ('departmentRef' in patch) {
       // the room's department (v0.14.9): a pick is one undo step, typing one step per burst
       editor.updateRoom(id, { departmentRef: patch.departmentRef }, { mergeKey: typing ? 'room-department' : undefined, label: 'Change department' });
+      return;
+    }
+    if ('glassWalls' in patch) {
+      // Solid or glass walls (v0.18.1): its own undo step
+      editor.updateRoom(id, { glassWalls: patch.glassWalls, glassOnFirstDoor: patch.glassOnFirstDoor }, { label: 'Change walls' });
       return;
     }
     const locked = useWorkspaceStore.getState().rooms[id];
@@ -1789,6 +1812,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           room={selectedRoom}
           opening={selectedOpening}
           onResizeOpening={handleResizeOpening}
+          onSetOpeningStyle={handleSetOpeningStyle}
           onDeleteOpening={handleDeleteOpening}
           floorName={floorName}
           rooms={rooms}

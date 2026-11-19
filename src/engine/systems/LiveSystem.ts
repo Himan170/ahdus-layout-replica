@@ -470,7 +470,7 @@ export class LiveSystem {
     if (length < 0.5) return false;
     const ray = new Ray(eye, dir.scale(1 / length), length - 0.3);
     const hit = this.scene.pickWithRay(ray, (m: AbstractMesh) => m.isEnabled() && m.isVisible && !!m.metadata?.roomId
-      && !m.metadata?.pickPane && m.metadata?.part !== 'door', true);
+      && !m.metadata?.pickPane && m.metadata?.part !== 'door' && !m.metadata?.glass, true); // a glass wall shows them (v0.18.1)
     return !!hit?.hit;
   }
 

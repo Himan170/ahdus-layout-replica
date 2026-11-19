@@ -20,6 +20,12 @@ export const ROOM_TYPES = {
   STAIRCASE:    { label: 'Staircase',       color: '#9b59b6', defaultW: 3, defaultD: 3 },
   SERVER_ROOM:  { label: 'Server Room',     color: '#1abc9c', defaultW: 4, defaultD: 4 },
   RESTROOM:     { label: 'Restroom',        color: '#95a5a6', defaultW: 3, defaultD: 3 },
+  // v0.18.1 (saved files name them as the nearest older type + subtype: engine/model/roomTypes.ts)
+  CAFETERIA:    { label: 'Cafeteria',       color: '#e8a33d', defaultW: 10, defaultD: 8 },
+  LOUNGE:       { label: 'Lounge',          color: '#c0789a', defaultW: 6, defaultD: 5 },
+  CABIN:        { label: 'Cabin',           color: '#5a6fd6', defaultW: 4, defaultD: 3 },
+  TRAINING:     { label: 'Training Room',   color: '#2f9fb8', defaultW: 8, defaultD: 6 },
+  LOBBY:        { label: 'Lobby',           color: '#b59a6a', defaultW: 8, defaultD: 6 },
 };
 
 // ─── Unique ID generator ───

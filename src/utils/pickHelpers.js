@@ -51,3 +51,30 @@ export function itemOverFloorPoint(scene, point, accept = () => true) {
   }
   return best?.objectId ?? null;
 }
+
+/**
+ * v0.18.1: did a pick land on glass (a glass wall's pane, a window's or a glass door's glass)? The pane is a
+ * sub-mesh of a merged mesh, so its material says (materialLibrary marks glass with `metadata.glass`).
+ * @param {PickingInfo} hit
+ */
+export function hitIsGlass(hit) {
+  const mesh = hit?.pickedMesh;
+  let mat = mesh?.material;
+  if (!mat) return false;
+  if (mat.subMaterials) {
+    const sub = mesh.subMeshes?.[hit.subMeshId ?? 0];
+    mat = mat.subMaterials[sub?.materialIndex ?? 0];
+  }
+  return !!mat?.metadata?.glass;
+}
+
+/**
+ * The nearest pick along `ray` that is not glass (v0.18.1): a click or a hover in the viewer goes THROUGH
+ * glass to the person, the desk or the floor behind it. Studio's own picks still pick the glass wall.
+ * @returns {PickingInfo | null}
+ */
+export function pickThroughGlass(scene, ray, predicate) {
+  const hits = scene.multiPickWithRay(ray, predicate) ?? [];
+  hits.sort((a, b) => a.distance - b.distance);
+  return hits.find((h) => h.hit && !hitIsGlass(h)) ?? null;
+}

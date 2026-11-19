@@ -13,6 +13,7 @@
  * tap picks it and the next tap on the floor places it. What they list: ui/library.js.
  */
 
+import OpeningPicture from './OpeningPicture';
 import { useState } from 'react';
 import { Search, X, PencilRuler, LayoutTemplate, ChevronDown } from 'lucide-react';
 import { STUDIO_TOOLS, assetIcon } from './tools';
@@ -79,7 +80,8 @@ function ToolTiles({ tool, activeOption, onPickOption }) {
         return (
           <button key={o.id} className="lib-tile" disabled={o.disabled} aria-pressed={!o.disabled && activeOption === o.id}
             title={o.disabled ? 'Coming soon' : o.label} onClick={() => onPickOption(o)}>
-            <span className="lib-tile__pic" aria-hidden>{Icon && <Icon size={28} strokeWidth={1.5} />}</span>
+            <span className="lib-tile__pic" aria-hidden>{o.opening ? <OpeningPicture kind={o.opening.kind} style={o.opening.style} />
+              : Icon && <Icon size={28} strokeWidth={1.5} />}</span>
             <span className="lib-tile__name">{o.label}</span>
             <span className="lib-tile__size">{o.detail}</span>
           </button>

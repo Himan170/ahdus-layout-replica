@@ -69,7 +69,7 @@ describe('dropping a prefab (v0.18.0)', () => {
     const cab = drop('WS_CABIN', { x: 0, z: 20 });
     const placed = prefabPlacement(prefabById('WS_CABIN'), {}, ASSET_TYPES, cab.at, layout().rooms,
       { groupId: 'grp_c', newId: () => `obj_${++n}`, roomId: 'room_cab', roomRect: cab.room });
-    expect(placed.room).toMatchObject({ id: 'room_cab', type: 'OFFICE', name: 'Cabin', floor: 0 });
+    expect(placed.room).toMatchObject({ id: 'room_cab', type: 'CABIN', name: 'Cabin', floor: 0 });
     expect(placed.room.doors).toHaveLength(1);
     const door = placed.room.doors[0];
     expect(Math.abs(door.offset) + door.width / 2).toBeLessThanOrEqual(placed.room.width / 2 - 0.1);

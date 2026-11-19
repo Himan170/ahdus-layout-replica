@@ -10,6 +10,7 @@ import { ASSET_TYPES } from '../utils/assetCatalog';
 const ROOM_ICONS = {
   OFFICE: '🏢', MEETING: '👥', RECEPTION: '🛎️', CORRIDOR: '🚶',
   PRODUCTION: '🏭', STAIRCASE: '🪜', SERVER_ROOM: '🖧', RESTROOM: '🚻',
+  CAFETERIA: '☕', LOUNGE: '🛋️', CABIN: '🚪', TRAINING: '🎓', LOBBY: '🏛️',
 };
 
 /**
@@ -36,6 +37,13 @@ export const STRUCTURE_ITEMS = [
   { kind: 'wall', label: 'Wall', icon: '🧱' },
   { kind: 'door', label: 'Door', icon: '🚪' },
   { kind: 'window', label: 'Window', icon: '🪟' },
+  // v0.18.1: the other door / window types (planOpening's style)
+  { kind: 'door', style: 'glass', label: 'Glass door', icon: '🚪', short: 'Glass door' },
+  { kind: 'door', style: 'double-glass', label: 'Double glass door', icon: '🚪', short: 'Double dr' },
+  { kind: 'door', style: 'sliding-glass', label: 'Sliding glass door', icon: '🚪', short: 'Sliding dr' },
+  { kind: 'door', style: 'exit', label: 'Emergency exit', icon: '🚨', short: 'Exit door' },
+  { kind: 'window', style: 'tall', label: 'Tall window', icon: '🪟', short: 'Tall win' },
+  { kind: 'window', style: 'panel', label: 'Glass panel', icon: '🪟', short: 'Glass pnl' },
 ];
 
 // These assets are replaced by the real building tools above
@@ -68,7 +76,7 @@ export const OBJECT_ITEMS = Object.entries(ASSET_TYPES)
 
 const room = (t) => ROOM_ITEMS.find((i) => i.roomType === t);
 const obj = (t) => OBJECT_ITEMS.find((i) => i.assetType === t);
-const structure = (k) => STRUCTURE_ITEMS.find((i) => i.kind === k);
+const structure = (k) => STRUCTURE_ITEMS.find((i) => i.kind === k && !i.style);
 
 export const DEFAULT_HOTBAR = [
   structure('edit'),
@@ -114,7 +122,7 @@ export function shortLabel(item) {
     name = SHORT_NAMES[item.assetType] ?? ASSET_TYPES[item.assetType]?.short
       ?? (full.length <= SHORT_NAME_MAX ? full : full.split(/\s+/).pop());
   } else {
-    name = STRUCTURE_SHORT[item.kind] ?? String(item.label ?? '');
+    name = item.short ?? STRUCTURE_SHORT[item.kind] ?? String(item.label ?? '');
   }
   name = name || 'Item';
   return name.length > SHORT_NAME_MAX ? `${name.slice(0, SHORT_NAME_MAX - 1)}…` : name;
@@ -154,4 +162,5 @@ export function catalogSections() {
 }
 
 export const itemKey = (item) =>
-  !item ? 'empty' : item.kind === 'room' ? `room:${item.roomType}` : item.kind === 'object' ? `obj:${item.assetType}` : item.kind;
+  !item ? 'empty' : item.kind === 'room' ? `room:${item.roomType}` : item.kind === 'object' ? `obj:${item.assetType}`
+    : item.style ? `${item.kind}:${item.style}` : item.kind;

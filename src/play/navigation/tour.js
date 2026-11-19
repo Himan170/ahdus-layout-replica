@@ -67,7 +67,7 @@ export const MENTION_DISTANCE = 4;
 /** At most this many names on a stop. */
 export const NAMES_MAX = 3;
 /** One of each per floor. */
-export const TOUR_FACILITIES = ['RESTROOM', 'MEETING'];
+export const TOUR_FACILITIES = ['RESTROOM', 'MEETING', 'CAFETERIA'];
 /** A department's description is cut to this many characters. */
 export const DESCRIPTION_MAX = 280;
 /** Directions: a change of heading bigger than this is a turn (radians, 50°). */
@@ -170,8 +170,11 @@ export function* planTourSteps(layout, people = [], departments = [], options = 
 
   // ── the reception ──
   const groundRooms = rooms.filter((r) => floorOf(r) === ground);
+  // v0.18.1: a Lobby counts as the reception's room when there is no Reception
   const receptionRoom = (spawn.door?.room?.type === 'RECEPTION' ? spawn.door.room : null)
-    ?? groundRooms.find((r) => r.type === 'RECEPTION') ?? null;
+    ?? groundRooms.find((r) => r.type === 'RECEPTION')
+    ?? (spawn.door?.room?.type === 'LOBBY' ? spawn.door.room : null)
+    ?? groundRooms.find((r) => r.type === 'LOBBY') ?? null;
   const receptionDesk = objects.find((o) => o.assetType === 'RECEPTION_DESK' && floorOf(o) === ground
     && (!receptionRoom || o.roomId === receptionRoom.id || rectContains(roomRect(receptionRoom), o.x, o.z))) ?? null;
 
@@ -1038,7 +1041,7 @@ function doorInSight(map, p, d) {
  * @property {string} id  'entrance' | 'reception' | 'department:<key>' | 'room:<roomId>' | 'return'
  * @property {number} n  1, 2, … in tour order
  * @property {'entrance' | 'reception' | 'department' | 'facility' | 'return'} kind
- * @property {'RESTROOM' | 'MEETING' | null} facility
+ * @property {'RESTROOM' | 'MEETING' | 'CAFETERIA' | null} facility
  * @property {string} name
  * @property {number} floor  @property {string} floorName
  * @property {string | null} roomId  the room it stands in (a department: its main room)

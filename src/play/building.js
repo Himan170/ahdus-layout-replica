@@ -163,7 +163,8 @@ export function fillsFloor(room, height) {
 
 /** Why a room's doors/windows don't fit under walls this high, or null. */
 function openingsProblem(room, wallHeight) {
-  const tooHigh = roomOpenings(room).find((o) => o.top > wallHeight - 0.1 + EPS);
+  // a full-height glass panel follows its wall (v0.18.1)
+  const tooHigh = roomOpenings(room).find((o) => o.style !== 'panel' && o.top > wallHeight - 0.1 + EPS);
   if (!tooHigh) return null;
   return `The ${tooHigh.kind} in ${room.name ?? 'this room'} is too high for ${wallHeight.toFixed(1)} m walls`;
 }

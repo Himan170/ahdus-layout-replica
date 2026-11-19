@@ -238,3 +238,27 @@ existing paths.
 - The engine v2 `RoomSchema` does not encode `wallHeight` as optional; old v1
   saves without it keep the existing migration default. The local store loader
   continues to apply its own historical floor/wall-height defaults.
+
+## Doors, windows, glass walls and newer room types (v0.18.1)
+
+All new fields are optional and written only when they differ from the default, so a layout made without them is
+byte-for-byte the same as before.
+
+| Field | Where (store v1 / file v2) | Values | Missing = |
+|---|---|---|---|
+| `style` | a door / window record (v1) · an opening (v2) | door: `wood`, `glass`, `double-glass`, `sliding-glass`, `exit`; window: `standard`, `tall`, `panel` | `wood` / `standard` |
+| `swing` | a door record · an opening | `in` (into the record's room), `out` | `in` (an exit placed from a room: `out` there, `in` on the neighbour's record) |
+| `glassWalls` | a room | wall names: `north`, `south`, `east`, `west` | all walls solid |
+| `glassOnFirstDoor` | a room | `true`: a new Meeting room whose first door makes that wall glass | — |
+| `subtype` | v2 rooms and exported files ONLY | `CAFETERIA`, `LOUNGE`, `CABIN`, `TRAINING`, `LOBBY` | `type` is the room's type |
+
+**Newer room types never appear in `type` in a file.** Older builds check a v2 room's `type` against a fixed list and
+refuse the whole layout otherwise, so a file says the nearest older type in `type` (Cafeteria, Lounge: `CUSTOM`;
+Cabin: `OFFICE`; Training Room: `MEETING`; Lobby: `RECEPTION`) and the real one in `subtype`
+(`src/engine/model/roomTypes.ts`). The store keeps the real type in `type`. From v0.18.1 an unknown `type` reads as
+`CUSTOM` and an unknown `style` is drawn as the default, never an error.
+
+**Older builds (v0.18.0, v0.17.x)** drop the fields they don't know: every door is drawn as an open doorway with a
+wooden frame, every window as a standard window at its saved size, glass walls as solid walls, and the newer room
+types as their older type. **Saving such a layout again from an older Studio loses those settings for good** (doors
+wooden, walls solid, the newer types their older type): edit layouts with the newest Studio.

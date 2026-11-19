@@ -35,6 +35,7 @@
  * changes is rebuilt, see roomGeometryKey).
  */
 
+import { isGlassDoor } from '../play/openingStyles';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
@@ -43,7 +44,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { getMaterials, TILE_SIZE, floorKindOf } from './materialLibrary';
 import {
-  roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, wallThicknessOf, OPPOSITE, roomBuildInput,
+  roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, wallThicknessOf, OPPOSITE, roomBuildInput, isGlassWall,
 } from '../play/geometry';
 import { subtractRects, SLAB } from '../play/building';
 import { mergeByMaterial } from './assetInstances';
@@ -51,6 +52,15 @@ import { mergeByMaterial } from './assetInstances';
 const FLOOR_Y = 0.02;          // just above the site ground, avoids z-fighting
 const SKIRTING_H = 0.1;
 const FRAME_W = 0.07;          // door/window frame profile width
+const PANEL_FRAME_W = 0.04;
+const EXIT_SIGN_W = 0.4;       // an emergency exit's sign over the door (v0.18.1)
+const EXIT_SIGN_H = 0.14;
+// A glass wall (v0.18.1): panes in a thin metal frame, a post at least every GLASS_BAY metres
+const GLASS_FRAME_W = 0.05;
+const GLASS_FRAME_D = 0.09;
+const GLASS_RAIL_H = 0.08;      // the bottom rail (stands in for the skirting)
+const GLASS_BAY = 1.5;
+const GLASS_PANE_T = 0.02;    // a full-height glass panel's thin metal frame (v0.18.1)
 const FRAME_DEPTH_EXTRA = 0.04; // frames stick out slightly from the wall
 const ROOF_T = 0.2;            // roof slab thickness
 const PARAPET_H = 0.25;        // low wall around the roof edge
@@ -318,10 +328,29 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         // standing on the outer room's wall: from inside it is this room's, from outside the outer room's
         ...(segment.sameSide ? { sameSide: true, innerRoom: id, outerRoom: partner } : {}),
       });
-      const wallMeta = { part: 'wall', wallName: wall.name, ...shared(id) };
+      // glass: one mesh as before (part 'wall': picked, collides, on the walk map), its panes see-through
+      const glass = isGlassWall(roomData, wall.name, segment);
+      const wallMeta = { part: 'wall', wallName: wall.name, ...shared(id), ...(glass ? { glass: true } : {}) };
       pieces.forEach((p, i) => {
         const u0 = p.u0 + segmentCentre;
         const u1 = p.u1 + segmentCentre;
+        if (glass) {
+          const tag = `glass_${id}_${wall.name}_${segmentIndex}_${i}`;
+          const fd = Math.min(wallT, GLASS_FRAME_D);
+          const frame = mats.windowFrame();
+          const opts = { castShadow: false };
+          const bottom = p.y0 === 0 ? GLASS_RAIL_H : GLASS_FRAME_W;
+          placeBox(`${tag}_b`, u0, u1, p.y0, p.y0 + bottom, fd, frame, wallMeta, opts);
+          placeBox(`${tag}_t`, u0, u1, p.y1 - GLASS_FRAME_W, p.y1, fd, frame, wallMeta, opts);
+          const bays = Math.max(1, Math.ceil((u1 - u0) / GLASS_BAY - 1e-6));
+          for (let k = 0; k <= bays; k++) {
+            const at = u0 + (u1 - u0) * (k / bays);
+            const a = Math.min(u1 - GLASS_FRAME_W, Math.max(u0, at - GLASS_FRAME_W / 2));
+            placeBox(`${tag}_p${k}`, a, a + GLASS_FRAME_W, p.y0, p.y1, fd, frame, wallMeta, opts);
+          }
+          placeBox(`${tag}_g`, u0, u1, p.y0 + bottom, p.y1 - GLASS_FRAME_W, GLASS_PANE_T, mats.glass(), wallMeta, opts);
+          return;
+        }
         placeBox(`wall_${id}_${wall.name}_${segmentIndex}_${i}`, u0, u1, p.y0, p.y1, wallT, mats.plaster(), wallMeta);
         // Skirting: not pickable, a click on it goes through to the wall behind it.
         if (p.y0 === 0) {
@@ -339,7 +368,9 @@ export function buildRoomMesh(roomData, scene, options = {}) {
           part: o.kind, wallName: o.sourceWall, openingKind: o.kind, openingIndex: o.index,
           roomId: o.roomId, ...shared(o.roomId),
         };
-        const frameMat = o.kind === 'door' ? mats.doorFrame() : mats.windowFrame();
+        // v0.18.1: glass doors have aluminium frames; the leaves themselves are DoorSystem's (they move)
+        const metalDoor = o.kind === 'door' && isGlassDoor(o.style);
+        const frameMat = o.kind === 'door' && !metalDoor ? mats.doorFrame() : mats.windowFrame();
         const D = segT + FRAME_DEPTH_EXTRA;
         const tag = `${o.kind}_${id}_${wall.name}_${segmentIndex}_${o.roomId}_${o.index}`;
 
@@ -347,14 +378,39 @@ export function buildRoomMesh(roomData, scene, options = {}) {
         const pane = placeBox(`${tag}_pick`, u0, u1, o.bottom, o.top, segT, null, { ...meta, pickPane: true }, { castShadow: false });
         pane.visibility = 0;
 
-        placeBox(`${tag}_jl`, u0, u0 + FRAME_W, o.bottom, o.top, D, frameMat, meta, { castShadow: false });
-        placeBox(`${tag}_jr`, u1 - FRAME_W, u1, o.bottom, o.top, D, frameMat, meta, { castShadow: false });
-        placeBox(`${tag}_hd`, u0, u1, o.top - FRAME_W, o.top, D, frameMat, meta, { castShadow: false });
+        // v0.18.1: a full-height glass panel has a thin metal frame, no sill, no mullion
+        const panel = o.kind === 'window' && o.style === 'panel';
+        const fw = panel ? PANEL_FRAME_W : FRAME_W;
+        const fd = panel ? Math.min(D, 0.08) : D;
+        placeBox(`${tag}_jl`, u0, u0 + fw, o.bottom, o.top, fd, frameMat, meta, { castShadow: false });
+        placeBox(`${tag}_jr`, u1 - fw, u1, o.bottom, o.top, fd, frameMat, meta, { castShadow: false });
+        placeBox(`${tag}_hd`, u0, u1, o.top - fw, o.top, fd, frameMat, meta, { castShadow: false });
+
+        // an emergency exit: a green EXIT sign over it, on both faces (where the wall leaves room above the door)
+        if (o.kind === 'door' && o.style === 'exit' && o.top + EXIT_SIGN_H + 0.08 <= (roomData.wallHeight ?? 3)) {
+          const y0 = o.top + 0.05;
+          placeBox(`${tag}_exit`, o.offset - EXIT_SIGN_W / 2, o.offset + EXIT_SIGN_W / 2, y0, y0 + EXIT_SIGN_H, D + 0.04,
+            mats.exitSign(), meta, { castShadow: false });
+          placeBox(`${tag}_exitbar`, o.offset - 0.11, o.offset + 0.05, y0 + 0.055, y0 + 0.085, D + 0.05,
+            mats.lightPanel(), meta, { castShadow: false });
+          placeBox(`${tag}_exitarrow`, o.offset + 0.07, o.offset + 0.12, y0 + 0.035, y0 + 0.105, D + 0.05,
+            mats.lightPanel(), meta, { castShadow: false });
+        }
 
         if (o.kind === 'window') {
-          placeBox(`${tag}_sl`, u0, u1, o.bottom, o.bottom + FRAME_W, D + 0.06, frameMat, meta, { castShadow: false });
-          placeBox(`${tag}_mu`, o.offset - 0.025, o.offset + 0.025, o.bottom, o.top, D * 0.6, frameMat, meta, { castShadow: false });
-          placeBox(`${tag}_gl`, u0 + FRAME_W, u1 - FRAME_W, o.bottom + FRAME_W, o.top - FRAME_W, 0.02,
+          if (panel) {
+            placeBox(`${tag}_sl`, u0, u1, o.bottom, o.bottom + fw, fd, frameMat, meta, { castShadow: false });
+          } else {
+            placeBox(`${tag}_sl`, u0, u1, o.bottom, o.bottom + FRAME_W, D + 0.06, frameMat, meta, { castShadow: false });
+            // a tall window under 1.2 m wide is one pane, with a transom near its top
+            if (o.style !== 'tall' || o.width >= 1.2) {
+              placeBox(`${tag}_mu`, o.offset - 0.025, o.offset + 0.025, o.bottom, o.top, D * 0.6, frameMat, meta, { castShadow: false });
+            }
+            if (o.style === 'tall') {
+              placeBox(`${tag}_tr`, u0, u1, o.top - 0.55, o.top - 0.52, D * 0.6, frameMat, meta, { castShadow: false });
+            }
+          }
+          placeBox(`${tag}_gl`, u0 + fw, u1 - fw, o.bottom + fw, o.top - fw, 0.02,
             mats.glass(), meta, { castShadow: false });
         }
       }

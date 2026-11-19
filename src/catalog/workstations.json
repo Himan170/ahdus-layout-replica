@@ -100,6 +100,6 @@
       "params": { "deskWidth": 1.8, "deskDepth": 0.85, "partition": "none", "partitionHeight": 0.45 } },
     { "id": "WS_CABIN", "label": "Private cabin", "layout": "cabin", "seats": 1, "desk": "DESK_MANAGER",
       "params": { "deskWidth": 1.6, "deskDepth": 0.8, "partition": "none", "partitionHeight": 0.45 },
-      "room": { "type": "OFFICE", "name": "Cabin", "width": 3.6, "depth": 3.2 } }
+      "room": { "type": "CABIN", "name": "Cabin", "width": 3.6, "depth": 3.2 } }
   ]
 }

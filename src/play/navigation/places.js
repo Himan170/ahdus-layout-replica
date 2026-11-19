@@ -54,6 +54,10 @@ export const FACILITIES = {
     label: 'Reception', nearest: 'Nearest reception',
     words: ['reception', 'receptionist', 'lobby'],
   },
+  CAFETERIA: {
+    label: 'Cafeteria', nearest: 'Nearest cafeteria',
+    words: ['cafeteria', 'cafeterias', 'canteen', 'cafe', 'café', 'pantry', 'lunch', 'kitchen'],
+  },
   STAIRS: {
     label: 'Stairs', nearest: 'Nearest stairs',
     words: ['stairs', 'stair', 'staircase', 'stairway', 'steps'],
@@ -61,7 +65,7 @@ export const FACILITIES = {
 };
 
 /** Room type → facility. */
-const ROOM_FACILITY = { RESTROOM: 'RESTROOM', MEETING: 'MEETING', RECEPTION: 'RECEPTION', STAIRCASE: 'STAIRS' };
+const ROOM_FACILITY = { RESTROOM: 'RESTROOM', MEETING: 'MEETING', RECEPTION: 'RECEPTION', STAIRCASE: 'STAIRS', CAFETERIA: 'CAFETERIA' };
 /** Item type → facility. */
 const ITEM_FACILITY = { RECEPTION_DESK: 'RECEPTION', STAIRCASE: 'STAIRS' };
 const ITEM_LABEL = { RECEPTION_DESK: 'Reception desk', STAIRCASE: 'Staircase' };
@@ -70,6 +74,7 @@ const ITEM_LABEL = { RECEPTION_DESK: 'Reception desk', STAIRCASE: 'Staircase' };
 export const ROOM_TYPE_LABEL = {
   OFFICE: 'Office', MEETING: 'Meeting Room', RECEPTION: 'Reception', CORRIDOR: 'Corridor',
   PRODUCTION: 'Production Area', STAIRCASE: 'Staircase', SERVER_ROOM: 'Server Room', RESTROOM: 'Restroom',
+  CAFETERIA: 'Cafeteria', LOUNGE: 'Lounge', CABIN: 'Cabin', TRAINING: 'Training Room', LOBBY: 'Lobby',
 };
 
 export const GROUPS = ['people', 'rooms', 'facilities'];
@@ -135,7 +140,9 @@ function roomAround(rooms, floor, x, z) {
 }
 
 /** Rooms everyone uses: they take a department only from their own departmentRef (v0.14.9). */
-export const SHARED_ROOM_TYPES = new Set(['RECEPTION', 'RESTROOM', 'MEETING', 'STAIRCASE', 'CORRIDOR']);
+export const SHARED_ROOM_TYPES = new Set([
+  'RECEPTION', 'RESTROOM', 'MEETING', 'STAIRCASE', 'CORRIDOR', 'CAFETERIA', 'LOUNGE', 'TRAINING', 'LOBBY',
+]);
 
 /** The room a desk counts for: its saved room (on its floor), else the innermost room around it. */
 function deskRoom(rooms, o) {

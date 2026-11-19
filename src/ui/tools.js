@@ -6,6 +6,7 @@
  * catalog icons). Icons are lucide-react components.
  */
 
+import { styleOptions, styleDef } from '../play/openingStyles';
 import {
   MousePointer2, LayoutGrid, BrickWall, DoorOpen, AppWindow, Footprints, Armchair,
   ArrowUpDown, MoveHorizontal, Hand, Box, Briefcase, Route, Factory,
@@ -13,7 +14,7 @@ import {
   Lock, Warehouse, Monitor, Server, Projector, Printer, Tv, Leaf, Sprout, CupSoda,
   Droplets, FireExtinguisher, Siren, Cross, MapPin, Square, Cog, Wrench, Columns3,
   RectangleHorizontal, Users, Laptop, Keyboard, Mouse, Library, Trash2, Refrigerator, Microwave,
-  Circle, Rows3, LampFloor, Shirt, Toilet, Bath, Clock, AirVent, LibraryBig,
+  Circle, Rows3, LampFloor, Shirt, Toilet, Bath, Clock, AirVent, LibraryBig, DoorClosed, Building2,
 } from 'lucide-react';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { OBJECT_ITEMS } from '../play/hotbarItems';
@@ -96,6 +97,11 @@ export const ROOM_ICONS = {
   STAIRCASE: ArrowUpDown,
   SERVER_ROOM: Server,
   RESTROOM: Toilet,
+  CAFETERIA: Coffee,
+  LOUNGE: Sofa,
+  CABIN: DoorClosed,
+  TRAINING: Presentation,
+  LOBBY: Building2,
 };
 
 /** Icon for anything you can hold in Preview (hotbarItems.js items). */
@@ -172,8 +178,19 @@ export const STUDIO_TOOLS = [
     shortcut: '4',
     hint: 'Click a wall to add a door',
     options: [
-      { id: 'door', label: 'Door', icon: DoorOpen, detail: 'Click a wall to add or remove', tool: { kind: 'door' }, hint: 'Click a wall to add a door' },
-      { id: 'window', label: 'Window', icon: AppWindow, detail: 'Click a wall to add or remove', tool: { kind: 'window' }, hint: 'Click a wall to add a window' },
+      // v0.18.1: one tile per door / window type (play/openingStyles.js); "Door" and "Window" are the plain ones
+      ...styleOptions('door').map((o) => ({
+        id: o.style === 'wood' ? 'door' : `door-${o.style}`, label: o.label, icon: DoorOpen, opening: o,
+        detail: o.style === 'wood' ? 'Click a wall to add or remove' : o.detail,
+        tool: o.style === 'wood' ? { kind: 'door' } : { kind: 'door', style: o.style },
+        hint: `Click a wall to add ${o.style === 'wood' ? 'a door' : `a ${o.label.toLowerCase()}`.replace('a emergency', 'an emergency')}`,
+      })),
+      ...styleOptions('window').map((o) => ({
+        id: o.style === 'standard' ? 'window' : `window-${o.style}`, label: o.label, icon: AppWindow, opening: o,
+        detail: o.style === 'standard' ? 'Click a wall to add or remove' : o.detail,
+        tool: o.style === 'standard' ? { kind: 'window' } : { kind: 'window', style: o.style },
+        hint: `Click a wall to add ${o.style === 'standard' ? 'a window' : `a ${o.label.toLowerCase()}`}`,
+      })),
     ],
   },
   {
@@ -272,8 +289,13 @@ export function activeTile(plannerTool, placementAsset, assetLabel) {
   switch (plannerTool?.kind) {
     case 'room': return { id: 'rooms', choice: ROOM_TYPES[plannerTool.roomType]?.label ?? null, option: plannerTool.roomType };
     case 'wall': return { id: 'walls', choice: 'Wall', option: 'wall' };
-    case 'door': return { id: 'doors', choice: 'Door', option: 'door' };
-    case 'window': return { id: 'doors', choice: 'Window', option: 'window' };
+    case 'door':
+    case 'window': {
+      const style = plannerTool.style;
+      const option = style ? `${plannerTool.kind}-${style}` : plannerTool.kind;
+      const label = style ? styleDef(plannerTool.kind, style)?.label : plannerTool.kind === 'door' ? 'Door' : 'Window';
+      return { id: 'doors', choice: label, option };
+    }
     default: return { id: 'select', choice: null, option: null };
   }
 }
@@ -281,7 +303,10 @@ export function activeTile(plannerTool, placementAsset, assetLabel) {
 /** The footer hint for what is active right now. */
 export function toolHint(plannerTool, placementAsset) {
   const { id } = activeTile(plannerTool, placementAsset);
-  if (plannerTool?.kind === 'window' && !placementAsset) return 'Click a wall to add a window';
+  if ((plannerTool?.kind === 'window' || plannerTool?.kind === 'door') && !placementAsset) {
+    const o = toolById('doors')?.options.find((x) => x.id === activeTile(plannerTool).option);
+    if (o?.hint) return o.hint;
+  }
   if (plannerTool?.kind === 'room' && plannerTool.stamp && !placementAsset) return 'Tap the floor where the room goes';
   return toolById(id)?.hint ?? '';
 }

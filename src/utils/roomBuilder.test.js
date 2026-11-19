@@ -290,3 +290,40 @@ describe('a room inside a room standing on its wall: one wall, built by the inne
     expect(frames(build(withDoor[1], withDoor, { nested: true })).length).toBeGreaterThan(0);
   });
 });
+
+describe('glass walls (v0.18.1)', () => {
+  const meeting = (extra = {}) => ({
+    id: 'm', floor: 0, x: 0, z: 0, width: 6, depth: 4, wallHeight: 3, doors: [], windows: [], ...extra,
+  });
+  const glassMeshes = (root) => root.getChildMeshes(false).filter((m) => m.metadata?.glass);
+
+  it('a glass wall is one mesh still part "wall": picked, it collides, no skirting along it', () => {
+    const root = build(meeting({ glassWalls: ['south'], doors: [{ wall: 'south', offset: 1.5, width: 1, height: 2.1 }] }));
+    const glass = glassMeshes(root);
+    expect(glass).toHaveLength(1);
+    expect(glass[0].metadata).toMatchObject({ part: 'wall', wallName: 'south', glass: true });
+    expect(glass[0].checkCollisions).toBe(true);
+    expect(glass[0].isPickable).toBe(true);
+    expect(size(glass[0], 'x')).toBeGreaterThan(5.5); // the whole wall, over the doorway too
+    const skirts = root.getChildMeshes(false).filter((m) => m.name.startsWith('skirt_'));
+    expect(skirts.every((m) => m.metadata.wallName !== 'south')).toBe(true);
+    expect(wallMeshes(root, 'north')).toHaveLength(1); // the other walls are solid
+  });
+
+  it('a shared wall is glass when either room says so, and built once', () => {
+    const a = meeting({ id: 'a' });
+    const b = { id: 'b', floor: 0, x: 5.15, z: 0, width: 4, depth: 4, wallHeight: 3, doors: [], windows: [], glassWalls: ['west'] };
+    const rootA = build(a, [a, b]);
+    const rootB = buildRoomMesh(b, scene, { rooms: [a, b] });
+    expect(glassMeshes(rootA).map((m) => m.metadata.wallName)).toEqual(['east']);
+    expect(glassMeshes(rootB)).toHaveLength(0);
+  });
+
+  it('switching a wall to glass rebuilds that room and its neighbour', () => {
+    const a = meeting({ id: 'a' });
+    const b = { id: 'b', floor: 0, x: 5.15, z: 0, width: 4, depth: 4, wallHeight: 3, doors: [], windows: [] };
+    const after = [a, { ...b, glassWalls: ['west'] }];
+    expect([...roomsToRebuild([a, b], after)].sort()).toEqual(['a', 'b']);
+    expect(roomGeometryKey(after[1], { rooms: after })).not.toBe(roomGeometryKey(b, { rooms: [a, b] }));
+  });
+});

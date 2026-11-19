@@ -21,6 +21,7 @@ import { RoomSystem } from '../engine/systems/RoomSystem';
 import { ObjectSystem } from '../engine/systems/ObjectSystem';
 import { FloorSystem } from '../engine/systems/FloorSystem';
 import { CharacterSystem } from '../engine/systems/CharacterSystem';
+import { DoorSystem } from '../engine/systems/DoorSystem';
 import { SceneBuilder } from '../engine/systems/SceneBuilder';
 import { progressPercent } from '../play/buildSchedule';
 import { elevationOf } from '../play/building';
@@ -238,6 +239,22 @@ export function useStudioScene({
     });
     playRef.current = play;
 
+    // v0.18.1: door leaves: half open while editing (the swing shows), opening for you in Walk through
+    const doors = new DoorSystem(scene, {
+      getLayout: () => useWorkspaceStore.getState(),
+      roomNode: (id) => roomSystem.getRoomMesh(id),
+      studio: () => !play?.isActive(),
+      shownFloor: () => (play?.isActive() ? play.getLevel() : useWorkspaceStore.getState().currentFloor ?? 0),
+      movers: () => {
+        if (!play?.isActive()) return [];
+        const p = play.getPosition();
+        return [{ id: 'me', x: p.x, z: p.z, floor: play.getLevel(), local: true }];
+      },
+    });
+    const doorTick = () => doors.update((engine.getDeltaTime?.() ?? 16) / 1000);
+    scene.onBeforeRenderObservable.add(doorTick);
+    if (import.meta.env.DEV) window.__ahdusDoors = doors;
+
     // Connect the bridge so other modules can read the layout and react to events
     function showCard({ title, body, text, duration = 6000 }) {
       clearTimeout(cardTimerRef.current);
@@ -391,6 +408,8 @@ export function useStudioScene({
       offLook();
       characters.dispose();
       characterSystemRef.current = null;
+      scene.onBeforeRenderObservable.removeCallback(doorTick);
+      doors.dispose();
       if (pauseRenderingRef) pauseRenderingRef.current = null;
       layoutScene.dispose();
       // The scene took every room/item mesh with it. Forget them, or the next

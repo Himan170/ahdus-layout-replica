@@ -35,7 +35,7 @@ describe('the asset manifest (v0.18.0)', () => {
     expect(Object.keys(MANIFEST_TYPES)).toEqual(expect.arrayContaining(['DESK_WORKSTATION', 'DESK_MANAGER', 'CHAIR_VISITOR', 'PEDESTAL_DRAWERS', 'PARTITION_SCREEN']));
     expect(PREFABS.map((p) => p.id)).toEqual(['WS_SINGLE', 'WS_CLUSTER_2', 'WS_CLUSTER_4', 'WS_CLUSTER_6', 'WS_CLUSTER_8', 'WS_ROW_4', 'WS_MANAGER', 'WS_CABIN']);
     expect(prefabById('WS_CLUSTER_6').seats).toBe(6);
-    expect(prefabById('WS_CABIN').room).toMatchObject({ type: 'OFFICE', width: 3.6 });
+    expect(prefabById('WS_CABIN').room).toMatchObject({ type: 'CABIN', width: 3.6 });
   });
 
   it('turns an entry into a catalogue entry', () => {

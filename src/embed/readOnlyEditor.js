@@ -7,7 +7,7 @@ import { CommandHistory } from '../engine/commands/CommandHistory';
 export const EDITOR_COMMANDS = [
   'addObject', 'deleteObject', 'updateObject', 'duplicateObject', 'moveObjects', 'replaceObjects', 'placePrefab', 'lockObjects',
   'toggleLock', 'addRoom', 'deleteRoom', 'lockRooms', 'toggleRoomLock', 'moveRoom', 'turnRoom', 'updateRoom',
-  'setWallHeight', 'setFloorHeight', 'toggleDoor', 'addOpenings', 'removeOpenings', 'resizeOpening',
+  'setWallHeight', 'setFloorHeight', 'toggleDoor', 'addOpenings', 'removeOpenings', 'resizeOpening', 'setOpeningStyle',
   'setIgnoredChecks', 'setAnchorData', 'addFloor', 'removeFloor', 'renameFloor', 'applyProposedLayout',
   'restoreVersion', 'undo', 'redo', 'clear', 'endBurst',
 ];
