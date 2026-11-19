@@ -23,6 +23,7 @@
  */
 
 import type { Layout, Floor, Room, Opening, LayoutObject, Anchor } from './schema';
+import { storeRoomType } from './roomTypes';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -59,6 +60,8 @@ export interface V1Room {
   floorFinish: string;
   departmentRef?: string;
   isLocked?: boolean;
+  glassWalls?: string[];       // v0.18.1
+  glassOnFirstDoor?: boolean;  // v0.18.1
   doors: V1Opening[];
   windows: V1Opening[];
 }
@@ -70,6 +73,8 @@ export interface V1Opening {
   width: number;
   height: number;
   sill?: number;       // windows only
+  style?: string;      // v0.18.1: a door / window style (missing = the default)
+  swing?: 'in' | 'out'; // v0.18.1: a door's swing (missing = into the room)
 }
 
 export interface V1Object {
@@ -130,12 +135,14 @@ function convertRoom(r: Room, openings: Opening[], floorOf: (id: string | number
       height: o.height,
     };
     if (o.kind === 'window') v1.sill = o.sillHeight;
+    if (o.style) v1.style = o.style;
+    if (o.swing) v1.swing = o.swing;
     list.push(v1);
   }
 
   return {
     id: r.id,
-    type: r.type,
+    type: storeRoomType(r.type, r.subtype) ?? r.type,
     name: r.name,
     floor: floorOf(r.floorId),
     x: r.x,
@@ -148,6 +155,8 @@ function convertRoom(r: Room, openings: Opening[], floorOf: (id: string | number
     floorFinish: r.floorFinish,
     ...(r.departmentRef ? { departmentRef: r.departmentRef } : {}),
     ...(r.locked ? { isLocked: true } : {}),
+    ...(r.glassWalls?.length ? { glassWalls: [...r.glassWalls] } : {}),
+    ...(r.glassOnFirstDoor ? { glassOnFirstDoor: true } : {}),
     doors,
     windows,
   };

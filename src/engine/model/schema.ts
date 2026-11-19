@@ -80,10 +80,16 @@ export type Floor = z.infer<typeof FloorSchema>;
 // Must match the keys of ROOM_TYPES in src/utils/roomStore.js.
 // If you add a room type there, add it here too (and vice versa),
 // otherwise migrated layouts silently fall back to CUSTOM.
-export const RoomTypeSchema = z.enum([
+// v0.18.1: this list is FROZEN. Older builds refuse a whole layout with a type that is not on it, so newer room
+// types are written as the nearest type here + `subtype` (model/roomTypes.ts). An unknown type reads as CUSTOM.
+export const ROOM_TYPE_LIST = [
   'OFFICE', 'MEETING', 'RECEPTION', 'CORRIDOR', 'PRODUCTION',
   'STAIRCASE', 'SERVER_ROOM', 'RESTROOM', 'CUSTOM',
-]);
+] as const;
+export const RoomTypeSchema = z.enum(ROOM_TYPE_LIST).catch('CUSTOM');
+
+/** A wall of a room. */
+export const WallNameSchema = z.enum(['north', 'south', 'east', 'west']);
 export type RoomType = z.infer<typeof RoomTypeSchema>;
 
 export const RoomSchema = z.object({
@@ -103,6 +109,13 @@ export const RoomSchema = z.object({
   departmentRef: z.string().optional(),
   // v0.15.6: a locked room can't be moved, resized, turned or deleted in Studio. Missing = unlocked
   locked: z.boolean().optional(),
+  // v0.18.1 (all optional; older builds drop them: a Custom / Office / … room with solid walls):
+  // the room type when it is newer than RoomTypeSchema's list (`type` is then the nearest older one)
+  subtype: z.string().max(40).optional(),
+  // its walls drawn in glass (they still block walking)
+  glassWalls: z.array(WallNameSchema).max(4).optional(),
+  // a new Meeting room: its first door makes that wall glass (until then, or until a wall is set by hand)
+  glassOnFirstDoor: z.boolean().optional(),
 });
 export type Room = z.infer<typeof RoomSchema>;
 
@@ -114,11 +127,17 @@ export const OpeningSchema = z.object({
   id: z.string(),
   roomId: z.string(),
   kind: OpeningKindSchema.default('door'),
-  wall: z.enum(['north', 'south', 'east', 'west']),
+  wall: WallNameSchema,
   offset: z.number().default(0),        // distance from wall start
   width: z.number().default(1),
   height: z.number().default(2.1),
   sillHeight: z.number().default(0),    // 0 for door, ~0.9 for window
+  // v0.18.1 (optional; older builds drop them and draw today's open doorway / standard window at this size):
+  // door: wood (missing) | glass | double-glass | sliding-glass | exit; window: standard (missing) | tall | panel.
+  // A style this build doesn't know is drawn as the default.
+  style: z.string().max(40).optional(),
+  // a door's swing: into this opening's room (missing) or out of it (an exit). Both records of a shared door agree.
+  swing: z.enum(['in', 'out']).optional(),
 });
 export type Opening = z.infer<typeof OpeningSchema>;
 

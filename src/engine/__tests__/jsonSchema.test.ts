@@ -78,3 +78,25 @@ describe("a room's lock (v0.15.6)", () => {
     expect(validator()(bad)).toBe(false);
   });
 });
+
+describe('doors, windows and glass (v0.18.1)', () => {
+  it('only optional fields; the room type list stays the one older servers know', () => {
+    const schema = layoutJsonSchema() as any;
+    const room = schema.properties.rooms.items;
+    const opening = schema.properties.openings.items;
+    expect(room.properties.type.enum).not.toContain('CAFETERIA');
+    expect(room.properties.subtype).toEqual({ type: 'string', maxLength: 40 });
+    expect(room.properties.glassWalls.items.enum).toEqual(['north', 'south', 'east', 'west']);
+    expect(room.properties.glassOnFirstDoor).toEqual({ type: 'boolean' });
+    expect(opening.properties.style).toEqual({ type: 'string', maxLength: 40 });
+    expect(opening.properties.swing.enum).toEqual(['in', 'out']);
+    for (const f of ['subtype', 'glassWalls', 'glassOnFirstDoor']) expect(room.required ?? []).not.toContain(f);
+    for (const f of ['style', 'swing']) expect(opening.required ?? []).not.toContain(f);
+
+    const v2 = sampleV2();
+    v2.rooms[0] = { ...v2.rooms[0], type: 'CUSTOM', subtype: 'CAFETERIA', glassWalls: ['south'], glassOnFirstDoor: true };
+    expect(validator()(v2)).toBe(true);
+    v2.rooms[0].glassWalls = ['up'];
+    expect(validator()(v2)).toBe(false);
+  });
+});

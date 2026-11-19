@@ -51,7 +51,7 @@
  */
 
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { layoutSummary, normaliseLayout } from '../store/layoutData';
+import { layoutSummary, normaliseLayout, fileLayout } from '../store/layoutData';
 import { v4 as uuidv4 } from 'uuid';
 import {
   enqueueSync,
@@ -963,7 +963,7 @@ export async function exportLayout(companyId, layoutId) {
   }
   if (!data) throw new Error('This layout no longer exists');
   const { companyId: _c, layoutId: _l, revision: _r, savedAt: _s, exportedAt: _e, ...layout } = data;
-  const file = { format: LAYOUT_FILE_FORMAT, formatVersion: 1, exportedAt: new Date().toISOString(), layout };
+  const file = { format: LAYOUT_FILE_FORMAT, formatVersion: 1, exportedAt: new Date().toISOString(), layout: fileLayout(layout) };
   return { fileName: layoutFileName(layout.layoutName), text: JSON.stringify(file, null, 2) };
 }
 

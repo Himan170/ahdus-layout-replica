@@ -19,7 +19,7 @@
 import { v4 as uuid } from 'uuid';
 import {
   LayoutSchema,
-  RoomTypeSchema,
+  ROOM_TYPE_LIST,
   type Layout,
   type Floor,
   type Room,
@@ -29,6 +29,7 @@ import {
   type Anchor,
 } from './schema';
 import { syncAnchors } from './anchors';
+import { fileRoomType, cleanGlassWalls } from './roomTypes';
 
 /** Shape of the v1 state blob saved by the current apiService */
 interface V1State {
@@ -66,12 +67,29 @@ export function detectVersion(data: unknown): 1 | 2 {
   return 1;
 }
 
-const VALID_ROOM_TYPES = new Set<string>(RoomTypeSchema.options);
+const VALID_ROOM_TYPES = new Set<string>(ROOM_TYPE_LIST);
 
 function mapRoomType(v1Type?: string): RoomType {
   if (!v1Type) return 'CUSTOM';
   const upper = v1Type.toUpperCase();
   return VALID_ROOM_TYPES.has(upper) ? (upper as RoomType) : 'CUSTOM';
+}
+
+/** v0.18.1: a room's type as a v2 file says it (newer types: the nearest older type + subtype; roomTypes.ts). */
+function roomTypeFields(v1Type?: string, v1Subtype?: unknown): { type: RoomType; subtype?: string } {
+  const { type, subtype } = fileRoomType(v1Type ?? '');
+  if (subtype) return { type: mapRoomType(type), subtype };
+  // a v1 file written with { type: fallback, subtype } (an exported Studio file) keeps its subtype
+  const kept = fileRoomType(v1Subtype).subtype;
+  return { type: mapRoomType(v1Type), ...(kept ? { subtype: kept } : {}) };
+}
+
+/** v0.18.1: a door's / window's style and swing, only when set (missing = the default). */
+function openingExtras(o: any): { style?: string; swing?: 'in' | 'out' } {
+  return {
+    ...(typeof o?.style === 'string' && o.style && o.style.length <= 40 ? { style: o.style } : {}),
+    ...(o?.swing === 'in' || o?.swing === 'out' ? { swing: o.swing } : {}),
+  };
 }
 
 /**
@@ -104,7 +122,7 @@ export function migrateV1toV2(v1: V1State): Layout {
       id: String(r.id ?? uuid()),
       floorId: r.floor ?? r.floorId ?? 0,
       name: r.name ?? '',
-      type: mapRoomType(r.type),
+      ...roomTypeFields(r.type, r.subtype),
       x: r.x ?? 0,
       z: r.z ?? 0,
       width: r.width ?? 4,
@@ -116,6 +134,8 @@ export function migrateV1toV2(v1: V1State): Layout {
       floorFinish: typeof r.floorFinish === 'string' ? r.floorFinish : 'default',
       ...(typeof r.departmentRef === 'string' ? { departmentRef: r.departmentRef } : {}),
       ...((r.isLocked ?? r.locked) ? { locked: true } : {}),
+      ...(cleanGlassWalls(r.glassWalls).length ? { glassWalls: cleanGlassWalls(r.glassWalls) as Room['glassWalls'] } : {}),
+      ...(r.glassOnFirstDoor === true ? { glassOnFirstDoor: true } : {}),
     };
     rooms.push(room);
 
@@ -130,6 +150,7 @@ export function migrateV1toV2(v1: V1State): Layout {
           width: w.width ?? 1.4,
           height: w.height ?? 1.2,
           sillHeight: w.sill ?? 0.9,
+          ...openingExtras(w),
         });
       });
     }
@@ -146,6 +167,7 @@ export function migrateV1toV2(v1: V1State): Layout {
           width: door.width ?? 1,
           height: door.height ?? 2.1,
           sillHeight: 0,
+          ...openingExtras(door),
         });
       });
     }
@@ -229,6 +251,22 @@ export function migrateV1toV2(v1: V1State): Layout {
   return layout;
 }
 
+/**
+ * v0.18.1: a v2 layout whose rooms name a newer type in `type` (a teammate's file: { type: 'CAFETERIA' }) gets
+ * the file form (type: the nearest older type, subtype: 'CAFETERIA'), as this build writes it.
+ */
+function withFileRoomTypes(data: unknown): unknown {
+  const rooms = (data as any)?.rooms;
+  if (!Array.isArray(rooms) || !rooms.some((r) => fileRoomType(r?.type).subtype)) return data;
+  return {
+    ...(data as object),
+    rooms: rooms.map((r) => {
+      const { type, subtype } = fileRoomType(r?.type);
+      return subtype && !r.subtype ? { ...r, type, subtype } : r;
+    }),
+  };
+}
+
 /** An exported layout file (services/apiService.exportLayout): the layout is inside. */
 export const LAYOUT_FILE_FORMAT = 'ahdus-layout';
 
@@ -243,7 +281,7 @@ export function loadLayout(data: unknown): Layout {
   if (data && typeof data === 'object' && (data as any).format === LAYOUT_FILE_FORMAT) {
     data = (data as any).layout;
   }
-  const v2 = detectVersion(data) === 2 ? data : migrateV1toV2(data as V1State);
+  const v2 = detectVersion(data) === 2 ? withFileRoomTypes(data) : migrateV1toV2(data as V1State);
   const layout = LayoutSchema.parse(v2);
   // Re-sync so anchors always match object positions, even if the saved
   // file was edited by hand or saved by an older build.
