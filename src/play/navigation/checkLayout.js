@@ -12,6 +12,8 @@
  *     roomId / objectId   what a click selects
  *     blocksWalking  (v0.17.4) people can't walk somewhere because of it: Publish lists it even when ignored
  *     fix       (v0.17.4) "Fix it": { moves: [[objectId, patch]], label } = one editor.moveObjects
+ *               (v0.18.5) a cabin nobody can walk into: { room: { id, patch, rooms, objects }, label } = one
+ *               editor.turnRoom (turned, or moved off the wall its door faces)
  *               (fixes: false = none: checking a layout with the fixes applied)
  *
  * It reuses the walk map (walkMap.js: what the body can stand on), the walkable areas and the
@@ -33,6 +35,7 @@ import { groupOf } from '../prefab';
 import { prefabById } from '../../catalog/manifest';
 import { narrowAisles, AISLE_MIN, metres } from '../aisles';
 import { liftProblems } from '../lifts';
+import { cabinFixes, isCabin } from '../cabinDoor';
 
 const list = (v) => (Array.isArray(v) ? v : Object.values(v ?? {}));
 const floorOf = (r) => r.floor ?? r.floorId ?? 0;
@@ -408,6 +411,7 @@ export function checkLayout(layout, options = {}) {
     // v0.18.0: what a cluster's move clears is said once, in that cluster's own line
     const absorbed = addFixes(unique, safe, { catalog, floorIds, check: checkLayout });
     if (absorbed.size) unique = unique.filter((p) => !absorbed.has(p));
+    addCabinFixes(unique, safe, { catalog, check: checkLayout });
   }
   unique.sort((a, b) => (order.get(a.floorId) ?? 0) - (order.get(b.floorId) ?? 0) ||
     SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.message.localeCompare(b.message));
@@ -560,6 +564,34 @@ function addFixes(problems, layout, { catalog, floorIds, check }) {
     p.fix = { moves: [...moves], label: from.every((c) => c.problem.kind === CHECK_KINDS.STAIRS) ? 'Move the stairs' : 'Move what blocks the way' };
   }
   return absorbed;
+}
+
+/** A cabin's ways out tried by a re-check, at most this many (each re-check is a whole Check). */
+const CABIN_TRIES = 3;
+
+/**
+ * v0.18.5: "Nobody can walk to Cabin" with nothing else to move: the cabin turned, or moved off the wall
+ * its door faces (play/cabinDoor.js), the first way the re-check shows clears it.
+ */
+function addCabinFixes(problems, layout, { catalog, check }) {
+  for (const p of problems) {
+    if (p.kind !== CHECK_KINDS.ROOM_UNREACHABLE || p.fix) continue;
+    const room = layout.rooms.find((r) => r.id === p.roomId);
+    if (!room || !isCabin(room, layout.objects)) continue;
+    for (const way of cabinFixes(room, layout, catalog).slice(0, CABIN_TRIES)) {
+      const { id, patch, rooms = [], objects = [] } = way.room;
+      const rp = new Map([[id, patch], ...rooms]);
+      const op = new Map(objects);
+      const after = {
+        ...layout,
+        rooms: layout.rooms.map((r) => (rp.has(r.id) ? { ...r, ...rp.get(r.id) } : r)),
+        objects: layout.objects.map((o) => (op.has(o.id) ? { ...o, ...op.get(o.id) } : o)),
+      };
+      if (check(after, { catalog, fixes: false }).problems.some((q) => q.key === p.key)) continue;
+      p.fix = way;
+      break;
+    }
+  }
 }
 
 // ── What Studio shows ────────────────────────────────────────────────────

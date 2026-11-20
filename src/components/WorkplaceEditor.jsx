@@ -975,6 +975,22 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       showStudioMessage(`${problem.fix.label}: done. Ctrl+Z to undo.`);
       return;
     }
+    // v0.18.5: a cabin nobody can walk into: turned, or moved off the wall, with what is in it (one undo step)
+    const cabin = problem?.fix?.room;
+    if (cabin) {
+      if (!editor.turnRoom(cabin.id, { problem: null, ...cabin }, { label: problem.fix.label })) {
+        showStudioMessage("The cabin can't move: it, or something in it, is locked", true);
+        return;
+      }
+      editor.endBurst();
+      checks.run();
+      const st = useWorkspaceStore.getState();
+      st.selectFloor(st.rooms[cabin.id]?.floor ?? problem.floorId);
+      st.selectObject(null);
+      st.selectRoom(cabin.id);
+      showStudioMessage(`${problem.fix.label === 'Turn the cabin' ? 'Turned the cabin' : 'Moved the cabin'} so its door opens onto the floor. Ctrl+Z to undo.`);
+      return;
+    }
     if (!problem?.fix?.moves?.length) return;
     editor.moveObjects(problem.fix.moves, { label: problem.fix.label });
     editor.endBurst();
