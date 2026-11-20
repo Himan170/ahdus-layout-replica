@@ -102,15 +102,17 @@ function buildLStair(scene, root, id, shape, riseIn, stepMat, noseMat) {
     // a handrail along the flight's outer side: the first flight's side away from the turn, the second's far side
     const len = alongZ ? d : w;
     const slope = Math.hypot(len, p.h1 - p.h0);
-    const rail = MeshBuilder.CreateBox('rail_' + n, { width: 0.05, height: 0.05, depth: slope }, scene);
+    const tilt = Math.atan2(p.h1 - p.h0, len);
+    // the rail's long side along the flight, tilted up the way it climbs (+Z, +X or −X)
+    const rail = alongZ
+      ? MeshBuilder.CreateBox('rail_' + n, { width: 0.05, height: 0.05, depth: slope }, scene)
+      : MeshBuilder.CreateBox('rail_' + n, { width: slope, height: 0.05, depth: 0.05 }, scene);
     if (alongZ) {
       const side = shape === 'L-right' ? p.x0 + 0.05 : p.x1 - 0.05;
-      rail.rotation.x = -Math.atan2(p.h1 - p.h0, len);
+      rail.rotation.x = -tilt;
       rail.position.set(side, (p.h0 + p.h1) / 2 + 0.9, (p.z0 + p.z1) / 2);
     } else {
-      rail.rotation.y = Math.PI / 2;
-      rail.rotation.x = -Math.atan2(p.h1 - p.h0, len);
-      if (p.along === '-x') rail.rotation.y = -Math.PI / 2;
+      rail.rotation.z = p.along === 'x' ? tilt : -tilt; // +Z turns +X up
       rail.position.set((p.x0 + p.x1) / 2, (p.h0 + p.h1) / 2 + 0.9, p.z1 - 0.05);
     }
     part(rail, false).material = railMat;
