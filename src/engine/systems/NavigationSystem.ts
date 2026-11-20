@@ -36,6 +36,7 @@ import { entranceSpawn } from '../../play/navigation/entrance';
 import { createFollower, routeMarks, headingOf, turnTowards, TURN_RATE } from '../../play/navigation/follow';
 import { uniqueSeats } from '../../play/people';
 import { supportHeight, elevationOf, floorsInOrder } from '../../play/building';
+import { liftFloorsFrom } from '../../play/lifts';
 
 /** What search results look like to the page (places.publicPlace). */
 export interface PlaceResult {
@@ -58,6 +59,8 @@ export interface PlaceResult {
   entityId: string | null;
   /** "Nearest …": the places it chooses from. */
   places?: string[];
+  /** v0.18.4: with "Avoid stairs" on, no lift goes there from where you are (Find's "stairs only" note). */
+  stairsOnly?: true;
 }
 
 export interface SearchGroups {
@@ -330,6 +333,8 @@ interface Walk {
   face?: FaceOnArrival;
   /** routeTo's arriveWithin (m; a click on stairs), else the follower's own. */
   arriveWithin?: number;
+  /** v0.18.4: routeTo's { stairs: true } ("Use the stairs this time"): reroutes may use them too. */
+  stairs?: boolean;
   /** Walking time so far (s, the frames' time). */
   elapsed: number;
   source?: RouteSource;
@@ -350,10 +355,37 @@ export class NavigationSystem {
   private warmToken = 0;
   /** The tour's plan, kept while its inputs are the same (tourPlan()). */
   private tour: { plan: TourPlan; key: unknown[] } | null = null;
+  /** v0.18.4: "Avoid stairs (use lifts)": routes, Take me there, the tour and My desk go between floors by lift only. */
+  private avoid = false;
 
   constructor(hooks: Hooks) {
     this.hooks = hooks;
     if (hooks.walkMaps) this.walkMaps = hooks.walkMaps;
+  }
+
+  /** v0.18.4: "Avoid stairs (use lifts)" on or off. */
+  get avoidStairs(): boolean {
+    return this.avoid;
+  }
+
+  /**
+   * v0.18.4: "Avoid stairs (use lifts)": every route from now on (Show route, Take me there, the tour, My desk, the
+   * nearest …) goes between floors by lift only; a place only the stairs reach is a NEEDS_STAIRS answer ("No lift goes
+   * to Floor 2: this route needs the stairs"), never a walk up the stairs. A walk in progress is not changed. The tour
+   * is planned again (its plan is keyed on it). Returns whether it changed.
+   */
+  setAvoidStairs(on: boolean): boolean {
+    const v = !!on;
+    if (v === this.avoid) return false;
+    this.avoid = v;
+    // the tour's plan is keyed on it: planned again in idle time (the walk maps are kept), so "Start the tour" never waits
+    void this.warm();
+    return true;
+  }
+
+  /** v0.18.4: more than one floor (the viewer offers "Avoid stairs" only then). */
+  get multiStorey(): boolean {
+    return Object.keys(this.hooks.getLayout().floors ?? {}).length > 1;
   }
 
   /** Who sits where (LayoutEngine.setPeople): only personId, deskId, name and department are kept. */
@@ -387,8 +419,9 @@ export class NavigationSystem {
   browse({ recent = [] }: { recent?: string[] } = {}): BrowseMenu {
     const index = this.places();
     const menu = browsePlaces(index, { departments: this.departments, me: this.hooks.getMe?.() ?? null });
-    const pub = (p: Place | null | undefined) => (p ? (publicPlace(p) as PlaceResult) : null);
-    const pubs = (list: Place[]) => list.map((p) => publicPlace(p) as PlaceResult);
+    const note = this.stairsNote();
+    const pub = (p: Place | null | undefined) => (p ? note(p) : null);
+    const pubs = (list: Place[]) => list.map(note);
     const walker = this.hooks.getWalker();
     return {
       chips: menu.chips.map((c: Place) => {
@@ -396,7 +429,7 @@ export class NavigationSystem {
         if (walker) {
           const place = this.place(`nearest:${c.facility}`);
           const route = place ? this.routeFrom(walker, place) : null;
-          if (place && route && !route.problem) nearest = { place: publicPlace(place) as PlaceResult, length: route.length, seconds: route.seconds };
+          if (place && route && !route.problem) nearest = { place: note(place), length: route.length, seconds: route.seconds };
         }
         return { facility: c.facility, label: c.label, count: c.count, kind: c.kind, place: pub(c.only), nearest };
       }),
@@ -421,7 +454,7 @@ export class NavigationSystem {
    */
   planTour(options: { speed?: number; pause?: number; facilityPause?: number; backToReception?: boolean } = {}): TourPlan {
     const s = this.hooks.getLayout();
-    return planTour(s, this.people, this.departments, { ...options, maps: this.walkMaps, catalog: ASSET_TYPES }) as TourPlan;
+    return planTour(s, this.people, this.departments, { avoidStairs: this.avoid, ...options, maps: this.walkMaps, catalog: ASSET_TYPES }) as TourPlan;
   }
 
   /**
@@ -443,7 +476,7 @@ export class NavigationSystem {
 
   private tourKey(): unknown[] {
     const s = this.hooks.getLayout();
-    return [s.rooms, s.objects, s.floors, this.people, this.departments];
+    return [s.rooms, s.objects, s.floors, this.people, this.departments, this.avoid];
   }
 
   /** The index, made again when the layout or the people changed. */
@@ -491,7 +524,7 @@ export class NavigationSystem {
       if (this.tourPlanReady) return false;
       const key = this.tourKey();
       if (!job || key.some((k, i) => k !== job!.key[i])) {
-        job = { steps: planTourSteps(s, this.people, this.departments, { maps: this.walkMaps, catalog: ASSET_TYPES }), key, work: 0 };
+        job = { steps: planTourSteps(s, this.people, this.departments, { maps: this.walkMaps, catalog: ASSET_TYPES, avoidStairs: this.avoid }), key, work: 0 };
       }
       const t0 = clock();
       for (;;) {
@@ -531,7 +564,8 @@ export class NavigationSystem {
   /** Search, grouped as the search box shows it (People, Rooms, Facilities; `limit` per group). */
   search(query: string, { limit }: { limit?: number } = {}): SearchGroups {
     const r = searchPlaces(this.places(), String(query ?? ''), { from: this.from(), limit });
-    const pub = (items: Place[]) => items.map((p) => publicPlace(p) as PlaceResult);
+    const note = this.stairsNote();
+    const pub = (items: Place[]) => items.map(note);
     return {
       query: r.query,
       groups: { people: pub(r.groups.people), rooms: pub(r.groups.rooms), facilities: pub(r.groups.facilities) },
@@ -544,7 +578,25 @@ export class NavigationSystem {
   /** Search: every result in the order shown (People, Rooms, Facilities; Rooms first for "Engineering"), `limit` per group (default 6). */
   find(query: string, options: { limit?: number } = {}): PlaceResult[] {
     const r = searchPlaces(this.places(), String(query ?? ''), { from: this.from(), limit: options.limit });
-    return flatResults(r).map((p: Place) => publicPlace(p) as PlaceResult);
+    return flatResults(r).map(this.stairsNote());
+  }
+
+  /**
+   * v0.18.4: a place's public shape, with `stairsOnly` when "Avoid stairs" is on and none of its floors is one the
+   * lifts reach from where you are (walking: your floor; from above: the ground floor, where walks start).
+   */
+  private stairsNote(): (p: Place) => PlaceResult {
+    if (!this.avoid) return (p) => publicPlace(p) as PlaceResult;
+    const s = this.hooks.getLayout();
+    const start = this.hooks.getWalker()?.floor ?? (floorsInOrder(s.floors) as { id: number }[])[0]?.id ?? 0;
+    const reach = liftFloorsFrom(s.rooms, s.floors, start);
+    return (p) => {
+      const out = publicPlace(p) as PlaceResult;
+      const floors = (p.goals ?? []).map((g: { floor: number }) => g.floor);
+      if (!floors.length && Number.isFinite(out.floorId)) floors.push(out.floorId);
+      if (floors.length && !floors.some((f: number) => reach.has(f))) out.stairsOnly = true;
+      return out;
+    };
   }
 
   /** A place by its id ('person:…', 'room:…', 'department:…', 'item:…', 'nearest:RESTROOM'). */
@@ -606,14 +658,14 @@ export class NavigationSystem {
    * walk to it from where you stand is measured ("Nearest washroom": the
    * nearest by walking). null: no such place. target: as routeTo's (v0.14.6: { personId }, { roomId }, … too).
    */
-  show(target: RouteTarget, { animate = true, color = SEARCH_HIGHLIGHT } = {}): ShowResult | null {
+  show(target: RouteTarget, { animate = true, color = SEARCH_HIGHLIGHT, stairs = false }: { animate?: boolean; color?: string; stairs?: boolean } = {}): ShowResult | null {
     let place = this.resolve(target);
     if (!place) return null;
     const walker = this.hooks.getWalker();
     const out: Partial<ShowResult> = {};
 
     if (walker) {
-      const route = this.routeFrom(walker, place);
+      const route = this.routeFrom(walker, place, { stairs });
       if (route.problem) {
         out.problem = route.problem;
         out.message = route.message;
@@ -638,13 +690,13 @@ export class NavigationSystem {
   }
 
   /** The route from a spot to a place (the nearest of its goals by walking), each goal named after its own place. */
-  private routeFrom(from: { x: number; z: number; floor: number }, place: Place): Route {
+  private routeFrom(from: { x: number; z: number; floor: number }, place: Place, { stairs = false }: { stairs?: boolean } = {}): Route {
     // a person: "No walking route to Dhruv Khatwani's desk: …"
     const own = place.kind === 'person' ? `${place.name}'s desk` : place.name;
     const goals = place.goals.map((g: { x: number; z: number; floor: number; placeId?: string }) => ({
       ...g, name: (g.placeId && this.places().byId.get(g.placeId)?.name) || own,
     }));
-    return findNearestRoute(this.hooks.getLayout(), from, goals, { maps: this.walkMaps }) as unknown as Route;
+    return findNearestRoute(this.hooks.getLayout(), from, goals, { maps: this.walkMaps, avoidStairs: this.avoid && !stairs }) as unknown as Route;
   }
 
   /** "Nearest washroom": the one the route goes to. */
@@ -687,7 +739,7 @@ export class NavigationSystem {
    * target: an id or result from find(), { personId } | { deskId } | { roomId } | { objectId } |
    * { type: 'RESTROOM' | 'MEETING' | 'RECEPTION' | 'STAIRS' } (the nearest) | { x, z, floor }.
    */
-  routeTo(target: RouteTarget, { walk = 'guide', source, face, arriveWithin }: { walk?: WalkMode; source?: RouteSource; face?: FaceOnArrival; arriveWithin?: number } = {}): RouteAnswer {
+  routeTo(target: RouteTarget, { walk = 'guide', source, face, arriveWithin, stairs = false }: { walk?: WalkMode; source?: RouteSource; face?: FaceOnArrival; arriveWithin?: number; stairs?: boolean } = {}): RouteAnswer {
     const mode: WalkMode = walk === 'auto' ? 'auto' : 'guide';
     const from = source === 'click' || source === 'tour' ? { source } : {};
     if (!this.resolve(target)) return { problem: 'NOT_FOUND', message: 'Nothing found to go to' };
@@ -697,7 +749,7 @@ export class NavigationSystem {
     if (!host || !walker) return { problem: 'NOT_WALKING', message: 'Walking is not possible here' };
     // resolved again now that you are walking ("the nearest washroom" is the nearest to where you stand)
     let place = this.resolve(target)!;
-    const route = this.routeFrom(walker, place);
+    const route = this.routeFrom(walker, place, { stairs });
     if (route.problem) {
       const message = route.message ?? 'No walking route';
       this.hooks.emit?.({ state: 'failed', walk: mode, place: publicPlace(place) as PlaceResult, problem: route.problem, message, floor: walker.floor, ...from });
@@ -709,6 +761,7 @@ export class NavigationSystem {
       sinceReroute: 0, drawnS: -Infinity, drawnFloor: -1, emittedRemaining: route.length, sinceEmit: 0, faceYaw: null, elapsed: 0,
       ...from, ...(face && Number.isFinite(face.yaw) ? { face } : {}),
       ...(arriveWithin !== undefined && arriveWithin > 0 ? { arriveWithin } : {}),
+      ...(stairs ? { stairs: true } : {}),
     };
     this.active = w;
     if (!w.source) { // a click's walk leaves what search outlined alone
@@ -795,7 +848,7 @@ export class NavigationSystem {
   private reroute(w: Walk): boolean {
     const me = this.hooks.getWalker();
     if (!me) return false;
-    const route = this.routeFrom(me, w.place); // "the nearest …": again the nearest from here
+    const route = this.routeFrom(me, w.place, { stairs: w.stairs }); // "the nearest …": again the nearest from here
     w.sinceReroute = 0;
     if (route.problem) {
       this.end('failed', { problem: route.problem, message: route.message ?? CANT_GET_PAST });

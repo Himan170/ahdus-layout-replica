@@ -960,6 +960,21 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   };
   /** v0.17.4: "Fix it" = the problem's moves, one undo step; checked again at once. */
   const fixCheck = (problem) => {
+    // v0.18.4: a floor no lift stops at: the lift gets a stop there (Lift stops, one undo step)
+    const stop = problem?.fix?.liftStops;
+    if (stop) {
+      const done = editor.setLiftStops(stop.roomId, stop.stops);
+      if (done?.problem) { showStudioMessage(done.problem, true); return; }
+      editor.endBurst();
+      checks.run();
+      const st = useWorkspaceStore.getState();
+      const shaft = st.rooms[stop.roomId];
+      const added = shaft && Object.values(st.rooms).find((r) => r.type === 'LIFT' && (r.floor ?? 0) === problem.floorId
+        && Math.abs(r.x - shaft.x) < 0.05 && Math.abs(r.z - shaft.z) < 0.05);
+      if (added) { st.selectFloor(problem.floorId); st.selectRoom(added.id); }
+      showStudioMessage(`${problem.fix.label}: done. Ctrl+Z to undo.`);
+      return;
+    }
     if (!problem?.fix?.moves?.length) return;
     editor.moveObjects(problem.fix.moves, { label: problem.fix.label });
     editor.endBurst();

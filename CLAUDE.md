@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1751, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1770, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -91,14 +91,20 @@ npm run e2e:doors    # 24 checks   e2e/doors-smoke.mjs     (v0.18.1: the Doors &
                      #                                       through glass, the floor behind glass walks via the door, no door =
                      #                                       "it has no door"; SHOTS=<dir>: each door shut / open, a glass room
                      #                                       with people inside, the library, the new room types)
-npm run e2e:lifts    # 26 checks   e2e/lifts-smoke.mjs     (v0.18.3: the Stairs library's Lift + L tiles, Lift stops
+npm run e2e:lifts    # 28 checks   e2e/lifts-smoke.mjs     (v0.18.3: the Stairs library's Lift + L tiles, Lift stops
                      #                                       (+ undo / redo), Room X moves both shafts (+ one undo),
-                     #                                       Check's "No lift stops at Floor 2" / "don't line up", the L's
+                     #                                       Check's "Floor 2 has no lift stop" (v0.18.4: + Fix it, one
+                     #                                       undo) / "don't line up", the L's
                      #                                       mesh, Stairs shape + undo, Plan view's L; viewer: the lifts,
                      #                                       Find's lifts, the floor panel, a ride, a route + Take me there
                      #                                       by lift, walking up an L with W; review: L stairs over a shaft
                      #                                       = the Hall's, "Lift" labels (2D + Plan), first person in the
                      #                                       car; PART=viewer: only the viewer)
+npm run e2e:avoid-stairs # 12     e2e/avoid-stairs-smoke.mjs (v0.18.4, viewer.html: More's "Avoid stairs (use lifts)",
+                     #                                       kept after a reload, Find's "Stairs only", Take me there =
+                     #                                       "No lift goes to Floor 1: …" + Use the stairs this time, the
+                     #                                       lift's floor by lift, the tour planned again, the card's switch,
+                     #                                       one floor = no switch; SHOTS=<dir>: screenshots)
 npm run e2e:stability # 12 checks e2e/stability-smoke.mjs (v0.18.2: a library drop over Reset view places nothing, on
                      #                                       the floor one; right / middle presses neither select nor place
                      #                                       the armed stairs; the wheel over a panel / over the view; a
@@ -129,7 +135,7 @@ npm run e2e:viewer   # 34 checks   e2e/viewer-smoke.mjs    (viewer.html: <Layout
                      #                                       departments, kinds, floors; ↓ Enter / Esc), recent
                      #                                       searches, walking chips "Nearest stairs · 7 m");
                      #                                       v0.14.3: ?debug=tour (the plan, its panel, its route)
-npm run e2e:embed    # 40 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
+npm run e2e:embed    # 41 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
                      #                                       (v0.17.0: no WebGPU shaders, no editor commands either)
                      #                                       in it (no Supabase), serves embed-test.html itself; keys at once, the page's own field / button, hover, Esc, walk in,
                      #                                       E action, edits refused, load failures, cross-origin layoutUrl
@@ -480,6 +486,38 @@ Door items in drawn walls are visibly open doorways, matching room doors; floor 
 Measured on 72 rooms / 864 items: 132 ms cold, 112 ms with warm walk maps (11 Nov 2026).
 Regression script: `npm run e2e:check` (14 checks) (template door removed/restored, selection, floor switching, Ignore/undo/reopen, phone).
 
+## Avoid stairs (use lifts) (v0.18.4, how it works)
+
+For people who can't use stairs. Nothing is saved in the layout; the option is per browser or the page's.
+- **Routes** (`route.js`): `findRoute(…, { avoidStairs })` = `routeWith` with `floorLinks(…, { avoidStairs })` (lift
+  links only; `options.links` of kind 'stairs' dropped too); a problem then = once more WITH the stairs: a route there
+  = `NEEDS_STAIRS` ("No lift goes to Floor 2: this route needs the stairs"; from a floor with no stop: "No lift stops
+  at Floor 1: …"; else "No lift reaches <name>: …"), never that route; still a problem = the first answer.
+  `findNearestRoute` passes it through. Same floor: unchanged.
+- **Engine** (`NavigationSystem`): `setAvoidStairs(on)` (true when it changed; re-warms: the tour's plan is keyed on
+  it), `avoidStairs`, `multiStorey`; every route (routeTo, show, reroutes, the nearest …, the tour) uses it;
+  `routeTo / show(…, { stairs: true })` = "Use the stairs this time" (kept on the walk for reroutes). Results of
+  find / search / browse carry `stairsOnly: true` when none of their goals' floors is in `lifts.liftFloorsFrom` (your
+  floor walking, else the ground floor).
+- **Viewer** (`LayoutViewer`): prop `avoidStairs` (the page's; wins, changes apply) else localStorage
+  `ahdus.avoidStairs` (`play/navigation/avoidStairs.js`, try / catch), `onAvoidStairsChange`; More's
+  `[data-more-item="avoid-stairs"]` (`data-avoid-stairs` = on | off, menuitemcheckbox), only when `multiStorey`.
+  PlaceSearch: the card's switch (`[data-place-shown] [data-avoid-stairs]`, role switch: setAvoidStairs + show
+  again), `[data-use-stairs]` "Use the stairs this time" on the card (walking: show with stairs) and the failed strip
+  (routeTo with stairs), `[data-stairs-only]` "Stairs only" on result / browse rows. My desk and the tour need nothing.
+- **Tour** (`tour.js`): `avoidStairs` in floorLinks / whyNot / legs; the next floor is the nearest one ABOVE that a
+  way up reaches (before: only the very next one), the floors passed are skipped with whyNot's reason.
+- **Check** (`lifts.liftProblems(rooms, floors, objects)`, only in a building with a lift): LIFT_FLOOR_NOT_SERVED =
+  a floor with rooms not in `liftFloorsFrom(ground)` ("Floor 2 has no lift stop: people who can't use stairs can't get
+  there"; served but not joined: "No lift from Ground Floor reaches …"), key unchanged
+  (`LIFT_LIFT_FLOOR_NOT_SERVED:<liftId>:<floor>`). `liftStopSpot` = a lift whose rectangle on that floor is free
+  (`roomPlacementBlocker`, no item's middle in it) → `fix: { liftStops: { roomId, stops }, label: 'Add a lift stop on
+  Floor 2' }` (also on LIFT_GAP); WorkplaceEditor's `fixCheck` = `editor.setLiftStops`, the new shaft selected.
+- **Embed:** `navigation: { avoidStairs }`, `workplace.avoidStairs`, `setAvoidStairs(on)` (no event),
+  `onEvent('avoidStairs', { on })` (the viewer's switch), `goTo(target, { stairs: true })` (EMBED_GUIDE 4e2).
+- Tests: `navigation/__tests__/avoidStairs.test.js` (+ the shared `liftLayout.js`), `engine/__tests__/avoidStairsNav.test.ts`,
+  `npm run e2e:avoid-stairs`, e2e:lifts (Fix it), e2e:embed (the option).
+
 ## Lifts and L-shaped stairs (v0.18.3, how they work)
 
 private-docs/V0.18.3_PLAN.md (the plan + the decisions taken overnight). Old builds open both (docs/ROOM_FORMAT.md).
@@ -515,7 +553,7 @@ private-docs/V0.18.3_PLAN.md (the plan + the decisions taken overnight). Old bui
   `seconds` = the ride, `cost` = its walking equivalent); `findRoute` adds the ride to `seconds`,
   `findNearestRoute` compares by seconds. `stairsAtEnd.kind = 'lift'`. NavigationSystem's pilot rides it at the
   car (`liftRide`); Studio's Walk through too. Find: a `LIFT` facility ("Nearest lift"), one place per shaft.
-- **Check:** `LIFT_FLOOR_NOT_SERVED` ("No lift stops at Floor 2"), `LIFT_GAP` ("The lift skips Floor 1") and
+- **Check:** `LIFT_FLOOR_NOT_SERVED` (v0.18.4: "Floor 2 has no lift stop: people who can't use stairs can't get there" + Fix it), `LIFT_GAP` ("The lift skips Floor 1") and
   `LIFT_MISALIGNED` (`misalignedShafts`: two lifts on different floors whose rectangles overlap without matching,
   once per pair, by their nearest floors: "The lift shafts on Floor 1 and Floor 2 don't line up"; no Fix it), warnings;
   a shaft with no door = ROOM_NO_DOOR.
@@ -2012,12 +2050,14 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
   stands against a wall can't be reached by the body: a route ends at the nearest reachable spot (within 1.5 m). Studio doesn't warn yet about a layout with no door outside or a spawn point inside furniture.
 - E at a person (v0.14.7): only the person a walk arrived at; walking up to someone yourself, E still means what the
   crosshair is on. On touch the HUD line reads "Tap it: Details: …" there, but a tap on the window walks: tap the person.
-- Take me there: no lifts, no running; the line is drawn on the floor you are on only (the stairs marker shows where
+- Take me there: no running; the line is drawn on the floor you are on only (the stairs marker shows where
   to go up); a route through a door narrower than ~0.9 m keeps the body on its centre line (slow there). Studio's
   Preview has no search box, so no Show route there.
 - Tour plan (v0.14.3): mentions are made at doors only (within 4 m, in sight); a room with a door the route never
   comes near is `missed`. A department on several floors has one stop. The order is planned on a 0.3 m grid, so it can
-  differ a little from the shortest by real routes. No lifts.
+  differ a little from the shortest by real routes. It climbs floor by floor: from a floor with no way to the one
+  above, the floors above that are skipped, even when a lift from a lower floor reaches them (v0.18.4: a way up that
+  skips floors goes to the nearest floor it reaches).
 - Tour (v0.14.4): visited ticks are per browser only (not per person on the server); narration uses the browser's own
   voice (none in some browsers: the button does nothing there); the tour is not in Studio's Preview; no tour editing
   (stops, order and texts all come from the layout and the seats).
@@ -2099,14 +2139,21 @@ and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
 
-## IN REVIEW: lifts and L-shaped stairs (v0.18.3, 20 Nov 2026, branch `feature/v0.18.3-lifts-l-stairs`)
+## IN REVIEW: avoid stairs (use lifts) (v0.18.4, 20 Nov 2026, branch `feature/v0.18.4-avoid-stairs`)
+
+"Avoid stairs (use lifts)" in More and Find's card (remembered per browser): routes, Take me there, My desk and the tour
+by lift only, "No lift goes to Floor 2: this route needs the stairs" + Use the stairs this time (never a silent
+fallback), Find's "Stairs only", Check's "Floor 2 has no lift stop" + Fix it, the embed's option (see "Avoid stairs";
+CHANGELOG.md). Screenshots: private-docs/screenshots/v0.18.4/ (not in git). Not pushed until Himan says.
+
+## DONE: lifts and L-shaped stairs (v0.18.3, 20 Nov 2026, branch `feature/v0.18.3-lifts-l-stairs`)
 
 private-docs/V0.18.3_PLAN.md: lifts (a lift shaft room on each floor it serves, Lift stops, the car and its floor
 panel, routes, Take me there, Find, Check) and L-shaped stairs (half the steps, a landing, the rest turned), both
 opened by older builds (see "Lifts and L-shaped stairs"; CHANGELOG.md). e2e:lifts 19 checks. PR opened overnight for
 Himan's review, not merged. Screenshots: private-docs/screenshots/v0.18.3/ (not in git). Added after the plan
 (Himan, 20 Nov): a shaft moved / resized / turned on one floor changes on every floor (one undo step), Check's "don't
-line up". **Next release (v0.18.4), first item: a route option "avoid stairs (use lifts)".**
+line up". PR #76 merged, tag v0.18.3.
 
 ## DONE: stability (v0.18.2, 20 Nov 2026, branch `fix/v0.18.2-stability`)
 
@@ -2413,7 +2460,6 @@ touch. e2e scripts moved to the library / "Walk through". Screenshots: private-d
 Approved mockups (outside the repo: "Workplace Studio v0.10 mockups-png"); one commit per part, A theme to G phone.
 See "The AHDUS look" above. Screenshots: private-docs/screenshots/v0.10/ (not in git).
 
-Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): FIRST (v0.18.4) a route option
-"avoid stairs (use lifts)"; free-form walls,
+Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): free-form walls,
 L-shaped rooms; measure tool + dimensions; industrial machine models (Industrial Pack: FBX → GLB first); SVG 2D
 floor plan; templates; floor-plan image tracing; evacuation routes; the Supabase backend.

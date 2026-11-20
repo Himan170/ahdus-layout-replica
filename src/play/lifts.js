@@ -9,7 +9,7 @@
  */
 
 import { elevationOf, floorsInOrder } from './building';
-import { roomRectBlocker, roomsInside, itemInRoom } from './geometry';
+import { roomRectBlocker, roomsInside, itemInRoom, roomPlacementBlocker } from './geometry';
 import { WALK_SPEED } from './speeds';
 
 /** The room type of a lift shaft. */
@@ -194,11 +194,54 @@ export function misalignedShafts(rooms, floors) {
 }
 
 /**
- * Check my layout's lift problems: a lift that skips a floor between its stops (LIFT_GAP), a floor with
- * rooms that no lift stops at while the building has one (LIFT_FLOOR_NOT_SERVED), a shaft with no door
- * (LIFT_NO_DOOR). [{ code, floor, roomId, liftId, text, severity }]
+ * The floors you can get to from `from` by lifts only (v0.18.4: "Avoid stairs"), `from` included: the floors of
+ * every lift that stops at one of them, again and again. Floors only (not whether each spot is walkable).
+ * @returns {Set<number>}
  */
-export function liftProblems(rooms, floors) {
+export function liftFloorsFrom(rooms, floors, from) {
+  const lifts = liftsOf(rooms, floors);
+  const reach = new Set([from]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const l of lifts) {
+      if (!l.floors.some((f) => reach.has(f))) continue;
+      for (const f of l.floors) if (!reach.has(f)) { reach.add(f); grew = true; }
+    }
+  }
+  return reach;
+}
+
+/**
+ * Where a lift can add a stop on floor `f` (v0.18.4, Check's Fix it): a lift with no shaft there whose rectangle
+ * on that floor is free (no room it would overlap without standing inside it, no item standing there), nearest
+ * floors first. null: none of them.
+ * @returns {{ lift: object, shaft: object, stops: number[] } | null}
+ */
+export function liftStopSpot(rooms, objects, floors, f) {
+  const all = list(rooms);
+  const order = floorsInOrder(floors).map((x) => x.id);
+  const at = (x) => order.indexOf(x);
+  const free = (l) => {
+    const rect = { x: l.x, z: l.z, width: l.width, depth: l.depth, floor: f };
+    if (roomPlacementBlocker(rect, all.filter((r) => (r.floor ?? 0) === f))) return false;
+    return !list(objects).some((o) => itemInRoom(rect, o));
+  };
+  const options = liftsOf(rooms, floors)
+    .filter((l) => !l.rooms[f] && free(l))
+    .sort((a, b) => Math.min(...a.floors.map((x) => Math.abs(at(x) - at(f)))) - Math.min(...b.floors.map((x) => Math.abs(at(x) - at(f)))));
+  const lift = options[0];
+  if (!lift) return null;
+  return { lift, shaft: lift.rooms[lift.floors[0]], stops: [...lift.floors, f].sort((a, b) => at(a) - at(b)) };
+}
+
+/**
+ * Check my layout's lift problems: a lift that skips a floor between its stops (LIFT_GAP), a floor with
+ * rooms no lift takes you to from the ground floor while the building has one (LIFT_FLOOR_NOT_SERVED, v0.18.4:
+ * "Floor 2 has no lift stop: people who can't use stairs can't get there"), a shaft with no door (LIFT_NO_DOOR).
+ * A floor a lift could stop at (`objects` given: its spot free there) carries `stop`: { roomId, stops, floor }
+ * (Fix it = Lift stops). [{ code, floor, roomId, liftId, text, severity, stop? }]
+ */
+export function liftProblems(rooms, floors, objects = null) {
   const lifts = liftsOf(rooms, floors);
   if (!lifts.length) return [];
   const ids = floorsInOrder(floors).map((f) => f.id);
@@ -210,7 +253,7 @@ export function liftProblems(rooms, floors) {
     for (let i = i0 + 1; i < i1; i++) {
       if (!l.rooms[ids[i]]) {
         out.push({ code: 'LIFT_GAP', floor: ids[i], liftId: l.id, roomId: l.id, severity: 'warning',
-          text: `The lift skips ${name(ids[i])}` });
+          text: `The lift skips ${name(ids[i])}`, ...stopFix(l, ids[i]) });
       }
     }
     for (const f of l.floors) {
@@ -221,15 +264,32 @@ export function liftProblems(rooms, floors) {
       }
     }
   }
+  // v0.18.4: by lift from the ground floor (where walking starts), not just "a lift stops there"
+  const reach = liftFloorsFrom(rooms, floors, ids[0] ?? 0);
   const served = new Set(lifts.flatMap((l) => l.floors));
   const roomsOn = (f) => list(rooms).some((r) => (r.floor ?? 0) === f && !isLift(r));
   for (const f of ids) {
-    if (served.has(f) || !roomsOn(f)) continue;
+    if (reach.has(f) || !roomsOn(f)) continue;
     if (out.some((p) => p.code === 'LIFT_GAP' && p.floor === f)) continue; // said once
-    out.push({ code: 'LIFT_FLOOR_NOT_SERVED', floor: f, liftId: lifts[0].id, roomId: lifts[0].id, severity: 'warning',
-      text: `No lift stops at ${name(f)}` });
+    const text = served.has(f)
+      ? `No lift from ${name(ids[0])} reaches ${name(f)}: people who can't use stairs can't get there`
+      : `${name(f)} has no lift stop: people who can't use stairs can't get there`;
+    const fix = served.has(f) ? null : stopFix(null, f);
+    out.push({ code: 'LIFT_FLOOR_NOT_SERVED', floor: f, liftId: lifts[0].id, roomId: fix?.stop?.roomId ?? lifts[0].id, severity: 'warning',
+      text, ...(fix ?? {}) });
   }
   return out;
+
+  /** { stop: { roomId, stops, floor, lift } } when a lift (`only`, else any) can stop at floor f; else {}. */
+  function stopFix(only, f) {
+    if (!objects) return {};
+    const spot = liftStopSpot(only ? Object.values(only.rooms) : rooms, objects, floors, f);
+    if (!spot) return {};
+    // only: the free test needs the floor's other rooms too
+    if (only && roomPlacementBlocker({ x: only.x, z: only.z, width: only.width, depth: only.depth, floor: f },
+      list(rooms).filter((r) => (r.floor ?? 0) === f))) return {};
+    return { stop: { roomId: spot.shaft.id, stops: spot.stops, floor: f, liftId: spot.lift.id } };
+  }
 }
 
 // ── The car and the call button (LiftSystem draws these boxes) ─────────────

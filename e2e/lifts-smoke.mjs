@@ -145,10 +145,33 @@ if (!VIEWER_ONLY) try {
   await frames(3);
   await page.click('[aria-label="Check layout"]');
   await page.waitForSelector('[aria-label="Check my layout"]', { timeout: 30000 });
-  await page.waitForFunction(() => /No lift stops at Floor 2/.test(document.querySelector('[aria-label="Check my layout"]')?.textContent ?? ''), null, { timeout: 60000 }).catch(() => {});
+  // v0.18.4: in the words of people who can't use stairs, with Fix it = a stop there (the shaft's spot is free)
+  const noStop = /Floor 2 has no lift stop: people who can.t use stairs can.t get there/;
+  await page.waitForFunction((src) => new RegExp(src).test(document.querySelector('[aria-label="Check my layout"]')?.textContent ?? ''), noStop.source, { timeout: 60000 }).catch(() => {});
   const checkText = await page.textContent('[aria-label="Check my layout"]');
-  log('Check my layout: "No lift stops at Floor 2"', /No lift stops at Floor 2/.test(checkText), checkText.replace(/\s+/g, ' ').slice(0, 160));
+  log('Check my layout: "Floor 2 has no lift stop: people who can\'t use stairs can\'t get there"', noStop.test(checkText), checkText.replace(/\s+/g, ' ').slice(0, 160));
   await shot('studio-check-lift.png');
+  {
+    const fixBtn = 'li[data-check-key^="LIFT_LIFT_FLOOR_NOT_SERVED"][data-check-key$=":2"] [data-check-fix]';
+    const title = await page.getAttribute(fixBtn, 'title').catch(() => null);
+    const before = (await lifts()).length;
+    if (title) await page.click(fixBtn);
+    await frames(4);
+    const after = await lifts();
+    await page.waitForFunction((src) => !new RegExp(src).test(document.querySelector('[aria-label="Check my layout"]')?.textContent ?? ''), noStop.source, { timeout: 60000 }).catch(() => {});
+    const gone = !noStop.test((await page.textContent('[aria-label="Check my layout"]').catch(() => '')) ?? '');
+    const top = after.find((l) => l.floor === 2);
+    log('  Fix it "Add a lift stop on Floor 2": a shaft there, in line, with its door; the line goes',
+      title === 'Add a lift stop on Floor 2' && after.length === before + 1 && !!top && top.x === after[0].x && top.z === after[0].z && top.doors === 1 && gone,
+      `${title} · ${before} → ${after.length} shafts ${JSON.stringify(top)} · gone ${gone}`);
+    await shot('studio-check-lift-fixed.png');
+    await page.keyboard.press('Escape');
+    await frames(2);
+    await page.evaluate(() => document.activeElement?.blur()); // the keys are Studio's again
+    await store(() => window.__ahdusStore.getState().selectRoom(null));
+    await undo();
+    log('  one Ctrl+Z takes the stop away again', (await lifts()).length === before, `${(await lifts()).length}`);
+  }
   await page.keyboard.press('Escape');
   await frames(2);
 

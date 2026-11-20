@@ -76,7 +76,7 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `assetBaseUrl` | string | Where the realistic look's files are (the `assets/` folder: `models/`, `textures/`, `env/`). Default: `assets/` next to `ahdus-workplace.js`. Set it when you host them elsewhere, e.g. `'https://cdn.example.com/ahdus/assets/'`. A file that can't be loaded keeps the simple look for that item or surface (a warning in the console, never an error). |
 | `characters` | object | `{ manifestUrl }`: where the **character manifest** is (section 4b), fetched with `credentials: 'include'` and `headers` on the first `setPeople`. Or `{ manifest }`: the manifest itself. Without it everyone is the neutral simple figure. Also `chooseUrl`: where people choose their character (http / https, or relative to the page), for the "Choose your character" link (section 4b), and `walkClipUrl`: the walk clip your own character walks with in `walkthrough` (section 4c). |
 | `player` | object | `{ personId, assetReference }`: the person looking, i.e. the signed-in user (the same `personId` and `assetReference` as in `setPeople`). In `walkthrough` they walk as their own character (section 4c); their own card offers "Choose your character" if they never chose one. Change it later with `setPlayer`. |
-| `navigation` | object | `{ search: true, tour: true }` (default): a **Find** button in the view's toolbar opens the search box "Find a person, room or place" (section 4d); **More → Company tour** starts the company tour (section 4f; v0.17.1: no longer a toolbar button or in Find's menu). `{ search: false }` hides the search (`find()` still works), `{ tour: false }` the tour (`startTour()` still works). |
+| `navigation` | object | `{ search: true, tour: true }` (default): a **Find** button in the view's toolbar opens the search box "Find a person, room or place" (section 4d); **More → Company tour** starts the company tour (section 4f; v0.17.1: no longer a toolbar button or in Find's menu). `{ search: false }` hides the search (`find()` still works), `{ tour: false }` the tour (`startTour()` still works). **v0.18.4:** `{ avoidStairs: true }` turns on **Avoid stairs (use lifts)** for this person (section 4e2); left out, the view keeps what this browser last chose in More. |
 | `departments` | array | `[{ name, description }]`: a short description for each department (AHDUS: `GET /api/teams/departments`), shown in the Find box's menu under the department of that name (section 4d). Departments that aren't in the layout or among the people are left out; only `name` and `description` are kept (text, at most 280 characters shown). Change it later with `setDepartments`. Rooms get their department in Workplace Studio (the room's **Department** field, v0.14.9, saved as `departmentRef`), or from the people seated in them (section 4d); the company tour stops once at each. |
 | `hideMe` | object | **v0.17.1:** `{ hidden: false }` shows **Hide me** in the view's More menu ("Others on this page won't see you walk"). The page decides what it means (stop sending your `pose`, section 4h): a press = `onEvent('hideMe', { hidden })`; `setHideMe(hidden)` when the page changes it itself. Left out: no switch. |
 | `onEvent(name, data)` | function | Everything that happens (section 5). |
@@ -103,12 +103,14 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `setPlayer({ personId, assetReference } \| null)` | The person looking (the signed-in user), as the `player` option. Returns a promise, done when their character is known (after the manifest is read). |
 | `setDepartments([{ name, description }])` | The departments' descriptions, as the `departments` option (replaces the list before). Returns how many were taken. |
 | `find(query, { limit? })` | Search people (name and department), rooms, departments and facilities (section 4d). `[]` until `ready`. |
-| `goTo(target, { walk? })` | Go to a person, room or place (section 4e): `walk: 'guide'` (default) = **Show route**, `'auto'` = **Take me there**. From `view` it starts walking at the entrance. Returns `{ place, walk, length, seconds, floors }` or `{ problem, message }`. |
+| `goTo(target, { walk?, stairs? })` | Go to a person, room or place (section 4e): `walk: 'guide'` (default) = **Show route**, `'auto'` = **Take me there**; `stairs: true` (v0.18.4) = this walk may use the stairs though Avoid stairs is on (section 4e2). From `view` it starts walking at the entrance. Returns `{ place, walk, length, seconds, floors }` or `{ problem, message }`. |
 | `stopRoute()` | Ends Show route / Take me there (`false`: there was none). |
 | `startTour({ follow? })` | The company tour (section 4f), from the main entrance (from `view` it starts walking there). `follow: 'auto'` (default) = **Walk me**, `'self'` = **I'll walk**. Returns `{ count, minutes, length }` or `{ problem, message }`. |
 | `stopTour()` | Ends the tour (`false`: none); the user stays where they are, walking. |
 | `live` | v0.16.1: the people who have the page open now: `add`, `update`, `remove`, `clear`, `list()`, `count` (section 4h). |
 | `pose` | v0.16.1: your own pose now, `{ state, floor, x?, y?, z?, yaw? }` (the `pose` event sends it as it changes; section 4h). |
+| `avoidStairs` | v0.18.4: **Avoid stairs (use lifts)** now (`true` / `false`, section 4e2). |
+| `setAvoidStairs(on)` | v0.18.4: the page sets it (e.g. from the person's profile): the switch follows, the next route uses it (a walk in progress is not changed; no `avoidStairs` event). |
 | `hideMe` | v0.17.1: "Hide me" now (`true` / `false`), or `null` without the `hideMe` option. |
 | `setHideMe(hidden)` | v0.17.1: the page changed "Hide me" itself: the switch follows (no `hideMe` event). `false` without the option. |
 | `destroy()` | Removes the viewer: the element is as you gave it, the 3D engine, its keys and its actions are gone. Safe to call twice. |
@@ -353,6 +355,29 @@ words to search for, `{ personId }`, `{ roomId }`, `{ deskId }` / `{ objectId }`
 'RECEPTION' | 'STAIRS' }` (the nearest by walking) or a spot `{ x, z, floor, name? }`. A problem is
 `{ problem, message }`: `NOT_FOUND`, `NOT_WALKING` (walking could not start), or a route problem ("No walking route to Server Room: it has no door").
 
+### 4e2. Avoid stairs (use lifts) (v0.18.4: option `navigation.avoidStairs`, `setAvoidStairs`, the `avoidStairs` event)
+
+For people who can't use stairs. A switch in **More** (shown when the workplace has more than one floor; remembered
+in the browser, localStorage `ahdus.avoidStairs`) and under the place in Find's card. While it is on, **Show route,
+Take me there, My desk and the company tour go between floors by lift only**.
+
+- A place only the stairs reach is said plainly, never walked to by the stairs: "No lift goes to Floor 2: this route
+  needs the stairs" (or "No lift stops at Floor 1: …" when you stand on a floor no lift stops at), with **Use the
+  stairs this time** (that one walk may use them). A problem the stairs would not solve either keeps its own words
+  ("…: it has no door").
+- Find marks such places **Stairs only** (from where you are walking; from above, from the ground floor).
+- The tour leaves out what no lift reaches (in the plan's `skipped`, with that reason).
+- Routes on one floor are unchanged.
+
+```js
+const workplace = AHDUSWorkplace.mount(el, { layoutUrl, navigation: { avoidStairs: profile.avoidStairs } });
+workplace.setAvoidStairs(true);          // the page changed it
+workplace.avoidStairs;                   // true / false
+// onEvent('avoidStairs', { on })        // the user moved the switch: remember it for them if you like
+// goTo answers { problem: 'NEEDS_STAIRS', message } when only the stairs reach the place;
+workplace.goTo('person:p_asha', { walk: 'auto', stairs: true }); // this one walk by the stairs
+```
+
 ### 4f. The company tour (`startTour`, `stopTour`, the `tour` event)
 
 A guided walk through the workplace, made from the layout and the seats (nothing to write): the main entrance, the
@@ -508,6 +533,7 @@ const workplace = AHDUSWorkplace.mount(el, {
 | `tour` | The company tour (section 4f) | `{ type, state, follow, index, count, visited, remaining, message, mention, stop }`; `type`: `started`, `walking`, `arrived`, `paused`, `resumed`, `follow`, `mention`, `progress`, `done`, `ended`, `problem`; `state`: `idle`, `walking`, `stop`, `paused`, `done`; `stop`: `{ id, n, kind, name, floor, floorName, text }` |
 | `pose` | v0.16.1: your own walk, to send to the others (section 4h): at most 5 a second, only when it changes, a keepalive every 4 s | `{ state, floor, x?, y?, z?, yaw? }`; `state`: `idle`, `walk`, `run`, `wave`, `overview` (from above: no position) |
 | `hideMe` | v0.17.1: the user pressed **Hide me** in More (option `hideMe`) | `{ hidden }` |
+| `avoidStairs` | v0.18.4: the user moved **Avoid stairs (use lifts)** (More, or Find's card) | `{ on }` |
 | `navigation` | Show route / Take me there (section 4e) | `{ state, walk, place, remaining, length?, seconds?, floor?, paused?, rerouted?, problem?, message? }`; `state`: `started`, `progress` (about every metre or second; `paused: true` after a movement key), `arrived`, `stopped`, `failed` |
 
 `room` is `{ id, name, type, typeLabel, floorId, center: { x, z }, width, depth }`. Floors are numbered `0` (ground), `1`, `2`, … Positions are in metres, `y` is up.

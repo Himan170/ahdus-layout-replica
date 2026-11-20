@@ -25,6 +25,9 @@
  *   onEvent('pose', { state, floor, x, y, z, yaw })     // your own walk, ≤ 5 a second: the page sends it on
  *   mount(element, { hideMe: { hidden: false } })        // v0.17.1: "Hide me" in the viewer's More menu (the page
  *                                      // keeps it: onEvent('hideMe', { hidden }); setHideMe(hidden) from the page)
+ *   mount(element, { navigation: { avoidStairs: true } }) // v0.18.4: "Avoid stairs (use lifts)" from the page:
+ *                                      // routes, Take me there, the tour, My desk by lift only; setAvoidStairs(on),
+ *                                      // workplace.avoidStairs; onEvent('avoidStairs', { on }) when the viewer's switch moves
  *
  * `npm run build:embed` (vite.embed.config.js) makes one IIFE file with React
  * and Babylon inside. It shows <LayoutViewer /> and works through layoutBridge
@@ -124,8 +127,10 @@ function tourEvent(ev) {
  *                                     // chooseUrl: where people choose their character; walkClipUrl: the walk clip
  *   player?: { personId?: string, assetReference?: string | null, clothing?: object | null }, // the signed-in person (setPlayer): walking
  *                                     // through they are their own character; "Choose your character" on their card
- *   navigation?: { search?: boolean, tour?: boolean }, // search: the "Find a person, room or place" box; tour: the Tour
- *                                     // button and Find's "Take the company tour" (each default true; false hides it)
+ *   navigation?: { search?: boolean, tour?: boolean, avoidStairs?: boolean }, // search: the "Find a person, room or
+ *                                     // place" box; tour: the Tour button (each default true; false hides it);
+ *                                     // avoidStairs (v0.18.4): "Avoid stairs (use lifts)" set by the page (not given:
+ *                                     // what this browser last chose in More)
  *   departments?: { name: string, description?: string }[], // descriptions in the Find box's menu (setDepartments)
  *   hideMe?: { hidden?: boolean },    // v0.17.1: show "Hide me" in More (the page's live presence decides what it
  *                                     // means; a press = onEvent('hideMe', { hidden }), the switch moves at once)
@@ -165,6 +170,15 @@ export function mount(element, options = {}) {
   const walkClipUrl = walkClipUrlOf(options.characters, document.baseURI);
   const search = options.navigation?.search !== false;
   const tour = options.navigation?.tour !== false;
+  // v0.18.4: "Avoid stairs (use lifts)": the page's (a boolean), else undefined = the browser's last choice; the
+  // viewer's switch (More, Take me there's card) changes it too, and the page hears it
+  let avoidStairs = typeof options.navigation?.avoidStairs === 'boolean' ? options.navigation.avoidStairs : undefined;
+  const onAvoidStairs = (on) => {
+    if (closed) return;
+    avoidStairs = !!on;
+    render();
+    emit('avoidStairs', { on: avoidStairs });
+  };
   let departments = cleanDepartments(options.departments); // descriptions in the Find box's menu (setDepartments)
   // v0.17.1: "Hide me" in More, when the page asks for it (null: no switch); the page hears each change
   let hideMe = options.hideMe && typeof options.hideMe === 'object' ? { hidden: options.hideMe.hidden === true } : null;
@@ -272,6 +286,7 @@ export function mount(element, options = {}) {
         player={player} chooseCharacterUrl={options.characters?.chooseUrl} walkClipUrl={walkClipUrl ?? undefined}
         search={search} tour={tour} departments={departments} onReady={onReady} onError={fail} onProgress={onProgress}
         hideMe={hideMe ? { hidden: hideMe.hidden, onChange: onHideMe } : null}
+        avoidStairs={avoidStairs} onAvoidStairsChange={onAvoidStairs}
         onCard={(card) => emit('card', { title: card.title, body: card.body ?? card.text ?? '' })}
         style={{ width: '100%', height: '100%' }}
       />,
@@ -388,6 +403,22 @@ export function mount(element, options = {}) {
     /** v0.17.1: "Hide me" now: true / false, or null (the option was not given: no switch). */
     get hideMe() {
       return hideMe ? hideMe.hidden : null;
+    },
+
+    /** v0.18.4: "Avoid stairs (use lifts)" now (the viewer's, once ready; before: the page's option, else false). */
+    get avoidStairs() {
+      return engine ? engine.navigation.avoidStairs : avoidStairs === true;
+    },
+
+    /**
+     * v0.18.4: the page sets "Avoid stairs (use lifts)" (e.g. from the person's profile): the switch follows, the next
+     * route uses it (a walk in progress is not changed; no 'avoidStairs' event). False: the viewer is closed.
+     */
+    setAvoidStairs(on) {
+      if (closed) return false;
+      avoidStairs = !!on;
+      render();
+      return true;
     },
 
     /** v0.17.1: the page changed "Hide me" itself (e.g. its own setting): the switch follows (no 'hideMe' event). */
@@ -525,16 +556,17 @@ export function mount(element, options = {}) {
      * { personId }, { roomId }, { deskId }, { type: 'RESTROOM' } or a name ('Kavya Iyer', the first search result).
      * walk 'guide' (default) = Show route: a line on the floor, you walk; 'auto' = Take me there: you are walked
      * there (a movement key pauses, G goes on, Esc stops). From above it starts walking at the entrance.
-     * Answers { place, walk, length, seconds, floors } or { problem, message }; undefined until ready.
-     * onEvent('navigation', { state: 'started' | 'progress' | 'arrived' | 'stopped' | 'failed', place, remaining, … }).
+     * stairs: true (v0.18.4) = this walk may use the stairs though Avoid stairs is on (the page's own "Use the stairs this
+     * time" after a NEEDS_STAIRS answer). Answers { place, walk, length, seconds, floors } or { problem, message };
+     * undefined until ready. onEvent('navigation', { state: 'started' | 'progress' | 'arrived' | 'stopped' | 'failed', place, remaining, … }).
      */
-    goTo(target, { walk } = {}) {
+    goTo(target, { walk, stairs } = {}) {
       return whenReady(() => {
         let to = target;
         if (typeof to === 'string' && !/^(person|room|item|department|nearest|spot):/.test(to)) {
           to = engine.navigation.find(to, { limit: 1 })[0]?.id ?? to;
         }
-        return engine.navigation.routeTo(to, { walk: walk === 'auto' ? 'auto' : 'guide' });
+        return engine.navigation.routeTo(to, { walk: walk === 'auto' ? 'auto' : 'guide', stairs: stairs === true });
       });
     },
 

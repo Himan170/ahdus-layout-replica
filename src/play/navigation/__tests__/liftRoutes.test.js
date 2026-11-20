@@ -7,28 +7,7 @@ import { routePath } from '../follow';
 import { rideSeconds, liftsOf } from '../../lifts';
 import { WALK_SPEED } from '../../speeds';
 import { ASSET_TYPES } from '../../../utils/assetCatalog';
-
-/** Three floors: a hall each, a lift shaft inside each hall (same rectangle), stairs from the ground floor to Floor 1 only. */
-export function liftLayout({ stairs = true, liftFloors = [0, 1, 2] } = {}) {
-  const floors = { 0: { id: 0, name: 'Ground Floor', height: 3.5 }, 1: { id: 1, name: 'Floor 1', height: 3.5 }, 2: { id: 2, name: 'Floor 2', height: 3.5 } };
-  const rooms = {};
-  for (const f of [0, 1, 2]) {
-    rooms[`hall_${f}`] = {
-      id: `hall_${f}`, name: f ? `Hall ${f}` : 'Hall', type: 'OFFICE', floor: f, x: 0, z: 0, width: 16, depth: 10, wallHeight: 3.2,
-      doors: f === 0 ? [{ wall: 'south', offset: 0, width: 1.2, height: 2.1 }] : [], windows: [],
-    };
-    if (liftFloors.includes(f)) {
-      rooms[`lift_${f}`] = {
-        id: `lift_${f}`, name: 'Lift', type: 'LIFT', floor: f, x: 5, z: 2, width: 2.2, depth: 2.2, wallHeight: 3.2,
-        doors: [{ wall: 'south', offset: 0, width: 1.1, height: 2.1 }], windows: [],
-      };
-    }
-  }
-  const objects = stairs ? {
-    s1: { id: 's1', assetType: 'STAIRCASE', floor: 0, x: -5, y: 0, z: 0, rotationX: 0, rotationY: 0, rotationZ: 0, scaleX: 1, scaleY: 1, scaleZ: 1 },
-  } : {};
-  return { rooms, objects, floors };
-}
+import { liftLayout } from './liftLayout';
 
 const opts = () => ({ maps: createWalkMapCache({ catalog: ASSET_TYPES }) });
 
@@ -98,6 +77,6 @@ describe('Check my layout and lifts (v0.18.3)', () => {
     const gap = lifts(liftLayout({ liftFloors: [0, 2] }));
     expect(gap.map((p) => [p.code, p.floorId, p.severity, p.message])).toEqual([['LIFT_GAP', 1, 'warning', 'The lift skips Floor 1']]);
     const none = lifts(liftLayout({ liftFloors: [0, 1] }));
-    expect(none.map((p) => [p.code, p.floorId, p.message])).toEqual([['LIFT_FLOOR_NOT_SERVED', 2, 'No lift stops at Floor 2']]);
+    expect(none.map((p) => [p.code, p.floorId, p.message])).toEqual([['LIFT_FLOOR_NOT_SERVED', 2, "Floor 2 has no lift stop: people who can't use stairs can't get there"]]);
   });
 });
