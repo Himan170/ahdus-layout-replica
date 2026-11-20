@@ -36,7 +36,7 @@ import {
   roomWalls, roomWallSegments, wallSegmentOpenings, splitWall, wallThicknessOf,
 } from '../geometry';
 import {
-  floorsInOrder, floorBelow, stairOpening, stairDimsFor, rectContains, roomRect, stairNeedsRoomAbove,
+  floorsInOrder, floorBelow, stairOpenings, stairRects, stairDimsFor, rectContains, roomRect, stairNeedsRoomAbove,
 } from '../building';
 import { CORNER_DESK_ARM } from '../people';
 import { hangsOnWall } from '../wallMount';
@@ -314,12 +314,10 @@ export function buildWalkMap(layout, floorId, options = {}) {
   // there too, building.stairPushOut). Its own cells stay STAIRS: it is walked on, from its bottom step.
   // A flight that leads nowhere is not walked on at all: a block all round (`nowhere`).
   const allRooms = list(layout.rooms);
-  const flights = objects.filter((o) => o.assetType === 'STAIRCASE' && floorOf(o) === floorId).map((s) => {
-    const dims = stairDimsFor(floors, s);
-    return {
-      x: s.x, z: s.z, hw: dims.width / 2, hd: dims.length / 2, rot: s.rotationY ?? 0, kind: 'stairs', objectId: s.id,
-      nowhere: stairNeedsRoomAbove(s, floors, allRooms),
-    };
+  // (an L-shaped flight, v0.18.3: its two arms, stairRects)
+  const flights = objects.filter((o) => o.assetType === 'STAIRCASE' && floorOf(o) === floorId).flatMap((s) => {
+    const nowhere = stairNeedsRoomAbove(s, floors, allRooms);
+    return stairRects(s, stairDimsFor(floors, s)).map((r) => ({ ...r, kind: 'stairs', objectId: s.id, nowhere }));
   });
   const obstacles = [...walls, ...items, ...flights];
 
@@ -372,21 +370,23 @@ export function buildWalkMap(layout, floorId, options = {}) {
   const stairs = objects.filter((o) => o.assetType === 'STAIRCASE');
   if (below) {
     for (const s of stairs.filter((o) => floorOf(o) === below.id)) {
-      const hole = stairOpening(s, stairDimsFor(floors, s));
-      forBox(hole, (k, x, z) => { if (rectContains(hole, x, z)) cells[k] = VOID; });
+      const holes = stairOpenings(s, stairDimsFor(floors, s));
+      for (const hole of holes) forBox(hole, (k, x, z) => { if (rectContains(hole, x, z)) cells[k] = VOID; });
       // …and its edge: a cell's centre just outside the hole can have the body's centre over it
       // (the walker then falls down the stairs). HOLE_MARGIN of floor around it is not walked on.
-      const edge = { x0: hole.x0 - HOLE_MARGIN, x1: hole.x1 + HOLE_MARGIN, z0: hole.z0 - HOLE_MARGIN, z1: hole.z1 + HOLE_MARGIN };
-      forBox(edge, (k, x, z) => { if (cells[k] === FREE && rectContains(edge, x, z)) cells[k] = BLOCKED; });
+      for (const hole of holes) {
+        const edge = { x0: hole.x0 - HOLE_MARGIN, x1: hole.x1 + HOLE_MARGIN, z0: hole.z0 - HOLE_MARGIN, z1: hole.z1 + HOLE_MARGIN };
+        forBox(edge, (k, x, z) => { if (cells[k] === FREE && rectContains(edge, x, z)) cells[k] = BLOCKED; });
+      }
     }
   }
   // 3. Staircases starting on this floor: walkable, not a place to start (those that lead nowhere: no)
   for (const s of stairs.filter((o) => floorOf(o) === floorId && !stairNeedsRoomAbove(o, floors, allRooms))) {
-    const dims = stairDimsFor(floors, s);
-    const rect = { x: s.x, z: s.z, hw: dims.width / 2, hd: dims.length / 2, rot: s.rotationY ?? 0 };
-    forBox(rectBounds(rect), (k, x, z) => {
-      if (cells[k] === FREE && distanceToRect(rect, x, z) === 0) cells[k] = STAIRS;
-    });
+    for (const rect of stairRects(s, stairDimsFor(floors, s))) {
+      forBox(rectBounds(rect), (k, x, z) => {
+        if (cells[k] === FREE && distanceToRect(rect, x, z) === 0) cells[k] = STAIRS;
+      });
+    }
   }
   // 4. Walls and solid items, grown by their clearance (exact distance from each cell's centre)
   const standing = cells.slice(); // each cell before walls and items (for step 5)

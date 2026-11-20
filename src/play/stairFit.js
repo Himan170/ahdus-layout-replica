@@ -29,7 +29,8 @@
 
 import { roomOpenings, openingCentre, wallThicknessOf } from './geometry';
 import {
-  floorAbove, rectContains, roomRect, stairSize, stairOpening, stairNeedsRoomAbove, elevationOf,
+  floorAbove, rectContains, roomRect, stairSize, stairOpening, stairOpenings, stairNeedsRoomAbove, elevationOf,
+  stairRects, stairEnds, alongEnd,
   STAIR_STEP_ON, DOOR_CLEAR, FLOOR_LIKE_TYPES, STAIRS_LEAD_NOWHERE,
 } from './building';
 import { itemFootprints, isSolidItem } from './navigation/walkMap';
@@ -61,6 +62,20 @@ const isEmpty = (b) => b.x1 - b.x0 <= 1e-6 || b.z1 - b.z0 <= 1e-6;
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
 /** A rectangle in the staircase's own frame (across: ±hw, along the climb: lz0 to lz1) as a turned rectangle. */
+/**
+ * A rectangle along one end of a flight (building.stairEnds' frame): from `d0` to `d1` metres along the way
+ * you climb there (negative: in front of a bottom step), `hw` across. v0.18.3: an L's ends turn.
+ */
+function endRect(end, d0, d1, hw) {
+  const c = alongEnd(end, (d0 + d1) / 2);
+  return { x: c.x, z: c.z, hw, hd: (d1 - d0) / 2, rot: end.rot };
+}
+
+/** The union box of turned rectangles. */
+const boxOfAll = (rects) => rects.map(boxOf).reduce((a, b) => ({
+  x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), z0: Math.min(a.z0, b.z0), z1: Math.max(a.z1, b.z1),
+}));
+
 function localRect(stair, lz0, lz1, hw) {
   const r = stair.rotationY ?? 0;
   const lz = (lz0 + lz1) / 2;
@@ -90,8 +105,7 @@ function fitContext(layout, catalog = {}) {
       for (const o of objects) {
         if (floorOf(o) !== f) continue;
         if (o.assetType === 'STAIRCASE') {
-          const { width, length } = stairSize(o);
-          stairs.push({ obj: o, rect: localRect(o, -length / 2, length / 2, width / 2) });
+          for (const rect of stairRects(o)) stairs.push({ obj: o, rect }); // an L: its two arms
           continue;
         }
         if (!isSolidItem(o, catalog) || FLOOR_LIKE_TYPES.has(o.assetType)) continue;
@@ -182,8 +196,9 @@ function fitWith(ctx, stair) {
   const f = floorOf(stair);
   const ignore = new Set([stair.id]);
   const { width, length } = stairSize(stair);
-  const W = width / 2;
-  const L = length / 2;
+  const ends = stairEnds(stair, { width, length });
+  const WB = ends.bottom.hw; // half the flight's width at each end (an L's ends turn, v0.18.3)
+  const WT = ends.top.hw;
   const problems = [];
   const shade = [];
   const have = new Set();
@@ -193,7 +208,7 @@ function fitWith(ctx, stair) {
 
   // ── where they arrive ──
   // (a room above that holds the top step, with its wall right there: "no room to step off", not "build a room")
-  const topEnd = localRect(stair, L - 0.05, L - 0.05, 0);
+  const topEnd = endRect(ends.top, -0.05, -0.05, 0);
   const againstWall = above && stairNeedsRoomAbove(stair, ctx.floors, ctx.rooms) &&
     !!innermostAt(ctx.floorData(above.id).rooms, topEnd.x, topEnd.z);
   const nowhere = !againstWall && stairNeedsRoomAbove(stair, ctx.floors, ctx.rooms);
@@ -201,20 +216,20 @@ function fitWith(ctx, stair) {
     add('NOWHERE', above
       ? `${STAIRS_LEAD_NOWHERE}: build a room on ${aboveName} where they arrive`
       : `${STAIRS_LEAD_NOWHERE}: there is no floor above. Add one, with a room where they arrive`);
-    if (above) shade.push({ floor: above.id, ...localRect(stair, L, L + STAIR_CLEAR, W) });
+    if (above) shade.push({ floor: above.id, ...endRect(ends.top, 0, STAIR_CLEAR, WT) });
   }
 
   // ── its own room, on its floor ──
   const room = innermostAt(ctx.floorData(f).rooms, stair.x, stair.z);
   const name = roomName(room);
-  const flight = localRect(stair, -L, L, W);
-  const flightBox = boxOf(flight);
+  const flights = stairRects(stair, { width, length });
+  const flightBox = boxOfAll(flights);
   if (room && !wallsClear(ctx, f, flightBox, room)) {
     add('STICKS_OUT', `The stairs stick out of ${name}`);
   } else {
-    const bottom = freeDepth(ctx, f, room, (k) => localRect(stair, -L - k, -L, W), ignore);
+    const bottom = freeDepth(ctx, f, room, (k) => endRect(ends.bottom, -k, 0, WB), ignore);
     if (bottom.free < STAIR_CLEAR) {
-      shade.push({ floor: f, ...localRect(stair, -L - STAIR_CLEAR, -L - bottom.free, W) });
+      shade.push({ floor: f, ...endRect(ends.bottom, -STAIR_CLEAR, -bottom.free, WB) });
       if (bottom.by === 'wall') {
         add('NO_STEP_ON', `The stairs are too close to the wall${room ? ` of ${name}` : ''}: there is no room to step onto them`);
       } else {
@@ -223,23 +238,23 @@ function fitWith(ctx, stair) {
     }
   }
   if (room) {
-    const door = doorZones(ctx, f, room).find((z) => overlapsBox(flightBox, z, TOL));
+    const door = doorZones(ctx, f, room).find((z) => flights.some((fl) => overlapsBox(boxOf(fl), z, TOL)));
     if (door) {
       add('BLOCKS_DOOR', `The stairs block a door of ${name}`);
       shade.push({ floor: f, ...rectOfBox(door) });
     }
   }
-  const onFlight = blockerIn(ctx, f, flight, ignore);
+  const onFlight = flights.map((fl) => blockerIn(ctx, f, fl, ignore)).find(Boolean);
   if (onFlight) add('IN_THE_WAY', `${onFlight} stands on the stairs`);
 
   // ── the floor above: the landing and the opening ──
   if (above && !nowhere) {
-    const arrive = localRect(stair, L + 0.6, L + 0.6, 0); // building.stairTop
+    const arrive = endRect(ends.top, 0.6, 0.6, 0); // building.stairTop
     const landingRoom = innermostAt(ctx.floorData(above.id).rooms, arrive.x, arrive.z)
       ?? innermostAt(ctx.floorData(above.id).rooms, topEnd.x, topEnd.z);
-    const top = freeDepth(ctx, above.id, landingRoom, (k) => localRect(stair, L, L + k, W), ignore);
+    const top = freeDepth(ctx, above.id, landingRoom, (k) => endRect(ends.top, 0, k, WT), ignore);
     if (top.free < STAIR_CLEAR) {
-      shade.push({ floor: above.id, ...localRect(stair, L + top.free, L + STAIR_CLEAR, W) });
+      shade.push({ floor: above.id, ...endRect(ends.top, top.free, STAIR_CLEAR, WT) });
       if (top.by === 'wall') {
         add('NO_LANDING', `The stairs end too close to a wall on ${aboveName}: there is no room to step off at the top`);
       } else {
@@ -248,14 +263,14 @@ function fitWith(ctx, stair) {
     }
   }
   if (above) {
-    const hole = stairOpening(stair, { width, length }, 0.05);
+    const holes = stairOpenings(stair, { width, length }, 0.05);
     const holeRoom = innermostAt(ctx.floorData(above.id).rooms, stair.x, stair.z);
-    const door = holeRoom && doorZones(ctx, above.id, holeRoom).find((z) => overlapsBox(hole, z, TOL));
+    const door = holeRoom && doorZones(ctx, above.id, holeRoom).find((z) => holes.some((hole) => overlapsBox(hole, z, TOL)));
     if (door) {
       add('BLOCKS_DOOR', `The opening for the stairs on ${aboveName} is in front of a door`);
       shade.push({ floor: above.id, ...rectOfBox(door) });
     }
-    const over = blockerIn(ctx, above.id, rectOfBox(hole), ignore);
+    const over = holes.map((hole) => blockerIn(ctx, above.id, rectOfBox(hole), ignore)).find(Boolean);
     if (over) add('IN_THE_WAY', `${over} on ${aboveName} stands over the opening for the stairs`);
   }
   return { ok: problems.length === 0, problems, shade, room };
@@ -377,10 +392,13 @@ export function findItemSpot(item, layout, { catalog = {}, radius = 8, members =
   for (const s of ctx.objects) {
     if (s.assetType !== 'STAIRCASE') continue;
     const { width, length } = stairSize(s);
-    if (floorOf(s) === f) stairZones.push(localRect(s, -length / 2 - STAIR_CLEAR, length / 2, width / 2));
-    else if (floorAbove(ctx.floors, floorOf(s))?.id === f) {
-      stairZones.push(rectOfBox(stairOpening(s, { width, length }, 0.05)));
-      stairZones.push(localRect(s, length / 2, length / 2 + STAIR_CLEAR, width / 2));
+    const ends = stairEnds(s, { width, length });
+    if (floorOf(s) === f) {
+      // the flight (an L: its arms) and the floor in front of its bottom step
+      stairZones.push(...stairRects(s, { width, length }), endRect(ends.bottom, -STAIR_CLEAR, 0, ends.bottom.hw));
+    } else if (floorAbove(ctx.floors, floorOf(s))?.id === f) {
+      for (const hole of stairOpenings(s, { width, length }, 0.05)) stairZones.push(rectOfBox(hole));
+      stairZones.push(endRect(ends.top, 0, STAIR_CLEAR, ends.top.hw));
     }
   }
   const solid = group.filter((o) => isSolidItem(o, catalog) && !FLOOR_LIKE_TYPES.has(o.assetType))

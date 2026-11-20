@@ -44,7 +44,7 @@
  */
 
 import {
-  floorsInOrder, floorAbove, stairDimsFor, stairSize, stairTop, stairNeedsRoomAbove, rectContains, roomRect,
+  floorsInOrder, floorAbove, stairDimsFor, stairSize, stairTop, stairShape, stairEnds, alongEnd, stairLanding, stairNeedsRoomAbove, rectContains, roomRect,
 } from '../building';
 import { wallThicknessOf } from '../geometry';
 import { WALK_SPEED } from '../speeds';
@@ -89,6 +89,7 @@ const octile = (ax, az, bx, bz) => {
 
 /** Where you step onto a staircase at the bottom (world x, z): in front of its bottom step. */
 export function stairBottom(stair, dims = stairSize(stair)) {
+  if (stairShape(stair) !== 'straight') return alongEnd(stairEnds(stair, dims).bottom, -STAIR_LANDING); // an L (v0.18.3)
   const r = stair.rotationY ?? 0;
   const d = dims.length / 2 + STAIR_LANDING;
   return { x: stair.x - Math.sin(r) * d, z: stair.z - Math.cos(r) * d };
@@ -100,6 +101,11 @@ export function stairBottom(stair, dims = stairSize(stair)) {
  * are a solid block (building.stairPushOut).
  */
 function stairAxis(stair, dims) {
+  if (stairShape(stair) !== 'straight') {
+    // an L (v0.18.3): up its first flight, across the landing's middle, along the second
+    const { bottom, top } = stairEnds(stair, dims);
+    return [{ x: bottom.x, z: bottom.z }, stairLanding(stair, dims), { x: top.x, z: top.z }];
+  }
   const r = stair.rotationY ?? 0;
   const d = dims.length / 2;
   return [

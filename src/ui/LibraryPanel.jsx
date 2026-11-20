@@ -22,6 +22,29 @@ import {
 } from './library';
 import { LAYOUT_TEMPLATES } from '../templates';
 import RoomPicture from './RoomPicture';
+
+/** v0.18.3: an L-shaped staircase seen from above (its two flights, the landing, an arrow up). */
+function StairShapePicture({ shape }) {
+  const right = shape === 'L-right';
+  const steps = (x0, z0, along, n) => Array.from({ length: n }, (_, i) => (along === 'z'
+    ? <line key={i} x1={x0} x2={x0 + 12} y1={z0 - i * 4} y2={z0 - i * 4} />
+    : <line key={i} x1={x0 + (along === 'x' ? i * 4 : -i * 4)} x2={x0 + (along === 'x' ? i * 4 : -i * 4)} y1={8} y2={20} />));
+  const cx = right ? 8 : 28;
+  return (
+    <svg viewBox="0 0 48 48" width="44" height="44" aria-hidden data-stair-picture={shape}>
+      <g fill="#e7e2d8" stroke="#8a8278" strokeWidth="1">
+        <rect x={cx} y={8} width={12} height={32} />
+        <rect x={right ? 20 : 8} y={8} width={20} height={12} />
+      </g>
+      <g stroke="#8a8278" strokeWidth="0.8">
+        {steps(cx, 38, 'z', 5)}
+        {steps(right ? 22 : 26, 0, right ? 'x' : '-x', 5)}
+      </g>
+      <path d={right ? 'M14 36 L14 14 L38 14' : 'M34 36 L34 14 L10 14'} fill="none" stroke="#28664f" strokeWidth="1.6" />
+      <path d={right ? 'M35 11 L39 14 L35 17' : 'M13 11 L9 14 L13 17'} fill="none" stroke="#28664f" strokeWidth="1.6" />
+    </svg>
+  );
+}
 import ItemPicture from './ItemPicture';
 import PrefabPicture from './PrefabPicture';
 import { isComposing } from '../utils/keys';
@@ -191,6 +214,12 @@ export default function LibraryPanel({
           <div className="lib-grid">
             <Tile {...tileProps({ kind: 'object', id: 'STAIRCASE', assetType: 'STAIRCASE', label: 'Staircase', width: 1.2, depth: 4, sizeText: '1.2 × 4 m · up one floor' })}
               picture={<ItemPicture assetType="STAIRCASE" thumb={null} />} />
+            {/* v0.18.3: L-shaped stairs (a staircase with metadata.stairShape: older builds draw it straight) */}
+            {[['L-right', 'turns right'], ['L-left', 'turns left']].map(([shape, turn]) => (
+              <Tile key={shape} {...tileProps({ kind: 'object', id: `STAIRCASE_${shape}`, assetType: 'STAIRCASE', metadata: { stairShape: shape },
+                label: `L-shaped stairs, ${turn}`, width: 3.2, depth: 3.2, sizeText: '3.2 × 3.2 m · a landing at the turn' })}
+                picture={<StairShapePicture shape={shape} />} />
+            ))}
             {/* v0.18.3: a lift = a lift shaft room; its Inspector chooses the floors it stops at */}
             <Tile {...tileProps({ kind: 'room', id: 'LIFT', roomType: 'LIFT', label: 'Lift', width: 2.2, depth: 2.2, sizeText: '2.2 × 2.2 m · choose its floors' })}
               picture={<RoomPicture roomType="LIFT" />} />

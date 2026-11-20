@@ -312,7 +312,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     // (same turn); Alt held = exactly here
     let moved = false;
     if (result.assetType === 'STAIRCASE' && !result.free && !isAltDown()) {
-      const stair = { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor };
+      const stair = { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor, metadata: result.metadata };
       if (!stairFit(stair, store, { catalog: ASSET_TYPES }).ok) {
         const spot = findStairSpot(stair, store, { catalog: ASSET_TYPES });
         if (spot) {
@@ -324,7 +324,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     }
     // stairs that lead nowhere or don't fit their room: say so at once (the Inspector says it too)
     const stairProblem = result.assetType === 'STAIRCASE' && stairFit(
-      { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor },
+      { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor, metadata: result.metadata },
       store, { catalog: ASSET_TYPES }).problems[0];
     editor.addObject({
       assetType: result.assetType,
@@ -336,6 +336,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       rotationY: result.rotationY,
       floor: store.currentFloor,
       roomId,
+      ...(result.metadata ? { metadata: result.metadata } : {}),
     });
     if (stairProblem) {
       showStudioMessage(`${stairProblem.text}.`, true);
@@ -807,12 +808,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   }, [editor]);
 
   // ─── Placing catalog items (furniture, stairs) ───
-  const handleStartPlacement = useCallback((assetType) => {
+  const handleStartPlacement = useCallback((assetType, opts) => {
     const mgr = placementManagerRef.current;
     if (!mgr) return;
     plannerToolsRef.current?.setTool({ kind: 'select' });
     setPlannerTool({ kind: 'select' });
-    mgr.startPlacement(assetType);
+    mgr.startPlacement(assetType, undefined, opts); // opts.metadata: an L staircase's shape (v0.18.3)
     storeActions.setPlacementMode(assetType);
     storeActions.selectObject(null);
   }, [storeActions]);

@@ -6,7 +6,7 @@
  * (the floor-below outline, the last zoom and place). Never saved in the layout.
  */
 
-import { stairSize, stairOpening } from '../play/building';
+import { stairSize, stairOpening, stairShape, stairParts, stairDims } from '../play/building';
 
 const byId = (floors) => [...floors].sort((a, b) => a.id - b.id);
 
@@ -42,6 +42,8 @@ export function planStairs(objects = [], floors = [], floorId = 0) {
     out.push({
       id: o.id, objectId: o.id, x: Number(o.x) || 0, z: Number(o.z) || 0, rotationY: Number(o.rotationY) || 0,
       width, length, box: stairOpening(o, { width, length }, 0), dir,
+      // v0.18.3: an L's parts in its own coordinates (lx across, lz up its first flight)
+      shape: stairShape(o), parts: stairShape(o) === 'straight' ? null : stairParts(o, { ...stairDims(3.5), width, length }),
       other: dir === 'up' ? above : dir === 'down' ? below : null,
     });
   }

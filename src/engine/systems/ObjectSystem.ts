@@ -16,7 +16,7 @@ import { createItemMesh, disposeItemMesh, setItemSolid } from '../../utils/asset
 import { isWorkstation, wsParams, wsKey } from '../../play/workstation';
 import { isWallItem, hangsOnWall } from '../../play/wallMount';
 import { applyLockVisual, removeLockVisual } from '../../utils/lockIndicator';
-import { elevationOf, floorHeight, stairDrawn } from '../../play/building';
+import { elevationOf, floorHeight, stairDrawn, stairShape } from '../../play/building';
 import type { LayoutRecords, SyncOptions } from './RoomSystem';
 
 export interface ObjectSystemOptions {
@@ -70,7 +70,10 @@ export class ObjectSystem {
       const def = (ASSET_TYPES as Record<string, { category?: string; solid?: boolean; builder?: string }>)[obj.assetType];
       const parametric = isWorkstation(def);
       const params = parametric ? wsParams(obj, def) : null;
-      const variant = params ? { key: wsKey(params), params } : undefined;
+      // v0.18.3: an L-shaped staircase is its own template per shape and floor height
+      const shape = obj.assetType === 'STAIRCASE' ? stairShape(obj) : 'straight';
+      const variant = params ? { key: wsKey(params), params }
+        : shape !== 'straight' ? { key: `${shape}@${rise}`, params: { shape } } : undefined;
       const stale = !!mesh && (mesh.metadata?.rise !== rise || mesh.metadata?.floorId !== (obj.floor ?? 0)
         || mesh.metadata?.variant !== variant?.key);
       if ((!mesh || stale) && budget && !budget.take()) {

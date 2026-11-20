@@ -29,6 +29,42 @@ import {
   ANCHOR_COLORS, ANCHOR_BADGE_SYMBOLS,
 } from './planMath';
 
+/**
+ * An L-shaped staircase in the plan (v0.18.3): its parts' outlines, a line per step, the way up as a bent arrow.
+ * Drawn in the flight's own frame (the parent group turns it): local (lx, lz) = plan (c.x + lx, c.y - lz).
+ */
+function LStairsPlan({ s, c }) {
+  const P = (lx, lz) => [c.x + lx, c.y - lz];
+  const mid = (p) => [(p.x0 + p.x1) / 2, (p.z0 + p.z1) / 2];
+  const lines = [];
+  for (const [k, p] of s.parts.entries()) {
+    if (!p.steps) continue;
+    for (let i = 1; i < p.steps; i++) {
+      const t = i / p.steps;
+      const [a, b] = p.along === 'z'
+        ? [P(p.x0, p.z0 + t * (p.z1 - p.z0)), P(p.x1, p.z0 + t * (p.z1 - p.z0))]
+        : p.along === 'x' ? [P(p.x0 + t * (p.x1 - p.x0), p.z0), P(p.x0 + t * (p.x1 - p.x0), p.z1)]
+          : [P(p.x1 - t * (p.x1 - p.x0), p.z0), P(p.x1 - t * (p.x1 - p.x0), p.z1)];
+      lines.push(<line key={`${k}-${i}`} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke="#64748b" strokeWidth={0.02} />);
+    }
+  }
+  const [first, landing, second] = s.parts;
+  const start = P(mid(first)[0], first.z0 + 0.2);
+  const turn = P(...mid(landing));
+  const end = P(second.along === 'x' ? second.x1 - 0.25 : second.x0 + 0.25, mid(second)[1]);
+  return (
+    <g data-plan-stairs-shape={s.shape}>
+      {s.parts.map((p, k) => {
+        const [x, y] = P(p.x0, p.z1);
+        return <rect key={k} x={x} y={y} width={p.x1 - p.x0} height={p.z1 - p.z0} fill="none" stroke="#64748b" strokeWidth={0.03} />;
+      })}
+      {lines}
+      <polyline points={[start, turn, end].map((q) => q.join(',')).join(' ')} fill="none"
+        stroke="#2563eb" strokeWidth={0.05} markerEnd="url(#fp-route-arrow)" />
+    </g>
+  );
+}
+
 /** World point → SVG plan coordinates { x, y: -z }. */
 const at = (p) => toPlan(p);
 const validRoom = (r) => Number(r.width) > 0 && Number(r.depth) > 0;
@@ -859,17 +895,20 @@ export default function FloorPlanView({
                       fill="#f1f5f9" fillOpacity={0.85} stroke="#64748b" strokeWidth={0.04} strokeDasharray="0.15 0.1"
                     />
                   )}
+                  {s.parts && <LStairsPlan s={s} c={c} />}
                   {/* the treads, every 0.4 m, and the way up as an arrow (+z of the flight = up) */}
-                  {Array.from({ length: Math.max(1, Math.floor(s.length / 0.4)) - 1 }, (_, i) => {
+                  {!s.parts && Array.from({ length: Math.max(1, Math.floor(s.length / 0.4)) - 1 }, (_, i) => {
                     const y = c.y + s.length / 2 - (i + 1) * 0.4;
                     return <line key={i} x1={c.x - s.width / 2} x2={c.x + s.width / 2} y1={y} y2={y} stroke="#64748b" strokeWidth={0.02} />;
                   })}
-                  <line x1={c.x} x2={c.x} y1={c.y + s.length / 2 - 0.2} y2={c.y - s.length / 2 + 0.25}
-                    stroke="#2563eb" strokeWidth={0.05} markerEnd="url(#fp-route-arrow)" />
+                  {!s.parts && (
+                    <line x1={c.x} x2={c.x} y1={c.y + s.length / 2 - 0.2} y2={c.y - s.length / 2 + 0.25}
+                      stroke="#2563eb" strokeWidth={0.05} markerEnd="url(#fp-route-arrow)" />
+                  )}
                   <text
                     x={c.x} y={c.y} textAnchor="middle" dominantBaseline="middle" fontSize={font} fontWeight="600"
                     fill="#1e3a8a" stroke="#ffffff" strokeWidth={font * 0.25} paintOrder="stroke"
-                    transform={`rotate(-90 ${c.x} ${c.y})`}
+                    transform={s.parts ? undefined : `rotate(-90 ${c.x} ${c.y})`}
                   >
                     {label}
                   </text>

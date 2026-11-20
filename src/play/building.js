@@ -353,8 +353,187 @@ const stairScale = (v) => {
  * hold a scale from before v0.14.5: scaleX and scaleZ are its size, drawn and walked alike.
  */
 export function stairSize(stair) {
+  if (stairShape(stair) !== 'straight') return { width: L_STAIR.width, length: L_STAIR.length }; // an L is never scaled
   return { width: STAIR.width * stairScale(stair?.scaleX), length: STAIR.length * stairScale(stair?.scaleZ) };
 }
+
+// ── L-shaped stairs (v0.18.3) ──
+// A staircase's shape is `metadata.stairShape`: missing = the straight flight it always was. An L climbs half
+// its steps up the first flight (local +Z), turns on a square landing, and climbs the rest to the side
+// ('L-right': local +X, 'L-left': local −X). Older builds ignore the metadata and draw a straight flight.
+
+/** An L-shaped staircase: its box (m) and the flights' width (= the landing's side). */
+export const L_STAIR = { width: 3.2, length: 3.2, flight: 1.2 };
+/** The shapes a STAIRCASE can have (`metadata.stairShape`; missing = straight). */
+export const STAIR_SHAPES = ['straight', 'L-right', 'L-left'];
+/** The shapes' names in the UI. */
+export const STAIR_SHAPE_LABELS = { straight: 'Straight', 'L-right': 'L, turns right', 'L-left': 'L, turns left' };
+
+/** A staircase's shape: 'straight' | 'L-right' | 'L-left' (anything else: straight). */
+export function stairShape(stair) {
+  const s = stair?.metadata?.stairShape;
+  return s === 'L-right' || s === 'L-left' ? s : 'straight';
+}
+
+/**
+ * The parts of a flight in its own coordinates (lx across, +lz the way the first flight climbs, the item's
+ * x, z at the middle of its box): [{ kind: 'flight' | 'landing', x0, x1, z0, z1, h0, h1, steps, along }]
+ * (h0 / h1: heights over its floor where the part starts and ends; along: 'z' | 'x' | '-x', the way it
+ * climbs). A straight flight is ONE part, exactly what it always was.
+ */
+export function stairParts(stair, dims) {
+  const shape = stairShape(stair);
+  if (shape === 'straight') {
+    return [{ kind: 'flight', x0: -dims.width / 2, x1: dims.width / 2, z0: -dims.length / 2, z1: dims.length / 2, h0: 0, h1: dims.rise, steps: dims.steps, along: 'z' }];
+  }
+  const half = L_STAIR.width / 2;
+  const f = L_STAIR.flight;
+  const n1 = Math.max(1, Math.floor(dims.steps / 2));
+  const n2 = Math.max(1, dims.steps - n1);
+  const mid = (n1 / dims.steps) * dims.rise;
+  const right = shape === 'L-right';
+  const cx0 = right ? -half : half - f; // the first flight and the landing: the column away from the turn
+  const cx1 = cx0 + f;
+  return [
+    { kind: 'flight', x0: cx0, x1: cx1, z0: -half, z1: half - f, h0: 0, h1: mid, steps: n1, along: 'z' },
+    { kind: 'landing', x0: cx0, x1: cx1, z0: half - f, z1: half, h0: mid, h1: mid, steps: 0, along: 'z' },
+    { kind: 'flight', x0: right ? cx1 : -half, x1: right ? half : cx0, z0: half - f, z1: half, h0: mid, h1: dims.rise, steps: n2, along: right ? 'x' : '-x' },
+  ];
+}
+
+/** How far up a part (0 at its start, 1 at its end) a local point is. */
+function partAlong(p, lx, lz) {
+  if (p.along === 'z') return (lz - p.z0) / (p.z1 - p.z0);
+  if (p.along === 'x') return (lx - p.x0) / (p.x1 - p.x0);
+  return (p.x1 - lx) / (p.x1 - p.x0);
+}
+
+/** The tread's height over the floor at a local point of a part (the middle of each step, as always). */
+function partHeight(p, lx, lz, dims) {
+  if (p.kind === 'landing' || !p.steps) return p.h0;
+  const v = Math.min(1, Math.max(0, partAlong(p, lx, lz)));
+  const riser = dims.rise / dims.steps;
+  return Math.min(p.h1, p.h0 + (v * p.steps + 0.5) * riser);
+}
+
+/** The solid blocks of a flight in its own coordinates: straight = its box; an L = its two arms. */
+function stairBlocks(stair, dims) {
+  const parts = stairParts(stair, dims);
+  if (parts.length === 1) return parts;
+  const [first, landing, second] = parts;
+  return [{ ...first, z1: landing.z1, column: true }, second];
+}
+
+/** A local point → world (the inverse of toStairLocal). */
+function stairWorld(stair, lx, lz) {
+  const c = Math.cos(stair.rotationY ?? 0);
+  const s = Math.sin(stair.rotationY ?? 0);
+  return { x: stair.x + lx * c + lz * s, z: stair.z - lx * s + lz * c };
+}
+
+/**
+ * The flight's blocks as turned rectangles in the world ({ x, z, hw, hd, rot }): the walk map's obstacles and
+ * STAIRS cells. Straight: one, the flight. An L: its first flight with the landing, and its second flight.
+ */
+export function stairRects(stair, dims = stairSize(stair)) {
+  const rot = stair.rotationY ?? 0;
+  return stairBlocks(stair, { ...STAIR, ...dims }).map((b) => {
+    const c = stairWorld(stair, (b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2);
+    return { x: c.x, z: c.z, hw: (b.x1 - b.x0) / 2, hd: (b.z1 - b.z0) / 2, rot };
+  });
+}
+
+/**
+ * The two ends of a flight in the world, each a frame { x, z, rot, hw }: at the edge of its bottom / top
+ * step, `rot` the way you climb there (sin, cos = its world direction), `hw` half the flight's width.
+ * Straight: the middle of its −Z and +Z ends; an L: the start of the first flight and the end of the second.
+ */
+export function stairEnds(stair, dims = stairSize(stair)) {
+  const rot = stair.rotationY ?? 0;
+  const shape = stairShape(stair);
+  if (shape === 'straight') {
+    const b = stairWorld(stair, 0, -dims.length / 2);
+    const t = stairWorld(stair, 0, dims.length / 2);
+    return { bottom: { ...b, rot, hw: dims.width / 2 }, top: { ...t, rot, hw: dims.width / 2 } };
+  }
+  const half = L_STAIR.width / 2;
+  const f = L_STAIR.flight;
+  const right = shape === 'L-right';
+  const b = stairWorld(stair, right ? -half + f / 2 : half - f / 2, -half);
+  const t = stairWorld(stair, right ? half : -half, half - f / 2);
+  return { bottom: { ...b, rot, hw: f / 2 }, top: { ...t, rot: rot + (right ? Math.PI / 2 : -Math.PI / 2), hw: f / 2 } };
+}
+
+/** A point `d` metres along an end's climbing direction (negative: back, in front of a bottom step). */
+export function alongEnd(end, d) {
+  return { x: end.x + Math.sin(end.rot) * d, z: end.z + Math.cos(end.rot) * d };
+}
+
+/** The middle of an L's landing (world x, z); a straight flight's middle. */
+export function stairLanding(stair, dims = stairSize(stair)) {
+  if (stairShape(stair) === 'straight') return { x: stair.x, z: stair.z };
+  const l = stairParts(stair, { ...STAIR, ...dims })[1];
+  return stairWorld(stair, (l.x0 + l.x1) / 2, (l.z0 + l.z1) / 2);
+}
+
+/**
+ * The openings a flight needs in the floor, ceiling and roof above it (axis-aligned boxes, with a margin):
+ * straight = stairOpening; an L = one per arm, so the floor over the corner it leaves free stays.
+ */
+export function stairOpenings(stair, dims = stairSize(stair), margin = 0.05) {
+  if (stairShape(stair) === 'straight') return [stairOpening(stair, dims, margin)];
+  return stairRects(stair, dims).map((r) => {
+    const c = Math.abs(Math.cos(r.rot));
+    const s = Math.abs(Math.sin(r.rot));
+    const hx = r.hw * c + r.hd * s + margin;
+    const hz = r.hw * s + r.hd * c + margin;
+    return { x0: r.x - hx, x1: r.x + hx, z0: r.z - hz, z1: r.z + hz };
+  });
+}
+
+/**
+ * stairPushOut for an L (v0.18.3): each arm is a solid block up to its steps. `y` = feet over the stair's
+ * floor. The way out (world dx, dz), or null.
+ */
+function lPushOut(s, dims, { x, z, y, rooms, floors, radius }) {
+  const { lx, lz } = toStairLocal(s, x, z);
+  let nowhere = null;
+  for (const b of stairBlocks(s, dims)) {
+    const nx = Math.max(b.x0, Math.min(b.x1, lx));
+    const nz = Math.max(b.z0, Math.min(b.z1, lz));
+    const away = Math.hypot(lx - nx, lz - nz);
+    if (away >= radius) continue;
+    if (nowhere === null) nowhere = !!rooms && stairNeedsRoomAbove(s, floors, rooms);
+    const w = stairWorld(s, nx, nz);
+    const surface = stairHeightAt(s, w.x, w.z, dims) ?? dims.rise;
+    if (!nowhere && surface <= y + STEP_UP) continue; // you can step onto it (or you are on it)
+    let ox;
+    let oz;
+    if (away > 1e-9) {
+      const by = (radius - away) / away;
+      ox = (lx - nx) * by;
+      oz = (lz - nz) * by;
+    } else {
+      // inside the block: out by the nearest side, never back where it starts (except one leading nowhere)
+      const sides = [
+        [b.x1 - lx, 1, 0], [lx - b.x0, -1, 0], [b.z1 - lz, 0, 1], [lz - b.z0, 0, -1],
+      ].filter(([, sx, sz]) => nowhere || !startSide(b, sx, sz));
+      const out = sides.sort((p, q) => p[0] - q[0])[0];
+      ox = out[1] * (out[0] + radius);
+      oz = out[2] * (out[0] + radius);
+    }
+    const r = s.rotationY ?? 0;
+    return { dx: ox * Math.cos(r) + oz * Math.sin(r), dz: oz * Math.cos(r) - ox * Math.sin(r), nowhere };
+  }
+  return null;
+}
+
+/** Is this side of a block (its outward normal sx, sz) the one where it starts, where you step on? */
+function startSide(b, sx, sz) {
+  if (b.column || b.along === 'z') return sz === -1;
+  return b.along === 'x' ? sx === -1 : sx === 1;
+}
+
 
 /**
  * Size of a placed staircase: as stairSize, and it climbs exactly the height of the floor it starts
@@ -410,6 +589,18 @@ function toStairLocal(stair, x, z) {
  */
 export function stairHeightAt(stair, x, z, dims = { ...STAIR, ...stairSize(stair) }) {
   const { lx, lz } = toStairLocal(stair, x, z);
+  if (stairShape(stair) !== 'straight') {
+    // an L: on one of its parts, or on the lip past its last step (LIP as a straight flight's)
+    const parts = stairParts(stair, dims);
+    const last = parts[parts.length - 1];
+    for (const p of parts) {
+      const lip = p === last ? 0.15 : 0;
+      const x0 = p.x0 - (p.along === '-x' ? lip : 0);
+      const x1 = p.x1 + (p.along === 'x' ? lip : 0);
+      if (lx >= x0 - 1e-9 && lx <= x1 + 1e-9 && lz >= p.z0 - 1e-9 && lz <= p.z1 + 1e-9) return partHeight(p, lx, lz, dims);
+    }
+    return null;
+  }
   // The top continues a little past the last step (a landing lip), so there is no gap between the
   // stairs and the edge of the opening in the floor above. A flight turned 45° has a square opening,
   // further away: the lip reaches its edge there.
@@ -434,6 +625,7 @@ export function stairOpening(stair, dims = stairSize(stair), margin = 0.05) {
 
 /** Where the top of a staircase lands (world x, z), e.g. to put the character there. */
 export function stairTop(stair, dims = stairSize(stair)) {
+  if (stairShape(stair) !== 'straight') return alongEnd(stairEnds(stair, dims).top, 0.6);
   const r = stair.rotationY ?? 0;
   const d = dims.length / 2 + 0.6;
   return { x: stair.x + Math.sin(r) * d, z: stair.z + Math.cos(r) * d };
@@ -453,6 +645,11 @@ export function stairPushOut({ x, z, y, floors, rooms = null, stairs = [], radiu
     const base = elevationOf(floors, s.floor ?? 0);
     if (y + bodyHeight <= base) continue; // underneath it, on the floor below
     const dims = stairDimsFor(floors, s);
+    if (stairShape(s) !== 'straight') {
+      const out = lPushOut(s, dims, { x, z, y: y - base, rooms, floors, radius });
+      if (out) return out;
+      continue;
+    }
     const hw = dims.width / 2;
     const hl = dims.length / 2;
     const { lx, lz } = toStairLocal(s, x, z);
@@ -539,7 +736,7 @@ export function supportHeight({ x, z, y, floors, rooms, stairs = [] }) {
     const elev = elevationOf(floors, room.floor);
     // An opening for stairs coming up from the floor below?
     const below = floorBelow(floors, room.floor);
-    const inOpening = below && stairs.some((s) => (s.floor ?? 0) === below.id && rectContains(stairOpening(s), x, z));
+    const inOpening = below && stairs.some((s) => (s.floor ?? 0) === below.id && stairOpenings(s).some((h) => rectContains(h, x, z)));
     if (!inOpening) surfaces.push(elev + ROOM_FLOOR_OFFSET);
   }
   for (const s of stairs) {
@@ -565,7 +762,7 @@ export function arrivalOnFloor({ x, z, floorId, floors, rooms, stairs = [] }) {
   const below = floorBelow(floors, floorId);
   if (!below) return { y: supportHeight({ x, z, y: elev + 0.1, floors, rooms, stairs }), fly: false };
   const onRoom = rooms.some((r) => r.floor === floorId && rectContains(roomRect(r), x, z));
-  const inOpening = stairs.some((s) => (s.floor ?? 0) === below.id && rectContains(stairOpening(s), x, z));
+  const inOpening = stairs.some((s) => (s.floor ?? 0) === below.id && stairOpenings(s).some((h) => rectContains(h, x, z)));
   return { y: elev + ROOM_FLOOR_OFFSET, fly: !onRoom || inOpening };
 }
 

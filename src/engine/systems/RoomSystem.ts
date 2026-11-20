@@ -16,7 +16,7 @@ import {
   buildRoomMesh, disposeRoomMesh, setRoomSelected, roomGeometryKey, roomMaterialSteps,
 } from '../../utils/roomBuilder';
 import {
-  elevationOf, floorBelow, stairOpening, roomRect, intersectRects, wallSpace,
+  elevationOf, floorBelow, stairOpenings, roomRect, intersectRects, wallSpace,
 } from '../../play/building';
 import { roomContainedBy, wallThicknessOf } from '../../play/geometry';
 
@@ -92,7 +92,7 @@ export function stairHolesFor(room: V1Room, stairs: V1Object[], floors: LayoutRe
   const below = floorBelow(floors, room.floor);
   const holes = (floorId: number) => stairs
     .filter((s) => s.floor === floorId)
-    .map((s) => stairOpening(s))
+    .flatMap((s) => stairOpenings(s))
     .filter((o) => intersectRects(o, rect));
   return {
     floorHoles: below ? holes(below.id) : [],

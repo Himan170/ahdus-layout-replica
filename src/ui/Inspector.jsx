@@ -28,7 +28,7 @@ import {
   wallThicknessOf, MIN_WALL_THICKNESS, MAX_WALL_THICKNESS, WALL_THICKNESS_STEP, roomOpenings,
 } from '../play/geometry';
 import { FLOOR_FINISHES, floorKindOf } from '../utils/materialLibrary';
-import { MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, STAIRS_KEEP_SIZE } from '../play/building';
+import { MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, STAIRS_KEEP_SIZE, STAIR_SHAPES, STAIR_SHAPE_LABELS, stairShape } from '../play/building';
 import { describeRoom, describeObject, describeAccessibilityRoutes } from '../utils/accessibleSummary';
 import SeatSection from './SeatSection';
 import { isWorkstation, wsParams, wsPatch, PARTITION_HEIGHT_MIN, PARTITION_HEIGHT_MAX } from '../play/workstation';
@@ -121,6 +121,9 @@ function Section({ title, children }) {
 
 // ── Item ────────────────────────────────────────────────────────────────
 
+/** The stairs shape buttons' words (their full names: STAIR_SHAPE_LABELS). */
+const SHAPE_SHORT = { straight: 'Straight', 'L-right': 'L right', 'L-left': 'L left' };
+
 function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetPositionRef, stairWarnings = [], onFixStairs = null, wallMount = null, onMountOnWall }) {
   const [keepProportions, setKeepProportions] = useState(true);
   const commit = (patch) => onUpdate(object.id, patch);
@@ -193,6 +196,26 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
           ))}
         </div>
       </Section>
+
+      {isStairs && (
+        // v0.18.3: straight or L-shaped (metadata.stairShape; older builds draw every staircase straight)
+        <Section title="Shape">
+          <div className="ui-segmented insp-quick" role="group" aria-label="Stairs shape" data-stairs-shape={stairShape(object)}>
+            {STAIR_SHAPES.map((shape) => (
+              <button key={shape} type="button" aria-pressed={stairShape(object) === shape} data-stairs-shape-option={shape}
+                aria-label={STAIR_SHAPE_LABELS[shape]} title={STAIR_SHAPE_LABELS[shape]}
+                onClick={() => {
+                  if (stairShape(object) === shape) return;
+                  const { stairShape: _old, ...rest } = object.metadata ?? {};
+                  commit({ metadata: shape === 'straight' ? rest : { ...rest, stairShape: shape } });
+                }}>
+                {SHAPE_SHORT[shape]}
+              </button>
+            ))}
+          </div>
+          <p className="insp-note">{stairShape(object) === 'straight' ? '1.2 × 4 m, one flight' : '3.2 × 3.2 m, a landing halfway up'}</p>
+        </Section>
+      )}
 
       {isStairs ? (
         <Section title="Size">

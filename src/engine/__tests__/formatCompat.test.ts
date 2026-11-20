@@ -152,3 +152,27 @@ describe('lifts (v0.18.3) in older builds', () => {
     expect(normaliseLayout(fileLayout(liftLayout())).rooms.map((r: any) => r.type)).toEqual(['LIFT', 'LIFT']);
   });
 });
+
+describe('L-shaped stairs (v0.18.3) in older builds', () => {
+  const layout = () => ({
+    layoutName: 'L stairs', floors: [{ id: 0, name: 'Ground Floor', height: 3.5 }, { id: 1, name: 'Floor 1', height: 3.5 }],
+    rooms: [], objects: [{
+      id: 'obj_l', assetType: 'STAIRCASE', category: 'Architecture', floor: 0, x: 2, y: 0, z: 3, rotationX: 0, rotationY: 0, rotationZ: 0,
+      scaleX: 1, scaleY: 1, scaleZ: 1, metadata: { stairShape: 'L-left' },
+    }],
+  });
+
+  it('is an ordinary STAIRCASE item (its shape in metadata), which the v0.18.0 schema accepts', () => {
+    const v2 = JSON.parse(JSON.stringify(loadLayout(layout())));
+    const old = OldLayoutSchema.parse(v2);
+    const item = (old as any).objects.find((o: any) => o.id === 'obj_l');
+    expect(item.assetType ?? item.type).toBe('STAIRCASE');
+  });
+
+  it('keeps its shape through v2, the exported file and back', () => {
+    const v1 = toV1(loadLayout(layout()));
+    expect(v1.objects.find((o) => o.id === 'obj_l')!.metadata).toMatchObject({ stairShape: 'L-left' });
+    const again = normaliseLayout(fileLayout(layout()));
+    expect((again.objects as any[]).find((o) => o.id === 'obj_l').metadata).toMatchObject({ stairShape: 'L-left' });
+  });
+});
