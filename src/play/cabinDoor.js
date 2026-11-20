@@ -3,12 +3,14 @@
  *   cabinDoor(rect, rotationY): the door of a cabin placed turned (its visitors' side, local −Z)
  *   doorLeadsIn(room, rooms, objects, catalog): the floor in front of a door is open floor of the room
  *     the cabin stands in: not past its outer wall, not in another room, no furniture
+ *   cabinRoomFor(objects, rooms, ids): the room of a selected private cabin: a drag, the arrow keys and R
+ *     move or turn that room, which takes its furniture along (one undo step)
  *   cabinFixes(room, layout, catalog): Check's ways out for a cabin nobody can walk to: turned in its
  *     place, else moved off the wall (and turned), each as one editor.turnRoom plan
  * Tested in play/__tests__/cabinDoor.test.js.
  */
 
-import { CABIN_DOOR, groupOf } from './prefab';
+import { CABIN_DOOR, groupOf, groupItems, selectedGroup } from './prefab';
 import { prefabById } from '../catalog/manifest';
 import {
   containerOf, roomsInside, itemInRoom, openingCentre, planRoomTurn, planRoomMove, wallThicknessOf,
@@ -157,4 +159,21 @@ export function cabinFixes(room, layout, catalog) {
     for (const d of CABIN_SHIFTS) keep(turnAndMove(room, rooms, objects, k, -n.x * d, -n.z * d), 'Move the cabin');
   }
   return out;
+}
+
+/**
+ * The cabin room of a selection that is exactly one private cabin's group (its desk, chair and visitor
+ * chairs): the room its items stand in (their roomId, else the smallest room holding them all), or null.
+ */
+export function cabinRoomFor(objects, rooms, ids) {
+  const all = Array.isArray(objects) ? Object.fromEntries(objects.map((o) => [o.id, o])) : objects ?? {};
+  const gid = selectedGroup(all, ids);
+  if (!gid) return null;
+  const members = groupItems(all, gid);
+  if (prefabById(groupOf(members[0])?.prefab)?.layout !== 'cabin') return null;
+  const list = Array.isArray(rooms) ? rooms : Object.values(rooms ?? {});
+  const holdsAll = (r) => members.every((m) => itemInRoom(r, m));
+  const own = list.find((r) => r.id === members[0].roomId);
+  if (own && holdsAll(own)) return own;
+  return list.filter(holdsAll).sort((a, b) => a.width * a.depth - b.width * b.depth)[0] ?? null;
 }

@@ -11,7 +11,8 @@
 
 import { v4 as uuidv4 } from 'uuid';
 
-import { findRoomAt } from '../play/geometry';
+import { findRoomAt, planRoomMove, planRoomTurn } from '../play/geometry';
+import { cabinRoomFor } from '../play/cabinDoor';
 import { turnStep } from '../play/carry';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import {
@@ -60,6 +61,10 @@ export function createGroupActions({ editor, getState, carriedWith = () => [], m
     });
   }
 
+  /** v0.18.5: a selected private cabin: its room (which takes its furniture along), else null. */
+  const cabinOf = (ids) => cabinRoomFor(st().objects, st().rooms, ids);
+  const lockedRoom = (room) => `${room.name ?? 'The cabin'} is locked. Select it and press L`;
+
   function members(ids = selection()) {
     return groupMembers(st().objects, ids, carriedWith);
   }
@@ -72,6 +77,13 @@ export function createGroupActions({ editor, getState, carriedWith = () => [], m
     /** Move the group by (dx, dz) metres (arrow keys). */
     move(dx, dz, { label, mergeKey } = {}) {
       const ids = selection();
+      const cabin = cabinOf(ids);
+      if (cabin) {
+        if (cabin.isLocked) { message(lockedRoom(cabin), true); return false; }
+        const plan = planRoomMove(cabin, cabin.x + dx, cabin.z + dz, Object.values(st().rooms), Object.values(st().objects));
+        if (plan.blocker) { message(`Overlaps ${plan.blocker.name}`, true); return false; }
+        return editor.moveRoom(cabin.id, plan, { label: label ?? `Move ${cabin.name ?? 'cabin'}`, mergeKey }) !== false;
+      }
       const { items, locked } = members(ids);
       if (!items.length) { message(lockedNote(locked.length) ?? 'Nothing to move', true); return false; }
       editor.moveObjects(withRooms(groupMoves(items, dx, dz)), { label: label ?? `Move ${plural(ids.length)}`, mergeKey });
@@ -82,6 +94,17 @@ export function createGroupActions({ editor, getState, carriedWith = () => [], m
     /** Turn the group about its middle: R = 90°, Shift+R = 15°. */
     turn(small = false) {
       const ids = selection();
+      const cabin = cabinOf(ids);
+      if (cabin) {
+        // its room turns a quarter at a time, with its door and furniture
+        if (cabin.isLocked) { message(lockedRoom(cabin), true); return false; }
+        if (small) { message('A cabin turns 90° at a time: press R', true); return false; }
+        const plan = planRoomTurn(cabin, Object.values(st().rooms), Object.values(st().objects));
+        if (plan.problem) { message(plan.problem, true); return false; }
+        if (!editor.turnRoom(cabin.id, plan, { label: `Turn ${cabin.name ?? 'cabin'}` })) return false;
+        message(`Turned ${cabin.name ?? 'the cabin'} 90° with its furniture. Ctrl+Z to undo.`);
+        return true;
+      }
       const { items, locked } = members(ids);
       if (!items.length) { message(lockedNote(locked.length, 'turned') ?? 'Nothing to turn', true); return false; }
       editor.moveObjects(withRooms(groupTurn(items, turnStep(small))), { label: `Turn ${plural(ids.length)}` });

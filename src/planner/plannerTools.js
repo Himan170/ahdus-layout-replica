@@ -51,6 +51,7 @@ import { livePosition } from '../utils/livePosition';
 import { isDesk } from '../play/people';
 import { groupMembers, lockedNote } from '../play/group';
 import { selectedGroup, selectionFor } from '../play/prefab';
+import { cabinRoomFor } from '../play/cabinDoor';
 import { stairPreview, findStairSpot } from '../play/stairFit';
 
 const FLOOR_Y = 0.02;
@@ -1208,6 +1209,14 @@ export function createPlannerTools(scene, canvas, {
       if (pressed && !group.includes(pressed.id) && !evt.altKey && !pressed.isLocked) {
         const ids = selectionFor(st().objects, pressed);
         if (ids.length > 1) { group = ids; saved = true; }
+      }
+      // v0.18.5: a private cabin's group drags its room, which takes its furniture along (one undo step)
+      const cabin = hover?.type === 'grabItem' && group.includes(hover.objectId) && saved
+        ? cabinRoomFor(st().objects, st().rooms, group) : null;
+      if (cabin && !cabin.isLocked) {
+        const p = snappedGround();
+        if (p) armMove({ kind: 'move', roomId: cabin.id, start: p, origin: { x: cabin.x, z: cabin.z } });
+        return group === (st().selectedObjectIds ?? []);
       }
       if (hover?.type === 'grabItem' && group.includes(hover.objectId)) {
         // an item of the selected group: the whole group moves (v0.15.5), each with what it carries
