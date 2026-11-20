@@ -617,6 +617,53 @@ export function roomsInside(room, rooms) {
     other.width * other.depth < area - GEOMETRY_EPSILON && insideRoomFootprint(room, other));
 }
 
+/** How far a room's label keeps from the rooms inside it (m). */
+export const LABEL_CLEAR = 0.3;
+
+/**
+ * Where a room's label goes (v0.18.3): its middle, unless a room inside it (a lift shaft, a cabin) is there; then
+ * the spot nearest the middle where a label of `w` × `d` metres keeps LABEL_CLEAR from every room inside it, and
+ * inside the room's own walls. None: the spot furthest from them. A room with nothing inside: its middle.
+ * @returns {{ x: number, z: number, moved: boolean }}
+ */
+export function labelSpot(room, rooms, { w = 2, d = 0.7 } = {}) {
+  const middle = { x: room.x, z: room.z, moved: false };
+  const inside = roomsInside(room, rooms);
+  if (!inside.length) return middle;
+  const wall = wallThicknessOf(room) / 2;
+  const spanX = Math.max(0, room.width / 2 - wall);
+  const spanZ = Math.max(0, room.depth / 2 - wall);
+  const hw = Math.min(w / 2, spanX);
+  const hd = Math.min(d / 2, spanZ);
+  // the gap between the label's box at (x, z) and a room's rectangle (negative: they overlap)
+  const gapTo = (x, z, r) => {
+    const ex = Math.abs(x - r.x) - (hw + r.width / 2);
+    const ez = Math.abs(z - r.z) - (hd + r.depth / 2);
+    return ex > 0 || ez > 0 ? Math.hypot(Math.max(0, ex), Math.max(0, ez)) : Math.max(ex, ez);
+  };
+  const gap = (x, z) => inside.reduce((g, r) => Math.min(g, gapTo(x, z, r)), Infinity);
+  if (gap(room.x, room.z) >= LABEL_CLEAR) return middle;
+  const steps = (span) => Math.max(1, Math.min(60, Math.ceil((span * 2) / 0.1)));
+  const nx = steps(spanX - hw);
+  const nz = steps(spanZ - hd);
+  let best = null;
+  let furthest = null;
+  for (let i = 0; i <= nx; i += 1) {
+    const x = room.x - (spanX - hw) + ((spanX - hw) * 2 * i) / nx;
+    for (let j = 0; j <= nz; j += 1) {
+      const z = room.z - (spanZ - hd) + ((spanZ - hd) * 2 * j) / nz;
+      const g = gap(x, z);
+      const far = Math.hypot(x - room.x, z - room.z);
+      if (g >= LABEL_CLEAR && (!best || far < best.far)) best = { x, z, far };
+      if (!furthest || g > furthest.g + GEOMETRY_EPSILON || (Math.abs(g - furthest.g) <= GEOMETRY_EPSILON && far < furthest.far)) {
+        furthest = { x, z, g, far };
+      }
+    }
+  }
+  const spot = best ?? furthest;
+  return { x: spot.x, z: spot.z, moved: true };
+}
+
 /** Whether an item's centre is inside the room's rectangle (on its floor). */
 export function itemInRoom(room, obj) {
   if ((obj.floor ?? 0) !== floorOf(room)) return false;

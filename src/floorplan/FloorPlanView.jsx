@@ -15,6 +15,7 @@ import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import {
   ZoomIn, ZoomOut, Maximize2, RotateCw, Ruler, Anchor, Layers2,
 } from 'lucide-react';
+import { ROOM_ICONS } from '../ui/tools';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { WALL_THICKNESS, wallThicknessOf } from '../play/geometry';
 import { sizeLabel } from '../ui/tools';
@@ -25,7 +26,7 @@ import { selectionFor } from '../play/prefab';
 import {
   planDrop, itemSize, roomWallPieces, wallSegmentEnds,
   toPlan, screenToWorld, planAngle, planViewBox,
-  clampZoom, zoomViewBox, zoomTowards, roomDimensionLines, roomLabelFit,
+  clampZoom, zoomViewBox, zoomTowards, roomDimensionLines, planRoomLabel,
   ANCHOR_COLORS, ANCHOR_BADGE_SYMBOLS,
 } from './planMath';
 
@@ -999,16 +1000,41 @@ export default function FloorPlanView({
             is the room's hover title). Clicks go through to what is under them. ── */}
         <g className="floor-plan-labels" pointerEvents="none" aria-hidden="true">
           {plan.rooms.map((room) => {
-            const c = at(room);
+            // v0.18.3: beside the rooms inside it (a lift shaft, a cabin), and a lift shaft = "Lift" + its icon
+            const fit = planRoomLabel(room, plan.rooms);
+            const c = at(fit);
             const w = Number(room.width);
             const d = Number(room.depth);
-            const fit = roomLabelFit(room.name || room.type || 'Room', w, d);
             const halo = { stroke: '#ffffff', strokeOpacity: 0.92, strokeLinejoin: 'round', paintOrder: 'stroke' };
+            const LiftIcon = ROOM_ICONS.LIFT;
+            const nameY = c.y - fit.sizeFontSize * 0.7;
             return (
-              <g key={room.id} data-plan-label={room.id} data-truncated={fit.truncated ? '' : undefined}>
+              <g key={room.id} data-plan-label={room.id} data-truncated={fit.truncated ? '' : undefined}
+                data-plan-label-kind={fit.lift ? 'lift' : undefined} data-plan-label-moved={fit.moved ? '' : undefined}>
+                {fit.lift && LiftIcon && (
+                  <g data-plan-label-icon="">
+                    <rect
+                      x={c.x - fit.textShift - fit.textWidth / 2 - fit.iconSize * 0.1}
+                      y={nameY - fit.iconSize * 0.6}
+                      width={fit.iconSize * 1.2}
+                      height={fit.iconSize * 1.2}
+                      rx={fit.iconSize * 0.25}
+                      fill="#ffffff"
+                      fillOpacity={0.92}
+                    />
+                    <LiftIcon
+                      x={c.x - fit.textShift - fit.textWidth / 2}
+                      y={nameY - fit.iconSize / 2}
+                      width={fit.iconSize}
+                      height={fit.iconSize}
+                      color="#111827"
+                      aria-hidden
+                    />
+                  </g>
+                )}
                 <text
-                  x={c.x}
-                  y={c.y - fit.sizeFontSize * 0.7}
+                  x={c.x + fit.textShift}
+                  y={nameY}
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fontSize={fit.fontSize}

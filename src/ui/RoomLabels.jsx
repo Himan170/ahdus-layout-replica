@@ -8,6 +8,9 @@
  * the name, marked as selected (the properties panel shows the details). HTML labels positioned over
  * the 3D view after every frame (no React re-render per frame).
  *
+ * v0.18.3: a lift shaft's label is "Lift" with its icon; a room with rooms inside it puts its label at the free spot
+ * nearest its middle (geometry.labelSpot), not on the lift shaft or cabin standing there.
+ *
  * Settings → "Room labels: Names / Off" (per browser). Off hides the names;
  * "Show Room Areas" still shows the labels with their areas.
  */
@@ -15,11 +18,17 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { projectPoint } from './projection';
 import { fitLabels } from './labelLayout';
-import { sizeLabel } from './tools';
+import { sizeLabel, ROOM_ICONS } from './tools';
 import { roomArea } from '../utils/measurements';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { DEFAULT_WALL_HEIGHT } from '../play/building';
 import { roomTypeShown } from '../play/roomNames';
+import { labelSpot } from '../play/geometry';
+
+/** The floor a room's label needs, in metres (about its pill at the usual zoom). */
+const LABEL_SIZE = { w: 3, d: 1 };
+export const LIFT_LABEL = 'Lift';
+const isLift = (room) => String(room.type ?? '').toUpperCase() === 'LIFT';
 
 const STORAGE_KEY = 'ahdus.roomLabels';
 
@@ -63,12 +72,15 @@ export default function RoomLabels({
   const refs = useRef(new Map());
   const sizes = useRef(new Map()); // roomId → { w, h } of its label (measured after each render, not per frame)
 
-  // Who wins a place: the selected room, then bigger rooms first
+  // Who wins a place: the selected room, then lift shafts (small, inside a hall), then bigger rooms first
   const order = useMemo(() => [...rooms].sort((a, b) => {
     if (a.id === selectedRoomId) return -1;
     if (b.id === selectedRoomId) return 1;
+    if (isLift(a) !== isLift(b)) return isLift(a) ? -1 : 1;
     return (roomArea(b) ?? 0) - (roomArea(a) ?? 0);
   }), [rooms, selectedRoomId]);
+  // Where each label goes: the room's middle, or beside the rooms inside it
+  const spots = useMemo(() => new Map(rooms.map((room) => [room.id, labelSpot(room, rooms, LABEL_SIZE)])), [rooms]);
 
   const showLabels = showNames || showArea;
 
@@ -86,7 +98,8 @@ export default function RoomLabels({
       for (const room of order) {
         const el = refs.current.get(room.id);
         if (!el) continue;
-        const p = projectPoint(scene, room.x, elevation + 0.05, room.z);
+        const at = spots.get(room.id) ?? room;
+        const p = projectPoint(scene, at.x, elevation + 0.05, at.z);
         const size = sizes.current.get(room.id) ?? { w: 0, h: 0 };
         shown.push({ el, p });
         labels.push({ x: p.x, y: p.y, w: size.w, h: size.h, visible: p.visible });
@@ -99,7 +112,7 @@ export default function RoomLabels({
     };
     const obs = scene.onAfterRenderObservable.add(place);
     return () => scene.onAfterRenderObservable.remove(obs);
-  }, [scene, order, elevation, hidden]);
+  }, [scene, order, spots, elevation, hidden]);
 
   if (hidden) return null;
   return (
@@ -109,14 +122,20 @@ export default function RoomLabels({
         const detail = selected && !selectedAsPill;
         if (!selected && !showLabels) return null;
         const area = roomArea(room);
+        const lift = isLift(room) && !detail;
+        const Icon = lift ? ROOM_ICONS.LIFT : null;
         return (
           <span
             key={room.id}
             className={detail ? 'room-label room-card is-selected' : selected ? 'room-label is-selected' : 'room-label'}
             data-room-id={room.id}
+            data-room-label-kind={lift ? 'lift' : undefined}
+            title={lift ? room.name : undefined}
             ref={(el) => { if (el) refs.current.set(room.id, el); else refs.current.delete(room.id); }}
           >
-            {detail ? <RoomDetails room={room} withArea={!showArea} /> : <span>{room.name}</span>}
+            {detail ? <RoomDetails room={room} withArea={!showArea} />
+              : lift ? <span className="room-label__lift">{Icon && <Icon size={12} aria-hidden />}{LIFT_LABEL}</span>
+                : <span>{room.name}</span>}
             {showArea && area !== null && (
               <span className="room-label__area">{area.toFixed(2)} m²</span>
             )}

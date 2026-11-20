@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   itemSize, itemContains, planDrop, roomWallPieces, wallSegmentEnds,
   toPlan, toWorld, screenToWorld, planAngle, planViewBox,
-  clampZoom, zoomViewBox, zoomTowards, roomDimensionLines, roomLabelFit, LABEL_CHAR_WIDTH,
+  clampZoom, zoomViewBox, zoomTowards, roomDimensionLines, roomLabelFit, LABEL_CHAR_WIDTH, planRoomLabel,
 } from '../planMath';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 import { wallSegmentData } from '../../play/geometry';
@@ -272,5 +272,31 @@ describe('room labels fit their room (v0.15.5)', () => {
 
   it('no name: Room', () => {
     expect(roomLabelFit('', 4, 4).text).toBe('Room');
+  });
+});
+
+describe('room labels beside the rooms inside them (v0.18.3)', () => {
+  const hall = { id: 'hall', type: 'OFFICE', name: 'Hall', floor: 0, x: 0, z: 0, width: 16, depth: 12 };
+  const shaft = { id: 'lift', type: 'LIFT', name: 'Lift shaft 1', floor: 0, x: 0, z: 0, width: 2.2, depth: 2.2 };
+
+  it('the hall label moves off the lift shaft in its middle; its box stays clear of the shaft', () => {
+    const l = planRoomLabel(hall, [hall, shaft]);
+    expect(l.moved).toBe(true);
+    const halfW = l.textWidth / 2;
+    const halfD = (l.fontSize + l.sizeFontSize) * 0.65;
+    const clear = Math.abs(l.x) - halfW >= 1.1 || Math.abs(l.z) - halfD >= 1.1;
+    expect(clear).toBe(true);
+    expect(Math.abs(l.z) + halfD).toBeLessThan(6);
+  });
+
+  it('a lift shaft is labelled "Lift" with an icon, in its own middle; the full name kept', () => {
+    const l = planRoomLabel(shaft, [hall, shaft]);
+    expect(l).toMatchObject({ lift: true, text: 'Lift', full: 'Lift shaft 1', x: 0, z: 0, moved: false });
+    expect(l.iconSize).toBeGreaterThan(0);
+    expect(l.textWidth + l.iconSize).toBeLessThan(2.2);
+  });
+
+  it('a room with nothing inside keeps its label in the middle', () => {
+    expect(planRoomLabel(hall, [hall])).toMatchObject({ x: 0, z: 0, moved: false, lift: false, text: 'Hall' });
   });
 });

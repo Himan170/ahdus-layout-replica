@@ -7,7 +7,7 @@
  */
 
 import { doorOf, leafLines } from '../play/doorSwing.js';
-import { snap, roomOpenings, WALL_ASSET_LENGTH } from '../play/geometry';
+import { snap, roomOpenings, WALL_ASSET_LENGTH, labelSpot } from '../play/geometry';
 import { placementHeight, canStandOn, floorOnlyText, FLOOR_LIKE_TYPES } from '../play/building';
 import { carriedBy } from '../play/carry';
 import { ASSET_TYPES } from '../utils/assetCatalog';
@@ -390,6 +390,27 @@ export function roomLabelFit(name, width, depth, { fill = 0.88, minFont = 0.14 }
   }
   const sizeFontSize = Math.max(0.09, Math.min(fontSize * 0.7, Math.min(w, d) * 0.08));
   return { text, full, fontSize, sizeFontSize, truncated: text !== full, fits: widthAt(text, fontSize) <= room + 1e-9 };
+}
+
+/**
+ * A room's label in the plan (v0.18.3): roomLabelFit's text and sizes, where it goes (x, z in world metres: the middle,
+ * or the free spot beside the rooms inside it, geometry.labelSpot, sized by the label itself), and for a lift shaft
+ * "Lift" with an icon of `iconSize` (the text is then drawn `textShift` to the right of the middle).
+ */
+export function planRoomLabel(room, rooms) {
+  const lift = String(room.type ?? '').toUpperCase() === 'LIFT';
+  const w = Number(room.width) || 0;
+  const d = Number(room.depth) || 0;
+  const fit = roomLabelFit(lift ? 'Lift' : (room.name || room.type || 'Room'), w, d);
+  const iconSize = lift ? fit.fontSize * 1.1 : 0;
+  const iconGap = lift ? fit.fontSize * 0.25 : 0;
+  const textWidth = fit.text.length * LABEL_CHAR_WIDTH * fit.fontSize;
+  const size = { w: textWidth + iconSize + iconGap, d: (fit.fontSize + fit.sizeFontSize) * 1.3 };
+  const spot = labelSpot(room, rooms, size);
+  return {
+    ...fit, full: room.name || fit.full, lift, x: spot.x, z: spot.z, moved: spot.moved,
+    iconSize, textShift: (iconSize + iconGap) / 2, textWidth,
+  };
 }
 
 export const ANCHOR_COLORS = {
