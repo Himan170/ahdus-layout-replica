@@ -760,6 +760,7 @@
 .inspector__body { flex: 1; min-height: 0; overflow-y: auto; }
 .inspector__footer {
   display: flex;
+  flex-wrap: wrap; /* v0.18.5: a narrow Inspector (264 px under 1200 px) put "Delete room" past its edge */
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border);
