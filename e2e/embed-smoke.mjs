@@ -385,7 +385,7 @@ const boxShown = await p.evaluate(() => ({
   email: /asha@example\.com/.test(document.getElementById('workplace').innerHTML),
 }));
 log('the search box: "asha" + Enter shows Asha Patel, her desk outlined; no email in the page',
-  /^Asha Patel \| Engineering · Ground Floor, Office 1 \| Show route \| Take me there$/.test(boxShown.shown ?? '') && boxShown.lit[0] === 'obj_desk_1' && !boxShown.email,
+  /^Asha Patel \| Engineering · Ground Floor, Office 1 \| Avoid stairs \(use lifts\) \| Show route \| Take me there$/.test(boxShown.shown ?? '') && boxShown.lit[0] === 'obj_desk_1' && !boxShown.email,
   JSON.stringify(boxShown));
 // The browse menu (v0.14.2): setDepartments' descriptions under the departments that exist here
 const described = await p.evaluate(() => window.workplace.setDepartments([
@@ -555,6 +555,28 @@ log('v0.17.1 option hideMe: More → "Hide me: others on this page won\'t see yo
   !hideMount.error && hideBefore.attr === 'off' && hideBefore.label === 'Hide me: others on this page won\'t see you walk' && hideBefore.handle === false
   && hideOn.attr === 'on' && hideOn.handle === true && JSON.stringify(hideOn.events) === '[{"hidden":true}]'
   && setBack === true && hideOff.attr === 'off' && hideOff.handle === false && hideOff.events === 1, JSON.stringify({ hideBefore, hideOn, setBack, hideOff }));
+await removeExtra();
+// v0.18.4: option navigation.avoidStairs: the page sets "Avoid stairs (use lifts)"; More's switch = onEvent('avoidStairs'), handle.avoidStairs, setAvoidStairs
+await p.evaluate(() => { window.extraEvents = []; });
+const avoidMount = await mountExtra({ layout: v2, mode: 'walkthrough', navigation: { avoidStairs: true } });
+const avoidStart = await p.evaluate(() => ({ handle: window.extra.avoidStairs, engine: window.extra._engine?.navigation.avoidStairs,
+  stored: localStorage.getItem('ahdus.avoidStairs') }));
+await p.click('#extra [data-viewer-more]');
+const avoidItem = await p.evaluate(() => document.querySelector('#extra [data-more-item="avoid-stairs"]')?.getAttribute('data-avoid-stairs') ?? null);
+await p.click('#extra [data-more-item="avoid-stairs"]');
+await p.waitForTimeout(300);
+const avoidOff = await p.evaluate(() => ({ handle: window.extra.avoidStairs, engine: window.extra._engine?.navigation.avoidStairs,
+  events: window.extraEvents.filter((e) => e.name === 'avoidStairs').map((e) => e.data) }));
+const avoidSet = await p.evaluate(() => window.extra.setAvoidStairs(true));
+await p.waitForTimeout(300);
+const avoidAgain = await p.evaluate(() => ({ handle: window.extra.avoidStairs, engine: window.extra._engine?.navigation.avoidStairs,
+  events: window.extraEvents.filter((e) => e.name === 'avoidStairs').length }));
+log('v0.18.4 option navigation.avoidStairs: on from the page (nothing stored), More\'s switch = onEvent("avoidStairs", { on: false }), setAvoidStairs(true) (no event)',
+  !avoidMount.error && avoidStart.handle === true && avoidStart.engine === true && avoidStart.stored === null && avoidItem === 'on'
+  && avoidOff.handle === false && avoidOff.engine === false && JSON.stringify(avoidOff.events) === '[{"on":false}]'
+  && avoidSet === true && avoidAgain.handle === true && avoidAgain.engine === true && avoidAgain.events === 1,
+  JSON.stringify({ avoidStart, avoidItem, avoidOff, avoidSet, avoidAgain }));
+await p.evaluate(() => { try { localStorage.removeItem('ahdus.avoidStairs'); } catch { /* none */ } });
 await removeExtra();
 const startEdit = await mountExtra({ layout: v2, startMode: 'edit' });
 log('startMode "edit" is refused: onError, the element is empty', /edit/i.test(startEdit.error ?? '') && startEdit.children === 0,
