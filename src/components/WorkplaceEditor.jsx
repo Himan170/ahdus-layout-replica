@@ -21,7 +21,7 @@ import {
   elevationOf, floorBelow,
   floorPosition, steepStairsText, floorHeight,
 } from '../play/building';
-import { stairFit, findStairSpot } from '../play/stairFit';
+import { stairFit, findStairSpot, stairRoomAt } from '../play/stairFit';
 import { isAltDown } from '../utils/altKey';
 
 // Phase 3 utilities
@@ -91,7 +91,7 @@ import { activeTile, toolHint, phoneIdleHint, PLAN_HINT } from '../ui/tools';
 
 import {
   openingData, openingPartner, openingCentre, resizeOpening, planOpeningStyle, planRemoveOpening,
-  planRoomResize, planWallThickness, planRoomTurn, planRoomCopy, planRoomMove,
+  planRoomResize, planWallThickness, planRoomTurn, planRoomCopy, planRoomMove, findRoomAt,
 } from '../play/geometry';
 import { FLOOR_BY_ROOM_TYPE } from '../utils/materialLibrary';
 import { DEFAULT_HOTBAR, EMPTY_HAND, catalogSlot } from '../play/hotbarItems';
@@ -297,19 +297,11 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
    */
   const placeObject = (result) => {
     const store = useWorkspaceStore.getState();
-    let roomId = null;
-    for (const room of Object.values(store.rooms)) {
-      if (room.floor !== store.currentFloor) continue;
-      const halfW = room.width / 2;
-      const halfD = room.depth / 2;
-      if (
-        result.x >= room.x - halfW && result.x <= room.x + halfW &&
-        result.z >= room.z - halfD && result.z <= room.z + halfD
-      ) {
-        roomId = room.id;
-        break;
-      }
-    }
+    // the smallest room holding it (v0.18.3: a cabin / lift shaft inside a hall, whichever was added first);
+    // a staircase never belongs to a lift shaft (stairFit.stairRoomAt)
+    const floorRooms = Object.values(store.rooms).filter((r) => r.floor === store.currentFloor);
+    const roomAt = (x, z) => (result.assetType === 'STAIRCASE' ? stairRoomAt(floorRooms, x, z) : findRoomAt(floorRooms, x, z))?.id ?? null;
+    let roomId = roomAt(result.x, result.z);
     // v0.17.4: stairs that can't be used here go to the nearest spot in the same room where they work
     // (same turn); Alt held = exactly here
     let moved = false;

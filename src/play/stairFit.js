@@ -87,6 +87,12 @@ const area = (r) => r.width * r.depth;
 /** Does room a hold room b (b inside a's rectangle, a bigger)? */
 const holds = (a, b) => a !== b && area(a) > area(b) && insideBox(roomRect(b), roomRect(a), TOL);
 const innermostAt = (rooms, x, z) => rooms.filter((r) => rectContains(roomRect(r), x, z)).sort((a, b) => area(a) - area(b))[0] ?? null;
+/**
+ * The room a staircase stands in (v0.18.3): the innermost room holding the point that is not a lift shaft. A lift
+ * shaft is never a staircase's room: stairs dropped over one belong to the room around it (the shaft is then a
+ * room in their way, and stairSpots looks for a spot in that room, clear of it), not "stick out of" the shaft.
+ */
+export const stairRoomAt = (rooms, x, z) => innermostAt(rooms.filter((r) => String(r.type ?? '').toUpperCase() !== 'LIFT'), x, z);
 const roomName = (room) => String(room?.name ?? '').trim() || 'their room';
 
 /**
@@ -142,7 +148,7 @@ function doorZones(ctx, f, room, depth = DOOR_CLEAR) {
         ? { x0: c.x - half, x1: c.x + half, z0: c.z - T - depth, z1: c.z + T + depth }
         : { x0: c.x - T - depth, x1: c.x + T + depth, z0: c.z - half, z1: c.z + half };
       const inside = clip(zone, inner);
-      if (!isEmpty(inside)) out.push(inside);
+      if (!isEmpty(inside)) out.push({ ...inside, room: r }); // whose door (v0.18.3: a lift shaft's, inside the room)
     }
   }
   data.doors.set(key, out);
@@ -151,12 +157,17 @@ function doorZones(ctx, f, room, depth = DOOR_CLEAR) {
 
 /** Is a box clear of walls, standing in `host` (null: outside every room)? Walls of the other rooms there count too. */
 function wallsClear(ctx, f, box, host) {
-  if (host && !insideBox(box, innerBox(host), TOL)) return false;
+  return wallBlocker(ctx, f, box, host) === null;
+}
+
+/** What stops `box` (on floor f, in room `host`): host itself (its walls), another room (its walls), or null. */
+function wallBlocker(ctx, f, box, host) {
+  if (host && !insideBox(box, innerBox(host), TOL)) return host;
   for (const r of ctx.floorData(f).rooms) {
     if (r === host || (host && holds(r, host))) continue;
-    if (overlapsBox(box, grow(roomRect(r), wallThicknessOf(r) / 2), TOL)) return false;
+    if (overlapsBox(box, grow(roomRect(r), wallThicknessOf(r) / 2), TOL)) return r;
   }
-  return true;
+  return null;
 }
 
 /** The first piece of furniture (or other staircase) on floor f in a turned rectangle, or null. */
@@ -210,7 +221,7 @@ function fitWith(ctx, stair) {
   // (a room above that holds the top step, with its wall right there: "no room to step off", not "build a room")
   const topEnd = endRect(ends.top, -0.05, -0.05, 0);
   const againstWall = above && stairNeedsRoomAbove(stair, ctx.floors, ctx.rooms) &&
-    !!innermostAt(ctx.floorData(above.id).rooms, topEnd.x, topEnd.z);
+    !!stairRoomAt(ctx.floorData(above.id).rooms, topEnd.x, topEnd.z);
   const nowhere = !againstWall && stairNeedsRoomAbove(stair, ctx.floors, ctx.rooms);
   if (nowhere) {
     add('NOWHERE', above
@@ -220,12 +231,14 @@ function fitWith(ctx, stair) {
   }
 
   // ── its own room, on its floor ──
-  const room = innermostAt(ctx.floorData(f).rooms, stair.x, stair.z);
+  const room = stairRoomAt(ctx.floorData(f).rooms, stair.x, stair.z);
   const name = roomName(room);
   const flights = stairRects(stair, { width, length });
   const flightBox = boxOfAll(flights);
-  if (room && !wallsClear(ctx, f, flightBox, room)) {
-    add('STICKS_OUT', `The stairs stick out of ${name}`);
+  const wall = room ? wallBlocker(ctx, f, flightBox, room) : null;
+  if (wall) {
+    // its own room's walls, or a room inside it (a lift shaft, a cabin) standing where the stairs go
+    add('STICKS_OUT', wall === room ? `The stairs stick out of ${name}` : `The stairs run into ${roomName(wall)}`);
   } else {
     const bottom = freeDepth(ctx, f, room, (k) => endRect(ends.bottom, -k, 0, WB), ignore);
     if (bottom.free < STAIR_CLEAR) {
@@ -240,7 +253,7 @@ function fitWith(ctx, stair) {
   if (room) {
     const door = doorZones(ctx, f, room).find((z) => flights.some((fl) => overlapsBox(boxOf(fl), z, TOL)));
     if (door) {
-      add('BLOCKS_DOOR', `The stairs block a door of ${name}`);
+      add('BLOCKS_DOOR', door.room && door.room !== room ? `The stairs block the door of ${roomName(door.room)}` : `The stairs block a door of ${name}`);
       shade.push({ floor: f, ...rectOfBox(door) });
     }
   }
@@ -250,8 +263,8 @@ function fitWith(ctx, stair) {
   // ── the floor above: the landing and the opening ──
   if (above && !nowhere) {
     const arrive = endRect(ends.top, 0.6, 0.6, 0); // building.stairTop
-    const landingRoom = innermostAt(ctx.floorData(above.id).rooms, arrive.x, arrive.z)
-      ?? innermostAt(ctx.floorData(above.id).rooms, topEnd.x, topEnd.z);
+    const landingRoom = stairRoomAt(ctx.floorData(above.id).rooms, arrive.x, arrive.z)
+      ?? stairRoomAt(ctx.floorData(above.id).rooms, topEnd.x, topEnd.z);
     const top = freeDepth(ctx, above.id, landingRoom, (k) => endRect(ends.top, 0, k, WT), ignore);
     if (top.free < STAIR_CLEAR) {
       shade.push({ floor: above.id, ...endRect(ends.top, top.free, STAIR_CLEAR, WT) });
@@ -264,7 +277,7 @@ function fitWith(ctx, stair) {
   }
   if (above) {
     const holes = stairOpenings(stair, { width, length }, 0.05);
-    const holeRoom = innermostAt(ctx.floorData(above.id).rooms, stair.x, stair.z);
+    const holeRoom = stairRoomAt(ctx.floorData(above.id).rooms, stair.x, stair.z);
     const door = holeRoom && doorZones(ctx, above.id, holeRoom).find((z) => holes.some((hole) => overlapsBox(hole, z, TOL)));
     if (door) {
       add('BLOCKS_DOOR', `The opening for the stairs on ${aboveName} is in front of a door`);
@@ -333,7 +346,7 @@ export function* stairSpots(stair, layout, { catalog, radius = 12 } = {}) {
   const ctx = fitContext(layout, catalog);
   const f = floorOf(stair);
   const rooms = ctx.floorData(f).rooms;
-  const room = innermostAt(rooms, stair.x, stair.z);
+  const room = stairRoomAt(rooms, stair.x, stair.z);
   const { width, length } = stairSize(stair);
   const half = boxOf(localRect(stair, -length / 2, length / 2, width / 2));
   const hx = (half.x1 - half.x0) / 2;
@@ -344,7 +357,7 @@ export function* stairSpots(stair, layout, { catalog, radius = 12 } = {}) {
   const z0 = range.z0 + (room ? hz : 0);
   const z1 = range.z1 - (room ? hz : 0);
   if (x0 > x1 + TOL || z0 > z1 + TOL) return;
-  const sameRoom = (x, z) => (innermostAt(rooms, x, z)?.id ?? null) === (room?.id ?? null);
+  const sameRoom = (x, z) => (stairRoomAt(rooms, x, z)?.id ?? null) === (room?.id ?? null);
   for (const [dx, dz] of [[0, 0], ...offsets(radius)]) {
     const x = r3(stair.x + dx);
     const z = r3(stair.z + dz);

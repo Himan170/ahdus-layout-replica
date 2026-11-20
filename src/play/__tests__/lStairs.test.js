@@ -7,7 +7,8 @@ import {
 } from '../building';
 import { findRoute, floorLinks, stairBottom } from '../navigation/route';
 import { createWalkMapCache, STAIRS as STAIRS_CELL } from '../navigation/walkMap';
-import { stairFit } from '../stairFit';
+import { stairFit, findStairSpot, stairRoomAt } from '../stairFit';
+import { checkLayout } from '../navigation/checkLayout';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
 
 const stair = (shape, extra = {}) => ({
@@ -126,6 +127,36 @@ describe('L-shaped stairs (v0.18.3)', () => {
       const first = r.legs[1].points[0];
       expect(Math.hypot(first.x - top.x, first.z - top.z), shape).toBeLessThan(0.6);
     }
+  });
+
+  it('with a lift shaft in the same hall: the stairs belong to the hall, never to the shaft (fit, spot, Check, Fix it)', () => {
+    const shaft = (id, floor) => ({ id, name: 'Lift shaft 1', type: 'LIFT', floor, x: 0, z: 0, width: 2.2, depth: 2.2, wallHeight: 3.2,
+      doors: [{ wall: 'south', offset: 0, width: 1.1, height: 2.1 }], windows: [] });
+    const withLift = (s) => ({ ...layoutWith(s), rooms: { ...layoutWith(s).rooms, lift0: shaft('lift0', 0), lift1: shaft('lift1', 1) } });
+    const hallRooms = Object.values(withLift(stair()).rooms).filter((r) => r.floor === 0);
+    expect(stairRoomAt(hallRooms, 0, 0).id).toBe('hall_0'); // over the shaft: the hall
+    // far from the shaft (X −4): the hall's, and fine
+    const far = stair('L-right', { x: -4 });
+    const fitFar = stairFit(far, withLift(far), { catalog: ASSET_TYPES });
+    expect(fitFar.room.id).toBe('hall_0');
+    expect(fitFar.problems.map((p) => p.text).join(' ')).not.toMatch(/Lift shaft/);
+    // dropped over the shaft: still the hall's; the shaft is in the way, named; a spot in the hall clear of it
+    const over = stair('L-right');
+    const fit = stairFit(over, withLift(over), { catalog: ASSET_TYPES });
+    expect(fit.room.id).toBe('hall_0');
+    expect(fit.problems.map((p) => p.text)).toContain('The stairs run into Lift shaft 1');
+    expect(fit.problems.map((p) => p.text)).not.toContain('The stairs stick out of Lift shaft 1');
+    const spot = findStairSpot(over, withLift(over), { catalog: ASSET_TYPES });
+    expect(spot).toMatchObject({ roomId: 'hall_0' });
+    const moved = { ...over, x: spot.x, z: spot.z };
+    expect(stairFit(moved, withLift(moved), { catalog: ASSET_TYPES }).ok).toBe(true);
+    // Check says the same and its Fix it moves them there, in the hall
+    const { problems } = checkLayout(withLift(over), { catalog: ASSET_TYPES });
+    const mine = problems.filter((x) => x.objectId === 's1');
+    expect(mine.map((x) => x.message)).toContain('The stairs run into Lift shaft 1');
+    expect(mine.map((x) => x.message).join(' ')).not.toMatch(/stick out of Lift shaft/);
+    const p = mine.find((x) => x.fix);
+    expect(p.fix.moves).toEqual([['s1', { x: spot.x, z: spot.z, roomId: 'hall_0' }]]);
   });
 
   it('the fit check knows its turned top: in a big room it is fine; with a wall at the top it says so', () => {
