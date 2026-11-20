@@ -1393,14 +1393,14 @@ const styles: Record<string, CSSProperties> = {
     font: '600 13px Inter, system-ui, sans-serif', textDecoration: 'underline', minHeight: 32,
   },
   // v0.17.1: the phone's buttons (44 px, a finger's size)
-  // v0.18.3: the lift's floor panel, bottom middle (above the HUD and the joystick)
+  // v0.18.3: the lift's floor panel, bottom middle, above the walk hint, the HUD and the joystick
   liftPanel: {
-    ...panel, left: '50%', bottom: 76, transform: 'translateX(-50%)', display: 'flex', flexWrap: 'wrap', gap: 6,
+    ...panel, left: '50%', bottom: 150, transform: 'translateX(-50%)', display: 'flex', flexWrap: 'wrap', gap: 6,
     alignItems: 'center', justifyContent: 'center', maxWidth: 'calc(100% - 24px)', boxSizing: 'border-box', pointerEvents: 'auto', zIndex: 3,
   },
   liftTitle: { fontWeight: 600, marginRight: 4 },
   liftButton: {
-    padding: '6px 12px', borderRadius: 8, border: '1px solid #fff8', background: '#ffffff22', color: 'inherit',
+    padding: '6px 12px', borderRadius: 8, borderWidth: 1, borderStyle: 'solid', borderColor: '#fff8', background: '#ffffff22', color: 'inherit',
     font: 'inherit', cursor: 'pointer',
   },
   liftButtonHere: { background: '#28664f', borderColor: '#28664f', cursor: 'default' },
