@@ -182,6 +182,8 @@ interface Hud {
   hint?: { title?: string; detail?: string };
   message?: string | null;
   roomName?: string;
+  /** v0.18.3: the room you are in (LIFT: the lift's floor panel) */
+  roomType?: string | null;
   /** building.floorPosition: the HUD shows the floor's own name */
   floor?: { index: number; count: number; name?: string };
   prompt?: { label: string; name: string } | null;
@@ -1234,6 +1236,23 @@ export function LayoutViewer(props: LayoutViewerProps) {
           )}
         </>
       )}
+      {/* v0.18.3: standing in a lift car: its floors (a click rides there) */}
+      {walking && !error && engine && hud?.roomType === 'LIFT' && (() => {
+        const lift = engine.liftHere();
+        if (!lift || lift.floors.length < 2) return null;
+        return (
+          <div role="group" aria-label="Lift: choose a floor" data-lift-panel={lift.id} style={styles.liftPanel}>
+            <span style={styles.liftTitle}>Lift</span>
+            {lift.floors.map((f) => (
+              <button key={f.id} type="button" data-lift-floor={f.id} aria-pressed={f.id === lift.floor} disabled={f.id === lift.floor}
+                style={{ ...styles.liftButton, ...(f.id === lift.floor ? styles.liftButtonHere : null), ...buttonStyle }}
+                onClick={() => { engine.rideLift(f.id); focusView(); }}>
+                {f.name}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
       {engine && touring && !error && (
         <TourPanel engine={engine} touch={touchUI} narrow={narrow} bottom={tourBottom} top={underRow}
           listOpen={tourList} onListOpenChange={setTourList} focusView={focusView} />
@@ -1374,6 +1393,17 @@ const styles: Record<string, CSSProperties> = {
     font: '600 13px Inter, system-ui, sans-serif', textDecoration: 'underline', minHeight: 32,
   },
   // v0.17.1: the phone's buttons (44 px, a finger's size)
+  // v0.18.3: the lift's floor panel, bottom middle, above the walk hint, the HUD and the joystick
+  liftPanel: {
+    ...panel, left: '50%', bottom: 150, transform: 'translateX(-50%)', display: 'flex', flexWrap: 'wrap', gap: 6,
+    alignItems: 'center', justifyContent: 'center', maxWidth: 'calc(100% - 24px)', boxSizing: 'border-box', pointerEvents: 'auto', zIndex: 3,
+  },
+  liftTitle: { fontWeight: 600, marginRight: 4 },
+  liftButton: {
+    padding: '6px 12px', borderRadius: 8, borderWidth: 1, borderStyle: 'solid', borderColor: '#fff8', background: '#ffffff22', color: 'inherit',
+    font: 'inherit', cursor: 'pointer',
+  },
+  liftButtonHere: { background: '#28664f', borderColor: '#28664f', cursor: 'default' },
   tallButton: { height: 44, minWidth: 44, padding: '0 12px', justifyContent: 'center', flex: 'none' },
   // More's menu: under the toolbar, the AHDUS look, opaque (over the name tags)
   menu: {

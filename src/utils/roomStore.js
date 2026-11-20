@@ -26,6 +26,8 @@ export const ROOM_TYPES = {
   CABIN:        { label: 'Cabin',           color: '#5a6fd6', defaultW: 4, defaultD: 3 },
   TRAINING:     { label: 'Training Room',   color: '#2f9fb8', defaultW: 8, defaultD: 6 },
   LOBBY:        { label: 'Lobby',           color: '#b59a6a', defaultW: 8, defaultD: 6 },
+  // v0.18.3: a lift shaft (the same rectangle on several floors = one lift: play/lifts.js)
+  LIFT:         { label: 'Lift shaft',      color: '#7d8a93', defaultW: 2.2, defaultD: 2.2 },
 };
 
 // ─── Unique ID generator ───

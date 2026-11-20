@@ -121,7 +121,7 @@ function drawDoor(ctx, opening, room, rooms, tx, ty, pxPerM, detailScale) {
   ctx.strokeStyle = DOOR_COLOR;
   ctx.lineWidth = 1.5 * detailScale;
   ctx.globalAlpha = 0.9;
-  if (door.style === 'sliding-glass') {
+  if (door.style === 'sliding-glass' || door.style === 'lift') {
     for (const l of leafLines(door, 0)) {
       const p = toCanvas(l.from.x, l.from.z, tx, ty, pxPerM);
       const q = toCanvas(l.to.x, l.to.z, tx, ty, pxPerM);

@@ -17,6 +17,8 @@ export const ROOM_TYPE_FALLBACK: Readonly<Record<string, string>> = Object.freez
   CABIN: 'OFFICE',
   TRAINING: 'MEETING',
   LOBBY: 'RECEPTION',
+  // v0.18.3: a lift shaft; an older build draws a small room with a door on each floor
+  LIFT: 'CUSTOM',
 });
 
 /** A store room type as written in a file: { type, subtype? }. */

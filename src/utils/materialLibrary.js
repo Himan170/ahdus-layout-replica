@@ -284,6 +284,7 @@ export const FLOOR_BY_ROOM_TYPE = {
   CABIN: 'cabin',
   TRAINING: 'training',
   LOBBY: 'lobby',
+  LIFT: 'concrete',
 };
 
 /** Floors a room can be given instead of its type's (room field `floorFinish`; 'default' = the type's). */

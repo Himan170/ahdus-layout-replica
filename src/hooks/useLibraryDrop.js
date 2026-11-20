@@ -101,7 +101,7 @@ export function useLibraryDrop({
     }
     const mgr = placementManagerRef.current;
     if (!mgr) return null;
-    if (!mgr.isActive()) mgr.startPlacement(tile.assetType);
+    if (!mgr.isActive()) mgr.startPlacement(tile.assetType, undefined, tile.metadata ? { metadata: tile.metadata } : undefined);
     mgr.updatePointer(at.x, at.y);
     const ghost = mgr.getGhostPosition();
     if (!ghost) return null;
@@ -262,7 +262,7 @@ export function useLibraryDrop({
         const canvas = canvasRef.current; // a tap: in the middle of the view, then drag it where it goes
         if (canvas) commit(tile, { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }, false);
       } else {
-        handleStartPlacement(tile.assetType);
+        handleStartPlacement(tile.assetType, tile.metadata ? { metadata: tile.metadata } : undefined);
       }
       return;
     }

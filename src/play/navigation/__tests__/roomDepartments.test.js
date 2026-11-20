@@ -63,8 +63,8 @@ describe('roomDepartments', () => {
     layout.rooms[3].departmentRef = '  Legal ';
     expect(Object.fromEntries(roomDepartments(layout, PEOPLE))).toEqual({ r_a: 'Finance', r_c: 'Legal' });
   });
-  it('shared spaces (reception, washrooms, meeting rooms, stairs, corridors; v0.18.1: cafeterias, lounges, training rooms, lobbies) never take one from their seats', () => {
-    expect([...SHARED_ROOM_TYPES].sort()).toEqual(['CAFETERIA', 'CORRIDOR', 'LOBBY', 'LOUNGE', 'MEETING', 'RECEPTION', 'RESTROOM', 'STAIRCASE', 'TRAINING']);
+  it('shared spaces (reception, washrooms, meeting rooms, stairs, corridors; v0.18.1: cafeterias, lounges, training rooms, lobbies; v0.18.3: lift shafts) never take one from their seats', () => {
+    expect([...SHARED_ROOM_TYPES].sort()).toEqual(['CAFETERIA', 'CORRIDOR', 'LIFT', 'LOBBY', 'LOUNGE', 'MEETING', 'RECEPTION', 'RESTROOM', 'STAIRCASE', 'TRAINING']);
     expect(roomDepartments(smallOffice(), PEOPLE).has('r_rec')).toBe(false); // Kavya (HR) at the front desk
     const layout = smallOffice();
     layout.rooms[0].departmentRef = 'Front office';

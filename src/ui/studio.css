@@ -543,6 +543,7 @@
   white-space: nowrap;
   visibility: hidden;
 }
+.room-label__lift { display: inline-flex; align-items: center; gap: 3px; }
 .room-label__area {
   display: block;
   margin-top: 2px;

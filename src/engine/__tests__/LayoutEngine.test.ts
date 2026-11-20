@@ -451,6 +451,7 @@ const EDITS: Record<string, unknown[]> = {
   removeOpenings: [[{ roomId: 'room_a', kind: 'door', index: 0 }]],
   resizeOpening: [[{ roomId: 'room_a', kind: 'door', index: 0, patch: { width: 1.0 } }]],
   setOpeningStyle: [[{ roomId: 'room_a', kind: 'door', index: 0, record: { wall: 'north', offset: 0, width: 1.0, height: 2.1, style: 'glass' } }]],
+  setLiftStops: ['room_a', [0, 1]],
   setAnchorData: [anchorId('obj_desk', 'workstation'), { positionRef: 'P-9' }],
   addFloor: [{ copyRooms: true }],
   removeFloor: [1],
@@ -968,8 +969,11 @@ describe('modes: only edit mode can change the layout (H3)', () => {
       if (name === 'undo' || name === 'redo') continue;
       const engine = makeEngine({ mode: 'edit' });
       engine.loadLayout(save());
+      // v0.18.3: a lift's stops need a lift shaft to change
+      if (name === 'setLiftStops') engine.editor.addRoom({ type: 'LIFT', x: 30, z: 30, width: 2.2, depth: 2.2, floor: 0 } as any);
+      const lift = name === 'setLiftStops' ? engine.getLayout()!.rooms.find((r) => (r as any).subtype === 'LIFT')!.id : null;
       const before = JSON.stringify(engine.getLayout());
-      (engine.editor as any)[name](...args);
+      (engine.editor as any)[name](...(lift ? [lift, args[1]] : args));
       expect(JSON.stringify(engine.getLayout()), name).not.toBe(before);
     }
   });

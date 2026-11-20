@@ -553,7 +553,9 @@ export function* planTourSteps(layout, people = [], departments = [], options = 
         const side = stair ? sideOf(samples, Math.max(0, samples.length - 1 - Math.round(3 / SAMPLE_STEP)), stair) : null;
         const end = samples.at(-1);
         const where = side === 'ahead' ? 'the stairs ahead' : side ? `the stairs on your ${side}` : 'the stairs';
-        steps.push({ text: `${where}, ${part.stairsAtEnd.direction} to ${floorName(part.stairsAtEnd.toFloor)}`, floor: part.floor, at: end, along: along + end.s });
+        // v0.18.3: a ride (stairsAtEnd.kind 'lift'): its shaft is a room, not an item
+        const by = part.stairsAtEnd.kind === 'lift' ? 'the lift' : where;
+        steps.push({ text: `${by}, ${part.stairsAtEnd.direction} to ${floorName(part.stairsAtEnd.toFloor)}`, floor: part.floor, at: end, along: along + end.s });
       }
       along += samples.at(-1).s + (part.stairsAtEnd?.length ?? 0);
     });

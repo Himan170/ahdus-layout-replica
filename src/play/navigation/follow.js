@@ -88,7 +88,9 @@ export function routePath(route) {
       const last = k === leg.points.length - 1;
       const stairs = last && i < route.legs.length - 1;
       const toFloor = stairs ? leg.stairsAtEnd?.toFloor : undefined;
-      points.push({ x: p.x, z: p.z, floor: leg.floor, stairs, toFloor, stairLength: last ? leg.stairsAtEnd?.length : undefined });
+      // v0.18.3: a lift's ride: `lift` = its id (the point at the car; the next one is the car on the other floor)
+      const lift = stairs && leg.stairsAtEnd?.kind === 'lift' ? leg.stairsAtEnd.liftId ?? leg.stairsAtEnd.objectId : undefined;
+      points.push({ x: p.x, z: p.z, floor: leg.floor, stairs, toFloor, stairLength: last ? leg.stairsAtEnd?.length : undefined, ...(lift ? { lift } : {}) });
       // along the flight's own line: its sides are solid, the landing may be off to one side
       if (stairs) for (const v of leg.stairsAtEnd?.via ?? []) points.push({ x: v.x, z: v.z, floor: leg.floor, stairs: true, toFloor, inFlight: true });
     });

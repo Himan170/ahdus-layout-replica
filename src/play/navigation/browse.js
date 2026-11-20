@@ -27,13 +27,13 @@ export const DESCRIPTION_MAX = 280;
 export const KIND_LABELS = {
   OFFICE: 'Offices', MEETING: 'Meeting rooms', RESTROOM: 'Washrooms', RECEPTION: 'Reception', STAIRCASE: 'Stairs',
   CORRIDOR: 'Corridors', PRODUCTION: 'Production areas', SERVER_ROOM: 'Server rooms',
-  CAFETERIA: 'Cafeterias', LOUNGE: 'Lounges', CABIN: 'Cabins', TRAINING: 'Training rooms', LOBBY: 'Lobby',
+  CAFETERIA: 'Cafeterias', LOUNGE: 'Lounges', CABIN: 'Cabins', TRAINING: 'Training rooms', LOBBY: 'Lobby', LIFT: 'Lifts',
 };
 /** The kinds people look for most come first; the rest by name. */
 const KIND_ORDER = ['OFFICE', 'MEETING', 'RESTROOM', 'RECEPTION', 'STAIRCASE'];
 /** A facility (places.FACILITIES) → the kind its places are listed under. */
 export const FACILITY_KIND = {
-  RESTROOM: 'RESTROOM', MEETING: 'MEETING', RECEPTION: 'RECEPTION', STAIRS: 'STAIRCASE', CAFETERIA: 'CAFETERIA',
+  RESTROOM: 'RESTROOM', MEETING: 'MEETING', RECEPTION: 'RECEPTION', STAIRS: 'STAIRCASE', CAFETERIA: 'CAFETERIA', LIFT: 'LIFT',
 };
 
 const key = (name) => words(name).join(' ');

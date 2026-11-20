@@ -24,6 +24,9 @@ import {
 import { toV1 } from '../engine/model/toV1';
 import { lockedText, allowedRoomPatch } from '../play/locks';
 import { normaliseLayout } from './layoutData';
+import { LIFT_TYPE, LIFT_DOOR, planLiftStops, liftFollow, liftOfRoom } from '../play/lifts';
+import { planRoomTurn } from '../play/geometry';
+import { v4 as uuidv4 } from 'uuid';
 import { CommandHistory } from '../engine/commands/CommandHistory';
 import {
   AddObjectCommand,
@@ -269,8 +272,15 @@ export function inputTime() {
  * @param {{ now?: () => number, workspace?: object }} [options]  now: input clock (tests pass a fake one);
  *   workspace: the store to edit (default the app's; a LayoutEngine passes its own)
  */
-export function createEditorHistory(onChange, { now = inputTime, workspace = useWorkspaceStore } = {}) {
+export function createEditorHistory(onChange, { now = inputTime, workspace = useWorkspaceStore, onProblem } = {}) {
   const store = () => workspace.getState();
+  /** A change refused here (v0.18.3: a lift shaft on another floor can't follow): the caller's message line. */
+  const refuse = (problem) => { onProblem?.(problem); return problem; };
+  /** v0.18.3: the lift's other shafts follow a shaft's new rectangle (play/lifts.js liftFollow). */
+  const follow = (room, rect) => {
+    const st = store();
+    return liftFollow(room, rect, Object.values(st.rooms), Object.values(st.objects), st.floors);
+  };
   const history = new CommandHistory({
     maxSize: 200,
     now,
@@ -403,6 +413,8 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
       if (data.type === 'MEETING' && !data.doors?.length && data.glassWalls === undefined && data.glassOnFirstDoor === undefined) {
         data = { ...data, glassOnFirstDoor: true };
       }
+      // v0.18.3: a new lift shaft gets its lift door (on its south wall) unless it brings its own
+      if (data.type === LIFT_TYPE && !data.doors?.length) data = { ...data, doors: [{ ...LIFT_DOOR }] };
       const floor = data.floor ?? store().currentFloor;
       if (!(data.wallHeight > wallSpace(store().floors, floor) + 1e-6)) {
         run(new AddRoomCommand(s, data));
@@ -414,6 +426,23 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
         const room = s.getRoom(store().selectedRoomId);
         return planWallHeight(store().floors, Object.values(store().rooms), room, room.wallHeight);
       }, undefined, undefined, store)]));
+    },
+    /**
+     * v0.18.3: the floors a lift stops at (Studio's Inspector "Lift stops"), as ONE undo step: the same shaft
+     * (rectangle, doors) added on the floors ticked, removed from the others (play/lifts.js planLiftStops).
+     * @returns {{ problem: string | null }}
+     */
+    setLiftStops(roomId, stops) {
+      const st = store();
+      const shaft = st.rooms[roomId];
+      const plan = shaft && planLiftStops(Object.values(st.rooms), st.floors, shaft, stops, () => `room_${uuidv4()}`);
+      if (!plan) return { problem: stops?.length ? 'This is not a lift shaft' : 'A lift stops at one floor at least' };
+      const locked = plan.remove.map((id) => s.getRoom(id)).find((r) => r?.isLocked);
+      if (locked) return { problem: lockedText(locked.name) };
+      const cmds = [...plan.remove.map((id) => new DeleteRoomCommand(s, id)), ...plan.add.map((r) => new AddRoomCommand(s, r))];
+      if (!cmds.length) return { problem: null };
+      run(cmds.length === 1 ? cmds[0] : new CompositeCommand('Change lift stops', cmds));
+      return { problem: null };
     },
     /** @returns {{ problem: string | null }}  a locked room stays (v0.15.6) */
     deleteRoom(id) {
@@ -457,12 +486,15 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
       const sub = { label: text, mergeKey: mergeKey ? `group:${mergeKey}` : undefined };
       const cmds = [new UpdateRoomCommand(s, id, { x: plan.rect.x, z: plan.rect.z }, sub)];
       const ids = [`room:${id}`];
-      for (const [roomId, patch] of plan.rooms ?? []) {
+      // v0.18.3: a lift shaft takes the lift's shafts on its other floors along (and what is in them)
+      const lift = follow(room, { x: plan.rect.x, z: plan.rect.z });
+      if (lift.problem) { refuse(lift.problem); return false; }
+      for (const [roomId, patch] of [...(plan.rooms ?? []), ...lift.rooms]) {
         if (!s.getRoom(roomId)) continue;
         cmds.push(new UpdateRoomCommand(s, roomId, patch, sub));
         ids.push(`room:${roomId}`);
       }
-      for (const [objectId, patch] of plan.objects ?? []) {
+      for (const [objectId, patch] of [...(plan.objects ?? []), ...lift.objects]) {
         const obj = s.getObject(objectId);
         if (!obj) continue;
         const allowed = obj.assetType === 'STAIRCASE' ? stairPatch(patch) : patch;
@@ -486,11 +518,27 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
       if (!room || !plan || plan.problem || !plan.patch || room.isLocked) return false;
       const text = label ?? `Turn ${room.name ?? 'room'}`;
       const sub = { label: text };
-      const cmds = [new UpdateRoomCommand(s, id, plan.patch, sub)];
-      for (const [roomId, patch] of plan.rooms ?? []) {
-        if (s.getRoom(roomId)) cmds.push(new UpdateRoomCommand(s, roomId, patch, sub));
+      // v0.18.3: a lift shaft turns on every floor of its lift, each with what is in it
+      const plans = [plan];
+      const st = store();
+      const lift = liftOfRoom(Object.values(st.rooms), st.floors, room);
+      for (const f of lift?.floors ?? []) {
+        const shaft = lift.rooms[f];
+        if (shaft.id === id) continue;
+        const name = st.floors[f]?.name ?? `Floor ${f}`;
+        if (shaft.isLocked) { refuse(`The lift shaft on ${name} is locked. Unlock it to change the lift`); return false; }
+        const other = planRoomTurn(shaft, Object.values(st.rooms), Object.values(st.objects));
+        if (other.problem || !other.patch) { refuse(`The lift shaft on ${name} can't turn: ${other.problem ?? 'it is in the way'}`); return false; }
+        plans.push({ ...other, id: shaft.id });
       }
-      for (const [objectId, patch] of plan.objects ?? []) {
+      const cmds = [];
+      for (const p of plans) {
+        cmds.push(new UpdateRoomCommand(s, p.id ?? id, p.patch, sub));
+        for (const [roomId, patch] of p.rooms ?? []) {
+          if (s.getRoom(roomId)) cmds.push(new UpdateRoomCommand(s, roomId, patch, sub));
+        }
+      }
+      for (const [objectId, patch] of plans.flatMap((p) => p.objects ?? [])) {
         const obj = s.getObject(objectId);
         if (!obj) continue;
         cmds.push(new TransformCommand(s, objectId, obj.assetType === 'STAIRCASE' ? stairPatch(patch) : patch, sub));
@@ -512,7 +560,24 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
       }
       const changed = Object.keys(patch).some((k) => room[k] !== patch[k]);
       if (!changed) return;
-      run(new UpdateRoomCommand(s, id, patch, options));
+      // v0.18.3: a lift shaft moved / resized (Inspector, a wall dragged, Stretch) changes on every floor of its lift
+      const rect = Object.fromEntries(['x', 'z', 'width', 'depth'].filter((k) => k in patch).map((k) => [k, patch[k]]));
+      const lift = Object.keys(rect).length ? follow(room, rect) : null;
+      if (lift?.problem) return { problem: refuse(lift.problem) };
+      if (!lift?.rooms.length) { run(new UpdateRoomCommand(s, id, patch, options)); return; }
+      const label = options?.label ?? `Resize ${room.name ?? 'lift'}`;
+      const mergeKey = options?.mergeKey;
+      const sub = { label, mergeKey: mergeKey ? `group:${mergeKey}` : undefined };
+      const cmds = [new UpdateRoomCommand(s, id, patch, sub)];
+      const ids = [`room:${id}`];
+      for (const [roomId, p] of lift.rooms) { cmds.push(new UpdateRoomCommand(s, roomId, p, sub)); ids.push(`room:${roomId}`); }
+      for (const [objectId, p] of lift.objects) {
+        const obj = s.getObject(objectId);
+        if (!obj) continue;
+        cmds.push(new TransformCommand(s, objectId, obj.assetType === 'STAIRCASE' ? stairPatch(p) : p, sub));
+        ids.push(objectId);
+      }
+      run(mergeKey ? new PatchGroupCommand(label, cmds, ids, mergeKey) : new CompositeCommand(label, cmds));
     },
 
     /**

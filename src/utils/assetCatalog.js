@@ -21,7 +21,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { CSG } from '@babylonjs/core/Meshes/csg';
 import { getAssetMaterial } from './materialLibrary';
-import { STAIR, stairDims } from '../play/building';
+import { STAIR, stairDims, stairParts, L_STAIR } from '../play/building';
 import { MANIFEST, MANIFEST_TYPES, UNKNOWN_ITEM_SIZE } from '../catalog/manifest';
 import { buildManifestMesh } from './manifestMesh';
 
@@ -65,6 +65,62 @@ function metalMat(scene, hex = '#8a8e96') {
 }
 
 // ─── Mesh helpers ───
+/**
+ * An L-shaped staircase (v0.18.3, play/building.js stairParts): each flight a solid block up to each tread with a
+ * nosing strip, a landing block at the turn, a handrail along the open side of each flight. Local +Z = the way the
+ * first flight climbs; the box is L_STAIR (3.2 × 3.2 m), centred on the item.
+ */
+function buildLStair(scene, root, id, shape, riseIn, stepMat, noseMat) {
+  const dims = { ...stairDims(riseIn), width: L_STAIR.width, length: L_STAIR.length };
+  const riser = dims.rise / dims.steps;
+  const railMat = metalMat(scene, '#a0a8b0');
+  let n = 0;
+  const part = (m, pickable = true) => { m.parent = root; m.isPickable = pickable; return m; };
+  for (const p of stairParts({ metadata: { stairShape: shape } }, dims)) {
+    const w = p.x1 - p.x0;
+    const d = p.z1 - p.z0;
+    if (p.kind === 'landing') {
+      part(box(scene, 'landing', w, p.h0, d, (p.x0 + p.x1) / 2, 0, (p.z0 + p.z1) / 2)).material = stepMat;
+      continue;
+    }
+    const alongZ = p.along === 'z';
+    const run = (alongZ ? d : w) / p.steps;
+    for (let i = 0; i < p.steps; i++) {
+      const h = p.h0 + (i + 1) * riser;
+      // the i-th tread from where the part starts (along +Z, +X or −X)
+      const at = alongZ ? p.z0 + (i + 0.5) * run : p.along === 'x' ? p.x0 + (i + 0.5) * run : p.x1 - (i + 0.5) * run;
+      const sx = alongZ ? (p.x0 + p.x1) / 2 : at;
+      const sz = alongZ ? at : (p.z0 + p.z1) / 2;
+      part(box(scene, 'step_' + n, alongZ ? w : run, h, alongZ ? run : d, sx, 0, sz)).material = stepMat;
+      // the nosing on the tread's front edge (the side you come from)
+      const back = run / 2 - 0.025;
+      const nx = alongZ ? sx : p.along === 'x' ? sx - back : sx + back;
+      const nz = alongZ ? sz - back : sz;
+      part(box(scene, 'nose_' + n, alongZ ? w : 0.05, 0.02, alongZ ? 0.05 : d, nx, h - 0.02, nz), false).material = noseMat;
+      n += 1;
+    }
+    // a handrail along the flight's outer side: the first flight's side away from the turn, the second's far side
+    const len = alongZ ? d : w;
+    const slope = Math.hypot(len, p.h1 - p.h0);
+    const tilt = Math.atan2(p.h1 - p.h0, len);
+    // the rail's long side along the flight, tilted up the way it climbs (+Z, +X or −X)
+    const rail = alongZ
+      ? MeshBuilder.CreateBox('rail_' + n, { width: 0.05, height: 0.05, depth: slope }, scene)
+      : MeshBuilder.CreateBox('rail_' + n, { width: slope, height: 0.05, depth: 0.05 }, scene);
+    if (alongZ) {
+      const side = shape === 'L-right' ? p.x0 + 0.05 : p.x1 - 0.05;
+      rail.rotation.x = -tilt;
+      rail.position.set(side, (p.h0 + p.h1) / 2 + 0.9, (p.z0 + p.z1) / 2);
+    } else {
+      rail.rotation.z = p.along === 'x' ? tilt : -tilt; // +Z turns +X up
+      rail.position.set((p.x0 + p.x1) / 2, (p.h0 + p.h1) / 2 + 0.9, p.z1 - 0.05);
+    }
+    part(rail, false).material = railMat;
+  }
+  root.metadata = { assetType: 'STAIRCASE', objectId: id, rise: dims.rise, stairShape: shape };
+  return root;
+}
+
 function box(scene, name, w, h, d, px = 0, py = 0, pz = 0) {
   const m = MeshBuilder.CreateBox(name, { width: w, height: h, depth: d }, scene);
   m.position.set(px, py + h / 2, pz);
@@ -215,6 +271,8 @@ export const ASSET_TYPES = {
       const root = new TransformNode('arch_stair_' + id, scene);
       const stepMat = mat(scene, '#c8c0b0');
       const noseMat = mat(scene, '#8a8278');
+      const shape = opts.variant?.shape;
+      if (shape === 'L-right' || shape === 'L-left') return buildLStair(scene, root, id, shape, opts.rise ?? STAIR.rise, stepMat, noseMat);
       const { width, length, rise, steps } = stairDims(opts.rise ?? STAIR.rise);
       const stepH = rise / steps;
       const tread = length / steps;

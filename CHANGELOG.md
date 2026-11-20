@@ -3,6 +3,45 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.18.3 (20 Nov 2026): lifts and L-shaped stairs
+
+`private-docs/V0.18.3_PLAN.md` (decisions and what changed from the plan). Old builds open these layouts without an
+error (checked with the built v0.17.3, v0.18.0 and v0.18.1 embeds).
+- **Lifts:** the Stairs library's **Lift** tile places a lift shaft room (new room type Lift, 2.2 × 2.2 m, one door).
+  Its Inspector has **Lift stops**, one button per floor: a stop adds the same shaft on that floor, taking one away
+  removes it there (one undo step each, `editor.setLiftStops`). A lift is the lift shafts in the same place on
+  several floors (`play/lifts.js`): nothing else is saved.
+- **A lift stays in one piece:** moving, resizing or turning a lift shaft on one floor (drag, Room X / Z, Width,
+  a wall dragged, Rotate) does the same on every floor of its lift, with what stands in each shaft, in ONE undo
+  step; refused with the floor named when a shaft there is locked or would overlap a room.
+- **Riding one** (viewer, embed): the car, its sliding steel doors and a call button panel are drawn on every floor it
+  serves (`LiftSystem`, three meshes for all lifts). Inside the car a panel "Lift: choose a floor" takes you to the
+  floor you pick (the car waits on every floor).
+- **Take me there and Find use it:** routes join floors by lift too (the ride time counted, so for one floor the
+  stairs usually win, for several the lift); the walk rides it by itself and goes on. Find has "Lift" places and
+  "Nearest lift" while walking.
+- **Check my layout:** "No lift stops at Floor 2" (a floor with rooms no lift serves), "The lift skips Floor 1" and
+  "The lift shafts on Floor 1 and Floor 2 don't line up" (shafts that overlap on other floors without matching, from
+  an old save or a file) (warnings); a shaft with no door is the usual "has no door" error.
+- **L-shaped stairs:** two new Stairs tiles (turns right / turns left) and the staircase Inspector's **Stairs shape**
+  (Straight | L right | L left, one undo step). 3.2 × 3.2 m: half the steps, a 1.2 m landing, the rest turned 90°.
+  Walked, blocked from the sides, routed (through the landing), checked by `stairFit` at its real top, drawn in 3D,
+  Plan view and two openings in the floor above (the corner the L leaves free stays floor).
+- **Format:** a lift shaft is written as `CUSTOM` + `subtype: 'LIFT'` in v2 / exported files; an L staircase is a
+  STAIRCASE with `metadata.stairShape` (`docs/ROOM_FORMAT.md`). Older builds draw a small Custom room on each floor
+  and a straight flight from the same spot.
+- **After the review (Himan, 20 Nov):**
+  - Inside the lift car the view is first person (your character hidden): the third-person camera sat right behind
+    your head there and covered the floor panel. Out of the car the usual view comes back (V is unchanged). Also: a
+    smaller room you walk into (the car in a hall) is now the room you are in at once, so the panel shows as you step in.
+  - Stairs never belong to a lift shaft (`stairFit.stairRoomAt`): L stairs dropped over a shaft in a hall said "The
+    stairs stick out of Lift shaft 1" and stayed there; now they belong to the hall and move to the nearest spot beside
+    the shaft. Stairs that hit a room inside their room say "The stairs run into Lift shaft 1"; Check and Fix it the same.
+  - Room labels: a lift shaft is labelled "Lift" with its icon, and a room with rooms inside it puts its name at the
+    free spot nearest its middle (`geometry.labelSpot`), not on the shaft; in 2D / 3D and in Plan view.
+- New: `npm run e2e:lifts` (26 checks).
+- Next (v0.18.4, first item): a route option "avoid stairs (use lifts)" for Find / Take me there and the tour.
+
 ## 0.18.2 (20 Nov 2026): stability
 
 Fixes from an outside audit of Studio's input and the viewer (`private-docs/V0.18.2_PLAN.md`: each item checked

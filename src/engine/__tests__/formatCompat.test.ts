@@ -120,9 +120,59 @@ describe('the v0.18.1 format in this build', () => {
   });
 
   it('the type table', () => {
-    expect(Object.keys(ROOM_TYPE_FALLBACK)).toEqual(NEW_TYPES);
+    expect(Object.keys(ROOM_TYPE_FALLBACK)).toEqual([...NEW_TYPES, 'LIFT']); // v0.18.3: the lift shaft
     expect(fileRoomType('OFFICE')).toEqual({ type: 'OFFICE' });
     expect(storeRoomType('CUSTOM', 'LOUNGE')).toBe('LOUNGE');
     expect(storeRoomType('CUSTOM', 'SPACESHIP')).toBe('CUSTOM');
+  });
+});
+
+describe('lifts (v0.18.3) in older builds', () => {
+  const liftLayout = () => ({
+    layoutName: 'lifts', floors: [{ id: 0, name: 'Ground Floor', height: 3.5 }, { id: 1, name: 'Floor 1', height: 3.5 }],
+    rooms: [0, 1].map((floor) => ({
+      id: `room_lift_${floor}`, type: 'LIFT', name: 'Lift shaft', floor, x: 4, z: 2, width: 2.2, depth: 2.2,
+      wallHeight: 3.2, wallThickness: 0.15, color: '#7d8a93', floorFinish: 'default',
+      doors: [{ wall: 'south', offset: 0, width: 1.1, height: 2.1 }], windows: [],
+    })),
+    objects: [],
+  });
+
+  it('a lift shaft is written as a Custom room + subtype LIFT, which the v0.18.0 schema accepts', () => {
+    const v2 = JSON.parse(JSON.stringify(loadLayout(liftLayout())));
+    const old = OldLayoutSchema.parse(v2);
+    for (const r of old.rooms) expect(r.type).toBe('CUSTOM');
+    expect(v2.rooms.map((r: any) => r.subtype)).toEqual(['LIFT', 'LIFT']);
+    expect(fileLayout(liftLayout()).rooms.map((r: any) => [r.type, r.subtype])).toEqual([['CUSTOM', 'LIFT'], ['CUSTOM', 'LIFT']]);
+  });
+
+  it('comes back as a lift shaft in this build', () => {
+    const v1 = toV1(loadLayout(liftLayout()));
+    expect(v1.rooms.map((r) => r.type)).toEqual(['LIFT', 'LIFT']);
+    expect(normaliseLayout(fileLayout(liftLayout())).rooms.map((r: any) => r.type)).toEqual(['LIFT', 'LIFT']);
+  });
+});
+
+describe('L-shaped stairs (v0.18.3) in older builds', () => {
+  const layout = () => ({
+    layoutName: 'L stairs', floors: [{ id: 0, name: 'Ground Floor', height: 3.5 }, { id: 1, name: 'Floor 1', height: 3.5 }],
+    rooms: [], objects: [{
+      id: 'obj_l', assetType: 'STAIRCASE', category: 'Architecture', floor: 0, x: 2, y: 0, z: 3, rotationX: 0, rotationY: 0, rotationZ: 0,
+      scaleX: 1, scaleY: 1, scaleZ: 1, metadata: { stairShape: 'L-left' },
+    }],
+  });
+
+  it('is an ordinary STAIRCASE item (its shape in metadata), which the v0.18.0 schema accepts', () => {
+    const v2 = JSON.parse(JSON.stringify(loadLayout(layout())));
+    const old = OldLayoutSchema.parse(v2);
+    const item = (old as any).objects.find((o: any) => o.id === 'obj_l');
+    expect(item.assetType ?? item.type).toBe('STAIRCASE');
+  });
+
+  it('keeps its shape through v2, the exported file and back', () => {
+    const v1 = toV1(loadLayout(layout()));
+    expect(v1.objects.find((o) => o.id === 'obj_l')!.metadata).toMatchObject({ stairShape: 'L-left' });
+    const again = normaliseLayout(fileLayout(layout()));
+    expect((again.objects as any[]).find((o) => o.id === 'obj_l').metadata).toMatchObject({ stairShape: 'L-left' });
   });
 });

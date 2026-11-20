@@ -262,3 +262,22 @@ Cabin: `OFFICE`; Training Room: `MEETING`; Lobby: `RECEPTION`) and the real one 
 wooden frame, every window as a standard window at its saved size, glass walls as solid walls, and the newer room
 types as their older type. **Saving such a layout again from an older Studio loses those settings for good** (doors
 wooden, walls solid, the newer types their older type): edit layouts with the newest Studio.
+
+## Lifts and L-shaped stairs (v0.18.3)
+
+| What | Where (store v1 / file v2) | Values | Missing = |
+|---|---|---|---|
+| room type `LIFT` | a room's `type` (store) · `CUSTOM` + `subtype: 'LIFT'` (v2, exported files) | a lift shaft | — |
+| `stairShape` | a STAIRCASE item's `metadata` | `L-right`, `L-left` | a straight flight |
+
+**A lift is not a record.** It is the lift shaft rooms with the same rectangle (x, z, width, depth within 0.05 m) on
+different floors; the floors it serves are the floors that have one (`src/play/lifts.js` `liftsOf`). Its id is the
+lowest shaft's room id. Its doors, car and call buttons are derived, never saved.
+
+**An L-shaped staircase** is 3.2 × 3.2 m whatever its saved scale: the first flight (1.2 m wide) climbs local +Z for
+half the steps, a landing, then the second flight goes to +X (`L-right`) or −X (`L-left`). Its `x`, `z` are the
+middle of that box.
+
+**Older builds** draw a lift shaft as a small Custom room with its door (a dead end on each floor) and an L staircase
+as a straight 1.2 × 4 m flight from the same middle. Saving from an older Studio can turn the shafts into
+Custom rooms for good (as v0.18.1's newer types): edit layouts with the newest Studio.

@@ -113,7 +113,7 @@ export function walkLine(shown: ShowResult): string | null {
   if (shown.message) return shown.message;
   if (!shown.route) return null;
   const { length, seconds, floors } = shown.route;
-  const stairs = new Set(floors).size > 1 ? ' · by the stairs' : '';
+  const stairs = new Set(floors).size > 1 ? (shown.route.by === 'lift' ? ' · by the lift' : ' · by the stairs') : '';
   return `${Math.round(length)} m walk, ${walkTime(seconds)}${stairs}`;
 }
 

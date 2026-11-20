@@ -21,7 +21,7 @@ import {
   elevationOf, floorBelow,
   floorPosition, steepStairsText, floorHeight,
 } from '../play/building';
-import { stairFit, findStairSpot } from '../play/stairFit';
+import { stairFit, findStairSpot, stairRoomAt } from '../play/stairFit';
 import { isAltDown } from '../utils/altKey';
 
 // Phase 3 utilities
@@ -70,6 +70,7 @@ import FloorPlanView from '../floorplan/FloorPlanView';
 import { planPrefsKey } from '../floorplan/planFloors';
 import SelectionToolbar from '../ui/SelectionToolbar';
 import Inspector from '../ui/Inspector';
+import { liftOfRoom, LIFT_TYPE } from '../play/lifts';
 import StudioFooter from '../ui/StudioFooter';
 import TabNotice from '../ui/TabNotice';
 import ProposedLayoutBanner from '../ui/ProposedLayoutBanner';
@@ -90,7 +91,7 @@ import { activeTile, toolHint, phoneIdleHint, PLAN_HINT } from '../ui/tools';
 
 import {
   openingData, openingPartner, openingCentre, resizeOpening, planOpeningStyle, planRemoveOpening,
-  planRoomResize, planWallThickness, planRoomTurn, planRoomCopy, planRoomMove,
+  planRoomResize, planWallThickness, planRoomTurn, planRoomCopy, planRoomMove, findRoomAt,
 } from '../play/geometry';
 import { FLOOR_BY_ROOM_TYPE } from '../utils/materialLibrary';
 import { DEFAULT_HOTBAR, EMPTY_HAND, catalogSlot } from '../play/hotbarItems';
@@ -183,7 +184,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     canUndo: false, canRedo: false, undoLabel: null, redoLabel: null,
   });
   const editorRef = useRef(null);
-  if (!editorRef.current) editorRef.current = createEditorHistory(setUndoState);
+  const editorProblemRef = useRef(null); // v0.18.3: a change the editor refuses (a lift shaft that can't follow)
+  if (!editorRef.current) editorRef.current = createEditorHistory(setUndoState, { onProblem: (text) => editorProblemRef.current?.(text) });
   const editor = editorRef.current;
 
   // Phase 6 — Snap and environment local UI state
@@ -206,6 +208,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     setPlannerMessage({ text, bad });
     plannerMessageTimer.current = setTimeout(() => setPlannerMessage(null), 3500);
   }, []);
+  editorProblemRef.current = (text) => showStudioMessage(text, true);
 
   // Workplace Studio UI state
   const [openTray, setOpenTray] = useState(null);       // tool rail tile whose library is open
@@ -294,24 +297,16 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
    */
   const placeObject = (result) => {
     const store = useWorkspaceStore.getState();
-    let roomId = null;
-    for (const room of Object.values(store.rooms)) {
-      if (room.floor !== store.currentFloor) continue;
-      const halfW = room.width / 2;
-      const halfD = room.depth / 2;
-      if (
-        result.x >= room.x - halfW && result.x <= room.x + halfW &&
-        result.z >= room.z - halfD && result.z <= room.z + halfD
-      ) {
-        roomId = room.id;
-        break;
-      }
-    }
+    // the smallest room holding it (v0.18.3: a cabin / lift shaft inside a hall, whichever was added first);
+    // a staircase never belongs to a lift shaft (stairFit.stairRoomAt)
+    const floorRooms = Object.values(store.rooms).filter((r) => r.floor === store.currentFloor);
+    const roomAt = (x, z) => (result.assetType === 'STAIRCASE' ? stairRoomAt(floorRooms, x, z) : findRoomAt(floorRooms, x, z))?.id ?? null;
+    let roomId = roomAt(result.x, result.z);
     // v0.17.4: stairs that can't be used here go to the nearest spot in the same room where they work
     // (same turn); Alt held = exactly here
     let moved = false;
     if (result.assetType === 'STAIRCASE' && !result.free && !isAltDown()) {
-      const stair = { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor };
+      const stair = { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor, metadata: result.metadata };
       if (!stairFit(stair, store, { catalog: ASSET_TYPES }).ok) {
         const spot = findStairSpot(stair, store, { catalog: ASSET_TYPES });
         if (spot) {
@@ -323,7 +318,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     }
     // stairs that lead nowhere or don't fit their room: say so at once (the Inspector says it too)
     const stairProblem = result.assetType === 'STAIRCASE' && stairFit(
-      { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor },
+      { x: result.x, z: result.z, rotationY: result.rotationY, floor: store.currentFloor, metadata: result.metadata },
       store, { catalog: ASSET_TYPES }).problems[0];
     editor.addObject({
       assetType: result.assetType,
@@ -335,6 +330,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       rotationY: result.rotationY,
       floor: store.currentFloor,
       roomId,
+      ...(result.metadata ? { metadata: result.metadata } : {}),
     });
     if (stairProblem) {
       showStudioMessage(`${stairProblem.text}.`, true);
@@ -762,7 +758,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     // the rooms inside it and the items standing in it turn with it, around its centre: one undo step
     const plan = planRoomTurn(room, Object.values(st.rooms), Object.values(st.objects));
     if (plan.problem) { showStudioMessage(plan.problem, true); return; }
-    editor.turnRoom(id, plan, { label: `Turn ${room.name}` });
+    if (!editor.turnRoom(id, plan, { label: `Turn ${room.name}` })) return;
     const n = plan.objects.length;
     showStudioMessage(`Turned ${room.name}${n ? ` with ${n === 1 ? 'the item' : `the ${n} items`} in it` : ''}. Ctrl+Z to undo.`);
   }, [editor, showStudioMessage]);
@@ -806,12 +802,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   }, [editor]);
 
   // ─── Placing catalog items (furniture, stairs) ───
-  const handleStartPlacement = useCallback((assetType) => {
+  const handleStartPlacement = useCallback((assetType, opts) => {
     const mgr = placementManagerRef.current;
     if (!mgr) return;
     plannerToolsRef.current?.setTool({ kind: 'select' });
     setPlannerTool({ kind: 'select' });
-    mgr.startPlacement(assetType);
+    mgr.startPlacement(assetType, undefined, opts); // opts.metadata: an L staircase's shape (v0.18.3)
     storeActions.setPlacementMode(assetType);
     storeActions.selectObject(null);
   }, [storeActions]);
@@ -1196,6 +1192,19 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
 
   const selectedObject = selectedObjectId ? objectsMap[selectedObjectId] ?? null : null;
   const selectedRoom = !selectedObject && selectedRoomId ? roomsMap[selectedRoomId] ?? null : null;
+  // v0.18.3: a selected lift shaft: the floors its lift stops at (a shaft in the same place on each)
+  const liftStops = useMemo(() => {
+    if (selectedRoom?.type !== LIFT_TYPE) return null;
+    const lift = liftOfRoom(Object.values(roomsMap), floors, selectedRoom);
+    const on = new Set(lift ? lift.floors : [selectedRoom.floor ?? 0]);
+    return floors.map((f) => ({ id: f.id, name: f.name ?? `Floor ${f.id}`, on: on.has(f.id) }));
+  }, [selectedRoom, roomsMap, floors]);
+  const handleLiftStops = useCallback((ids) => {
+    if (!selectedRoom) return;
+    const { problem } = editor.setLiftStops(selectedRoom.id, ids);
+    if (problem) showStudioMessage(problem, true);
+    else showStudioMessage(`The lift stops at ${ids.length} floor${ids.length === 1 ? '' : 's'}`);
+  }, [selectedRoom, editor, showStudioMessage]);
   // a selected staircase: why it can't be used as it stands (leads nowhere, doesn't fit its room)
   // v0.17.4: with the furniture and the floor above, and the nearest spot where they work ("Fix it")
   const stairCheck = useMemo(() => {
@@ -1810,6 +1819,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           wallMount={wallMount}
           onMountOnWall={handleMountOnWall}
           room={selectedRoom}
+          liftStops={liftStops}
+          onLiftStops={handleLiftStops}
           opening={selectedOpening}
           onResizeOpening={handleResizeOpening}
           onSetOpeningStyle={handleSetOpeningStyle}

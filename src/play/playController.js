@@ -316,6 +316,9 @@ export function createPlayController(scene, canvas, {
   let grounded = true;
   let flying = false;
   let firstPerson = false;
+  // v0.18.3: standing in a lift car (a LIFT room, not flying) the camera is first person and your character hidden:
+  // a third-person camera in a 2.2 m car sits right behind your head. Back to your own choice (V) once you step out.
+  let liftView = false;
   let tool = null;
   let ghost = null;          // furniture preview (a translucent copy of the item)
   let ghostRotation = 0;
@@ -1343,12 +1346,15 @@ export function createPlayController(scene, canvas, {
     const rooms = floorRooms();
     const { x, z } = collider.position;
     const current = rooms.find((r) => r.id === currentRoomId);
-    if (current &&
+    const inner = findRoomAt(rooms, x, z);
+    // v0.18.3: a smaller room you stepped into (a lift car, a cabin) wins over the room around it you came from
+    const intoSmaller = inner && current && inner !== current && inner.width * inner.depth < current.width * current.depth;
+    if (current && !intoSmaller &&
       Math.abs(x - current.x) <= current.width / 2 + ROOM_STICKY &&
       Math.abs(z - current.z) <= current.depth / 2 + ROOM_STICKY) {
       return current;
     }
-    return findRoomAt(rooms, x, z);
+    return inner;
   }
 
   /** Cancel a half-drawn room or wall, a grabbed wall, a carried item or a door being slid. */
@@ -1930,6 +1936,8 @@ export function createPlayController(scene, canvas, {
 
     // ── Camera ──
     const dir = lookDir();
+    liftView = !flying && roomHere()?.type === 'LIFT';
+    const fp = firstPerson || liftView;
     stopView += (stopViewTarget - stopView) * Math.min(1, dt * STOP_VIEW.rate);
     if (Math.abs(stopViewTarget - stopView) < 0.002) stopView = stopViewTarget;
     // the camera's own direction: the tour's stop view looks a little further down (aiming keeps dir)
@@ -1939,8 +1947,8 @@ export function createPlayController(scene, canvas, {
       Math.cos(yaw) * Math.cos(pitch - STOP_VIEW.tilt * stopView),
     ) : dir;
     const eye = collider.position.add(new Vector3(0, eyeHeight, 0));
-    let showCharacter = !firstPerson;
-    if (firstPerson) {
+    let showCharacter = !fp;
+    if (fp) {
       camera.position.copyFrom(eye.add(forward.scale(0.12)));
     } else {
       // Indoors the camera stays under the ceiling (except on the stairs,
@@ -2009,7 +2017,7 @@ export function createPlayController(scene, canvas, {
         }
       }
     }
-    if (!arrival?.spot || firstPerson) camera.setTarget(camera.position.add(firstPerson ? dir : camDir));
+    if (!arrival?.spot || fp) camera.setTarget(camera.position.add(fp ? dir : camDir));
     character.setVisible(showCharacter);
 
     // ── Tool preview ──
@@ -2050,9 +2058,11 @@ export function createPlayController(scene, canvas, {
       engaged: live, // the keys are the view's (Preview with mouse capture: = locked)
       flying,
       firstPerson,
+      liftView, // v0.18.3: first person while in a lift car
       hint,
       message: now < messageUntil ? message : null,
       roomName: here?.name ?? 'Outside',
+      roomType: here?.type ?? null, // v0.18.3: a lift shaft shows the lift's floor panel
       floor: floorPosition(state().floors, currentLevel), // { index, count, name }: the HUD shows the name
       prompt,
     };
@@ -2307,6 +2317,10 @@ export function createPlayController(scene, canvas, {
      * The company tour's stop view (v0.14.4): on = the camera eases higher and further back (STOP_VIEW), off = back
      * to the usual one; instant (prefers-reduced-motion) = at once.
      */
+    /** v0.18.3: whether the camera is first person because you stand in a lift car. */
+    isLiftView() {
+      return liftView;
+    },
     setStopView(on, { instant = false } = {}) {
       stopViewTarget = on ? 1 : 0;
       if (instant) stopView = stopViewTarget;

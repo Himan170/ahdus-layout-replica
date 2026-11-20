@@ -101,6 +101,7 @@ export function createPlacementManager(scene, options = {}) {
   let getWalls = null;        // () => wallPieces of the floor being edited (v0.15.6: wall items hang on them)
   let _mounted = null;        // a wall item: true = on a wall, false = no wall near; null: not a wall item
   let getLayout = null;       // () => the store's layout (v0.17.4: stairs check where they would go)
+  let currentMetadata = null; // what the placed item's metadata starts as (v0.18.3: a staircase's shape)
   let _warning = null;        // stairs that don't fit here: they will move to where they do (or Alt: stay)
   const pv = createBuildPreview(scene, 'placing'); // the floor the stairs miss, in red
   const ghostMaterials = createGhostMaterials(scene);
@@ -168,9 +169,10 @@ export function createPlacementManager(scene, options = {}) {
    * @param {function} [onConfirm] - optional, called with { assetType, x, y, z, rotationY }.
    *   confirmPlacement() also RETURNS that data, so callers can use either.
    */
-  function startPlacement(assetType, onConfirm) {
+  function startPlacement(assetType, onConfirm, { metadata = null } = {}) {
     cancelPlacement(); // clear any existing placement
     currentAssetType = assetType;
+    currentMetadata = metadata; // v0.18.3: an L-shaped staircase's shape (metadata.stairShape)
     _pendingConfirm = onConfirm ?? null;
     currentYOffset = 0;
     currentRotationY = 0;
@@ -178,7 +180,8 @@ export function createPlacementManager(scene, options = {}) {
     _problem = null;
 
     // Build ghost mesh
-    ghostRoot = buildAssetMesh(assetType, scene, 'ghost_preview');
+    const shape = assetType === 'STAIRCASE' ? metadata?.stairShape : null;
+    ghostRoot = buildAssetMesh(assetType, scene, 'ghost_preview', shape ? { variant: { shape } } : {});
     applyGhostMaterial(ghostRoot, ghostMaterials.valid);
 
     // Canvas cursor
@@ -241,7 +244,7 @@ export function createPlacementManager(scene, options = {}) {
     _warning = null;
     if (currentAssetType !== 'STAIRCASE' || !getLayout || !ghostRoot || !_valid) { pv.hide('zones'); return; }
     const layout = getLayout();
-    const fit = stairPreview({ x: ghostRoot.position.x, z: ghostRoot.position.z, rotationY: currentRotationY, floor: layout.currentFloor ?? 0 },
+    const fit = stairPreview({ x: ghostRoot.position.x, z: ghostRoot.position.z, rotationY: currentRotationY, floor: layout.currentFloor ?? 0, metadata: currentMetadata ?? undefined },
       layout, { catalog: ASSET_TYPES });
     if (fit.ok) { pv.hide('zones'); return; }
     pv.zones(fit.zones);
@@ -281,6 +284,7 @@ export function createPlacementManager(scene, options = {}) {
       y: ghostRoot.position.y,
       z: ghostRoot.position.z,
       rotationY: currentRotationY,
+      ...(currentMetadata ? { metadata: { ...currentMetadata } } : {}),
     };
 
     _lastPlacedData = { ...data };
