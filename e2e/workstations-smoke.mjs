@@ -4,6 +4,9 @@
 // pasted cluster is a new group (its seats empty); the drop hint and Check's 0.9 m aisle warning; a
 // cluster in front of a door: Check's Fix it moves the whole cluster; an upper floor; an item type this
 // version doesn't know = a plain box + one warning; people seated and typing at the workstations.
+// v0.18.5: a cabin dragged / turned (R) moves its room with it; dropped against a wall its door turns
+// into the room; Check's Fix it turns a cabin whose door faces a wall; a tile clicked in Plan view lands
+// in the middle of the Plan.
 // Results are checked in the store. Screenshots: e2e/screens/ (SHOTS=<dir>: also each prefab from above
 // and at eye level, a 6-person cluster with people, the Seats list, the aisle warning).
 //
@@ -326,9 +329,111 @@ const walkedIn = await p.evaluate(async (cabinId) => {
 }, cabin?.id);
 log('you can walk into the cabin: a click inside, seen through its door, walks in through it', !walkedIn.timeout, JSON.stringify(walkedIn));
 await p.click('[aria-label="Back to Studio"]'); await wait(800);
+
+// ── v0.18.5: a cabin moves and turns with its room; its door always leads in; Check's Fix it turns it ──
+await p.click('[aria-label="2D view"]'); await frames(3); // from above: its desk, not its walls, under the mouse
+await p.click('[aria-label="Fit view"]'); await wait(600); await frames(3);
+st = await store();
+const cab0 = st.rooms.find((r) => r.id === cabin?.id);
+const cabItems = st.objects.filter((o) => o.roomId === cabin?.id);
+const cabDesk = cabItems.find((o) => o.assetType === 'DESK_MANAGER');
+await deselect();
+await clickAt(cabDesk.x, 0.75, cabDesk.z); // selected first: the Inspector opening changes the view's size
+await hover(cabDesk.x, 0.75, cabDesk.z);
+await p.mouse.down();
+const cabTo = await toScreen(cabDesk.x - 2, 0.75, cabDesk.z);
+await p.mouse.move(cabTo.x, cabTo.y, { steps: 12 }); await frames(2);
+await p.mouse.up(); await frames(4);
+st = await store();
+const cab1 = st.rooms.find((r) => r.id === cabin?.id);
+const cabDx = cab1.x - cab0.x;
+const itemDx = cabItems.map((o) => (st.objects.find((x) => x.id === o.id)?.x ?? NaN) - o.x);
+log('v0.18.5: dragging the cabin (its desk) moves its room and its furniture together', Math.abs(cabDx + 2) < 0.4
+  && itemDx.every((d) => Math.abs(d - cabDx) < 1e-3), `room ${cabDx.toFixed(2)} m, items ${itemDx.map((d) => d.toFixed(2)).join(',')}`);
+await shot('workstations-cabin-dragged.png');
+await undo();
+st = await store();
+log('v0.18.5: one Undo puts the cabin room and its furniture back', Math.abs(st.rooms.find((r) => r.id === cabin?.id).x - cab0.x) < 1e-6
+  && cabItems.every((o) => Math.abs(st.objects.find((x) => x.id === o.id).x - o.x) < 1e-6));
+
+// dropped 0.4 m from the outer wall with its door that way, it turns its door into the room
+const roomsNow = st.rooms.length;
+await dragTile('Private cabin', -6, -OFFICE.d / 2 + 2.0);
+st = await store();
+const wallCab = st.rooms.find((r) => r.type === 'CABIN' && r.id !== cabin?.id);
+log('v0.18.5: a cabin dropped with its back to the outer wall: its door opens into the room', st.rooms.length === roomsNow + 1
+  && wallCab?.doors?.[0]?.wall && wallCab.doors[0].wall !== 'south', `door ${wallCab?.doors?.[0]?.wall}`);
+const openCheck = async () => {
+  const panel = p.getByRole('dialog', { name: 'Check my layout', exact: true });
+  if (!(await panel.isVisible().catch(() => false))) await p.click('[aria-label="Check layout"]');
+  await panel.waitFor();
+  return panel;
+};
+const checkPanel = await openCheck();
+const lostCab = checkPanel.locator('li').filter({ hasText: 'Nobody can walk to Cabin' });
+await wait(1500); await frames(2);
+log('v0.18.5: Check finds no "Nobody can walk to Cabin"', await lostCab.count() === 0);
+// R twice on its group: its room turns with the furniture; the door then faces the wall
+await deselect();
+const wallDesk = st.objects.find((o) => o.roomId === wallCab?.id && o.assetType === 'DESK_MANAGER');
+await clickAt(wallDesk.x, 0.75, wallDesk.z);
+await p.keyboard.press('r'); await frames(3);
+st = await store();
+const turned = st.rooms.find((r) => r.id === wallCab?.id);
+const inTurned = st.objects.filter((o) => o.metadata?.group?.id === wallDesk.metadata.group.id)
+  .every((o) => Math.abs(o.x - turned.x) < turned.width / 2 && Math.abs(o.z - turned.z) < turned.depth / 2);
+log('v0.18.5: R turns the cabin room with its furniture', Math.abs(turned.width - wallCab.depth) < 1e-6 && inTurned, `${turned.width} × ${turned.depth}, door ${turned.doors[0].wall}`);
+await p.keyboard.press('r'); await frames(3);
+st = await store();
+const facing = st.rooms.find((r) => r.id === wallCab?.id);
+await openCheck(); // the same panel, opened again if it was closed
+await lostCab.first().waitFor({ timeout: 20000 }).catch(() => {});
+const fixBtn = lostCab.locator('[data-check-fix]');
+log('v0.18.5: turned with its door to the wall: "Nobody can walk to Cabin" with Fix it', facing.doors[0].wall === 'south'
+  && await lostCab.count() === 1 && await fixBtn.count() === 1, `door ${facing.doors[0].wall}`);
+await fixBtn.click().catch(() => {});
+await frames(4);
+await lostCab.first().waitFor({ state: 'detached', timeout: 20000 }).catch(() => {});
+st = await store();
+const fixedCab = st.rooms.find((r) => r.id === wallCab?.id);
+log('v0.18.5: Fix it turns (or moves) the cabin: the problem is gone', await lostCab.count() === 0 && fixedCab.doors[0].wall !== 'south',
+  `door ${fixedCab.doors[0].wall}, at ${fixedCab.x}, ${fixedCab.z}`);
+await shot('workstations-cabin-fixed.png');
+await undo();
+st = await store();
+log('v0.18.5: one Undo puts it back (door to the wall)', st.rooms.find((r) => r.id === wallCab?.id).doors[0].wall === 'south');
+await undo(); await undo(); await undo(); // R, R, the drop
+st = await store();
+log('the turns and the dropped cabin undone', st.rooms.length === roomsNow);
+await p.keyboard.press('Escape'); await deselect();
+
 await undo();
 st = await store();
 log('one Undo removes the cabin and what is in it', st.rooms.length === roomsBefore && !st.objects.some((o) => o.roomId === cabin?.id));
+
+// ── v0.18.5: a tile clicked while the Plan is shown lands in the middle of the Plan ──
+await p.evaluate(() => { const c = window.__ahdusScene.activeCamera; c.target.x = 9; c.target.z = 6; });
+await frames(2);
+await p.click('[aria-label="Plan view"]'); await wait(500);
+const planCentre = await p.evaluate(() => {
+  const [x, y, w, h] = document.querySelector('svg.floor-plan-svg').getAttribute('viewBox').split(/\s+/).map(Number);
+  return { x: x + w / 2, z: -(y + h / 2) };
+});
+const beforePlan = (await store()).objects.map((o) => o.id);
+await openFurniture();
+await p.fill('[aria-label="Search furniture"]', 'Standard Desk');
+await p.locator('.lib-tile[title^="Standard Desk:"]').first().click();
+await wait(400);
+await p.fill('[aria-label="Search furniture"]', '');
+st = await store();
+const placedDesk = st.objects.find((o) => !beforePlan.includes(o.id));
+log('v0.18.5: Plan view: a clicked tile lands in the middle of the Plan, not of the hidden 3D view', !!placedDesk
+  && Math.hypot(placedDesk.x - planCentre.x, placedDesk.z - planCentre.z) < 0.6 && Math.hypot(placedDesk.x - 9, placedDesk.z - 6) > 3,
+  placedDesk ? `desk ${placedDesk.x.toFixed(2)}, ${placedDesk.z.toFixed(2)}; Plan middle ${planCentre.x.toFixed(2)}, ${planCentre.z.toFixed(2)}` : 'nothing placed');
+await shot('workstations-plan-click-place.png');
+await undo();
+await p.click('[aria-label="2D view"]'); await frames(3);
+await p.click('[aria-label="Fit view"]'); await wait(600); await frames(3);
 
 // ── An upper floor ──
 await deselect();
