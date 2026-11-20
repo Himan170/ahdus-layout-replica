@@ -147,6 +147,7 @@
 /* v0.18.5: a long layout name shortens (…) before the top bar gets wider than the window */
 .ahdus-header .studio-header__left { flex: 1 1 auto; }
 .ahdus-header .studio-header__right { flex-shrink: 0; }
+.ahdus-header__brand-text { white-space: nowrap; } /* "All layouts" on one line; the layout's name shortens instead */
 .ahdus-header .studio-header__name { min-width: 0; overflow: hidden; }
 .ahdus-header .studio-header__name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
