@@ -690,15 +690,24 @@ export function planRoomMove(room, x, z, rooms, objects = []) {
   const insideIds = new Set(inside.map((r) => r.id));
   // the rooms inside go along: they neither block the move nor are snapped to
   const others = rooms.filter((r) => !insideIds.has(r.id));
-  const rect = snapRoomRect({ x, z, width: room.width, depth: room.depth, floor: floorOf(room) }, others, {
-    id: room.id, container: containerOf(room, others), translate: true,
+  const wanted = { x, z, width: room.width, depth: room.depth, floor: floorOf(room) };
+  // v0.18.5: wholly out of the room it stands in, it leaves it: it then stands where it lands (in another
+  // room, or in none) and snaps there; half through a wall is still refused
+  const home = containerOf(room, others);
+  const leaving = !!home && !rectsOverlap(home, wanted, 0);
+  const rect = snapRoomRect(wanted, others, {
+    id: room.id,
+    container: leaving ? containerOf({ ...wanted, id: room.id }, others.filter((r) => r.id !== home.id)) : home,
+    translate: true,
   });
   const dx = rect.x - room.x;
   const dz = rect.z - room.z;
   const r3 = (v) => Math.round(v * 1000) / 1000;
   return {
     rect: { x: rect.x, z: rect.z, width: rect.width, depth: rect.depth },
-    blocker: roomRectBlocker(room, rect, others),
+    blocker: leaving
+      ? roomPlacementBlocker({ ...rect, floor: floorOf(room) }, others.filter((r) => r.id !== room.id))
+      : roomRectBlocker(room, rect, others),
     dx,
     dz,
     rooms: inside.map((r) => [r.id, { x: r3(r.x + dx), z: r3(r.z + dz) }]),
