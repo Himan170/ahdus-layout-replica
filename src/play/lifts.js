@@ -9,6 +9,7 @@
  */
 
 import { elevationOf, floorsInOrder } from './building';
+import { roomRectBlocker, roomsInside, itemInRoom } from './geometry';
 import { WALK_SPEED } from './speeds';
 
 /** The room type of a lift shaft. */
@@ -111,6 +112,88 @@ export function planLiftStops(rooms, floors, shaft, stops, newId) {
 }
 
 /**
+ * A lift shaft moved, resized or turned on one floor takes the lift's shafts on its other floors along (v0.18.3), so a
+ * lift never comes apart: `rect` = the shaft's new { x, z, width, depth } (missing fields: as it is). Moved (same
+ * size): each other shaft's rooms inside it and items in it go along by the same amount, as for the shaft itself
+ * (geometry.planRoomMove). Refused when another shaft is locked or would overlap a room on its floor.
+ * @returns {{ problem: string | null, rooms: [string, object][], objects: [string, object][] }}
+ *          the other shafts' patches (+ their contents); none when `room` is not a lift shaft of a lift
+ */
+export function liftFollow(room, rect, rooms, objects, floors) {
+  const out = { problem: null, rooms: [], objects: [] };
+  const lift = liftOfRoom(rooms, floors, room);
+  if (!lift) return out;
+  const all = list(rooms);
+  const name = (f) => floors?.[f]?.name ?? `Floor ${f}`;
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+  for (const f of lift.floors) {
+    const shaft = lift.rooms[f];
+    if (shaft.id === room.id) continue;
+    const next = {
+      x: r3(shaft.x + ((rect.x ?? room.x) - room.x)), z: r3(shaft.z + ((rect.z ?? room.z) - room.z)),
+      width: rect.width ?? shaft.width, depth: rect.depth ?? shaft.depth,
+    };
+    const moved = Math.abs(next.x - shaft.x) > 1e-6 || Math.abs(next.z - shaft.z) > 1e-6;
+    const resized = Math.abs(next.width - shaft.width) > 1e-6 || Math.abs(next.depth - shaft.depth) > 1e-6;
+    if (!moved && !resized) continue;
+    if (shaft.isLocked) return { problem: `The lift shaft on ${name(f)} is locked. Unlock it to change the lift`, rooms: [], objects: [] };
+    const inside = resized ? [] : roomsInside(shaft, all);
+    const insideIds = new Set(inside.map((r) => r.id));
+    const blocker = roomRectBlocker(shaft, next, all.filter((r) => !insideIds.has(r.id)));
+    if (blocker) {
+      return { problem: `The lift shaft on ${name(f)} would overlap ${blocker.name || 'a room'} there`, rooms: [], objects: [] };
+    }
+    const patch = {};
+    for (const k of ['x', 'z', 'width', 'depth']) if (Math.abs(next[k] - shaft[k]) > 1e-6) patch[k] = next[k];
+    out.rooms.push([shaft.id, patch]);
+    if (!resized) {
+      const dx = next.x - shaft.x;
+      const dz = next.z - shaft.z;
+      for (const r of inside) out.rooms.push([r.id, { x: r3(r.x + dx), z: r3(r.z + dz) }]);
+      for (const o of list(objects)) {
+        if (itemInRoom(shaft, o)) out.objects.push([o.id, { x: r3((o.x ?? 0) + dx), z: r3((o.z ?? 0) + dz) }]);
+      }
+    }
+  }
+  return out;
+}
+
+/** Whether two rectangles overlap (an area, not only an edge). */
+const overlaps = (a, b) => Math.abs(a.x - b.x) < (a.width + b.width) / 2 - 1e-6 && Math.abs(a.z - b.z) < (a.depth + b.depth) / 2 - 1e-6;
+
+/**
+ * Lift shafts that are meant to be one lift but don't line up (v0.18.3): two lifts (or a lift and a lone shaft) on
+ * different floors whose rectangles overlap without matching (more than LIFT_MATCH apart). Once per pair, named by
+ * their nearest floors: [{ code: 'LIFT_MISALIGNED', floor, liftId, roomId, otherId, text, severity: 'warning' }].
+ */
+export function misalignedShafts(rooms, floors) {
+  const lifts = liftsOf(rooms, floors);
+  const order = floorOrder(floors, list(rooms).filter(isLift));
+  const name = (f) => floors?.[f]?.name ?? `Floor ${f}`;
+  const out = [];
+  for (let i = 0; i < lifts.length; i++) {
+    for (let j = i + 1; j < lifts.length; j++) {
+      const a = lifts[i];
+      const b = lifts[j];
+      if (!overlaps(a, b) || a.floors.some((f) => b.floors.includes(f))) continue;
+      let best = null;
+      for (const fa of a.floors) {
+        for (const fb of b.floors) {
+          const d = Math.abs(order(fa) - order(fb));
+          if (!best || d < best.d) best = { d, fa, fb };
+        }
+      }
+      const [lo, hi] = order(best.fa) <= order(best.fb) ? [best.fa, best.fb] : [best.fb, best.fa];
+      const upper = (hi === best.fa ? a : b).rooms[hi];
+      const lower = (lo === best.fa ? a : b).rooms[lo];
+      out.push({ code: 'LIFT_MISALIGNED', floor: hi, liftId: upper.id, roomId: upper.id, otherId: lower.id, severity: 'warning',
+        text: `The lift shafts on ${name(lo)} and ${name(hi)} don't line up` });
+    }
+  }
+  return out;
+}
+
+/**
  * Check my layout's lift problems: a lift that skips a floor between its stops (LIFT_GAP), a floor with
  * rooms that no lift stops at while the building has one (LIFT_FLOOR_NOT_SERVED), a shaft with no door
  * (LIFT_NO_DOOR). [{ code, floor, roomId, liftId, text, severity }]
@@ -119,7 +202,7 @@ export function liftProblems(rooms, floors) {
   const lifts = liftsOf(rooms, floors);
   if (!lifts.length) return [];
   const ids = floorsInOrder(floors).map((f) => f.id);
-  const out = [];
+  const out = [...misalignedShafts(rooms, floors)];
   const name = (f) => floors[f]?.name ?? `Floor ${f}`;
   for (const l of lifts) {
     const i0 = ids.indexOf(l.floors[0]);

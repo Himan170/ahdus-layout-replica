@@ -394,7 +394,7 @@ export function checkLayout(layout, options = {}) {
     if (p.code === 'LIFT_NO_DOOR') continue;
     problems.push({
       key: `${CHECK_KINDS.LIFT}_${p.code}:${p.liftId}:${p.floor}`, kind: CHECK_KINDS.LIFT, code: p.code, severity: p.severity,
-      message: p.text, ids: [p.roomId], floorId: p.floor, roomId: p.roomId,
+      message: p.text, ids: p.otherId ? [p.roomId, p.otherId] : [p.roomId], floorId: p.floor, roomId: p.roomId,
     });
   }
 

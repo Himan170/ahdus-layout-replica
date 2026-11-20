@@ -828,4 +828,48 @@ describe('lifts (v0.18.3)', () => {
     expect(shafts()).toEqual([0]);
     expect(editor.setLiftStops(shaft.id, []).problem).toBe('A lift stops at one floor at least');
   });
+
+  it('moving, resizing or turning a shaft changes it on every floor of its lift, as ONE undo step', () => {
+    editor.addFloor({ copyRooms: false });
+    S().setCurrentFloor?.(0);
+    editor.addRoom({ type: 'LIFT', name: 'Lift', x: 4, z: 2, width: 2.2, depth: 2.2, floor: 0 });
+    const shaft = rooms().find((r) => r.type === 'LIFT');
+    editor.setLiftStops(shaft.id, [0, 1]);
+    const shafts = () => rooms().filter((r) => r.type === 'LIFT').sort((a, b) => a.floor - b.floor);
+    const rect = (r) => ({ x: r.x, z: r.z, width: r.width, depth: r.depth });
+    // moved (the Studio drag / typed X, Z)
+    expect(editor.moveRoom(shaft.id, { rect: { x: 6, z: 3, width: 2.2, depth: 2.2 }, blocker: null, rooms: [], objects: [] })).toBe(true);
+    expect(shafts().map(rect)).toEqual([{ x: 6, z: 3, width: 2.2, depth: 2.2 }, { x: 6, z: 3, width: 2.2, depth: 2.2 }]);
+    // resized from the upper floor (the Inspector, a wall dragged)
+    editor.updateRoom(shafts()[1].id, { width: 2.6, x: 6.2 });
+    expect(shafts().map(rect)).toEqual([{ x: 6.2, z: 3, width: 2.6, depth: 2.2 }, { x: 6.2, z: 3, width: 2.6, depth: 2.2 }]);
+    // turned
+    const st = S();
+    const turn = planRoomTurn(st.rooms[shaft.id], Object.values(st.rooms), Object.values(st.objects));
+    expect(editor.turnRoom(shaft.id, turn)).toBe(true);
+    expect(shafts().map((r) => [r.width, r.depth])).toEqual([[2.2, 2.6], [2.2, 2.6]]);
+    // each was one step
+    editor.undo();
+    expect(shafts().map((r) => r.width)).toEqual([2.6, 2.6]);
+    editor.undo();
+    expect(shafts().map(rect)).toEqual([{ x: 6, z: 3, width: 2.2, depth: 2.2 }, { x: 6, z: 3, width: 2.2, depth: 2.2 }]);
+    editor.undo();
+    expect(shafts().map((r) => r.x)).toEqual([4, 4]);
+  });
+
+  it('refused, with the reason, when the shaft upstairs is locked', () => {
+    editor.addFloor({ copyRooms: false });
+    S().setCurrentFloor?.(0);
+    editor.addRoom({ type: 'LIFT', name: 'Lift', x: 4, z: 2, width: 2.2, depth: 2.2, floor: 0 });
+    const shaft = rooms().find((r) => r.type === 'LIFT');
+    editor.setLiftStops(shaft.id, [0, 1]);
+    const upper = rooms().find((r) => r.type === 'LIFT' && r.floor === 1);
+    editor.toggleRoomLock(upper.id);
+    const said = [];
+    const ed = createEditorHistory(undefined, { onProblem: (t) => said.push(t) });
+    expect(ed.moveRoom(shaft.id, { rect: { x: 6, z: 3, width: 2.2, depth: 2.2 }, blocker: null })).toBe(false);
+    expect(ed.updateRoom(shaft.id, { width: 3 })).toEqual({ problem: 'The lift shaft on Floor 1 is locked. Unlock it to change the lift' });
+    expect(said).toHaveLength(2);
+    expect(rooms().filter((r) => r.type === 'LIFT').map((r) => [r.x, r.width])).toEqual([[4, 2.2], [4, 2.2]]);
+  });
 });

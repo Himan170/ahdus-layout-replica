@@ -117,6 +117,23 @@ if (!VIEWER_ONLY) try {
   await redo();
   log('one undo step: Ctrl+Z takes the stop away, Ctrl+Y puts it back', afterUndo === 1 && (await lifts()).length === 2, `${afterUndo} → ${(await lifts()).length}`);
 
+  // ── Moved on one floor, the shaft moves on every floor of its lift (typed Room X), one undo step ──
+  {
+    const before = await lifts();
+    await store((id) => window.__ahdusStore.getState().selectRoom(id), before[0].id);
+    await frames(2);
+    await page.fill('aside[aria-label="Inspector"] input[aria-label="Room X"]', String(before[0].x + 1));
+    await page.evaluate(() => document.activeElement?.blur());
+    await frames(3);
+    const moved = await lifts();
+    await undo();
+    const back = await lifts();
+    log('typing Room X of a lift shaft moves it on both floors; one Ctrl+Z puts both back',
+      moved.length === 2 && moved[0].x === moved[1].x && moved[0].z === moved[1].z && Math.abs(moved[0].x - before[0].x - 1) < 0.4
+      && back.every((l) => l.x === before[0].x),
+      `${before.map((l) => l.x).join(' / ')} → ${moved.map((l) => l.x).join(' / ')} → ${back.map((l) => l.x).join(' / ')}`);
+  }
+
   // ── Check my layout: a floor no lift stops at ──
   await store(() => {
     window.__ahdusStore.getState().addFloor('Floor 2');
@@ -132,6 +149,29 @@ if (!VIEWER_ONLY) try {
   await shot('studio-check-lift.png');
   await page.keyboard.press('Escape');
   await frames(2);
+
+  // ── Check: a shaft on Floor 2 that doesn't line up with the lift below (made in the store, as an old save could be) ──
+  {
+    const added = await store(() => {
+      const st = window.__ahdusStore.getState();
+      const l = Object.values(st.rooms).find((r) => r.type === 'LIFT' && r.floor === 1);
+      const r = st.addRoom({ type: 'LIFT', name: 'Lift', x: l.x + 0.5, z: l.z, width: l.width, depth: l.depth, floor: 2, wallHeight: 3.2,
+        doors: [{ wall: 'south', offset: 0, width: 1.1, height: 2.1 }] });
+      st.selectFloor(0);
+      return r.id;
+    });
+    await frames(3);
+    await page.click('[aria-label="Check layout"]');
+    await page.waitForSelector('[aria-label="Check my layout"]', { timeout: 30000 });
+    const want = /The lift shafts on Floor 1 and Floor 2 don.t line up/;
+    await page.waitForFunction((src) => new RegExp(src).test(document.querySelector('[aria-label="Check my layout"]')?.textContent ?? ''), want.source, { timeout: 60000 }).catch(() => {});
+    const text = await page.textContent('[aria-label="Check my layout"]');
+    log('Check my layout: "The lift shafts on Floor 1 and Floor 2 don\'t line up"', want.test(text), text.replace(/\s+/g, ' ').slice(0, 200));
+    await shot('studio-check-lift-misaligned.png');
+    await page.keyboard.press('Escape');
+    await store((id) => window.__ahdusStore.getState().removeRoom(id), added);
+    await frames(2);
+  }
 
   // ── An L staircase from the library ──
   await store(() => window.__ahdusStore.getState().selectRoom(null));

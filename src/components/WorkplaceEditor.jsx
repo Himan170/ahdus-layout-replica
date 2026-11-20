@@ -184,7 +184,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     canUndo: false, canRedo: false, undoLabel: null, redoLabel: null,
   });
   const editorRef = useRef(null);
-  if (!editorRef.current) editorRef.current = createEditorHistory(setUndoState);
+  const editorProblemRef = useRef(null); // v0.18.3: a change the editor refuses (a lift shaft that can't follow)
+  if (!editorRef.current) editorRef.current = createEditorHistory(setUndoState, { onProblem: (text) => editorProblemRef.current?.(text) });
   const editor = editorRef.current;
 
   // Phase 6 — Snap and environment local UI state
@@ -207,6 +208,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     setPlannerMessage({ text, bad });
     plannerMessageTimer.current = setTimeout(() => setPlannerMessage(null), 3500);
   }, []);
+  editorProblemRef.current = (text) => showStudioMessage(text, true);
 
   // Workplace Studio UI state
   const [openTray, setOpenTray] = useState(null);       // tool rail tile whose library is open
@@ -764,7 +766,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     // the rooms inside it and the items standing in it turn with it, around its centre: one undo step
     const plan = planRoomTurn(room, Object.values(st.rooms), Object.values(st.objects));
     if (plan.problem) { showStudioMessage(plan.problem, true); return; }
-    editor.turnRoom(id, plan, { label: `Turn ${room.name}` });
+    if (!editor.turnRoom(id, plan, { label: `Turn ${room.name}` })) return;
     const n = plan.objects.length;
     showStudioMessage(`Turned ${room.name}${n ? ` with ${n === 1 ? 'the item' : `the ${n} items`} in it` : ''}. Ctrl+Z to undo.`);
   }, [editor, showStudioMessage]);

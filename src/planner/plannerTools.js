@@ -938,14 +938,15 @@ export function createPlannerTools(scene, canvas, {
     } else if (d.kind === 'stretch') {
       const { room, result } = d.plan;
       if (Math.abs(result.delta) < 0.01) return;
-      actions.updateRoom(room.id, result.patch, { label: `Resize ${room.name}` });
+      if (actions.updateRoom(room.id, result.patch, { label: `Resize ${room.name}` })?.problem) return; // v0.18.3: its message shows
       onMessage(`${room.name} is now ${formatRoomSize(result.rect.width, result.rect.depth)}. Ctrl+Z to undo.`);
     } else if (d.kind === 'move') {
       const { room, result } = d.plan;
       if (Math.abs(result.rect.x - room.x) < 0.01 && Math.abs(result.rect.z - room.z) < 0.01) { restoreRoomItems(d); return; }
       // the room, the rooms inside it and its items: one undo step
-      actions.moveRoom(room.id, result, { label: `Move ${room.name}` });
+      const moved = actions.moveRoom(room.id, result, { label: `Move ${room.name}` });
       restoreRoomItems(d); // the store has them now (meshes that didn't rebuild are put where it says)
+      if (moved === false) return; // v0.18.3: refused (a lift shaft upstairs can't follow): its message shows
       onMessage(`Moved ${room.name}${result.objects.length ? ` with its ${result.objects.length} item${result.objects.length === 1 ? '' : 's'}` : ''}. Ctrl+Z to undo.`);
     } else if (d.kind === 'room') {
       const { rect } = d.plan;

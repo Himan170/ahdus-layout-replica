@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   liftsOf, liftOfRoom, carSpot, rideSeconds, rideCost, planLiftStops, liftProblems,
-  liftParts, liftAt, LIFT_TYPE, LIFT_MATCH, LIFT_WAIT_SECONDS, LIFT_DOOR_SECONDS, LIFT_FLOOR_SECONDS,
+  liftParts, liftAt, liftFollow, misalignedShafts, LIFT_TYPE, LIFT_MATCH, LIFT_WAIT_SECONDS, LIFT_DOOR_SECONDS, LIFT_FLOOR_SECONDS,
 } from '../lifts';
 import { WALK_SPEED } from '../speeds';
 
@@ -15,6 +15,50 @@ const shaft = (id, floor, over = {}) => ({
   doors: [{ wall: 'south', offset: 0, width: 1.1, height: 2.1 }], windows: [], ...over,
 });
 const office = (id, floor) => ({ id, type: 'OFFICE', floor, x: 0, z: 0, width: 10, depth: 8, doors: [], windows: [] });
+
+describe('lift shafts follow each other (v0.18.3)', () => {
+  const hall = (id, floor) => ({ ...office(id, floor), width: 16, depth: 12 });
+  const rooms = () => [hall('o0', 0), hall('o1', 1), hall('o2', 2), shaft('a', 0), shaft('b', 1), shaft('c', 2)];
+
+  it('moved on one floor: the shafts on its other floors get the same move, with what is in them', () => {
+    const plant = { id: 'p', assetType: 'PLANT_LARGE', floor: 2, x: 4.5, z: 2.5 };
+    const f = liftFollow(shaft('b', 1), { x: 3, z: 2.5 }, rooms(), [plant], floors3);
+    expect(f.problem).toBeNull();
+    expect(Object.fromEntries(f.rooms)).toEqual({ a: { x: 3, z: 2.5 }, c: { x: 3, z: 2.5 } });
+    expect(f.objects).toEqual([['p', { x: 3.5, z: 3 }]]);
+  });
+
+  it('resized: the others get the same size (their items stay)', () => {
+    const plant = { id: 'p', assetType: 'PLANT_LARGE', floor: 0, x: 4.5, z: 2.5 };
+    const f = liftFollow(shaft('a', 0), { width: 2.6 }, rooms(), [plant], floors3);
+    expect(Object.fromEntries(f.rooms)).toEqual({ b: { width: 2.6 }, c: { width: 2.6 } });
+    expect(f.objects).toEqual([]);
+  });
+
+  it('refused, with the floor named, when another shaft is locked or would leave its room', () => {
+    const locked = rooms().map((r) => (r.id === 'c' ? { ...r, isLocked: true } : r));
+    expect(liftFollow(shaft('a', 0), { x: 3 }, locked, [], floors3).problem).toBe('The lift shaft on Floor 2 is locked. Unlock it to change the lift');
+    // upstairs the office is smaller: the shaft there would stick out of it
+    const small = rooms().map((r) => (r.id === 'o2' ? { ...r, width: 10, x: -1.5 } : r));
+    expect(liftFollow(shaft('a', 0), { x: 3.5 }, small, [], floors3).problem).toMatch(/^The lift shaft on Floor 2 would overlap/);
+  });
+
+  it('a room that is no lift shaft, or a lone shaft: nothing follows', () => {
+    expect(liftFollow(hall('o0', 0), { x: 3 }, rooms(), [], floors3)).toEqual({ problem: null, rooms: [], objects: [] });
+    expect(liftFollow(shaft('a', 0), { x: 3 }, [shaft('a', 0)], [], floors3).rooms).toEqual([]);
+  });
+
+  it('Check: shafts that overlap on other floors without lining up, once per pair, by their nearest floors', () => {
+    const off = [shaft('a', 0), shaft('b', 1), shaft('c', 2, { x: 4.6 })];
+    const p = misalignedShafts(off, floors3);
+    expect(p).toEqual([expect.objectContaining({ code: 'LIFT_MISALIGNED', floor: 2, roomId: 'c', otherId: 'b', severity: 'warning',
+      text: "The lift shafts on Floor 1 and Floor 2 don't line up" })]);
+    expect(liftProblems(off, floors3).map((x) => x.code)).toContain('LIFT_MISALIGNED');
+    // lined up, or far apart (two lifts): nothing
+    expect(misalignedShafts([shaft('a', 0), shaft('b', 1), shaft('c', 2)], floors3)).toEqual([]);
+    expect(misalignedShafts([shaft('a', 0), shaft('b', 1, { x: 9 })], floors3)).toEqual([]);
+  });
+});
 
 describe('lifts (v0.18.3)', () => {
   it('shafts with one rectangle on several floors are one lift, its floors in order', () => {
