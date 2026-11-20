@@ -3,6 +3,34 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.18.4 (20 Nov 2026): avoid stairs (use lifts)
+
+For people who can't use stairs. Nothing new is saved in a layout; the option is per browser (or set by the page).
+- **The option:** "Avoid stairs (use lifts)" in the viewer's **More** menu (remembered in this browser) and under the
+  place in Find's card (the Take me there card). Shown when the workplace has more than one floor. While it is on,
+  **Show route, Take me there, My desk and the company tour go between floors by lift only**; routes on one floor are
+  unchanged.
+- **Never a silent fallback:** a place only the stairs reach says so, "No lift goes to Floor 2: this route needs the
+  stairs" (or "No lift stops at Floor 1: …" from a floor no lift stops at), with **Use the stairs this time** (that one
+  walk may use them; the option stays on). A problem the stairs would not solve keeps its own words ("…: it has no
+  door").
+- **Find** marks such places **Stairs only** while the option is on (from where you walk; from above, from the
+  ground floor).
+- **The tour** is planned again when the option changes: by lift only, a floor no lift stops at is skipped (saying
+  why), and the tour goes on to the next floor the lift reaches (before, a tour ended at the first floor it could
+  not climb to).
+- **Check my layout** (Studio): "Floor 2 has no lift stop: people who can't use stairs can't get there" for a floor with
+  rooms no lift from the ground floor reaches (in a building with a lift), and **Fix it** "Add a lift stop on Floor 2"
+  where the shaft's spot there is free of rooms and items (one undo step). "The lift skips Floor 1" has the same Fix it.
+  The check keeps its old key, so a warning ignored in v0.18.3 stays ignored.
+- **Embed** (docs/EMBED_GUIDE.md 4e2): option `navigation: { avoidStairs }`, `workplace.avoidStairs`,
+  `setAvoidStairs(on)`, `onEvent('avoidStairs', { on })`, `goTo(target, { stairs: true })`; `goTo` answers
+  `{ problem: 'NEEDS_STAIRS', message }`. For AHDUS later (a person's profile setting).
+- Code: `route.findRoute(…, { avoidStairs })` (then once more with the stairs: if that works, `NEEDS_STAIRS`),
+  `floorLinks(…, { avoidStairs })`, `lifts.liftFloorsFrom` / `liftStopSpot`, `engine.navigation.setAvoidStairs`,
+  `play/navigation/avoidStairs.js`. Tests: `avoidStairs.test.js`, `engine/__tests__/avoidStairsNav.test.ts`,
+  `npm run e2e:avoid-stairs` (12 checks), e2e:lifts (Fix it), e2e:embed (the option).
+
 ## 0.18.3 (20 Nov 2026): lifts and L-shaped stairs
 
 `private-docs/V0.18.3_PLAN.md` (decisions and what changed from the plan). Old builds open these layouts without an
