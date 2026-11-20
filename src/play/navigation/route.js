@@ -9,8 +9,10 @@
  *   distance. Floors are joined by LINKS: a staircase is one, from the free
  *   spot in front of its bottom step to the spot where its top lands
  *   (`stairTop`), both ways, costing the flight's length. Stairs that lead
- *   nowhere (`stairNeedsRoomAbove`) are not links. `options.links` adds others
- *   (lifts, later).
+ *   nowhere (`stairNeedsRoomAbove`) are not links. `options.links` adds others.
+ *   Lifts are links too (v0.18.3). `options.avoidStairs` (v0.18.4: "Avoid stairs (use lifts)") leaves the
+ *   stairs out: a route that then needs them is a NEEDS_STAIRS answer ("No lift goes to Floor 2: this route
+ *   needs the stairs"), never a silent walk up the stairs.
  * - The heuristic knows the links: on a floor other than the goal's it is the
  *   cheapest way to the goal through a link (octile to the link + the link +
  *   a lower bound from there), so a route to Floor 1 heads for the stairs
@@ -120,14 +122,15 @@ function stairAxis(stair, dims) {
  * A staircase whose ends are walled in or under furniture (no free spot
  * within 1 m) is not a link.
  * @param {{ rooms, objects, floors }} layout  store shape
- * @param {{ maps?: { get(layout, floorId) }, catalog?: object }} [options]
+ * @param {{ maps?: { get(layout, floorId) }, catalog?: object, avoidStairs?: boolean }} [options]
+ *   avoidStairs (v0.18.4): lifts only
  * @returns {{ kind: 'stairs', objectId: string, from: { floor, x, z }, to: { floor, x, z }, cost: number }[]}
  */
 export function floorLinks(layout, options = {}) {
   const maps = options.maps ?? createWalkMapCache({ catalog: options.catalog });
   const rooms = list(layout.rooms);
   const links = [];
-  for (const s of list(layout.objects)) {
+  if (!options.avoidStairs) for (const s of list(layout.objects)) {
     const link = s.assetType === 'STAIRCASE' ? stairLink(layout, s, maps, rooms) : null;
     if (link) links.push(link);
   }
@@ -530,11 +533,40 @@ const pathLength = (points) => points.reduce((sum, p, n) => (n ? sum + Math.hypo
  * @param {{ rooms, objects, floors }} layout  store shape (v1 field names)
  * @param {{ x:number, z:number, floor?:number }} from
  * @param {{ x:number, z:number, floor?:number }} to
- * @param {{ maps?: { get(layout, floorId) }, catalog?: object, links?: object[], name?: string, speed?: number }} [options]
- *   maps: a createWalkMapCache (else one is made), links: more links (lifts), name: what the answers call the goal
+ * @param {{ maps?: { get(layout, floorId) }, catalog?: object, links?: object[], name?: string, speed?: number,
+ *   avoidStairs?: boolean }} [options]
+ *   maps: a createWalkMapCache (else one is made), links: more links, name: what the answers call the goal,
+ *   avoidStairs (v0.18.4): between floors by lift only; when only the stairs would do, the answer is
+ *   { problem: 'NEEDS_STAIRS', message: 'No lift goes to Floor 2: this route needs the stairs' }
  * @returns {Route | { problem: string, message: string }}
  */
 export function findRoute(layout, from, to, options = {}) {
+  if (!options.avoidStairs) return routeWith(layout, from, to, options);
+  const maps = options.maps ?? createWalkMapCache({ catalog: options.catalog });
+  const r = routeWith(layout, from, to, { ...options, maps });
+  if (!r.problem) return r;
+  const withStairs = routeWith(layout, from, to, { ...options, maps, avoidStairs: false });
+  return withStairs.problem ? r : needsStairs(layout, from, to, options.name ?? placeName(layout, { x: to.x, z: to.z, floor: to.floor ?? 0 }));
+}
+
+/**
+ * Why a route needs the stairs (v0.18.4, avoidStairs): the floor no lift goes to (the goal's, else the start's),
+ * else the place no lift reaches.
+ */
+function needsStairs(layout, from, to, name) {
+  const floors = layout.floors ?? {};
+  const first = floorsInOrder(floors)[0]?.id ?? 0;
+  const fromFloor = from.floor ?? first;
+  const toFloor = to.floor ?? first;
+  const served = new Set(liftsOf(list(layout.rooms), floors).flatMap((l) => l.floors));
+  const floorName = (f) => floors[f]?.name ?? 'that floor';
+  const tail = 'this route needs the stairs';
+  if (fromFloor !== toFloor && !served.has(toFloor)) return problem('NEEDS_STAIRS', `No lift goes to ${floorName(toFloor)}: ${tail}`);
+  if (fromFloor !== toFloor && !served.has(fromFloor)) return problem('NEEDS_STAIRS', `No lift stops at ${floorName(fromFloor)}: ${tail}`);
+  return problem('NEEDS_STAIRS', `No lift reaches ${name}: ${tail}`);
+}
+
+function routeWith(layout, from, to, options) {
   const floors = layout.floors ?? {};
   const cache = options.maps ?? createWalkMapCache({ catalog: options.catalog });
   const order = floorsInOrder(floors).map((f) => f.id);
@@ -548,7 +580,8 @@ export function findRoute(layout, from, to, options = {}) {
 
   const maps = order.map((id) => cache.get(layout, id));
   const rooms = list(layout.rooms);
-  const links = [...floorLinks(layout, { maps: cache }), ...(options.links ?? [])];
+  const links = [...floorLinks(layout, { maps: cache, avoidStairs: options.avoidStairs }),
+    ...(options.links ?? []).filter((l) => !options.avoidStairs || l.kind !== 'stairs')];
   const areas = maps.map(areasOf);
   const areaAt = (f, x, z) => { const k = maps[f].indexOf(x, z); return k < 0 ? -1 : areas[f].label[k]; };
 

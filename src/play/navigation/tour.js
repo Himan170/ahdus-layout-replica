@@ -99,7 +99,7 @@ const sayList = (names) => (names.length < 2 ? names.join('') : `${names.slice(0
  * @param {{ personId, deskId, name?, department? }[]} [people]  the seats (setPeople's list)
  * @param {{ name: string, description?: string }[]} [departments]  the page's descriptions
  * @param {{ catalog?: object, maps?: { get(layout, floorId) }, speed?: number, pause?: number,
- *   facilityPause?: number, backToReception?: boolean }} [options]  pause: at a department and the reception
+ *   facilityPause?: number, backToReception?: boolean, avoidStairs?: boolean }} [options]  pause: at a department and the reception
  *   (STOP_PAUSE), facilityPause: at a washroom, a meeting room and the entrance (FACILITY_PAUSE); none at the return
  * @returns {TourPlan}
  */
@@ -151,7 +151,9 @@ export function* planTourSteps(layout, people = [], departments = [], options = 
 
   const spawn = entranceSpawn(layout, { maps, catalog: options.catalog });
   yield 'spawn';
-  const links = floorLinks(layout, { maps });
+  // v0.18.4: "Avoid stairs (use lifts)": floor to floor by lift only (a floor only the stairs reach is skipped, saying so)
+  const avoidStairs = !!options.avoidStairs;
+  const links = floorLinks(layout, { maps, avoidStairs });
   yield 'links';
   const skipped = [];
   const skip = (room, kind, answer) => {
@@ -164,7 +166,7 @@ export function* planTourSteps(layout, people = [], departments = [], options = 
   /** Why a room can't be walked to from the entrance (findRoute knows at once, without searching). */
   const whyNot = (room) => {
     const spot = roomDoorSpots(room)[0];
-    const r = findRoute(layout, spawn, { ...spot, floor: floorOf(room) }, { maps, name: roomName(room) });
+    const r = findRoute(layout, spawn, { ...spot, floor: floorOf(room) }, { maps, name: roomName(room), avoidStairs });
     return r.problem ? r : { problem: 'OTHER_STAIRS', message: `Not on the tour: ${roomName(room)} is only reached by other stairs` };
   };
 
@@ -336,10 +338,18 @@ export function* planTourSteps(layout, people = [], departments = [], options = 
         });
       }
     }
-    // stairs up, when a floor above has something to see
-    const next = order[fi + 1];
-    const more = next !== undefined && order.slice(fi + 1).some(worthSeeing);
-    const ups = more ? links.filter((l) => l.from.floor === floor && l.to.floor === next && reached(l.from)) : [];
+    // stairs up, when a floor above has something to see. v0.18.4: the next floor a way up reaches (a lift that skips
+    // a floor, with "Avoid stairs" on): the floors in between are skipped, saying why
+    const more = order[fi + 1] !== undefined && order.slice(fi + 1).some(worthSeeing);
+    let nextIdx = fi + 1;
+    let ups = [];
+    if (more) {
+      for (let j = fi + 1; j < order.length; j++) {
+        ups = links.filter((l) => l.from.floor === floor && l.to.floor === order[j] && reached(l.from));
+        if (ups.length) { nextIdx = j; break; }
+      }
+    }
+    const next = order[nextIdx];
     if (!here.length && !candidates.length && !(floor === ground && reception) && !ups.length) {
       if (more) unreachableFrom(fi + 1);
       break;
@@ -395,6 +405,9 @@ export function* planTourSteps(layout, people = [], departments = [], options = 
       break;
     }
     arrival = { x: best.end.link.to.x, z: best.end.link.to.z, floor: next };
+    // v0.18.4: the floors the way up passed (no stop there): their rooms skipped with the reason
+    for (const f of order.slice(fi + 1, nextIdx)) for (const r of rooms) if (floorOf(r) === f) skip(r, 'room', whyNot(r));
+    fi = nextIdx - 1;
   }
 
   // back to reception
@@ -408,7 +421,7 @@ export function* planTourSteps(layout, people = [], departments = [], options = 
 
   // ── the walk between two stops: the route the walker takes (stairs included) ──
   function legBetween(a, b) {
-    const r = findRoute(layout, a.spot, b.spot, { maps, name: b.name });
+    const r = findRoute(layout, a.spot, b.spot, { maps, name: b.name, avoidStairs });
     return r.problem ? makeLeg([], r) : makeLeg(r.legs);
   }
 

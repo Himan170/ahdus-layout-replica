@@ -390,11 +390,13 @@ export function checkLayout(layout, options = {}) {
   }
 
   // ── 8. Lifts (v0.18.3, play/lifts.js). A shaft with no door is already ROOM_NO_DOOR above ──
-  for (const p of liftProblems(rooms, floors)) {
+  for (const p of liftProblems(rooms, floors, objects)) {
     if (p.code === 'LIFT_NO_DOOR') continue;
     problems.push({
       key: `${CHECK_KINDS.LIFT}_${p.code}:${p.liftId}:${p.floor}`, kind: CHECK_KINDS.LIFT, code: p.code, severity: p.severity,
       message: p.text, ids: p.otherId ? [p.roomId, p.otherId] : [p.roomId], floorId: p.floor, roomId: p.roomId,
+      // v0.18.4: Fix it = a lift stop there (editor.setLiftStops), when its spot on that floor is free
+      ...(p.stop ? { fix: { liftStops: { roomId: p.stop.roomId, stops: p.stop.stops }, label: `Add a lift stop on ${floors[p.floor]?.name ?? 'that floor'}` } } : {}),
     });
   }
 

@@ -116,7 +116,7 @@ describe('lifts (v0.18.3)', () => {
 
     const two = [shaft('a', 0), shaft('b', 1), office('o0', 0), office('o2', 2)];
     const q = liftProblems(two, floors3);
-    expect(q).toEqual([expect.objectContaining({ code: 'LIFT_FLOOR_NOT_SERVED', floor: 2, text: 'No lift stops at Floor 2' })]);
+    expect(q).toEqual([expect.objectContaining({ code: 'LIFT_FLOOR_NOT_SERVED', floor: 2, text: "Floor 2 has no lift stop: people who can't use stairs can't get there" })]);
     // an empty floor needs no stop; no lift at all: nothing to say
     expect(liftProblems([shaft('a', 0), shaft('b', 1), office('o0', 0)], floors3)).toEqual([]);
     expect(liftProblems([office('o0', 0), office('o1', 1)], floors3)).toEqual([]);
