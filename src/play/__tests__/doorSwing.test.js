@@ -161,3 +161,18 @@ describe('who opens a door (A5)', () => {
     expect(open.size).toBe(0);
   });
 });
+
+describe('lift doors (v0.18.3)', () => {
+  it("a lift shaft's door is two steel panels that slide apart, also drawn as sliding in Plan view", () => {
+    const lift = roomA({ type: 'LIFT', doors: [{ wall: 'south', offset: 0, width: 1.1, height: 2.1 }] });
+    const d = doorOf([lift], lift, 0);
+    expect(d.style).toBe('lift');
+    const shut = doorParts(d, 0);
+    expect(shut.map((p) => p.part)).toEqual(['steel', 'steel']);
+    const open = doorParts(d, 1);
+    const gap = (ps) => Math.abs(ps[1].x - ps[0].x);
+    expect(gap(open)).toBeGreaterThan(gap(shut) + 0.4); // apart along the wall
+    expect(open.every((p) => Math.abs(p.z - shut[0].z) < 1e-9)).toBe(true); // never into the room
+    expect(leafLines(d, 1)).toHaveLength(2);
+  });
+});

@@ -70,6 +70,7 @@ import FloorPlanView from '../floorplan/FloorPlanView';
 import { planPrefsKey } from '../floorplan/planFloors';
 import SelectionToolbar from '../ui/SelectionToolbar';
 import Inspector from '../ui/Inspector';
+import { liftOfRoom, LIFT_TYPE } from '../play/lifts';
 import StudioFooter from '../ui/StudioFooter';
 import TabNotice from '../ui/TabNotice';
 import ProposedLayoutBanner from '../ui/ProposedLayoutBanner';
@@ -1196,6 +1197,19 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
 
   const selectedObject = selectedObjectId ? objectsMap[selectedObjectId] ?? null : null;
   const selectedRoom = !selectedObject && selectedRoomId ? roomsMap[selectedRoomId] ?? null : null;
+  // v0.18.3: a selected lift shaft: the floors its lift stops at (a shaft in the same place on each)
+  const liftStops = useMemo(() => {
+    if (selectedRoom?.type !== LIFT_TYPE) return null;
+    const lift = liftOfRoom(Object.values(roomsMap), floors, selectedRoom);
+    const on = new Set(lift ? lift.floors : [selectedRoom.floor ?? 0]);
+    return floors.map((f) => ({ id: f.id, name: f.name ?? `Floor ${f.id}`, on: on.has(f.id) }));
+  }, [selectedRoom, roomsMap, floors]);
+  const handleLiftStops = useCallback((ids) => {
+    if (!selectedRoom) return;
+    const { problem } = editor.setLiftStops(selectedRoom.id, ids);
+    if (problem) showStudioMessage(problem, true);
+    else showStudioMessage(`The lift stops at ${ids.length} floor${ids.length === 1 ? '' : 's'}`);
+  }, [selectedRoom, editor, showStudioMessage]);
   // a selected staircase: why it can't be used as it stands (leads nowhere, doesn't fit its room)
   // v0.17.4: with the furniture and the floor above, and the nearest spot where they work ("Fix it")
   const stairCheck = useMemo(() => {
@@ -1810,6 +1824,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
           wallMount={wallMount}
           onMountOnWall={handleMountOnWall}
           room={selectedRoom}
+          liftStops={liftStops}
+          onLiftStops={handleLiftStops}
           opening={selectedOpening}
           onResizeOpening={handleResizeOpening}
           onSetOpeningStyle={handleSetOpeningStyle}

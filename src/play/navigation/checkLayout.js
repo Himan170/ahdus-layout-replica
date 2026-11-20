@@ -32,6 +32,7 @@ import { WALL_ITEM_TYPES, isWallItem, isOnWall, wallPieces } from '../wallMount'
 import { groupOf } from '../prefab';
 import { prefabById } from '../../catalog/manifest';
 import { narrowAisles, AISLE_MIN, metres } from '../aisles';
+import { liftProblems } from '../lifts';
 
 const list = (v) => (Array.isArray(v) ? v : Object.values(v ?? {}));
 const floorOf = (r) => r.floor ?? r.floorId ?? 0;
@@ -51,6 +52,7 @@ export const CHECK_KINDS = {
   STAIRS: 'STAIRS',
   WALL_ITEM_OFF_WALL: 'WALL_ITEM_OFF_WALL', // v0.15.6: a TV, a clock… that doesn't hang on a wall
   AISLE_NARROW: 'AISLE_NARROW', // v0.18.0: less than 0.9 m beside a workstation cluster or desk row
+  LIFT: 'LIFT', // v0.18.3: a lift that skips a floor, a floor no lift stops at (code LIFT_GAP / LIFT_FLOOR_NOT_SERVED)
 };
 
 /** Worst first. */
@@ -385,6 +387,15 @@ export function checkLayout(layout, options = {}) {
         objectId: stair.id,
       });
     }
+  }
+
+  // ── 8. Lifts (v0.18.3, play/lifts.js). A shaft with no door is already ROOM_NO_DOOR above ──
+  for (const p of liftProblems(rooms, floors)) {
+    if (p.code === 'LIFT_NO_DOOR') continue;
+    problems.push({
+      key: `${CHECK_KINDS.LIFT}_${p.code}:${p.liftId}:${p.floor}`, kind: CHECK_KINDS.LIFT, code: p.code, severity: p.severity,
+      message: p.text, ids: [p.roomId], floorId: p.floor, roomId: p.roomId,
+    });
   }
 
   // one line per key (two parts of an L-shaped desk in one wall), floor by floor, the worst first

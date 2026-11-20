@@ -120,9 +120,35 @@ describe('the v0.18.1 format in this build', () => {
   });
 
   it('the type table', () => {
-    expect(Object.keys(ROOM_TYPE_FALLBACK)).toEqual(NEW_TYPES);
+    expect(Object.keys(ROOM_TYPE_FALLBACK)).toEqual([...NEW_TYPES, 'LIFT']); // v0.18.3: the lift shaft
     expect(fileRoomType('OFFICE')).toEqual({ type: 'OFFICE' });
     expect(storeRoomType('CUSTOM', 'LOUNGE')).toBe('LOUNGE');
     expect(storeRoomType('CUSTOM', 'SPACESHIP')).toBe('CUSTOM');
+  });
+});
+
+describe('lifts (v0.18.3) in older builds', () => {
+  const liftLayout = () => ({
+    layoutName: 'lifts', floors: [{ id: 0, name: 'Ground Floor', height: 3.5 }, { id: 1, name: 'Floor 1', height: 3.5 }],
+    rooms: [0, 1].map((floor) => ({
+      id: `room_lift_${floor}`, type: 'LIFT', name: 'Lift shaft', floor, x: 4, z: 2, width: 2.2, depth: 2.2,
+      wallHeight: 3.2, wallThickness: 0.15, color: '#7d8a93', floorFinish: 'default',
+      doors: [{ wall: 'south', offset: 0, width: 1.1, height: 2.1 }], windows: [],
+    })),
+    objects: [],
+  });
+
+  it('a lift shaft is written as a Custom room + subtype LIFT, which the v0.18.0 schema accepts', () => {
+    const v2 = JSON.parse(JSON.stringify(loadLayout(liftLayout())));
+    const old = OldLayoutSchema.parse(v2);
+    for (const r of old.rooms) expect(r.type).toBe('CUSTOM');
+    expect(v2.rooms.map((r: any) => r.subtype)).toEqual(['LIFT', 'LIFT']);
+    expect(fileLayout(liftLayout()).rooms.map((r: any) => [r.type, r.subtype])).toEqual([['CUSTOM', 'LIFT'], ['CUSTOM', 'LIFT']]);
+  });
+
+  it('comes back as a lift shaft in this build', () => {
+    const v1 = toV1(loadLayout(liftLayout()));
+    expect(v1.rooms.map((r) => r.type)).toEqual(['LIFT', 'LIFT']);
+    expect(normaliseLayout(fileLayout(liftLayout())).rooms.map((r: any) => r.type)).toEqual(['LIFT', 'LIFT']);
   });
 });

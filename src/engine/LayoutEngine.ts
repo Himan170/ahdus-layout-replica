@@ -72,6 +72,7 @@ import { cleanClothing } from '../play/outfit';
 import { createPlayerCharacter } from './systems/PlayerCharacter';
 import { LiveSystem } from './systems/LiveSystem';
 import { DoorSystem, type DoorMover } from './systems/DoorSystem';
+import { LiftSystem } from './systems/LiftSystem';
 import type { LivePersonInput, LiveInfo } from './systems/LiveSystem';
 import { FullCapMonitor } from './systems/FullCap';
 import { QualityMonitor } from './systems/QualityMonitor';
@@ -212,6 +213,8 @@ type EventMap = {
   pose: PoseEvent;
   /** v0.17.0: the drawing quality changed by itself (slow / smooth frames): its step, 0 = the best. */
   quality: { level: number; pixelRatio: number; shadows: boolean; maxFull: number | null };
+  /** v0.18.3: you rode a lift (rideLift). */
+  lift: { liftId: string; from: number; to: number };
 };
 
 /**
@@ -326,6 +329,8 @@ export class LayoutEngine {
   readonly live: LiveSystem;
   /** v0.18.1: the door leaves; they open for people who walk (play/doorSwing). */
   readonly doors: DoorSystem;
+  /** v0.18.3: the lifts (their cars, call buttons; riding: rideLift). */
+  readonly lifts: LiftSystem;
   private _doorTick: (() => void) | null = null;
   /** v0.16.1: how many full characters this device draws (measured from its frame rate). */
   readonly fullCap: FullCapMonitor;
@@ -496,7 +501,8 @@ export class LayoutEngine {
         return out;
       },
     });
-    this._doorTick = () => this.doors.update((this.babylonEngine.getDeltaTime?.() ?? 16) / 1000);
+    this.lifts = new LiftSystem(this.scene, { getLayout: () => this._store.getState(), roomNode: (id) => this.rooms.getRoomMesh(id) });
+    this._doorTick = () => { this.doors.update((this.babylonEngine.getDeltaTime?.() ?? 16) / 1000); this.lifts.update(); };
     this.scene.onBeforeRenderObservable.add(this._doorTick);
     this.fullCap = new FullCapMonitor({
       weak: () => this.weakDevice,
@@ -548,6 +554,8 @@ export class LayoutEngine {
       },
       routeLine: () => (this._routeLine ??= new RouteLineSystem(this.scene)),
       getMe: () => (this._player?.personId != null ? String(this._player.personId) : null),
+      // v0.18.3: Take me there rides a lift: the same spot of the car on the other floor
+      ride: (to) => this._walkthrough?.setPose({ x: to.x, z: to.z, floor: to.floor, yaw: to.yaw }),
       emit: (event) => {
         this._noteArrival(event);
         this._arrivalView(event);
@@ -1024,6 +1032,29 @@ export class LayoutEngine {
     return true;
   }
 
+  /** v0.18.3: the lift whose car you stand in while walking (its floors), or null. */
+  liftHere(): { id: string; floor: number; floors: { id: number; name: string }[] } | null {
+    const walk = this._walkthrough;
+    if (this._mode !== 'walkthrough' || !walk?.isActive()) return null;
+    const p = walk.getPosition();
+    return this.lifts.at(walk.getLevel(), p.x, p.z);
+  }
+
+  /**
+   * v0.18.3: ride the lift you stand in to `floor`: the same spot of its car there, facing the same way. A walk in
+   * progress that doesn't go there keeps going (it finds its way again from the new floor).
+   * @returns false: not in a lift, or it doesn't stop there
+   */
+  rideLift(floor: number): boolean {
+    const here = this.liftHere();
+    if (!here || here.floor === floor || !here.floors.some((f) => f.id === floor)) return false;
+    const walk = this._walkthrough!;
+    const p = walk.getPosition();
+    walk.setPose({ x: p.x, z: p.z, floor, yaw: walk.getYaw?.() });
+    this.emit('lift', { liftId: here.id, from: here.floor, to: floor });
+    return true;
+  }
+
   /** Where Overview left you walking (resumeWalk goes back there), or null. */
   get walkPlace(): { x: number; z: number; yaw: number; pitch: number; floor: number } | null {
     return this._walkPlace ? { ...this._walkPlace } : null;
@@ -1232,6 +1263,7 @@ export class LayoutEngine {
     this.live.dispose();
     if (this._doorTick) this.scene.onBeforeRenderObservable.removeCallback(this._doorTick);
     this.doors.dispose();
+    this.lifts.dispose();
     this.characters?.dispose();
     this._unsubscribe();
     this._unsubscribeFloor();

@@ -803,3 +803,29 @@ describe('a locked room (v0.15.6)', () => {
     expect(rooms().some((r) => r.isLocked)).toBe(false);
   });
 });
+
+describe('lifts (v0.18.3)', () => {
+  it('a new lift shaft gets its door; Lift stops add and remove the shaft as ONE undo step', () => {
+    editor.addFloor({ copyRooms: false });
+    editor.addFloor({ copyRooms: false });
+    S().setCurrentFloor?.(0);
+    editor.addRoom({ type: 'LIFT', name: 'Lift', x: 4, z: 2, width: 2.2, depth: 2.2, floor: 0 });
+    const shaft = rooms().find((r) => r.type === 'LIFT');
+    expect(shaft.doors).toEqual([{ wall: 'south', offset: 0, width: 1.1, height: 2.1 }]);
+
+    expect(editor.setLiftStops(shaft.id, [0, 1, 2])).toEqual({ problem: null });
+    const shafts = () => rooms().filter((r) => r.type === 'LIFT').map((r) => r.floor).sort();
+    expect(shafts()).toEqual([0, 1, 2]);
+    const upper = rooms().find((r) => r.type === 'LIFT' && r.floor === 2);
+    expect(upper).toMatchObject({ x: 4, z: 2, width: 2.2, depth: 2.2, doors: shaft.doors });
+    expect(upper.id).toMatch(/^room_/);
+
+    expect(editor.setLiftStops(shaft.id, [0, 2])).toEqual({ problem: null });
+    expect(shafts()).toEqual([0, 2]);
+    editor.undo();
+    expect(shafts()).toEqual([0, 1, 2]);
+    editor.undo();
+    expect(shafts()).toEqual([0]);
+    expect(editor.setLiftStops(shaft.id, []).problem).toBe('A lift stops at one floor at least');
+  });
+});

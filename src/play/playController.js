@@ -2053,6 +2053,7 @@ export function createPlayController(scene, canvas, {
       hint,
       message: now < messageUntil ? message : null,
       roomName: here?.name ?? 'Outside',
+      roomType: here?.type ?? null, // v0.18.3: a lift shaft shows the lift's floor panel
       floor: floorPosition(state().floors, currentLevel), // { index, count, name }: the HUD shows the name
       prompt,
     };

@@ -171,7 +171,7 @@ export interface BrowseMenu {
 export interface ShowResult {
   place: PlaceResult;
   /** Walking: the walk there (metres, seconds at walking speed, the floors on the way). */
-  route?: { length: number; seconds: number; floors: number[] };
+  route?: { length: number; seconds: number; floors: number[]; by?: 'stairs' | 'lift' };
   problem?: string;
   message?: string;
 }
@@ -271,6 +271,8 @@ interface Hooks {
   getMe?: () => string | null;
   /** When idle work runs (default requestIdleCallback, else a short timeout); tests pass their own. */
   idle?: (fn: () => void) => void;
+  /** v0.18.3: ride a lift (Take me there at its car): the walker stands at that spot on the other floor. */
+  ride?: (to: { x: number; z: number; floor: number; yaw: number }) => void;
   /** Runs fn soon, after the page has had a chance to draw (v0.17.1: every warm-up step after the first;
    * default: a new task; tests that give `idle` get it for this too). */
   soon?: (fn: () => void) => void;
@@ -295,6 +297,8 @@ const REDRAW_EVERY = 0.5;
 /** A 'progress' event: after this much progress (m), or this long (s). */
 const PROGRESS_EVERY_M = 1;
 const PROGRESS_EVERY_S = 1;
+/** Take me there rides a lift once the walker is this close to the middle of its car (m, v0.18.3). */
+export const LIFT_BOARD = 0.6;
 /** Arrived: facing the person or room, looking a little down. */
 const ARRIVE_PITCH = -0.18;
 
@@ -614,7 +618,8 @@ export class NavigationSystem {
         out.problem = route.problem;
         out.message = route.message;
       } else {
-        out.route = { length: route.length, seconds: route.seconds, floors: route.legs.map((l) => l.floor) };
+        const lift = route.legs.some((l) => (l as { stairsAtEnd?: { kind?: string } }).stairsAtEnd?.kind === 'lift');
+        out.route = { length: route.length, seconds: route.seconds, floors: route.legs.map((l) => l.floor), ...(lift ? { by: 'lift' as const } : {}) };
         place = this.chosen(place, route);
       }
     } else if (place.kind === 'nearest') {
@@ -859,6 +864,20 @@ export class NavigationSystem {
     });
   }
 
+  /** The lift to ride now (v0.18.3): the walker at a lift point of the route (its car), the next point the car upstairs. */
+  private liftRide(w: Walk, me: PilotFrame): { x: number; z: number; floor: number } | null {
+    const points = (w.follower.path as { points: { x: number; z: number; floor: number; s: number; lift?: string }[] }).points;
+    const s = w.follower.progress;
+    for (let k = 0; k < points.length - 1; k++) {
+      const p = points[k];
+      if (!p.lift || p.floor !== me.floor || Math.abs(p.s - s) > 3) continue;
+      if (Math.hypot(p.x - me.x, p.z - me.z) > LIFT_BOARD) continue;
+      const q = points[k + 1];
+      return q.floor !== me.floor ? { x: q.x, z: q.z, floor: q.floor } : null;
+    }
+    return null;
+  }
+
   /** What the walkthrough's controller asks every frame while a route is followed. */
   private pilot(w: Walk): Pilot {
     return {
@@ -893,6 +912,15 @@ export class NavigationSystem {
           this.emitProgress(w, me.floor, { force: true });
         }
         const driving = w.walk === 'auto' && !w.paused && !me.userMoving;
+        // v0.18.3: at the lift's car on the way: ride it (the route goes on from the car on the other floor)
+        if (driving && this.hooks.ride) {
+          const to = this.liftRide(w, me);
+          if (to) {
+            this.hooks.ride({ ...to, yaw: me.yaw });
+            w.follower.resetStuck();
+            return null;
+          }
+        }
         const step = w.follower.step({ x: me.x, z: me.z, floor: me.floor, yaw: me.yaw }, dt, { drive: driving });
         if (step.arrived) {
           if (w.source === 'click') { this.end('arrived'); return null; } // there: no turning to face a spot

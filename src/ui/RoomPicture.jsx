@@ -95,6 +95,14 @@ const FURNITURE = {
       <circle className="room-pic__dot" cx="32" cy="29" r="2.5" />
     </>
   ),
+  // v0.18.3: the car's doors and its up / down arrows
+  LIFT: (
+    <>
+      <rect className="room-pic__item" x="22" y="12" width="9" height="22" rx="1" />
+      <rect className="room-pic__item" x="33" y="12" width="9" height="22" rx="1" />
+      <path className="room-pic__wood" d="M48 18l3-4 3 4zM48 26l3 4 3-4z" />
+    </>
+  ),
 };
 
 export default function RoomPicture({ roomType }) {

@@ -191,16 +191,9 @@ export default function LibraryPanel({
           <div className="lib-grid">
             <Tile {...tileProps({ kind: 'object', id: 'STAIRCASE', assetType: 'STAIRCASE', label: 'Staircase', width: 1.2, depth: 4, sizeText: '1.2 × 4 m · up one floor' })}
               picture={<ItemPicture assetType="STAIRCASE" thumb={null} />} />
-            {tool.options.filter((o) => o.disabled).map((o) => {
-              const Icon = o.icon;
-              return (
-                <button key={o.id} className="lib-tile" disabled title="Coming soon">
-                  <span className="lib-tile__pic" aria-hidden><Icon size={28} strokeWidth={1.5} /></span>
-                  <span className="lib-tile__name">{o.label}</span>
-                  <span className="lib-tile__size">{o.detail}</span>
-                </button>
-              );
-            })}
+            {/* v0.18.3: a lift = a lift shaft room; its Inspector chooses the floors it stops at */}
+            <Tile {...tileProps({ kind: 'room', id: 'LIFT', roomType: 'LIFT', label: 'Lift', width: 2.2, depth: 2.2, sizeText: '2.2 × 2.2 m · choose its floors' })}
+              picture={<RoomPicture roomType="LIFT" />} />
           </div>
         )}
 

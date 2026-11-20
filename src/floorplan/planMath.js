@@ -140,7 +140,7 @@ export function roomWallPieces(room, rooms = null) {
       } else {
         const door = doorOf(all.includes(room) ? all : [...all, room], room, s.o.index);
         if (!door || door.roomId !== room.id) continue; // the neighbour draws it
-        if (door.style === 'sliding-glass') {
+        if (door.style === 'sliding-glass' || door.style === 'lift') {
           for (const l of leafLines(door, 0)) slides.push({ a: l.from, b: l.to });
           continue;
         }

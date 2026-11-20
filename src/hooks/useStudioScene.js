@@ -22,6 +22,7 @@ import { ObjectSystem } from '../engine/systems/ObjectSystem';
 import { FloorSystem } from '../engine/systems/FloorSystem';
 import { CharacterSystem } from '../engine/systems/CharacterSystem';
 import { DoorSystem } from '../engine/systems/DoorSystem';
+import { LiftSystem } from '../engine/systems/LiftSystem';
 import { SceneBuilder } from '../engine/systems/SceneBuilder';
 import { progressPercent } from '../play/buildSchedule';
 import { elevationOf } from '../play/building';
@@ -123,6 +124,8 @@ export function useStudioScene({
       highlight: () => {},
       clearHighlights: () => {},
       startWalking: () => (play?.isActive() ? play : null),
+      // v0.18.3: a walk rides a lift as in the viewer
+      ride: (to) => play?.setPose({ x: to.x, z: to.z, floor: to.floor, yaw: to.yaw }),
       routeLine: () => (routeLine ??= new RouteLineSystem(scene)),
       emit: (event) => {
         // no route ("No walking route to …: it has no door"), or stuck on the way ("Can't get past here");
@@ -251,7 +254,9 @@ export function useStudioScene({
         return [{ id: 'me', x: p.x, z: p.z, floor: play.getLevel(), local: true }];
       },
     });
-    const doorTick = () => doors.update((engine.getDeltaTime?.() ?? 16) / 1000);
+    // v0.18.3: the lifts' cars and call buttons
+    const lifts = new LiftSystem(scene, { getLayout: () => useWorkspaceStore.getState(), roomNode: (id) => roomSystem.getRoomMesh(id) });
+    const doorTick = () => { doors.update((engine.getDeltaTime?.() ?? 16) / 1000); lifts.update(); };
     scene.onBeforeRenderObservable.add(doorTick);
     if (import.meta.env.DEV) window.__ahdusDoors = doors;
 
@@ -410,6 +415,7 @@ export function useStudioScene({
       characterSystemRef.current = null;
       scene.onBeforeRenderObservable.removeCallback(doorTick);
       doors.dispose();
+      lifts.dispose();
       if (pauseRenderingRef) pauseRenderingRef.current = null;
       layoutScene.dispose();
       // The scene took every room/item mesh with it. Forget them, or the next

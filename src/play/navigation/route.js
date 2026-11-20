@@ -48,6 +48,7 @@ import {
 } from '../building';
 import { wallThicknessOf } from '../geometry';
 import { WALK_SPEED } from '../speeds';
+import { liftsOf, carSpot, rideCost, rideSeconds } from '../lifts';
 import { createWalkMapCache, distanceToRect, doorGaps, FREE, BODY_RADIUS } from './walkMap';
 import { nearestFree } from './entrance';
 
@@ -124,7 +125,40 @@ export function floorLinks(layout, options = {}) {
     const link = s.assetType === 'STAIRCASE' ? stairLink(layout, s, maps, rooms) : null;
     if (link) links.push(link);
   }
+  links.push(...liftLinksOf(layout, maps, rooms)); // v0.18.3
   return links;
+}
+
+/**
+ * A lift's links (floorLinks, v0.18.3): between every two floors it serves, both ways (as every link), from the
+ * middle of its car on one floor to the same spot on the other. Cost = the ride's time walked (`rideCost`: the
+ * wait, the doors, each floor), so for one floor the stairs usually win and for several the lift; `length` = 0
+ * (nothing is walked: the walk's metres don't count the ride, its seconds do).
+ */
+function liftLinksOf(layout, maps, rooms) {
+  const floors = layout.floors ?? {};
+  const out = [];
+  for (const lift of liftsOf(rooms, floors)) {
+    const spots = new Map();
+    for (const f of lift.floors) {
+      if (!floors[f]) continue;
+      const spot = landing(maps.get(layout, f), carSpot(lift));
+      if (spot) spots.set(f, spot);
+    }
+    const served = lift.floors.filter((f) => spots.has(f));
+    for (let i = 0; i < served.length; i++) {
+      for (let j = i + 1; j < served.length; j++) {
+        const a = served[i];
+        const b = served[j];
+        out.push({
+          kind: 'lift', objectId: lift.id, liftId: lift.id,
+          from: { floor: a, ...spots.get(a) }, to: { floor: b, ...spots.get(b) },
+          cost: rideCost(lift, a, b), length: 0, seconds: rideSeconds(lift, a, b),
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /** One staircase's link (floorLinks), or null: it leads nowhere, or an end is walled in. */
@@ -686,6 +720,7 @@ export function findRoute(layout, from, to, options = {}) {
   const legs = [];
   let leg = null;
   let length = 0;
+  let rideTime = 0; // v0.18.3: a lift's ride counts in the seconds, not the metres walked
   nodes.forEach((n, idx) => {
     const f = floorIndexOf(n);
     const map = maps[f];
@@ -696,10 +731,12 @@ export function findRoute(layout, from, to, options = {}) {
         const e = (edges.get(prev) ?? []).find((x) => x.to === n);
         leg.stairsAtEnd = {
           kind: e.link.kind, objectId: e.link.objectId, direction: e.direction,
-          toFloor: order[f], length: e.cost,
+          toFloor: order[f], length: e.link.length ?? e.cost,
+          ...(e.link.kind === 'lift' ? { liftId: e.link.liftId, seconds: e.link.seconds } : {}),
           ...(e.link.via ? { via: e.direction === 'up' ? e.link.via : [...e.link.via].reverse() } : {}),
         };
-        length += e.cost;
+        length += e.link.length ?? e.cost;
+        rideTime += e.link.seconds ?? 0;
       }
       leg = { f, cells: [] };
       legs.push(leg);
@@ -722,7 +759,7 @@ export function findRoute(layout, from, to, options = {}) {
   return {
     legs: out,
     length,
-    seconds: length / (options.speed ?? WALK_SPEED),
+    seconds: length / (options.speed ?? WALK_SPEED) + rideTime,
     from: { x: start.x, z: start.z, floor: fromFloor },
     to: { x: goal.x, z: goal.z, floor: toFloor },
   };
@@ -853,10 +890,12 @@ export function findNearestRoute(layout, from, goals, options = {}) {
   let best = null;
   const problems = [];
   for (const { g, i, line } of order) {
-    if (best && line >= best.length) break;
+    // v0.18.3: by time (a lift's ride counts), which for a walk is its length at the walking speed
+    const speed = options.speed ?? WALK_SPEED;
+    if (best && line / speed >= best.seconds) break;
     const r = findRoute(layout, from, g, { ...options, maps, name: g.name ?? options.name });
     if (r.problem) { problems[i] = r; continue; }
-    if (!best || r.length < best.length) best = { ...r, goalIndex: i };
+    if (!best || r.seconds < best.seconds) best = { ...r, goalIndex: i };
   }
   return best ?? problems[0]; // none reachable: every goal was tried
 }

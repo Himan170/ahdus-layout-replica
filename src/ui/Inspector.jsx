@@ -368,7 +368,34 @@ function RoomDepartmentField({ room, choices, onUpdate }) {
   );
 }
 
-function RoomBody({ room, departmentChoices: choices, onUpdate, onSetFloor, onSelectOpening, onAddOpening }) {
+/**
+ * A lift shaft's stops (v0.18.3): the floors its lift serves. Each is a shaft in the same place on that floor
+ * (editor.setLiftStops adds or removes them, one undo step); the lift itself is never saved.
+ */
+function LiftStops({ stops, onChange }) {
+  const on = stops.filter((s) => s.on).map((s) => s.id);
+  return (
+    <div className="insp-room__group" data-lift-stops={on.join(' ')}>
+      <h3 className="insp-room__title" id="insp-lift-stops">Lift stops</h3>
+      <div className="insp-glass__walls" role="group" aria-labelledby="insp-lift-stops">
+        {stops.map((s) => (
+          <button key={s.id} type="button" className="insp-glass__wall" aria-pressed={s.on} data-lift-stop={s.id}
+            aria-label={`${s.name}: ${s.on ? 'the lift stops here' : 'no stop'}`}
+            disabled={s.on && on.length === 1} title={s.on ? 'Click: no stop on this floor' : 'Click: the lift stops here'}
+            onClick={() => onChange(s.on ? on.filter((id) => id !== s.id) : [...on, s.id])}>
+            <span>{s.name}</span>
+            <span className="insp-glass__state">{s.on ? 'Stops' : 'No stop'}</span>
+          </button>
+        ))}
+      </div>
+      <p className="insp-room__note">{on.length < 2
+        ? 'Choose a second floor: a lift needs two stops.'
+        : 'A shaft in the same place on each floor. Find and Take me there use the lift.'}</p>
+    </div>
+  );
+}
+
+function RoomBody({ room, departmentChoices: choices, liftStops, onLiftStops, onUpdate, onSetFloor, onSelectOpening, onAddOpening }) {
   const area = room.width * room.depth;
   const floor = floorKindOf(room);
   const openings = roomOpenings(room);
@@ -393,6 +420,8 @@ function RoomBody({ room, departmentChoices: choices, onUpdate, onSetFloor, onSe
       </label>
 
       <RoomDepartmentField key={room.id} room={room} choices={choices} onUpdate={onUpdate} />
+
+      {liftStops && onLiftStops && <LiftStops stops={liftStops} onChange={onLiftStops} />}
 
       <div className="insp-room__group">
         <h3 className="insp-room__title">Size</h3>
@@ -823,6 +852,8 @@ function GroupBody({ items }) {
 export default function Inspector({
   mode,                 // 'object' | 'room' | 'opening' | 'layers' | null
   object, room, floorName,
+  liftStops = null,     // v0.18.3: a lift shaft's floors [{ id, name, on }]
+  onLiftStops = null,   // (floorIds) => void
   stairWarnings = [],   // a staircase: why it can't be used as it stands (stairFit's texts)
   onFixStairs = null,   // v0.17.4: move it to the nearest spot where it works (null: none, or nothing wrong)
   opening,              // { roomId, kind, index, room, data, partnerRoom } (a selected door/window)
@@ -996,7 +1027,7 @@ export default function Inspector({
             hookPoints={hookPoints} positions={positions} onSetPositionRef={onSetPositionRef} />
         )}
         {mode === 'room' && (
-          <RoomBody room={room} departmentChoices={departmentChoices} onUpdate={onUpdateRoom} onSetFloor={onSetFloorFinish}
+          <RoomBody room={room} departmentChoices={departmentChoices} liftStops={liftStops} onLiftStops={onLiftStops} onUpdate={onUpdateRoom} onSetFloor={onSetFloorFinish}
             onSelectOpening={onSelectOpening} onAddOpening={onAddOpening} />
         )}
         {mode === 'opening' && <OpeningBody opening={opening} floorName={floorName} onResize={onResizeOpening} onSetStyle={onSetOpeningStyle} />}

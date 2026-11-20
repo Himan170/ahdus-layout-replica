@@ -24,6 +24,8 @@ import {
 import { toV1 } from '../engine/model/toV1';
 import { lockedText, allowedRoomPatch } from '../play/locks';
 import { normaliseLayout } from './layoutData';
+import { LIFT_TYPE, LIFT_DOOR, planLiftStops } from '../play/lifts';
+import { v4 as uuidv4 } from 'uuid';
 import { CommandHistory } from '../engine/commands/CommandHistory';
 import {
   AddObjectCommand,
@@ -403,6 +405,8 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
       if (data.type === 'MEETING' && !data.doors?.length && data.glassWalls === undefined && data.glassOnFirstDoor === undefined) {
         data = { ...data, glassOnFirstDoor: true };
       }
+      // v0.18.3: a new lift shaft gets its lift door (on its south wall) unless it brings its own
+      if (data.type === LIFT_TYPE && !data.doors?.length) data = { ...data, doors: [{ ...LIFT_DOOR }] };
       const floor = data.floor ?? store().currentFloor;
       if (!(data.wallHeight > wallSpace(store().floors, floor) + 1e-6)) {
         run(new AddRoomCommand(s, data));
@@ -414,6 +418,23 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
         const room = s.getRoom(store().selectedRoomId);
         return planWallHeight(store().floors, Object.values(store().rooms), room, room.wallHeight);
       }, undefined, undefined, store)]));
+    },
+    /**
+     * v0.18.3: the floors a lift stops at (Studio's Inspector "Lift stops"), as ONE undo step: the same shaft
+     * (rectangle, doors) added on the floors ticked, removed from the others (play/lifts.js planLiftStops).
+     * @returns {{ problem: string | null }}
+     */
+    setLiftStops(roomId, stops) {
+      const st = store();
+      const shaft = st.rooms[roomId];
+      const plan = shaft && planLiftStops(Object.values(st.rooms), st.floors, shaft, stops, () => `room_${uuidv4()}`);
+      if (!plan) return { problem: stops?.length ? 'This is not a lift shaft' : 'A lift stops at one floor at least' };
+      const locked = plan.remove.map((id) => s.getRoom(id)).find((r) => r?.isLocked);
+      if (locked) return { problem: lockedText(locked.name) };
+      const cmds = [...plan.remove.map((id) => new DeleteRoomCommand(s, id)), ...plan.add.map((r) => new AddRoomCommand(s, r))];
+      if (!cmds.length) return { problem: null };
+      run(cmds.length === 1 ? cmds[0] : new CompositeCommand('Change lift stops', cmds));
+      return { problem: null };
     },
     /** @returns {{ problem: string | null }}  a locked room stays (v0.15.6) */
     deleteRoom(id) {

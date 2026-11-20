@@ -10,7 +10,7 @@ import { ASSET_TYPES } from '../utils/assetCatalog';
 const ROOM_ICONS = {
   OFFICE: '🏢', MEETING: '👥', RECEPTION: '🛎️', CORRIDOR: '🚶',
   PRODUCTION: '🏭', STAIRCASE: '🪜', SERVER_ROOM: '🖧', RESTROOM: '🚻',
-  CAFETERIA: '☕', LOUNGE: '🛋️', CABIN: '🚪', TRAINING: '🎓', LOBBY: '🏛️',
+  CAFETERIA: '☕', LOUNGE: '🛋️', CABIN: '🚪', TRAINING: '🎓', LOBBY: '🏛️', LIFT: '🛗',
 };
 
 /**

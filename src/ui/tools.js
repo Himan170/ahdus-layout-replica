@@ -15,6 +15,7 @@ import {
   Droplets, FireExtinguisher, Siren, Cross, MapPin, Square, Cog, Wrench, Columns3,
   RectangleHorizontal, Users, Laptop, Keyboard, Mouse, Library, Trash2, Refrigerator, Microwave,
   Circle, Rows3, LampFloor, Shirt, Toilet, Bath, Clock, AirVent, LibraryBig, DoorClosed, Building2,
+  ChevronsUpDown,
 } from 'lucide-react';
 import { ROOM_TYPES } from '../utils/roomStore';
 import { OBJECT_ITEMS } from '../play/hotbarItems';
@@ -102,6 +103,7 @@ export const ROOM_ICONS = {
   CABIN: DoorClosed,
   TRAINING: Presentation,
   LOBBY: Building2,
+  LIFT: ChevronsUpDown,
 };
 
 /** Icon for anything you can hold in Preview (hotbarItems.js items). */
@@ -198,10 +200,9 @@ export const STUDIO_TOOLS = [
     label: 'Stairs',
     icon: Footprints,
     shortcut: '5',
-    hint: 'Click the floor to place the staircase. R turns it 90°.',
+    hint: 'Click the floor to place the staircase or the lift. R turns it 90°.',
     options: [
       { id: 'staircase', label: 'Straight staircase', icon: Footprints, detail: '1.2 × 4 m, up one floor', place: 'STAIRCASE' },
-      { id: 'lift', label: 'Lift', icon: ArrowUpDown, detail: 'Coming soon', disabled: true },
     ],
   },
   {

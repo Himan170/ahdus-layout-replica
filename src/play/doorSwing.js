@@ -84,7 +84,8 @@ export function doorOf(rooms, room, index) {
   const point = (u) => (alongX ? { x: u, z: line } : { x: line, z: u });
   const [ix, iz] = INWARD[wall];
   const out = c.record.swing === 'out';
-  const style = styleOf('door', c.record);
+  // v0.18.3: a lift shaft's door is the lift's (two steel panels sliding apart), whatever its record says
+  const style = c.room.type === 'LIFT' || other?.room.type === 'LIFT' ? 'lift' : styleOf('door', c.record);
   return {
     key: `${c.room.id}:${c.index}`,
     roomId: c.room.id,
@@ -167,7 +168,7 @@ function faceOffset(door) {
  */
 export function leafLines(door, open = 1) {
   const t = eased(open);
-  if (door.style === 'sliding-glass') {
+  if (door.style === 'sliding-glass' || door.style === 'lift') {
     return slidingPanels(door, open).map((p) => ({ from: p.from, to: p.to }));
   }
   const [cos, sin] = turn(t);
@@ -208,6 +209,11 @@ export function doorParts(door, open) {
     for (const p of slidingPanels(door, open)) {
       glassLeaf(push, p.centre, door.along, p.width, top, rot);
     }
+    return boxes;
+  }
+  if (door.style === 'lift') {
+    const rot = yawOf(door.along.x, door.along.z);
+    for (const p of slidingPanels(door, open)) push('steel', p.centre, top / 2, p.width, top, LEAF_T, rot);
     return boxes;
   }
   const t = eased(open);
