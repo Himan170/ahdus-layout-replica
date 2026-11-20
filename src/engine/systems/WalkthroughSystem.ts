@@ -393,6 +393,11 @@ export class WalkthroughSystem {
     return this.controller.getArrivalView?.() ?? null;
   }
 
+  /** v0.18.3 (tests): standing in a lift car, so the camera is first person and your character hidden. */
+  isLiftView(): boolean {
+    return this.controller.isLiftView?.() ?? false;
+  }
+
   /** v0.17.1 (tests): is this mesh part of your own character? */
   isPlayerMesh(mesh: unknown): boolean {
     return !!this.controller.isPlayerMesh?.(mesh);
