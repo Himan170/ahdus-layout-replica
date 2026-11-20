@@ -584,12 +584,20 @@ function OpeningBody({ opening, floorName, onResize, onSetStyle }) {
 /**
  * Layers search (v0.15.5): every word of the query starts a word of the text (3+ letters: anywhere
  * in a word), case-insensitive. An empty query matches everything.
+ * v0.18.5: a word with a dot, dash or slash inside ("0.2", "floor-1", "r&d") is matched as typed
+ * against the text's own space-separated words (it was split in the text but not in the query, so
+ * "Meeting Room 0.2" found nothing); punctuation at a word's ends, or alone ("&"), asks for nothing.
  */
+const EDGE_PUNCT = /^[^a-z0-9]+|[^a-z0-9]+$/g;
 export function matchesLayerQuery(text, query) {
-  const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+  const words = String(query ?? '').toLowerCase().split(/\s+/).map((w) => w.replace(EDGE_PUNCT, '')).filter(Boolean);
   if (!words.length) return true;
-  const own = String(text ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-  return words.every((w) => own.some((o) => o.startsWith(w) || (w.length >= 3 && o.includes(w))));
+  const lower = String(text ?? '').toLowerCase();
+  const own = new Set([
+    ...lower.split(/[^a-z0-9]+/),
+    ...lower.split(/\s+/).map((w) => w.replace(EDGE_PUNCT, '')),
+  ].filter(Boolean));
+  return words.every((w) => [...own].some((o) => o.startsWith(w) || (w.length >= 3 && o.includes(w))));
 }
 
 let lastLayersQuery = ''; // kept while the panel closes for a selection and opens again
