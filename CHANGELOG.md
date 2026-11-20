@@ -30,7 +30,16 @@ error (checked with the built v0.17.3, v0.18.0 and v0.18.1 embeds).
 - **Format:** a lift shaft is written as `CUSTOM` + `subtype: 'LIFT'` in v2 / exported files; an L staircase is a
   STAIRCASE with `metadata.stairShape` (`docs/ROOM_FORMAT.md`). Older builds draw a small Custom room on each floor
   and a straight flight from the same spot.
-- New: `npm run e2e:lifts` (21 checks).
+- **After the review (Himan, 20 Nov):**
+  - Inside the lift car the view is first person (your character hidden): the third-person camera sat right behind
+    your head there and covered the floor panel. Out of the car the usual view comes back (V is unchanged). Also: a
+    smaller room you walk into (the car in a hall) is now the room you are in at once, so the panel shows as you step in.
+  - Stairs never belong to a lift shaft (`stairFit.stairRoomAt`): L stairs dropped over a shaft in a hall said "The
+    stairs stick out of Lift shaft 1" and stayed there; now they belong to the hall and move to the nearest spot beside
+    the shaft. Stairs that hit a room inside their room say "The stairs run into Lift shaft 1"; Check and Fix it the same.
+  - Room labels: a lift shaft is labelled "Lift" with its icon, and a room with rooms inside it puts its name at the
+    free spot nearest its middle (`geometry.labelSpot`), not on the shaft; in 2D / 3D and in Plan view.
+- New: `npm run e2e:lifts` (26 checks).
 - Next (v0.18.4, first item): a route option "avoid stairs (use lifts)" for Find / Take me there and the tour.
 
 ## 0.18.2 (20 Nov 2026): stability

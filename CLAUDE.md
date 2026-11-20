@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1740, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1751, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -91,12 +91,14 @@ npm run e2e:doors    # 24 checks   e2e/doors-smoke.mjs     (v0.18.1: the Doors &
                      #                                       through glass, the floor behind glass walks via the door, no door =
                      #                                       "it has no door"; SHOTS=<dir>: each door shut / open, a glass room
                      #                                       with people inside, the library, the new room types)
-npm run e2e:lifts    # 21 checks   e2e/lifts-smoke.mjs     (v0.18.3: the Stairs library's Lift + L tiles, Lift stops
+npm run e2e:lifts    # 26 checks   e2e/lifts-smoke.mjs     (v0.18.3: the Stairs library's Lift + L tiles, Lift stops
                      #                                       (+ undo / redo), Room X moves both shafts (+ one undo),
                      #                                       Check's "No lift stops at Floor 2" / "don't line up", the L's
                      #                                       mesh, Stairs shape + undo, Plan view's L; viewer: the lifts,
                      #                                       Find's lifts, the floor panel, a ride, a route + Take me there
-                     #                                       by lift, walking up an L with W; PART=viewer: only the viewer)
+                     #                                       by lift, walking up an L with W; review: L stairs over a shaft
+                     #                                       = the Hall's, "Lift" labels (2D + Plan), first person in the
+                     #                                       car; PART=viewer: only the viewer)
 npm run e2e:stability # 12 checks e2e/stability-smoke.mjs (v0.18.2: a library drop over Reset view places nothing, on
                      #                                       the floor one; right / middle presses neither select nor place
                      #                                       the armed stairs; the wheel over a panel / over the view; a
@@ -500,7 +502,15 @@ private-docs/V0.18.3_PLAN.md (the plan + the decisions taken overnight). Old bui
   for every lift, shown with their shaft room's node; not pickable, no collisions. **The car waits on every floor**
   (no travelling car): `engine.liftHere()` (standing in a car) → LayoutViewer's `[data-lift-panel]` (role group,
   aria-label "Lift: choose a floor", buttons `data-lift-floor`), `engine.rideLift(floor)` = the same spot of the
-  car on that floor (`setPose`), the 'lift' event.
+  car on that floor (`setPose`), the 'lift' event. **In the car the view is first person** (playController
+  `liftView`: standing, not flying, in a LIFT room; your character hidden, V unchanged; `isLiftView()`, also on
+  WalkthroughSystem); `roomHere` lets a smaller room you step into (the car in a hall) win over the sticky outer room.
+- **Stairs never belong to a lift shaft** (`stairFit.stairRoomAt`: the innermost room that is not a LIFT; stairFit,
+  stairSpots, Check / Fix it, Studio's placement `roomId`): stairs over a shaft belong to the hall, the shaft is a room
+  in their way ("The stairs run into Lift shaft 1") and the nearest spot is beside it.
+- **Labels:** a LIFT room's label is "Lift" + `ROOM_ICONS.LIFT` (`[data-room-label-kind=lift]`, Plan
+  `[data-plan-label-kind=lift]`); a room with rooms inside it puts its label at `geometry.labelSpot` (the free spot
+  nearest its middle, `LABEL_CLEAR` 0.3 m from them; Plan: `planMath.planRoomLabel`, `data-plan-label-moved`).
 - **Routes:** `route.floorLinks` adds `kind: 'lift'` links between every two served floors (`length` 0,
   `seconds` = the ride, `cost` = its walking equivalent); `findRoute` adds the ride to `seconds`,
   `findNearestRoute` compares by seconds. `stairsAtEnd.kind = 'lift'`. NavigationSystem's pilot rides it at the
@@ -1929,8 +1939,7 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 ## Known limitations
 
 - A staircase is one straight flight (1.2 × 4.0 m) or an L (3.2 × 3.2 m, v0.18.3); no U-shaped flights. The car of a
-  lift waits on every floor (no travelling car to call); in third person inside the small car the camera is close
-  to your head. Live people don't ride lifts (they jump floors).
+  lift waits on every floor (no travelling car to call); the car is seen in first person (v0.18.3 review). Live people don't ride lifts (they jump floors).
 - A straight flight is always 4.0 m long: on tall floors the steps get short and the flight steep; over
   6.3 m (walls go up to 15 m) it is very steep and the hints say so. A proper fix (landings / U-shaped flights) is not done.
   A staircase turned 45° cuts a square opening. Stairs can't be resized anywhere (v0.14.5; an old save's scale stays until "Normal size").
