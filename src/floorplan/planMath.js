@@ -45,6 +45,13 @@ export function toWorld(q) {
   return { x: q.x, z: -q.y };
 }
 
+/** v0.18.5: the world point in the middle of the Plan as shown (zoomViewBox's view), or null. */
+export function planViewCentre(view) {
+  if (!view) return null;
+  const c = toWorld({ x: view.x + view.width / 2, y: view.y + view.height / 2 });
+  return { x: c.x + 0, z: c.z + 0 }; // never −0
+}
+
 /**
  * A pointer position → world, through the SVG's inverse screen matrix
  * (svg.getScreenCTM().inverse(): { a, b, c, d, e, f }).

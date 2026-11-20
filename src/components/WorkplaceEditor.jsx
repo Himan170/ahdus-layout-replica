@@ -834,9 +834,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   }, [handleStartPlacement, handleSetPlannerTool]); // the library stays open
 
   // ─── The library: drag a tile onto the floor, click = the middle (hooks/useLibraryDrop.js) ───
+  const planCentreRef = useRef(null); // v0.18.5: the middle of the Plan while it is shown (FloorPlanView)
   const libraryDrop = useLibraryDrop({
     sceneRef, cameraRef, canvasRef, placementManagerRef, editor, placeObject, snapRef,
-    showStudioMessage, handleSetPlannerTool, handleStartPlacement,
+    showStudioMessage, handleSetPlannerTool, handleStartPlacement, planCentreRef,
   });
   const [templateAsk, setTemplateAsk] = useState(null); // a template whose "replace this layout?" is open
   const handleUseTemplate = useCallback(() => {
@@ -1692,6 +1693,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               onSelectObjects={(ids) => storeActions.setObjectSelection(ids)}
               onMoveGroup={(dx, dz) => { groupActions.move(dx, dz); editor.endBurst(); }}
               onPointerWorld={(p) => { planPointerRef.current = p; }}
+              onViewCentre={(c) => { planCentreRef.current = c; }}
               onSelectRoom={(id) => {
                 storeActions.selectRoom(id);
                 storeActions.selectObject(null);
