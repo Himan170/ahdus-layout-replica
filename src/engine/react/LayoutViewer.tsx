@@ -63,7 +63,7 @@
  * while another box shows. A phone: buttons 44 px high, one row. Name tags stay under every panel and menu.
  */
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import { LayoutEngine } from '../LayoutEngine';
@@ -88,6 +88,7 @@ import { WelcomeCard, WeakDeviceNote } from './WelcomeCard';
 import { tourDetail } from './PlaceSearch';
 import { chooseStart, readStartMode, rememberStartMode } from '../startMode';
 import { storedLowGraphics, storeLowGraphics } from '../../play/quality';
+import { AVOID_STAIRS_LABEL, AVOID_STAIRS_NOTE, storedAvoidStairs, storeAvoidStairs } from '../../play/navigation/avoidStairs';
 import type { StartMode, StartChoice, StartReason, WeakKind } from '../startMode';
 import { ClickHint } from './ClickHint';
 import type { ClickHintData } from './ClickHint';
@@ -170,6 +171,13 @@ export interface LayoutViewerProps {
    * viewer only shows the switch; `hidden` is the page's, `onChange` asks it to change. Not given: no switch.
    */
   hideMe?: { hidden: boolean; onChange: (hidden: boolean) => void } | null;
+  /**
+   * v0.18.4: "Avoid stairs (use lifts)" (More, Take me there's card): routes, Take me there, the tour and My desk go
+   * between floors by lift only. Given: the page's value (it wins over the browser's, and a change applies); not given:
+   * what this browser last chose (localStorage `ahdus.avoidStairs`). onAvoidStairsChange: the viewer's switch was used.
+   */
+  avoidStairs?: boolean;
+  onAvoidStairsChange?: (on: boolean) => void;
   className?: string;
   style?: CSSProperties;
 }
@@ -333,6 +341,22 @@ export function LayoutViewer(props: LayoutViewerProps) {
   useEffect(() => {
     engine?.setLowGraphics(lowGraphics);
   }, [engine, lowGraphics]);
+  // v0.18.4: "Avoid stairs (use lifts)": the page's value, else this browser's last choice
+  const avoidProp = props.avoidStairs;
+  const [avoidStairs, setAvoidStairsState] = useState(() => (typeof avoidProp === 'boolean' ? avoidProp : storedAvoidStairs()));
+  useEffect(() => {
+    if (typeof avoidProp === 'boolean') setAvoidStairsState(avoidProp);
+  }, [avoidProp]);
+  useEffect(() => {
+    engine?.navigation.setAvoidStairs(avoidStairs);
+  }, [engine, avoidStairs]);
+  const onAvoidRef = useRef(props.onAvoidStairsChange);
+  onAvoidRef.current = props.onAvoidStairsChange;
+  const changeAvoidStairs = useCallback((on: boolean) => {
+    storeAvoidStairs(on);
+    setAvoidStairsState(on);
+    onAvoidRef.current?.(on);
+  }, []);
   const [hint, setHint] = useState<'shown' | 'fading' | null>(null);
   // the Find box is open: the one-time hint waits under it (v0.14.2)
   const [findOpen, setFindOpen] = useState(false);
@@ -952,6 +976,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
   ) : null;
   // More (v0.17.1): Back to entrance, the company tour, the help, Low graphics, Hide me
   const hideMe = props.hideMe ?? null;
+  // v0.18.4: offered only where there is more than one floor
+  const offerAvoid = !!engine?.navigation.multiStorey;
   // the welcome card's tour button: its size ('' = a layout with no tour stops: no button)
   const welcomeTourDetail = (() => {
     if (!tour || !engine || !welcome) return '';
@@ -1041,6 +1067,17 @@ export function LayoutViewer(props: LayoutViewerProps) {
             <span style={styles.menuNote}>Simpler look, smoother on slow devices</span>
           </span>
           <span aria-hidden style={{ ...styles.switch, ...(lowGraphics ? styles.switchOn : null) }}>{lowGraphics ? 'On' : 'Off'}</span>
+        </button>
+      )}
+      {offerAvoid && (
+        <button type="button" role="menuitemcheckbox" aria-checked={avoidStairs} data-more-item="avoid-stairs"
+          data-avoid-stairs={avoidStairs ? 'on' : 'off'} aria-label={`${AVOID_STAIRS_LABEL}: ${AVOID_STAIRS_NOTE}`}
+          style={styles.menuItem} onClick={() => changeAvoidStairs(!avoidStairs)}>
+          <span style={styles.menuText}>
+            <span style={styles.menuLabel}>{AVOID_STAIRS_LABEL}</span>
+            <span style={styles.menuNote}>{AVOID_STAIRS_NOTE}</span>
+          </span>
+          <span aria-hidden style={{ ...styles.switch, ...(avoidStairs ? styles.switchOn : null) }}>{avoidStairs ? 'On' : 'Off'}</span>
         </button>
       )}
       {hideMe && (
@@ -1177,7 +1214,8 @@ export function LayoutViewer(props: LayoutViewerProps) {
                 departments={departments} me={me == null ? null : String(me)} onOpenChange={setFindOpen}
                 tour={false} after={after} rowStyle={rowStyle} buttonStyle={buttonStyle}
                 onBoxChange={setStrip} quiet={helpOpen || moreOpen} endExtra={navEnd ? hudLine : null}
-                dismissRequest={dismissRequest} focusView={focusView}>{keysState}</PlaceSearch>
+                dismissRequest={dismissRequest} focusView={focusView}
+                avoidStairs={offerAvoid ? avoidStairs : undefined} onAvoidStairs={changeAvoidStairs}>{keysState}</PlaceSearch>
               {moreMenu}
               {help}
             </div>

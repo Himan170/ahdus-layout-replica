@@ -37,6 +37,7 @@ import type { LayoutEngine } from '../LayoutEngine';
 import type { BrowseMenu, PlaceResult, SearchGroups, ShowResult, NavigationEvent, WalkMode } from '../systems/NavigationSystem';
 import { addRecent, RECENT_MAX } from '../../play/navigation/browse';
 import { isCommitEnter, isComposing } from '../../utils/keys';
+import { AVOID_STAIRS_LABEL, STAIRS_ONLY_NOTE, USE_STAIRS_LABEL, needsStairs } from '../../play/navigation/avoidStairs';
 
 const GROUP_TITLES = { people: 'People', rooms: 'Rooms', facilities: 'Facilities' } as const;
 export const SEARCH_LABEL = 'Find a person, room or place';
@@ -81,6 +82,12 @@ export interface PlaceSearchProps {
   endExtra?: ReactNode;
   /** v0.17.1: each new number closes a place found and a route's end (a person's card took their place). */
   dismissRequest?: number;
+  /**
+   * v0.18.4: "Avoid stairs (use lifts)": on / off (the card's switch, Find's "Stairs only" notes); undefined = not
+   * offered (one floor). onAvoidStairs asks the viewer to change it (it remembers it and tells the engine).
+   */
+  avoidStairs?: boolean;
+  onAvoidStairs?: (on: boolean) => void;
 }
 
 export type StripBox = 'shown' | 'going' | 'arrived' | 'failed';
@@ -231,7 +238,7 @@ function saveRecent(ids: string[]): void {
 
 export function PlaceSearch({
   engine, walking, people, departments, me = null, children, focusView, touch = false, onOpenChange, tour: offerTour = true, onStartTour, after,
-  openRequest = 0, rowStyle, buttonStyle, onBoxChange, quiet = false, endExtra, dismissRequest = 0,
+  openRequest = 0, rowStyle, buttonStyle, onBoxChange, quiet = false, endExtra, dismissRequest = 0, avoidStairs, onAvoidStairs,
 }: PlaceSearchProps) {
   const touchRef = useRef(touch);
   touchRef.current = touch;
@@ -243,7 +250,8 @@ export function PlaceSearch({
   const [recent, setRecent] = useState<string[]>(readRecent);
   // after the menu changes, the entry to choose (the one opened, when going back)
   const chooseRef = useRef<string | null>(null);
-  const [shown, setShown] = useState<(ShowResult & { nearest?: string }) | null>(null);
+  // stairs: "Use the stairs this time" (v0.18.4): this place's walk may use them though "Avoid stairs" is on
+  const [shown, setShown] = useState<(ShowResult & { nearest?: string; stairs?: boolean }) | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -286,14 +294,14 @@ export function PlaceSearch({
     // for tests and the curious: how long the last search took
     queueMicrotask(() => panelRef.current?.setAttribute('data-search-ms', ms.toFixed(2)));
     return r;
-    // walking changes "nearest first"; people change who can be found
-  }, [engine, open, query, typed, walking, people]);
+    // walking changes "nearest first"; people change who can be found; avoidStairs the "Stairs only" notes
+  }, [engine, open, query, typed, walking, people, avoidStairs]);
 
   // The browse menu (the box empty): made when it opens, and when what it shows changes
   const menu: BrowseMenu | null = useMemo(() => {
     if (!engine || !open || typed) return null;
     return engine.navigation.browse({ recent });
-  }, [engine, open, typed, walking, people, departments, me, recent]);
+  }, [engine, open, typed, walking, people, departments, me, recent, avoidStairs]);
   // the tour's entry (not while a tour runs: its panel is open)
   const [touring, setTouring] = useState(false);
   useEffect(() => {
@@ -405,7 +413,7 @@ export function PlaceSearch({
   const go = (walk: WalkMode) => {
     if (!engine || !shown) return;
     const target = shown.nearest && shown.place.facility ? `nearest:${shown.place.facility}` : shown.place.id;
-    const r = engine.navigation.routeTo(target, { walk });
+    const r = engine.navigation.routeTo(target, { walk, stairs: !!shown.stairs });
     if (r.problem) {
       setShown({ ...shown, problem: r.problem, message: r.message });
       return;
@@ -416,6 +424,28 @@ export function PlaceSearch({
   const stopRoute = () => {
     engine?.navigation.stop();
     setNav(null);
+  };
+
+  /** v0.18.4: the card's "Avoid stairs (use lifts)" switch: the place shown again with the new rule. */
+  const toggleAvoid = () => {
+    if (!engine || !shown) return;
+    const on = !avoidStairs;
+    engine.navigation.setAvoidStairs(on); // now, so the card below is worked out with it (the viewer does it too)
+    onAvoidStairs?.(on);
+    const r = engine.navigation.show(shown.place.id, { animate: false });
+    if (r) setShown({ ...r, nearest: shown.nearest });
+  };
+  /** v0.18.4: "Use the stairs this time": on the card (walking: shown again with its walk), or after a failed route. */
+  const useStairs = () => {
+    if (!engine) return;
+    if (nav && nav.state === 'failed') {
+      const r = engine.navigation.routeTo(nav.place.id, { walk: nav.walk, stairs: true });
+      if (!r.problem) focusView?.();
+      return;
+    }
+    if (!shown) return;
+    const r = engine.navigation.show(shown.place.id, { animate: false, stairs: true });
+    if (r) setShown({ ...r, nearest: shown.nearest, stairs: true });
   };
   const closeNav = () => {
     engine?.navigation.clear();
@@ -520,6 +550,7 @@ export function PlaceSearch({
         style={{ ...styles.option, ...(on ? styles.optionOn : null) }}>
         <span style={styles.name}>{entry.name ?? entry.place.name}</span>
         <span style={styles.detail}>{entry.detail ?? entry.place.detail}</span>
+        {entry.place.stairsOnly && <StairsOnly />}
       </div>
     );
   };
@@ -615,6 +646,7 @@ export function PlaceSearch({
                       >
                         <span style={styles.name}>{p.name}</span>
                         <span style={styles.detail}>{p.detail}</span>
+                        {p.stairsOnly && <StairsOnly />}
                       </div>
                     );
                   })}
@@ -656,6 +688,18 @@ export function PlaceSearch({
                 {walkLine(shown)}
               </span>
             )}
+            {needsStairs(shown.problem) && (
+              <div style={styles.actions}>
+                <button type="button" data-use-stairs style={styles.secondary} onClick={useStairs}>{USE_STAIRS_LABEL}</button>
+              </div>
+            )}
+            {avoidStairs !== undefined && (
+              <button type="button" role="switch" aria-checked={avoidStairs} data-avoid-stairs={avoidStairs ? 'on' : 'off'}
+                style={styles.avoid} onClick={toggleAvoid}>
+                <span aria-hidden style={{ ...styles.avoidBox, ...(avoidStairs ? styles.avoidBoxOn : null) }}>{avoidStairs ? '✓' : ''}</span>
+                {AVOID_STAIRS_LABEL}
+              </button>
+            )}
             {!shown.problem && (
               <div style={styles.actions}>
                 <button type="button" data-route="guide" style={styles.secondary} onClick={() => go('guide')}
@@ -695,6 +739,11 @@ export function PlaceSearch({
               <>
                 <span style={styles.name}>{nav.place.name}</span>
                 <span data-nav-problem style={styles.problem}>{nav.message ?? 'The route stopped'}</span>
+                {needsStairs(nav.problem) && (
+                  <div style={styles.actions}>
+                    <button type="button" data-use-stairs style={styles.secondary} onClick={useStairs}>{USE_STAIRS_LABEL}</button>
+                  </div>
+                )}
               </>
             )}
             {(nav.state === 'started' || nav.state === 'progress') && (
@@ -854,6 +903,20 @@ const styles: Record<string, CSSProperties> = {
   },
   kbd: { border: `1px solid ${C.border}`, borderRadius: 4, padding: '0 5px', background: '#fff', font: `600 12px/1.4 ${C.font}` },
   stripFailed: { borderLeft: `4px solid ${C.danger}` },
+  // v0.18.4: "Avoid stairs (use lifts)" on the card; Find's "Stairs only"
+  avoid: {
+    display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, padding: 0, border: 0, background: 'none', color: C.text,
+    font: `13px/1.3 ${C.font}`, cursor: 'pointer', textAlign: 'left',
+  },
+  avoidBox: {
+    flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, boxSizing: 'border-box',
+    borderWidth: 1.5, borderStyle: 'solid', borderColor: C.border, borderRadius: 4, background: '#fff', color: '#fff', font: `700 12px/1 ${C.font}`,
+  },
+  avoidBoxOn: { background: C.accent, borderColor: C.accent },
+  stairsOnly: {
+    display: 'inline-block', alignSelf: 'flex-start', marginTop: 3, padding: '1px 7px', borderRadius: 999, background: C.hover, color: C.muted,
+    font: `600 11px/1.5 ${C.font}`,
+  },
   tourRow: { borderBottom: `1px solid ${C.border}` },
   tourIcon: {
     flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28,
@@ -864,6 +927,11 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: 'nowrap', border: 0,
   },
 };
+
+/** v0.18.4: Find's note on a place only the stairs reach while "Avoid stairs" is on. */
+function StairsOnly() {
+  return <span data-stairs-only style={styles.stairsOnly}>{STAIRS_ONLY_NOTE}<span style={styles.srOnly}>: no lift goes there</span></span>;
+}
 
 export default PlaceSearch;
 
