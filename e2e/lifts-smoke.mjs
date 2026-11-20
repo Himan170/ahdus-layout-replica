@@ -3,7 +3,9 @@
 // step); Check my layout says which floor no lift stops at; an L staircase placed from the library (its own shape
 // drawn), its Inspector's Shape (one undo step), Plan view draws the L. viewer.html: the lift's floor panel inside
 // the car (a click rides there), Find's lift, Take me there to a floor only the lift reaches (rides it), and a walk up
-// an L staircase (on the drawn tread on every frame, then on the floor above).
+// an L staircase (on the drawn tread on every frame, then on the floor above). After the review: L stairs dropped
+// over a lift shaft belong to the Hall (beside the shaft), the shaft's label "Lift" + icon with the Hall's beside it
+// (2D and Plan view), first person inside the car.
 //
 // One-time setup:   npx playwright install chromium
 // Run:              npm run dev            (in one terminal)
@@ -178,12 +180,21 @@ if (!VIEWER_ONLY) try {
   if (!(await page.locator(lib).isVisible().catch(() => false))) await page.click('[aria-label="Stairs"]');
   await page.click(`${lib} .lib-tile:has(.lib-tile__name:text-is("L-shaped stairs, turns right"))`);
   await frames(4);
-  // (placed in the middle of the view, where the lift is: moved aside, clear of it)
-  await store(() => {
-    const st = window.__ahdusStore.getState();
-    const s = Object.values(st.objects).find((o) => o.assetType === 'STAIRCASE');
-    if (s) st.updateObject(s.id, { x: -4, z: 0 });
-  });
+  // (placed in the middle of the view, which is where the lift shaft is: the stairs belong to the Hall around it,
+  // never to the shaft, and go to the nearest spot in the Hall that works, clear of the shaft)
+  {
+    const placed = await store(() => {
+      const st = window.__ahdusStore.getState();
+      const s = Object.values(st.objects).find((o) => o.assetType === 'STAIRCASE');
+      const lift = Object.values(st.rooms).find((r) => r.type === 'LIFT' && r.floor === 0);
+      return s && { x: s.x, z: s.z, room: st.rooms[s.roomId]?.name ?? null, lift: { x: lift.x, z: lift.z, w: lift.width, d: lift.depth } };
+    });
+    const footer = (await page.locator('[data-studio="hint"]').textContent().catch(() => '')) ?? '';
+    // the L's 3.2 m box clear of the shaft's rectangle
+    const clear = placed && (Math.abs(placed.x - placed.lift.x) >= 1.6 + placed.lift.w / 2 - 0.01 || Math.abs(placed.z - placed.lift.z) >= 1.6 + placed.lift.d / 2 - 0.01);
+    log('L stairs dropped over the lift shaft: placed in the Hall, beside the shaft, no "Lift shaft" in the message',
+      placed?.room === 'Hall' && clear && !/Lift shaft/.test(footer), `${JSON.stringify(placed)} | "${footer.replace(/s+/g, ' ').slice(0, 120)}"`);
+  }
   await frames(3);
   const stairs = () => store(() => Object.values(window.__ahdusStore.getState().objects).filter((o) => o.assetType === 'STAIRCASE')
     .map((o) => ({ id: o.id, shape: o.metadata?.stairShape ?? 'straight', variant: window.__ahdusScene.getTransformNodeByName?.('item_' + o.id)?.metadata?.variant ?? null })));
@@ -195,6 +206,22 @@ if (!VIEWER_ONLY) try {
   }, id);
   await frames(3);
   log('  drawn as an L (its own template: "L-right@3.5")', (await meshShape(S[0].id)) === 'L-right@3.5', await meshShape(S[0].id));
+  // the lift shaft's own label ("Lift" + its icon); the Hall's label beside it, not on it (both shown, apart)
+  {
+    await store(() => window.__ahdusStore.getState().selectObject(null));
+    await frames(4);
+    const boxes = await page.evaluate(() => {
+      const rect = (el) => { const r = el?.getBoundingClientRect(); return el && el.style.visibility === 'visible' ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
+      const st = window.__ahdusStore.getState();
+      const id = (pred) => Object.values(st.rooms).find((r) => r.floor === 0 && pred(r))?.id;
+      const lift = document.querySelector(`.room-label[data-room-id="${id((r) => r.type === 'LIFT')}"]`);
+      const hallEl = document.querySelector(`.room-label[data-room-id="${id((r) => r.name === 'Hall')}"]`);
+      return { lift: rect(lift), liftText: lift?.textContent.trim(), icon: !!lift?.querySelector('svg'), kind: lift?.dataset.roomLabelKind ?? null, hall: rect(hallEl) };
+    });
+    const apart = boxes.lift && boxes.hall && (boxes.lift.r <= boxes.hall.l || boxes.hall.r <= boxes.lift.l || boxes.lift.b <= boxes.hall.t || boxes.hall.b <= boxes.lift.t);
+    log('2D: the lift shaft is labelled "Lift" with an icon; the Hall label is shown beside it, not on it',
+      boxes.liftText === 'Lift' && boxes.icon && boxes.kind === 'lift' && apart, JSON.stringify(boxes));
+  }
   await shot('studio-l-stairs.png');
   // its Inspector: Shape
   await store((id) => { const st = window.__ahdusStore.getState(); st.selectRoom(null); st.selectObject(id); }, S[0].id);
@@ -222,6 +249,19 @@ if (!VIEWER_ONLY) try {
   await page.click('[aria-label="Plan view"]');
   await page.waitForSelector('[data-plan-stairs-shape]', { timeout: 30000 });
   log('Plan view draws the L staircase (its two flights and the landing)', (await page.locator('[data-plan-stairs-shape] rect').count()) === 3);
+  {
+    const plan = await page.evaluate(() => {
+      const st = window.__ahdusStore.getState();
+      const id = (pred) => Object.values(st.rooms).find((r) => r.floor === 0 && pred(r))?.id;
+      const box = (el) => { const r = el?.getBoundingClientRect(); return r && { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+      const lift = document.querySelector(`[data-plan-label="${id((r) => r.type === 'LIFT')}"]`);
+      const hallEl = document.querySelector(`[data-plan-label="${id((r) => r.name === 'Hall')}"]`);
+      return { lift: box(lift), liftText: lift?.querySelector('text')?.textContent, icon: !!lift?.querySelector('[data-plan-label-icon] svg'),
+        hall: box(hallEl), moved: hallEl?.hasAttribute('data-plan-label-moved') };
+    });
+    const apart = plan.lift && plan.hall && (plan.lift.r <= plan.hall.l || plan.hall.r <= plan.lift.l || plan.lift.b <= plan.hall.t || plan.hall.b <= plan.lift.t);
+    log('Plan view: "Lift" with its icon on the shaft; the Hall name moved beside it', plan.liftText === 'Lift' && plan.icon && plan.moved && apart, JSON.stringify(plan));
+  }
   await shot('studio-plan-l-stairs.png');
   await page.click('[aria-label="3D view"]');
   await frames(3);
@@ -288,6 +328,11 @@ try {
   await page.waitForSelector('[data-lift-panel]', { timeout: 30000 });
   const buttons = await page.$$eval('[data-lift-floor]', (els) => els.map((e) => `${e.textContent.trim()}${e.getAttribute('aria-pressed') === 'true' ? '*' : ''}`));
   log('in the lift car: "Lift" and a button per floor, this one pressed', buttons.length === 3 && buttons[0] === 'Ground Floor*', buttons.join(' · '));
+  const carView = await page.evaluate(() => {
+    const w = window.__ahdusViewer.walkthrough; const c = window.__ahdusViewer.scene.activeCamera.globalPosition; const p = w.getPosition();
+    return { lift: w.isLiftView(), away: +Math.hypot(c.x - p.x, c.z - p.z).toFixed(2) };
+  });
+  log('in the car the view is first person (your own head never fills it)', carView.lift && carView.away < 0.3, JSON.stringify(carView));
   await shot('viewer-lift-panel.png');
   const events = await page.evaluate(() => { window.__liftEvents = []; window.__ahdusViewer.on('lift', (e) => window.__liftEvents.push(e)); return true; });
   await page.click('[data-lift-floor="2"]');
@@ -297,6 +342,10 @@ try {
   log('a click on Floor 2 rides there: same spot in the car, on Floor 2 (a "lift" event)',
     events && up.floor === 2 && Math.abs(up.y - 7) < 0.2 && Math.hypot(up.x - 8, up.z - 4.2) < 0.3 && ev.length === 1 && ev[0].to === 2, `${JSON.stringify(up)} ${JSON.stringify(ev)}`);
   await shot('viewer-lift-floor-2.png');
+  await page.evaluate(() => window.__ahdusViewer.walkthrough.setPose({ x: 8, z: 1, yaw: Math.PI, pitch: -0.1, floor: 2, fly: false }));
+  await frames(4);
+  const outView = await page.evaluate(() => window.__ahdusViewer.walkthrough.isLiftView());
+  log('  stepped out of the car: the usual view again', outView === false);
 
   // Take me there to Floor 2 (only the lift goes there) from the entrance
   await page.evaluate(() => window.__ahdusViewer.walkthrough.setPose({ x: 0, z: -6, yaw: 0, pitch: -0.1, floor: 0, fly: false }));
