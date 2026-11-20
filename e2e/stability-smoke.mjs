@@ -8,6 +8,8 @@
 //   6 a drag whose pointer is cancelled leaves the layout and undo alone, and the camera works again
 //   7 the hidden selection bar's buttons are not in the Tab order
 //   8 1024 × 768 with the library and the Inspector open: every canvas control is visible and clickable
+//   9 v0.18.5: 601–1023 px wide (panels closed, then the library and the Inspector open; the header with a Publish
+//     button as in AHDUS): nothing is wider than the window, so the page never scrolls sideways
 // Needs `npm run dev`. SHOTS=<dir>: screenshots.
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
@@ -284,6 +286,52 @@ try {
     `canvas ${covered.card} px wide; ${covered.out.join(' | ') || 'all clear'}`);
   await page.click('[aria-label="Furniture"]');
   await page.evaluate(() => window.__ahdusStore.getState().selectRoom(null));
+
+  // ── 9. v0.18.5: narrower than 1024 px, nothing sticks out sideways ──
+  // AHDUS's header also has Publish: a copy of Walk through stands in for it (local Studio has none)
+  await page.evaluate(() => {
+    const walk = document.querySelector('.ahdus-header__walk');
+    if (!walk || document.querySelector('.publish-btn')) return;
+    const pub = walk.cloneNode(true);
+    pub.className = 'ui-btn publish-btn is-primary';
+    pub.removeAttribute('aria-label');
+    pub.textContent = 'Publish';
+    pub.setAttribute('data-e2e-publish', '');
+    walk.after(pub);
+  });
+  const wide = () => page.evaluate(() => {
+    const out = [];
+    const doc = document.documentElement;
+    if (doc.scrollWidth > innerWidth + 1) out.push(`page ${doc.scrollWidth} px`);
+    for (const sel of ['.studio', '.studio-header']) {
+      const el = document.querySelector(sel);
+      if (el && el.scrollWidth > el.clientWidth + 1) out.push(`${sel} ${el.scrollWidth} > ${el.clientWidth} px`);
+    }
+    for (const el of document.querySelectorAll('.studio *')) {
+      const r = el.getBoundingClientRect();
+      if (!r.width || r.right <= innerWidth + 1 || getComputedStyle(el).visibility === 'hidden') continue;
+      if (el.closest('.ui-pop, [role="dialog"], [data-hidden="true"]')) continue;
+      out.push(`${el.getAttribute('aria-label') ?? ((el.getAttribute('class') ?? '').split(' ')[0] || el.tagName)} to ${Math.round(r.right)} px`);
+      if (out.length > 6) break;
+    }
+    return out;
+  });
+  const narrow = [];
+  for (const width of [1023, 900, 800, 700, 601]) {
+    await page.setViewportSize({ width, height: 768 });
+    await wait(500); await frames(2);
+    const closed = await wide();
+    await page.evaluate((id) => window.__ahdusStore.getState().selectRoom(id), ids.room);
+    await page.click('[aria-label="Furniture"]');
+    await wait(500); await frames(2);
+    const open = await wide();
+    if (SHOTS && width === 800) await page.screenshot({ path: `${SHOTS}/800-panels-open.png` });
+    await page.click('[aria-label="Furniture"]');
+    await page.evaluate(() => window.__ahdusStore.getState().selectRoom(null));
+    if (closed.length || open.length) narrow.push(`${width}: ${[...closed, ...open.map((t) => `(open) ${t}`)].join(', ')}`);
+  }
+  log('601–1023 px wide, panels closed or open, Publish in the header: nothing sticks out sideways', narrow.length === 0, narrow.join(' | ') || 'all fit');
+  await page.evaluate(() => document.querySelector('[data-e2e-publish]')?.remove());
 
   // ── 3. Phone: More → Settings, Esc ──
   await page.setViewportSize({ width: 390, height: 490 });

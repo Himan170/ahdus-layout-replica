@@ -109,7 +109,10 @@ function PublishButton({ state, busy, onPublish, short = false }) {
       onClick={onPublish}
     >
       {!published && <Send size={16} strokeWidth={1.75} aria-hidden />}
-      {busy ? 'Publishing…' : text}
+      {busy ? 'Publishing…' : text === 'Publish changes'
+        // v0.18.5: a narrow window shows "Publish" (the dot says there are changes; the name stays "Publish changes")
+        ? <><span className="publish-btn__long">Publish changes</span><span className="publish-btn__short">Publish</span></>
+        : text}
       {dot && !busy && <span className="publish-btn__dot" aria-hidden title="The draft is newer than what employees see" />}
     </button>
   );
@@ -382,8 +385,8 @@ export default function StudioHeader(props) {
           <span className="ahdus-header__brand-text">{siteName ? 'AHDUS' : allLayoutsLabel}</span>
         </button>
         <span className="studio-header__crumb ahdus-header__crumb" aria-hidden>/</span>
-        <span className="studio-header__crumb ahdus-header__crumb">Workplace Studio</span>
-        <span className="studio-header__crumb ahdus-header__crumb" aria-hidden>/</span>
+        <span className="studio-header__crumb ahdus-header__crumb ahdus-header__crumb--app">Workplace Studio</span>
+        <span className="studio-header__crumb ahdus-header__crumb ahdus-header__crumb--app" aria-hidden>/</span>
         <LayoutName name={layoutName || 'Untitled layout'} onRename={onRenameLayout} site={siteName} />
       </div>
 
@@ -400,7 +403,7 @@ export default function StudioHeader(props) {
         </div>
         {onPreview && (
           <button className="ui-btn ahdus-header__walk" aria-label="Walk through" title="Walk through your workplace (Tab)" onClick={onPreview}>
-            <Play size={16} strokeWidth={1.75} aria-hidden /> Walk through
+            <Play size={16} strokeWidth={1.75} aria-hidden /> <span className="ahdus-header__walk-text">Walk through</span>
           </button>
         )}
         {onPublish && <PublishButton state={publishState} busy={publishing} onPublish={onPublish} />}

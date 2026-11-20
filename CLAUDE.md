@@ -75,12 +75,14 @@ npm run e2e:measurements # 23   e2e/measurements-smoke.mjs (off at start, the Me
 npm run e2e:templates # 9 checks  e2e/templates-smoke.mjs (new layout from a template: small office, clinic, factory floor)
 npm run e2e:save     # 30 checks   e2e/save-smoke.mjs      (auto-save, reopen, version history, old saves, list, delete, export/import,
                      #                                       companies, two tabs on one layout)
-npm run e2e:workstations # 32 checks e2e/workstations-smoke.mjs (v0.18.0: the 8 prefab tiles, a 6-person cluster dropped (one
+npm run e2e:workstations # 42 checks e2e/workstations-smoke.mjs (v0.18.0: the 8 prefab tiles, a 6-person cluster dropped (one
                      #                                       undo), a click = the cluster + Seats 1–6, hover = an amber desk,
                      #                                       Glass keeps ids, Alt+click, Shortcuts, Ungroup, paste = new ids,
                      #                                       the 0.9 m drop hint + Check's aisle warning, a cluster at a door (ONE line) +
                      #                                       Fix it, manager + cabin (Take me there's route to its desk, a click walks in), Floor 1, the hint wraps, people typing,
-                     #                                       an unknown type's box; SHOTS=<dir>: each prefab above + eye level)
+                     #                                       an unknown type's box; v0.18.5: a cabin dragged / turned with its room (one
+                     #                                       undo), a cabin dropped by a wall turned to the floor, Fix it, a tile
+                     #                                       clicked in the Plan; SHOTS=<dir>: each prefab above + eye level)
 npm run e2e:doors    # 24 checks   e2e/doors-smoke.mjs     (v0.18.1: the Doors & windows tiles, a glass door half open in
                      #                                       Studio, a shared door = ONE door, exit from the other room swings out
                      #                                       of it + its sign + one undo, a new Meeting room's first door makes its
@@ -105,12 +107,13 @@ npm run e2e:avoid-stairs # 12     e2e/avoid-stairs-smoke.mjs (v0.18.4, viewer.ht
                      #                                       "No lift goes to Floor 1: …" + Use the stairs this time, the
                      #                                       lift's floor by lift, the tour planned again, the card's switch,
                      #                                       one floor = no switch; SHOTS=<dir>: screenshots)
-npm run e2e:stability # 12 checks e2e/stability-smoke.mjs (v0.18.2: a library drop over Reset view places nothing, on
+npm run e2e:stability # 13 checks e2e/stability-smoke.mjs (v0.18.2: a library drop over Reset view places nothing, on
                      #                                       the floor one; right / middle presses neither select nor place
                      #                                       the armed stairs; the wheel over a panel / over the view; a
                      #                                       cancelled drag; the hidden selection bar out of the Tab order;
                      #                                       Tab from Settings / on the canvas; 1024 × 768 with both panels:
-                     #                                       every canvas control clickable; Esc on a phone: one level)
+                     #                                       every canvas control clickable; v0.18.5: 601–1023 px, panels
+                     #                                       closed or open: nothing sticks out sideways; Esc on a phone: one level)
 npm run e2e:perf     # 29 checks   e2e/perf-smoke.mjs (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
                      #                                       and in viewer.html with the company tour walking / at a stop (TOUR=off skips it);
                      #                                       one room change rebuilds only it + its neighbours; all items
@@ -1032,7 +1035,8 @@ parent ids). Details: `docs/ROOM_FORMAT.md`.
     faces coincide, and it has no roof of its own under an outer room at least as tall (`roofCovered`).
   - **Studio:** drag a selected room's floor (or type its Room X / Z) to move it (`planRoomMove(room, x, z, rooms, objects)`:
     v0.15.1, the rooms inside it (`roomsInside`) and the items standing in it (`itemInRoom`, locked ones too) go along,
-    one `editor.moveRoom` step). This happens only after a 5 px drag, and
+    one `editor.moveRoom` step; v0.18.5: a position wholly outside the room it stands in leaves it, snapping where it
+    lands, and only `roomPlacementBlocker` there can refuse it). This happens only after a 5 px drag, and
     never where an item stands (a click selects what is under the cursor). The Inspector size snaps the edges it
     moves (so it sets x / z too) and keeps inner rooms inside (`planRoomResize`).
 
@@ -2139,12 +2143,22 @@ and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
 
-## IN REVIEW: avoid stairs (use lifts) (v0.18.4, 20 Nov 2026, branch `feature/v0.18.4-avoid-stairs`)
+## IN REVIEW: Studio fixes (v0.18.5, 20 Nov 2026, branch `fix/v0.18.5-studio-fixes`)
+
+Seven Studio bugs, each with a failing-first test (CHANGELOG.md): Fix it after Import (restoreVersion keeps maps by id),
+Layers search with a dot, a cabin's door always leads in (PURE `play/cabinDoor.js`: `cabinDoor`, `doorLeadsIn`,
+`cabinFixes` = Check's Fix it `{ room: { id, patch, rooms, objects } }` through `editor.turnRoom`, `cabinRoomFor` = a
+cabin's group drags / nudges / turns its room), a tile clicked in Plan view lands in the Plan's middle
+(`FloorPlanView onViewCentre`, `placementManager.updateAt`), a nested room leaves its room by X / Z (`planRoomMove`),
+the top bar at 601–1023 px. npm audit fix (Playwright 1.65.1). Known flaky (v0.18.4 too): e2e:nested-rooms "clicking
+the wall the room stands on…" when SwiftShader's adaptive resolution drops to 578 px (its clicks are 0.02 m from a wall).
+
+## DONE: avoid stairs (use lifts) (v0.18.4, 20 Nov 2026, branch `feature/v0.18.4-avoid-stairs`)
 
 "Avoid stairs (use lifts)" in More and Find's card (remembered per browser): routes, Take me there, My desk and the tour
 by lift only, "No lift goes to Floor 2: this route needs the stairs" + Use the stairs this time (never a silent
 fallback), Find's "Stairs only", Check's "Floor 2 has no lift stop" + Fix it, the embed's option (see "Avoid stairs";
-CHANGELOG.md). Screenshots: private-docs/screenshots/v0.18.4/ (not in git). Not pushed until Himan says.
+CHANGELOG.md). Screenshots: private-docs/screenshots/v0.18.4/ (not in git). Merged and tagged v0.18.4.
 
 ## DONE: lifts and L-shaped stairs (v0.18.3, 20 Nov 2026, branch `feature/v0.18.3-lifts-l-stairs`)
 

@@ -19,6 +19,8 @@
  */
 
 import { Color3 } from '@babylonjs/core/Maths/math.color';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Ray } from '@babylonjs/core/Culling/ray';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { buildAssetMesh } from './assetCatalog';
 import { disposeMaterialIfOwned } from './materialLibrary';
@@ -191,9 +193,28 @@ export function createPlacementManager(scene, options = {}) {
   // ── Update ghost position based on current pointer ──
   function updatePointer(pointerX, pointerY) {
     if (!ghostRoot) return;
-
     const wallItem = isWallItem(currentAssetType) && !!getWalls;
-    const pick = raycastSurface(pointerX, pointerY, wallItem);
+    aimAt(raycastSurface(pointerX, pointerY, wallItem), wallItem);
+  }
+
+  /**
+   * v0.18.5: the ghost at a point of the floor being edited, seen from straight above (a library tile
+   * clicked while the Plan is shown: the Plan's middle). A table top there takes it as under the mouse;
+   * nothing picked (the 3D view not drawn yet): on the floor. A wall item hangs on the nearest wall.
+   */
+  function updateAt(x, z) {
+    if (!ghostRoot) return;
+    const wallItem = isWallItem(currentAssetType) && !!getWalls;
+    const floorY = getElevation();
+    const ray = new Ray(new Vector3(x, floorY + 2.6, z), new Vector3(0, -1, 0), 3);
+    const pick = scene.pickWithRay(ray, (mesh) => mesh.isPickable && mesh.isEnabled() && (!pickFilter || pickFilter(mesh)) && (
+      mesh.name === 'ground' || mesh.metadata?.part === 'floor' || !!objectIdOf(mesh)));
+    if (pick?.hit) { aimAt(pick, wallItem); return; }
+    const flat = { hit: true, pickedPoint: new Vector3(x, floorY, z), pickedMesh: { name: 'ground', metadata: null, parent: null }, getNormal: () => ({ y: 1 }) };
+    aimAt(flat, wallItem);
+  }
+
+  function aimAt(pick, wallItem) {
     if (pick?.hit && wallItem) {
       _mounted = mountGhost(pick);
       if (_mounted) {
@@ -362,6 +383,7 @@ export function createPlacementManager(scene, options = {}) {
   return {
     startPlacement,
     updatePointer,
+    updateAt,
     confirmPlacement,
     cancelPlacement,
     getProblem,

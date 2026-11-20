@@ -104,3 +104,56 @@ describe('group actions (v0.15.5)', () => {
     expect(messages.at(-1).text).toMatch(/Nothing copied yet/);
   });
 });
+
+describe('v0.18.5: a private cabin moves and turns with its room', () => {
+  let cabinRoomFor;
+  beforeEach(async () => { ({ cabinRoomFor } = await import('../../play/cabinDoor')); });
+
+  async function placeCabin(at = { x: 0, z: 0, rotationY: 0, floor: 0 }) {
+    const { prefabPlacement } = await import('../../play/prefabDrop');
+    const { prefabById } = await import('../../catalog/manifest');
+    const { ASSET_TYPES } = await import('../../utils/assetCatalog');
+    editor.addRoom({ type: 'OFFICE', name: 'Open Office', x: 0, z: 0, width: 20, depth: 14, floor: 0 });
+    let n = 0;
+    const { room, objects } = prefabPlacement(prefabById('WS_CABIN'), {}, ASSET_TYPES, at, Object.values(S().rooms),
+      { groupId: 'grp_cab', newId: () => `cab_${++n}`, roomId: 'room_cab' });
+    editor.placePrefab({ room, objects, label: 'Add private cabin' });
+    return objects.map((o) => o.id);
+  }
+
+  it('cabinRoomFor: the cabin room of a selected cabin group, else null', async () => {
+    const ids = await placeCabin();
+    expect(cabinRoomFor(S().objects, S().rooms, ids)?.id).toBe('room_cab');
+    expect(cabinRoomFor(S().objects, S().rooms, ids.slice(1))).toBeNull(); // one item of it (Alt+click)
+    const desk = add('DESK_STANDARD', 6, 4);
+    expect(cabinRoomFor(S().objects, S().rooms, [desk])).toBeNull();
+  });
+
+  it('arrow keys move the cabin room and its furniture together, ONE undo step', async () => {
+    const ids = await placeCabin();
+    const before = ids.map((id) => ({ ...S().objects[id] }));
+    S().setObjectSelection(ids);
+    group.move(1, 0);
+    expect(S().rooms.room_cab.x).toBeCloseTo(1);
+    ids.forEach((id, i) => expect(S().objects[id].x).toBeCloseTo(before[i].x + 1));
+    editor.undo();
+    expect(S().rooms.room_cab.x).toBeCloseTo(0);
+    ids.forEach((id, i) => expect(S().objects[id].x).toBeCloseTo(before[i].x));
+  });
+
+  it('R turns the cabin room with its furniture (its door goes round), ONE undo step', async () => {
+    const ids = await placeCabin();
+    S().setObjectSelection(ids);
+    const { width, depth } = S().rooms.room_cab;
+    group.turn();
+    expect(S().rooms.room_cab).toMatchObject({ width: depth, depth: width });
+    expect(S().rooms.room_cab.doors[0].wall).toBe('west');
+    for (const id of ids) {
+      const o = S().objects[id];
+      expect(Math.abs(o.x - S().rooms.room_cab.x)).toBeLessThan(depth / 2);
+      expect(Math.abs(o.z - S().rooms.room_cab.z)).toBeLessThan(width / 2);
+    }
+    editor.undo();
+    expect(S().rooms.room_cab).toMatchObject({ width, depth });
+  });
+});

@@ -27,7 +27,7 @@ import {
   planDrop, itemSize, roomWallPieces, wallSegmentEnds,
   toPlan, screenToWorld, planAngle, planViewBox,
   clampZoom, zoomViewBox, zoomTowards, roomDimensionLines, planRoomLabel,
-  ANCHOR_COLORS, ANCHOR_BADGE_SYMBOLS,
+  ANCHOR_COLORS, ANCHOR_BADGE_SYMBOLS, planViewCentre,
 } from './planMath';
 
 /**
@@ -103,6 +103,7 @@ export default function FloorPlanView({
   onSelectObjects = () => {},  // (ids) => void  Shift+drag a box
   onMoveGroup = () => {},      // (dx, dz) => void   a group dragged (one undo step)
   onPointerWorld = () => {},   // ({ x, z } | null) => void   where the mouse is (Ctrl+V pastes there)
+  onViewCentre = () => {},     // v0.18.5: ({ x, z } | null) => void   the middle of the Plan (a library click lands there)
 }) {
   const svgRef = useRef(null);
 
@@ -164,6 +165,12 @@ export default function FloorPlanView({
     if (!plan?.baseView) return null;
     return zoomViewBox(plan.baseView, zoom, pan);
   }, [plan?.baseView, zoom, pan]);
+
+  // v0.18.5: Studio knows the middle of the Plan as shown (a clicked library tile goes there); none once it closes
+  const viewCentreRef = useRef(onViewCentre);
+  viewCentreRef.current = onViewCentre;
+  useEffect(() => { viewCentreRef.current(planViewCentre(dynamicView)); }, [dynamicView]);
+  useEffect(() => () => viewCentreRef.current(null), []);
 
   // Derived module anchors
   const allAnchors = useMemo(() => {

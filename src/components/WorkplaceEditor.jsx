@@ -834,9 +834,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   }, [handleStartPlacement, handleSetPlannerTool]); // the library stays open
 
   // ─── The library: drag a tile onto the floor, click = the middle (hooks/useLibraryDrop.js) ───
+  const planCentreRef = useRef(null); // v0.18.5: the middle of the Plan while it is shown (FloorPlanView)
   const libraryDrop = useLibraryDrop({
     sceneRef, cameraRef, canvasRef, placementManagerRef, editor, placeObject, snapRef,
-    showStudioMessage, handleSetPlannerTool, handleStartPlacement,
+    showStudioMessage, handleSetPlannerTool, handleStartPlacement, planCentreRef,
   });
   const [templateAsk, setTemplateAsk] = useState(null); // a template whose "replace this layout?" is open
   const handleUseTemplate = useCallback(() => {
@@ -973,6 +974,22 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
         && Math.abs(r.x - shaft.x) < 0.05 && Math.abs(r.z - shaft.z) < 0.05);
       if (added) { st.selectFloor(problem.floorId); st.selectRoom(added.id); }
       showStudioMessage(`${problem.fix.label}: done. Ctrl+Z to undo.`);
+      return;
+    }
+    // v0.18.5: a cabin nobody can walk into: turned, or moved off the wall, with what is in it (one undo step)
+    const cabin = problem?.fix?.room;
+    if (cabin) {
+      if (!editor.turnRoom(cabin.id, { problem: null, ...cabin }, { label: problem.fix.label })) {
+        showStudioMessage("The cabin can't move: it, or something in it, is locked", true);
+        return;
+      }
+      editor.endBurst();
+      checks.run();
+      const st = useWorkspaceStore.getState();
+      st.selectFloor(st.rooms[cabin.id]?.floor ?? problem.floorId);
+      st.selectObject(null);
+      st.selectRoom(cabin.id);
+      showStudioMessage(`${problem.fix.label === 'Turn the cabin' ? 'Turned the cabin' : 'Moved the cabin'} so its door opens onto the floor. Ctrl+Z to undo.`);
       return;
     }
     if (!problem?.fix?.moves?.length) return;
@@ -1676,6 +1693,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               onSelectObjects={(ids) => storeActions.setObjectSelection(ids)}
               onMoveGroup={(dx, dz) => { groupActions.move(dx, dz); editor.endBurst(); }}
               onPointerWorld={(p) => { planPointerRef.current = p; }}
+              onViewCentre={(c) => { planCentreRef.current = c; }}
               onSelectRoom={(id) => {
                 storeActions.selectRoom(id);
                 storeActions.selectObject(null);

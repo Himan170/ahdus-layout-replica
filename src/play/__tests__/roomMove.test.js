@@ -77,3 +77,36 @@ describe('roomsInside / itemInRoom', () => {
     expect(itemInRoom(office, item('b', 5, 0))).toBe(false);
   });
 });
+
+describe('v0.18.5: a room inside another one moves out of it (typing its X / Z, or a drag)', () => {
+  const office = room('office', 0, 0, 12, 10, { wallThickness: 0.15 });
+  const hall = room('hall', 10, 0, 8, 10, { wallThickness: 0.15 }); // back to back with the office (x 6 … 14)
+  const cabin = room('cabin', -3, 2, 3, 3, { wallThickness: 0.15 });
+  const desk = item('desk', -3, 2);
+
+  it('wholly outside the room it stood in: moved, with its items', () => {
+    const plan = planRoomMove(cabin, -10, 2, [office, hall, cabin], [desk]);
+    expect(plan.blocker).toBeNull();
+    expect(plan.rect).toMatchObject({ x: -10, z: 2, width: 3, depth: 3 });
+    expect(plan.objects).toEqual([['desk', { x: -10, z: 2 }]]);
+  });
+
+  it('into another room: it then stands in that one', () => {
+    const plan = planRoomMove(cabin, 10, 1, [office, hall, cabin], [desk]);
+    expect(plan.blocker).toBeNull();
+    expect(plan.rect).toMatchObject({ x: 10, z: 1 });
+  });
+
+  it('back to back with the room it left: snapped onto its wall from outside', () => {
+    const plan = planRoomMove(cabin, 0, -6.6, [office, hall, cabin]);
+    expect(plan.blocker).toBeNull();
+    expect(plan.rect.z + 1.5).toBeCloseTo(-5 - 0.15, 2);
+  });
+
+  it('still refused half through a wall, or onto another room', () => {
+    expect(planRoomMove(cabin, 5.5, 0, [office, hall, cabin]).blocker?.id).toBe('office');
+    expect(planRoomMove(cabin, 6, 0, [office, hall, cabin]).blocker).not.toBeNull();
+    const other = room('other', -12, 2, 4, 4);
+    expect(planRoomMove(cabin, -11, 2, [office, hall, cabin, other]).blocker?.id).toBe('other');
+  });
+});

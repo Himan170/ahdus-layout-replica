@@ -549,6 +549,33 @@ describe('floor and wall heights (one undo step each)', () => {
     expect(rooms()).toHaveLength(1);
     expect(objs()).toHaveLength(0);
   });
+
+  it('v0.18.5: a restored / imported layout keeps rooms and items by id, so Fix it and a Check click work at once', () => {
+    // an exported file (old v1 shape: lists, `floor`), as Import reads it (readLayoutFile = normaliseLayout)
+    const file = {
+      layoutName: 'imported',
+      floors: { 0: { id: 0, name: 'Ground Floor', height: 4.9 }, 1: { id: 1, name: 'Floor 1', height: 4.9 } },
+      rooms: [{ id: 'room_hall', type: 'OFFICE', name: 'Hall', floor: 0, x: 0, z: 0, width: 10, depth: 8, doors: [], windows: [] }],
+      objects: [{ id: 'obj_stairs', assetType: 'STAIRCASE', floor: 0, roomId: 'room_hall', x: 2, y: 0, z: -1, rotationY: 0 }],
+    };
+    editor.restoreVersion(file);
+    expect(S().rooms.room_hall).toMatchObject({ name: 'Hall' });
+    expect(S().objects.obj_stairs).toMatchObject({ assetType: 'STAIRCASE', x: 2 });
+    // Check's Fix it = editor.moveObjects with the item's id
+    editor.moveObjects([['obj_stairs', { x: 3, z: 1 }]], { label: 'Move the stairs' });
+    expect(S().objects.obj_stairs).toMatchObject({ x: 3, z: 1 });
+    // and editing a room by its id
+    editor.updateRoom('room_hall', { name: 'Hall 2' });
+    expect(S().rooms.room_hall.name).toBe('Hall 2');
+    // undo back to the restore, then before it: still keyed by id
+    editor.undo();
+    editor.undo();
+    expect(S().objects.obj_stairs).toMatchObject({ x: 2 });
+    editor.undo();
+    expect(objs()).toHaveLength(0);
+    editor.redo();
+    expect(S().objects.obj_stairs).toMatchObject({ x: 2 });
+  });
 });
 
 describe('a staircase keeps its size, stands on its floor and stays level (v0.14.5)', () => {

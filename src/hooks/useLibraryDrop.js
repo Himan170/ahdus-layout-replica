@@ -5,7 +5,7 @@
  *   - drag a tile (mouse or pen) onto the floor: a dashed footprint with its name and size
  *     follows the pointer (Shift keeps a room square); releasing it there places it; Esc,
  *     or releasing it off the canvas, cancels
- *   - click a tile: it is placed in the middle of the view
+ *   - click a tile: it is placed in the middle of the view (v0.18.5: of the Plan, when the Plan is shown)
  *   - tap a tile (touch): it is picked, and the next tap on the floor places it
  * The existing code does the placing: a room goes through geometry.planRoomAt (snapping and
  * overlaps as when drawing one) and editor.addRoom; an item through the placement manager
@@ -51,9 +51,19 @@ function roomsBelow(st) {
   return below ? Object.values(st.rooms).filter((r) => r.floor === below.id) : null;
 }
 
+/**
+ * v0.18.5: where a clicked tile goes: the middle of the Plan when it is shown ({ world: { x, z } }), else
+ * the middle of the 3D / 2D view in canvas pixels; null when there is neither.
+ */
+export function clickSpot({ canvas, planCentre }) {
+  if (planCentre) return { world: { x: planCentre.x, z: planCentre.z } };
+  if (!canvas) return null;
+  return { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 };
+}
+
 export function useLibraryDrop({
   sceneRef, cameraRef, canvasRef, placementManagerRef, editor, placeObject, snapRef,
-  showStudioMessage, handleSetPlannerTool, handleStartPlacement,
+  showStudioMessage, handleSetPlannerTool, handleStartPlacement, planCentreRef = null,
 }) {
   const [drag, setDrag] = useState(null); // { tile, footprint: { points, centre, valid } | null }
   const press = useRef(null);             // { tile } while a tile is dragged
@@ -69,8 +79,9 @@ export function useLibraryDrop({
     return { x: clientX - r.left, y: clientY - r.top };
   }, [canvasRef]);
 
-  /** The point on the floor being edited under canvas pixels (x, y). */
-  const groundAt = useCallback(({ x, y }) => {
+  /** The point on the floor being edited under canvas pixels (x, y), or the Plan's { world } point. */
+  const groundAt = useCallback(({ x, y, world }) => {
+    if (world) return { x: world.x, z: world.z };
     const scene = sceneRef.current;
     const camera = cameraRef.current;
     if (!scene || !camera) return null;
@@ -102,7 +113,8 @@ export function useLibraryDrop({
     const mgr = placementManagerRef.current;
     if (!mgr) return null;
     if (!mgr.isActive()) mgr.startPlacement(tile.assetType, undefined, tile.metadata ? { metadata: tile.metadata } : undefined);
-    mgr.updatePointer(at.x, at.y);
+    if (at.world) mgr.updateAt(at.world.x, at.world.z);
+    else mgr.updatePointer(at.x, at.y);
     const ghost = mgr.getGhostPosition();
     if (!ghost) return null;
     const problem = mgr.getProblem?.() ?? mgr.getWarning?.() ?? null; // v0.17.4: stairs that don't fit here (they can still drop)
@@ -259,17 +271,17 @@ export function useLibraryDrop({
       if (tile.kind === 'room') {
         handleSetPlannerTool({ kind: 'room', roomType: tile.roomType, stamp: { width: tile.width, depth: tile.depth } });
       } else if (tile.kind === 'prefab') {
-        const canvas = canvasRef.current; // a tap: in the middle of the view, then drag it where it goes
-        if (canvas) commit(tile, { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }, false);
+        // a tap: in the middle of the view (the Plan's when shown), then drag it where it goes
+        const spot = clickSpot({ canvas: canvasRef.current, planCentre: planCentreRef?.current ?? null });
+        if (spot) commit(tile, spot, false);
       } else {
         handleStartPlacement(tile.assetType, tile.metadata ? { metadata: tile.metadata } : undefined);
       }
       return;
     }
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    commit(tile, { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }, false);
-  }, [canvasRef, commit, handleSetPlannerTool, handleStartPlacement]);
+    const spot = clickSpot({ canvas: canvasRef.current, planCentre: planCentreRef?.current ?? null });
+    if (spot) commit(tile, spot, false);
+  }, [canvasRef, planCentreRef, commit, handleSetPlannerTool, handleStartPlacement]);
 
   const hint = drag ? (drag.footprint?.problem ?? drag.footprint?.note ?? (drag.tile.kind === 'room' ? ROOM_HINT : drag.tile.kind === 'prefab' ? PREFAB_HINT : ITEM_HINT)) : null;
 

@@ -805,11 +805,15 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
       if (!snapshot) return;
       const v1 = snapshot.schemaVersion === 2 ? toV1(snapshot) : snapshot;
       const normalised = normaliseLayout(v1);
+      // v0.18.5: the store keeps rooms and items BY ID (as loadWorkspace does); normaliseLayout gives lists.
+      // Lists here made st.objects[id] undefined after Import / a template / a version until a reload:
+      // Check's Fix it and a click on a problem did nothing.
+      const byId = (list) => Object.fromEntries(list.map((x) => [x.id, x]));
       return run(new SnapshotCommand('Restore version', () => {
         store().replaceLayoutState({
           floors: normalised.floors,
-          rooms: normalised.rooms,
-          objects: normalised.objects,
+          rooms: byId(normalised.rooms),
+          objects: byId(normalised.objects),
           currentFloor: Object.keys(normalised.floors || {})[0] ? Number(Object.keys(normalised.floors)[0]) : 0,
           anchorData: normalised.anchorData,
           ignoredChecks: normalised.ignoredChecks,

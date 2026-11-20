@@ -3,6 +3,34 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.18.5 (20 Nov 2026): Studio fixes
+
+Seven Studio bugs, each with a test that failed before the fix. Nothing new is saved in a layout.
+- **Fix it right after Import:** Check's **Fix it**, and a click on a problem, did nothing after Import (or a
+  template, or restoring a version) until a reload. Restoring a layout now keeps rooms and items by id, as opening one
+  does (`editorHistory.restoreVersion`).
+- **Layers search with a dot:** "Meeting Room 0.2" is found by typing "0.2" (also "floor-1", "r&d"). Punctuation at
+  the start or end of a word, or on its own, is ignored (`matchesLayerQuery`).
+- **A cabin's door always leads in:** a private cabin is placed turned so its door opens onto the floor of the room it
+  stands in (not against an outer wall, into another room or into furniture; 0°, then 180°, then 90° / 270°). Check's
+  "Nobody can walk to Cabin" gets **Fix it**: turn the cabin, else move it off the wall (and turn it), with its
+  furniture, one undo step. Nothing is offered while it, or something in it, is locked. New PURE `play/cabinDoor.js`.
+- **Click to place in Plan view:** a library tile clicked while the Plan is shown lands in the middle of the Plan (it
+  landed in the middle of the hidden 3D view).
+- **A room inside a room moves out by its X / Z:** typing a position (or dragging) wholly outside the room it stands in
+  now moves it there (into another room, or the open floor); half through a wall is still refused.
+- **Dragging a cabin moves its room:** dragging a private cabin's group (or the arrow keys, or R) moves or turns the
+  cabin room with its furniture, one undo step. A locked cabin room says so.
+- **Narrow windows (601-1023 px):** Studio no longer overflows sideways. The top bar keeps the tool icons (names in the
+  tooltips), Walk through shows its icon, Publish says "Publish", the layout's name shortens (…); the Inspector's
+  buttons wrap.
+- **Dev tools:** `npm audit fix` updated Playwright to 1.65.1 and minimatch (under eslint). Left: vite / esbuild and
+  vitest / tinypool / @vitest/mocker (dev server and test runner only, not in the built files; they need vite 8 and
+  vitest 5), and zod 3 (in the built files: a very large crafted layout file could use a lot of memory in the browser
+  tab that opens it; the fix is zod 4, a breaking change).
+- Tests: `cabinDoor.test.js`, `roomMove.test.js`, `groupActions.test.js`, `libraryClickSpot.test.js`,
+  `editorHistory.test.js`, `layersSearch.test.js`; e2e:workstations (42 checks) and e2e:stability (13 checks).
+
 ## 0.18.4 (20 Nov 2026): avoid stairs (use lifts)
 
 For people who can't use stairs. Nothing new is saved in a layout; the option is per browser (or set by the page).

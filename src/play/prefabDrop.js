@@ -4,10 +4,12 @@
  *     crosses a wall, too big for its room; a cabin: its room overlaps another one)
  *   prefabPlacement: the store data to add in ONE undo step (editor.placePrefab): the items with their
  *     room, and a cabin's room with its door
+ * v0.18.5: a cabin turns (a quarter at a time) so its door opens onto open floor, never onto a wall
  * Tested in play/__tests__/prefabDrop.test.js.
  */
 
-import { layoutPrefab, prefabItems, prefabOutline, CABIN_DOOR } from './prefab';
+import { layoutPrefab, prefabItems, prefabOutline } from './prefab';
+import { cabinDoor, doorLeadsIn } from './cabinDoor';
 import { planRoomAt, wallThicknessOf } from './geometry';
 import { itemFootprints, isSolidItem } from './navigation/walkMap';
 import { rectsOverlap, boxOf } from './turnedRect';
@@ -41,19 +43,35 @@ const boxesCross = (a, b) => a.x0 < b.x1 - EPS && a.x1 > b.x0 + EPS && a.z0 < b.
  * A prefab dropped with its middle at `point` on the floor being edited.
  * @param {object} prefab  catalog/manifest.js PREFABS entry
  * @param {{ rooms: object[], objects: object[], floor: number }} layout  rooms and items (all floors are fine)
- * @param {{ params?, snapStep?, rotationY?, catalog }} opts
+ * @param {{ params?, snapStep?, rotationY?, catalog }} opts  rotationY: as given; a cabin without one turns
+ *   its door to open floor (play/cabinDoor.js), the first of 0, 180°, 90°, −90° that has it
  * @returns {{ at, rect: { x, z, width, depth }, outline, room: object|null, problem: string|null }}
  *   room: a cabin's room rectangle (planRoomAt: snapped like a drawn room)
  *   warning: it can go there, but leaves an aisle under 0.9 m (play/aisles.js), else null
  */
-export function planPrefabDrop(prefab, point, layout, { params = {}, snapStep = 0, rotationY = 0, catalog }) {
+export function planPrefabDrop(prefab, point, layout, { params = {}, snapStep = 0, rotationY, catalog }) {
+  const { room: cabin } = layoutPrefab(prefab, params, catalog);
+  if (!cabin || rotationY !== undefined) return planAt(prefab, point, layout, { params, snapStep, rotationY: rotationY ?? 0, catalog });
+  // v0.18.5: the cabin turned so its door leads in; none does: as it was (Check says so)
+  const tries = [0, Math.PI, Math.PI / 2, -Math.PI / 2].map((rot) => planAt(prefab, point, layout, { params, snapStep, rotationY: rot, catalog }));
+  const rooms = layout.rooms.filter((r) => floorOf(r) === layout.floor);
+  const objects = layout.objects.filter((o) => floorOf(o) === layout.floor);
+  const opens = (t) => {
+    const room = { id: '__cabin', floor: layout.floor, ...t.room, doors: [cabinDoor(t.room, t.at.rotationY)] };
+    return doorLeadsIn(room, [...rooms, room], objects, catalog);
+  };
+  return tries.find((t) => !t.problem && opens(t)) ?? tries.find((t) => !t.problem) ?? tries[0];
+}
+
+function planAt(prefab, point, layout, { params, snapStep, rotationY, catalog }) {
   const { width, depth, room: cabin } = layoutPrefab(prefab, params, catalog);
+  const quarter = Math.abs(Math.sin(rotationY)) > 0.7; // a cabin's room turned a quarter: width and depth swap
   const rooms = layout.rooms.filter((r) => floorOf(r) === layout.floor);
   let at = { x: snap(point.x, snapStep), z: snap(point.z, snapStep), rotationY, floor: layout.floor };
   let roomRect = null;
   let problem = null;
   if (cabin) {
-    const plan = planRoomAt({ x: at.x, z: at.z }, cabin.width, cabin.depth, rooms, null);
+    const plan = planRoomAt({ x: at.x, z: at.z }, quarter ? cabin.depth : cabin.width, quarter ? cabin.width : cabin.depth, rooms, null);
     roomRect = plan.rect;
     at = { ...at, x: plan.rect.x, z: plan.rect.z };
     if (plan.blocker) problem = `Overlaps ${plan.blocker.name}`;
@@ -83,7 +101,7 @@ export function planPrefabDrop(prefab, point, layout, { params = {}, snapStep = 
     const members = prefabItems(prefab, params, catalog, at, { groupId: 'drop', idFor: () => `drop_${++n}` });
     warning = dropAisle(groupOutline(prefab, members, catalog) ?? outline, layout, layout.floor, catalog)?.text ?? null;
   }
-  return { at, rect: { x: at.x, z: at.z, width, depth }, outline, room: roomRect, problem, warning };
+  return { at, rect: { x: at.x, z: at.z, width: quarter ? depth : width, depth: quarter ? width : depth }, outline, room: roomRect, problem, warning };
 }
 
 /**
@@ -95,15 +113,16 @@ export function prefabPlacement(prefab, params, catalog, at, rooms, { groupId, n
   const { room: cabin } = layoutPrefab(prefab, params, catalog);
   let room = null;
   if (cabin) {
-    const rect = roomRect ?? { x: at.x, z: at.z, width: cabin.width, depth: cabin.depth };
+    const quarter = Math.abs(Math.sin(at.rotationY ?? 0)) > 0.7;
+    const rect = roomRect ?? { x: at.x, z: at.z, width: quarter ? cabin.depth : cabin.width, depth: quarter ? cabin.width : cabin.depth };
     room = {
       id: roomId,
       type: cabin.type,
       name: cabin.name,
       floor: at.floor ?? 0,
       ...rect,
-      // the door in the front wall (the visitors' side, local −Z), towards its east end
-      doors: [{ wall: 'south', offset: Math.round((rect.width / 2 - 0.9) * 100) / 100, width: CABIN_DOOR.width, height: CABIN_DOOR.height }],
+      // the door in the front wall (the visitors' side, local −Z), towards the desk's right end; turned with it
+      doors: [cabinDoor(rect, at.rotationY ?? 0)],
       windows: [],
     };
   }
