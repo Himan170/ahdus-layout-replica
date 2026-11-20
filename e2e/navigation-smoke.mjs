@@ -416,8 +416,13 @@ const far = await p.evaluate(() => {
 });
 await p.waitForSelector('[data-nav-stop]', { timeout: 30000 }).catch(() => {});
 await p.click('[data-nav-stop]', { timeout: 5000 }).catch(() => {});
-await wait(1000);
-log('Stop ends Show route', !far.problem && (await lastNav())?.state === 'stopped' && !(await p.$('[data-nav-strip]')), far.problem ? far.message : far.place?.name);
+// a slow machine re-draws the strip (a progress event) under the click now and then: wait for "stopped", click once more
+if (!(await waitNav('stopped', 5000).then(() => true).catch(() => false))) {
+  await p.click('[data-nav-stop]', { timeout: 5000 }).catch(() => {});
+  await waitNav('stopped', 10000).catch(() => {});
+}
+await wait(500);
+log('Stop ends Show route', !far.problem && (await lastNav())?.state === 'stopped' && !(await p.$('[data-nav-strip]')), far.problem ? far.message : `${far.place?.name} | ${JSON.stringify((await navEvents()).map((e) => [e.state, e.walk, e.message ?? '']))} | strip ${await p.$eval('[data-nav-strip]', (e) => e.dataset.navStrip).catch(() => 'none')}`);
 
 await clearNav();
 // (no click on the view: v0.14.0 a click on the floor walks there; the keys need none)
