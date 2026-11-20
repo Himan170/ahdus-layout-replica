@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1705, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1740, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -91,6 +91,12 @@ npm run e2e:doors    # 24 checks   e2e/doors-smoke.mjs     (v0.18.1: the Doors &
                      #                                       through glass, the floor behind glass walks via the door, no door =
                      #                                       "it has no door"; SHOTS=<dir>: each door shut / open, a glass room
                      #                                       with people inside, the library, the new room types)
+npm run e2e:lifts    # 21 checks   e2e/lifts-smoke.mjs     (v0.18.3: the Stairs library's Lift + L tiles, Lift stops
+                     #                                       (+ undo / redo), Room X moves both shafts (+ one undo),
+                     #                                       Check's "No lift stops at Floor 2" / "don't line up", the L's
+                     #                                       mesh, Stairs shape + undo, Plan view's L; viewer: the lifts,
+                     #                                       Find's lifts, the floor panel, a ride, a route + Take me there
+                     #                                       by lift, walking up an L with W; PART=viewer: only the viewer)
 npm run e2e:stability # 12 checks e2e/stability-smoke.mjs (v0.18.2: a library drop over Reset view places nothing, on
                      #                                       the floor one; right / middle presses neither select nor place
                      #                                       the armed stairs; the wheel over a panel / over the view; a
@@ -472,6 +478,50 @@ Door items in drawn walls are visibly open doorways, matching room doors; floor 
 Measured on 72 rooms / 864 items: 132 ms cold, 112 ms with warm walk maps (11 Nov 2026).
 Regression script: `npm run e2e:check` (14 checks) (template door removed/restored, selection, floor switching, Ignore/undo/reopen, phone).
 
+## Lifts and L-shaped stairs (v0.18.3, how they work)
+
+private-docs/V0.18.3_PLAN.md (the plan + the decisions taken overnight). Old builds open both (docs/ROOM_FORMAT.md).
+- **A lift is derived** (PURE `play/lifts.js`, tests `lifts.test.js`): `liftsOf(rooms, floors)` = the `LIFT` rooms with
+  the same rectangle (`LIFT_MATCH` 0.05 m) on different floors → { id (the lowest shaft's room id), rooms, floors, x,
+  z, width, depth, door }; `liftOfRoom`, `carSpot`, `rideSeconds` / `rideCost` (`LIFT_WAIT_SECONDS` 5 +
+  `LIFT_DOOR_SECONDS` 1 × 2 + `LIFT_FLOOR_SECONDS` 2.5 per floor), `planLiftStops`, `liftProblems`, `liftParts`
+  (car, doors' frame, call buttons in local boxes), `liftAt`. Nothing but the room type is saved; v2 writes `CUSTOM`
+  + `subtype: 'LIFT'` (`engine/model/roomTypes.ts`).
+- **Studio:** the Stairs library's Lift tile (a `LIFT_SIZE` 2.2 × 2.2 m room with `LIFT_DOOR`), the Inspector's
+  `LiftStops` (`[data-lift-stops]`, buttons `data-lift-stop` = floor id, aria-pressed; the last one can't be
+  taken away) → `editor.setLiftStops(roomId, stops)` (one CompositeCommand: add / delete shafts, same rectangle and
+  door). A lift shaft's door is drawn as the lift's (`doorSwing` style `lift`: two steel panels sliding apart).
+  **A lift stays in one piece:** `editor.moveRoom` / `updateRoom` (x, z, width, depth) / `turnRoom` of a shaft take
+  the lift's other shafts along (`lifts.liftFollow`: same move / size, a move with what is in each; turnRoom:
+  `planRoomTurn` per shaft), one undo step (merged bursts too); refused when one is locked or would overlap a room
+  on its floor: `createEditorHistory(onChange, { onProblem })` says why (Studio: its message line), moveRoom /
+  turnRoom answer false, updateRoom `{ problem }`.
+- **Drawn** (`engine/systems/LiftSystem.ts`, viewer, embed, Studio): 3 thin-instance meshes (steel, metal, light)
+  for every lift, shown with their shaft room's node; not pickable, no collisions. **The car waits on every floor**
+  (no travelling car): `engine.liftHere()` (standing in a car) → LayoutViewer's `[data-lift-panel]` (role group,
+  aria-label "Lift: choose a floor", buttons `data-lift-floor`), `engine.rideLift(floor)` = the same spot of the
+  car on that floor (`setPose`), the 'lift' event.
+- **Routes:** `route.floorLinks` adds `kind: 'lift'` links between every two served floors (`length` 0,
+  `seconds` = the ride, `cost` = its walking equivalent); `findRoute` adds the ride to `seconds`,
+  `findNearestRoute` compares by seconds. `stairsAtEnd.kind = 'lift'`. NavigationSystem's pilot rides it at the
+  car (`liftRide`); Studio's Walk through too. Find: a `LIFT` facility ("Nearest lift"), one place per shaft.
+- **Check:** `LIFT_FLOOR_NOT_SERVED` ("No lift stops at Floor 2"), `LIFT_GAP` ("The lift skips Floor 1") and
+  `LIFT_MISALIGNED` (`misalignedShafts`: two lifts on different floors whose rectangles overlap without matching,
+  once per pair, by their nearest floors: "The lift shafts on Floor 1 and Floor 2 don't line up"; no Fix it), warnings;
+  a shaft with no door = ROOM_NO_DOOR.
+- **L-shaped stairs** (`building.js`, tests `lStairs.test.js`): a STAIRCASE with `metadata.stairShape` = `L-right` |
+  `L-left` (`stairShape`: anything else = straight, so every old save is unchanged). `L_STAIR` 3.2 × 3.2 m, flights
+  1.2 m: `stairParts(stair, dims)` = [first flight (local +Z, floor(steps / 2)), landing, second flight (+X right,
+  −X left)]; a straight flight is ONE part. Everything reads them: `stairHeightAt`, `stairBlocks` / `stairPushOut`
+  (`lPushOut`), `stairRects` (world turned rects: walk map, stairFit), `stairEnds` ({ bottom, top } frames; the L's top
+  faces sideways), `stairTop`, route's `stairBottom` / `stairAxis` (via the landing), `stairOpenings` (one per arm:
+  RoomSystem's holes, `supportHeight`, `arrivalOnFloor`), the mesh (`assetCatalog.buildLStair`; ObjectSystem's
+  template variant `${shape}@${rise}`), Plan view (`planStairs` → `parts`, `[data-plan-stairs-shape]`). An L is
+  never scaled. Studio: two library tiles (`metadata` passed through `placementManager.startPlacement(…, { metadata })`),
+  the Inspector's "Stairs shape" (`[data-stairs-shape]`, `data-stairs-shape-option`, aria-pressed; one undo step).
+- Tests: `lifts.test.js`, `liftRoutes.test.js`, `lStairs.test.js`, `formatCompat.test.ts` (both in older builds),
+  `editorHistory.test.js` (setLiftStops), `doorSwing.test.js`, `npm run e2e:lifts`.
+
 ## Stability (v0.18.2, how it works)
 
 private-docs/V0.18.2_PLAN.md (the audit's items, real / wrong / already changed). Studio's input rules:
@@ -737,6 +787,8 @@ src/ui/hiddenLayers.js             Layers' eye (v0.15.6): hidden rooms / items p
 src/play/stairFit.js               PURE (v0.17.4): stairs that work: stairFit (problems + the floor they miss), stairPreview,
                                    stairProblems, stairSpots / findStairSpot (nearest spot that works), findItemSpot
 src/play/turnedRect.js             PURE (v0.17.4): turned rectangles (rectsOverlap, boxOf, distanceTo, farApart)
+src/play/lifts.js                  PURE (v0.18.3): lifts derived from LIFT rooms (liftsOf), stops, ride time, Check, parts
+src/engine/systems/LiftSystem.ts   v0.18.3: the lifts' cars, doors' frames and call buttons (3 thin-instance meshes), riding
 src/play/doorSwing.js              PURE (v0.18.1): one door per doorway (doorOf), its leaves (doorParts / leafLines), who
                                    opens which (createDoorAnimator: moving people only, ≤ 4)
 src/engine/systems/DoorSystem.ts   v0.18.1: the door leaves (4 thin-instance meshes), half open in Studio, opening elsewhere
@@ -1876,7 +1928,10 @@ activity monitoring, sync. Demo modules: `?demoModules=1` (`src/integration/demo
 
 ## Known limitations
 
-- One straight flight per staircase, always 4.0 m long: on tall floors the steps get short and the flight steep; over
+- A staircase is one straight flight (1.2 × 4.0 m) or an L (3.2 × 3.2 m, v0.18.3); no U-shaped flights. The car of a
+  lift waits on every floor (no travelling car to call); in third person inside the small car the camera is close
+  to your head. Live people don't ride lifts (they jump floors).
+- A straight flight is always 4.0 m long: on tall floors the steps get short and the flight steep; over
   6.3 m (walls go up to 15 m) it is very steep and the hints say so. A proper fix (landings / U-shaped flights) is not done.
   A staircase turned 45° cuts a square opening. Stairs can't be resized anywhere (v0.14.5; an old save's scale stays until "Normal size").
 - Room labels: a name hidden because it would overlap a bigger room's shows on hover only. The hover card ignores items
@@ -2034,6 +2089,15 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## IN REVIEW: lifts and L-shaped stairs (v0.18.3, 20 Nov 2026, branch `feature/v0.18.3-lifts-l-stairs`)
+
+private-docs/V0.18.3_PLAN.md: lifts (a lift shaft room on each floor it serves, Lift stops, the car and its floor
+panel, routes, Take me there, Find, Check) and L-shaped stairs (half the steps, a landing, the rest turned), both
+opened by older builds (see "Lifts and L-shaped stairs"; CHANGELOG.md). e2e:lifts 19 checks. PR opened overnight for
+Himan's review, not merged. Screenshots: private-docs/screenshots/v0.18.3/ (not in git). Added after the plan
+(Himan, 20 Nov): a shaft moved / resized / turned on one floor changes on every floor (one undo step), Check's "don't
+line up". **Next release (v0.18.4), first item: a route option "avoid stairs (use lifts)".**
 
 ## DONE: stability (v0.18.2, 20 Nov 2026, branch `fix/v0.18.2-stability`)
 
@@ -2340,6 +2404,7 @@ touch. e2e scripts moved to the library / "Walk through". Screenshots: private-d
 Approved mockups (outside the repo: "Workplace Studio v0.10 mockups-png"); one commit per part, A theme to G phone.
 See "The AHDUS look" above. Screenshots: private-docs/screenshots/v0.10/ (not in git).
 
-Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): lifts; free-form walls,
+Ask Himan before big UI changes beyond this. Backlog after it (he prioritises): FIRST (v0.18.4) a route option
+"avoid stairs (use lifts)"; free-form walls,
 L-shaped rooms; measure tool + dimensions; industrial machine models (Industrial Pack: FBX → GLB first); SVG 2D
 floor plan; templates; floor-plan image tracing; evacuation routes; the Supabase backend.
