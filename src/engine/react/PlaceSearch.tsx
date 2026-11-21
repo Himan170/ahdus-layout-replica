@@ -358,6 +358,27 @@ export function PlaceSearch({
     if (focusButton) buttonRef.current?.focus({ preventScroll: true });
   };
 
+  // v0.18.6: like a menu, a press anywhere else (the view: a click, a tap) closes it, and so does Esc once the
+  // focus has left its box (the box handles its own Esc: a list goes back first). What was typed is kept.
+  useEffect(() => {
+    if (!open) return undefined;
+    const inside = (t: EventTarget | null) => t instanceof Node &&
+      (!!panelRef.current?.contains(t) || !!buttonRef.current?.contains(t));
+    const onPointer = (e: Event) => { if (!inside(e.target)) setOpen(false); };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || isComposing(e) || inside(document.activeElement)) return;
+      e.preventDefault();
+      e.stopPropagation(); // ours: the walkthrough's Esc (it gives the keys back to the page) waits for the next one
+      setOpen(false);
+    };
+    window.addEventListener('pointerdown', onPointer, true);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', onPointer, true);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [open]);
+
   const pick = (place: PlaceResult | undefined) => {
     if (!engine || !place) return;
     const r = engine.navigation.show(place.id);
