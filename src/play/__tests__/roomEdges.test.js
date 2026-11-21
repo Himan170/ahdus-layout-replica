@@ -70,3 +70,36 @@ describe('one edge of a room (v0.18.7)', () => {
     expect(lengthText(6.4)).toBe('6.40 m');
   });
 });
+
+describe('a handle never sits on a door or window (v0.18.7)', () => {
+  it('a wall with nothing in its middle: the handle is in the middle', async () => {
+    const { edgeHandleSpot } = await import('../roomEdges');
+    expect(edgeHandleSpot(room(), 'east')).toEqual({ x: 3, z: 0 });
+  });
+
+  it('a door in the middle of the wall: the handle moves along the wall to the nearest free spot', async () => {
+    const { edgeHandleSpot, HANDLE_CLEAR } = await import('../roomEdges');
+    const r = room(); // a 1 m door in the middle of the south wall
+    const spot = edgeHandleSpot(r, 'south');
+    expect(spot.z).toBe(-2);
+    expect(Math.abs(spot.x)).toBeCloseTo(0.5 + HANDLE_CLEAR);
+    // a window off-centre on the east wall leaves the middle free
+    const w = room({ windows: [{ wall: 'east', offset: 1.2, width: 1, sill: 0.9, height: 1.2 }] });
+    expect(edgeHandleSpot(w, 'east')).toEqual({ x: 3, z: 0 });
+  });
+
+  it('a door covering most of a short wall: the handle stays in the middle', async () => {
+    const { edgeHandleSpot } = await import('../roomEdges');
+    const r = room({ width: 2.2, doors: [{ wall: 'north', offset: 0, width: 1.6, height: 2.1 }] });
+    expect(edgeHandleSpot(r, 'north')).toEqual({ x: 0, z: 2 });
+  });
+
+  it('handleAt grabs the moved handle, not the door', async () => {
+    const { edgeHandleSpot } = await import('../roomEdges');
+    const r = room();
+    const spot = edgeHandleSpot(r, 'south');
+    const project = (x, z) => ({ x: x * 50, y: -z * 50 }); // 50 px / m
+    expect(handleAt(r, { x: 0, y: 100 }, project)).toBeNull(); // the door's middle
+    expect(handleAt(r, { x: spot.x * 50, y: 100 }, project)).toBe('south');
+  });
+});

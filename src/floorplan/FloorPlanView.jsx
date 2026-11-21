@@ -30,7 +30,7 @@ import {
   ANCHOR_COLORS, ANCHOR_BADGE_SYMBOLS, planViewCentre,
 } from './planMath';
 import { planOutline } from '../play/surfaces';
-import { EDGE_SIDES, edgeMidpoint, edgeLength, edgeResize, edgeResizeTo, edgeTargetAt, edgeCoordinate, parseLength, lengthText } from '../play/roomEdges';
+import { EDGE_SIDES, edgeMidpoint, edgeHandleSpot, edgeLength, edgeResize, edgeResizeTo, edgeTargetAt, edgeCoordinate, parseLength, lengthText } from '../play/roomEdges';
 
 /**
  * An L-shaped staircase in the plan (v0.18.3): its parts' outlines, a line per step, the way up as a bent arrow.
@@ -314,7 +314,7 @@ export default function FloorPlanView({
     const svg = svgRef.current;
     const box = viewRef.current?.getBoundingClientRect();
     const ctm = svg?.getScreenCTM();
-    const m = at(edgeMidpoint(room, side));
+    const m = at(edgeHandleSpot(room, side));
     const left = ctm && box ? ctm.a * m.x + ctm.c * m.y + ctm.e - box.left : 0;
     const top = ctm && box ? ctm.b * m.x + ctm.d * m.y + ctm.f - box.top : 0;
     setEdgeInput({ roomId: room.id, side, text: edgeLength(room, side).toFixed(2), left, top, problem: null });
@@ -1171,7 +1171,7 @@ export default function FloorPlanView({
                 />
               )}
               {EDGE_SIDES.map((side) => {
-                const m = at(edgeMidpoint(shown, side));
+                const m = at(edgeHandleSpot(shown, side));
                 const along = side === 'north' || side === 'south';
                 const active = edge?.side === side && edge.roomId === room.id;
                 return (

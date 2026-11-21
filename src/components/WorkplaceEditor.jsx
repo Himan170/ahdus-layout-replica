@@ -88,7 +88,7 @@ import { normaliseLayout } from '../store/layoutData';
 import { watchFirstFrame } from '../ui/firstFrame';
 import { isPhotoReconstructionOn } from '../services/reconstructionService';
 import { isAhdusBackendOn } from '../services/backendFlags';
-import { activeTile, toolHint, phoneIdleHint, PLAN_HINT } from '../ui/tools';
+import { activeTile, toolHint, phoneIdleHint, PLAN_HINT, PLAN_ROOM_HINT } from '../ui/tools';
 
 import {
   openingData, openingPartner, openingCentre, resizeOpening, planOpeningStyle, planRemoveOpening,
@@ -1421,7 +1421,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     if (libraryDrop.hint) return { text: libraryDrop.hint, tone: libraryDrop.hintBad ? 'bad' : 'message' };
     if (plannerMessage) return { text: plannerMessage.text, tone: plannerMessage.bad ? 'bad' : 'message' };
     // Plan view: the plan's own mouse (the 3D tools' hints don't apply there)
-    if (planView && !isPlaying) return { text: PLAN_HINT, tone: 'hint' };
+    if (planView && !isPlaying) return { text: selectedRoom && !selectedRoom.isLocked && !selectedOpening ? PLAN_ROOM_HINT : PLAN_HINT, tone: 'hint' };
     if (!placementMode && plannerHint) {
       const line = [plannerHint.title, plannerHint.detail].filter(Boolean).join(' · ');
       if (plannerHint.bad) return { text: line, tone: 'bad' };

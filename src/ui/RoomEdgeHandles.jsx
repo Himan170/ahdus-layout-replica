@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { projectPoint } from './projection';
-import { EDGE_SIDES, edgeMidpoint, edgeLength, lengthText, parseLength } from '../play/roomEdges';
+import { EDGE_SIDES, edgeMidpoint, edgeHandleSpot, edgeLength, lengthText, parseLength } from '../play/roomEdges';
 import { liveEdge } from '../utils/liveEdge';
 import { isCommitEnter } from '../utils/keys';
 
@@ -42,7 +42,7 @@ export default function RoomEdgeHandles({ scene, room, elevation = 0, hidden = f
       for (const side of EDGE_SIDES) {
         const el = handleRefs.current.get(side);
         if (!el) continue;
-        const m = edgeMidpoint(shown, side);
+        const m = edgeHandleSpot(shown, side);
         const p = projectPoint(scene, m.x, elevation + 0.05, m.z);
         el.style.visibility = p.visible ? 'visible' : 'hidden';
         el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -50%)`;

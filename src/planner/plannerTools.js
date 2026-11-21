@@ -60,6 +60,7 @@ import { stairPreview, findStairSpot } from '../play/stairFit';
 const FLOOR_Y = 0.02;
 const CLICK_SLOP = 5; // px the mouse may move with the button down and still count as a click
 const WALL_LABEL = { north: 'north', south: 'south', east: 'east', west: 'west' };
+const OPPOSITE_SIDE = { north: 'south', south: 'north', east: 'west', west: 'east' };
 const VIEW_KEYS = [['Right-drag', 'Move the view'], ['Wheel', 'Zoom'], ['Esc', 'Stop']];
 /** Building parts keep their height when dragged (never stacked on a table); stairs stand on their floor. */
 const objectIdOf = (m) => m?.metadata?.objectId ?? m?.parent?.metadata?.objectId ?? null;
@@ -643,7 +644,7 @@ export function createPlannerTools(scene, canvas, {
         hover = { type: 'grabWall', roomId: room.id, wallName: side, handle: true };
         return {
           title: `Resize ${room.name}`,
-          detail: `${WALL_LABEL[side]} wall · ${formatRoomSize(room.width, room.depth)}`,
+          detail: `${WALL_LABEL[side]} wall · drag to move it (the ${OPPOSITE_SIDE[side]} wall stays) · click to type the length · ${formatRoomSize(room.width, room.depth)}`,
           keys: [['Drag', 'Move this wall (the opposite one stays)'], ['Click', 'Type the length']],
         };
       }
