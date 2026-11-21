@@ -189,6 +189,24 @@ export function mount(element, options = {}) {
     emit('hideMe', { hidden: hideMe.hidden });
   };
 
+  // v0.18.7 (audit 11): setPeople waits until the viewer has given that list (or a newer one) to the engine
+  let peopleSeq = 0;
+  const peopleSeqOf = new WeakMap();
+  let peopleWaiters = [];
+  function peopleApplied(list) {
+    const seq = ++peopleSeq;
+    peopleSeqOf.set(list, seq);
+    return new Promise((resolve) => peopleWaiters.push({ seq, resolve }));
+  }
+  function onPeopleApplied(list) {
+    const seq = peopleSeqOf.get(list);
+    if (seq === undefined) return;
+    const done = peopleWaiters.filter((w) => w.seq <= seq);
+    peopleWaiters = peopleWaiters.filter((w) => w.seq > seq);
+    for (const w of done) w.resolve();
+  }
+  const releasePeopleWaiters = () => { for (const w of peopleWaiters.splice(0)) w.resolve(); };
+
   let resolveReady;
   let rejectReady;
   const ready = new Promise((res, rej) => { resolveReady = res; rejectReady = rej; });
@@ -214,6 +232,7 @@ export function mount(element, options = {}) {
   /** Take everything out again: the element is as the page gave it. */
   function close() {
     closed = true;
+    releasePeopleWaiters();
     abort.abort();
     for (const remove of [...actions]) remove();
     for (const off of offs.splice(0)) off();
@@ -282,7 +301,7 @@ export function mount(element, options = {}) {
         layout={layout} mode={mode ?? undefined} startMode={startMode ?? undefined} openAt={openAt}
         weakDevice={typeof options.weakDevice === 'boolean' ? options.weakDevice : undefined} onModeChange={onModeChange}
         onStart={onStart}
-        quality={quality} assetBaseUrl={assetBaseUrl} people={people}
+        quality={quality} assetBaseUrl={assetBaseUrl} people={people} onPeopleApplied={onPeopleApplied}
         player={player} chooseCharacterUrl={options.characters?.chooseUrl} walkClipUrl={walkClipUrl ?? undefined}
         search={search} tour={tour} departments={departments} onReady={onReady} onError={fail} onProgress={onProgress}
         hideMe={hideMe ? { hidden: hideMe.hidden, onChange: onHideMe } : null}
@@ -505,7 +524,8 @@ export function mount(element, options = {}) {
      * manifest (option characters) by assetReference; unknown or null = the
      * neutral simple figure. Only name and department are ever shown. Nothing is
      * drawn with quality 'low'.
-     * @returns {Promise<number>} how many people were given (after the manifest is read)
+     * @returns {Promise<number>} how many people were given, once find(), Find and the routes know them
+     *   (v0.18.7: after the layout is drawn; before, it waits for that)
      */
     async setPeople(list) {
       if (closed) return 0;
@@ -514,8 +534,11 @@ export function mount(element, options = {}) {
       const characters = await characterMap();
       if (closed) return 0;
       people = resolvePeople(list, characters);
+      const applied = peopleApplied(people);
       render();
-      return given;
+      await applied; // the viewer gave them to the engine (its effect runs after React's render)
+      if (!engine && !closed) await ready.catch(() => {});
+      return closed ? 0 : given;
     },
 
     /**

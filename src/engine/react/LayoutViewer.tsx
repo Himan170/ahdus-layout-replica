@@ -141,6 +141,11 @@ export interface LayoutViewerProps {
   departments?: { name: string; description?: string }[];
   /** The engine is ready and the layout is fully built (focusOn, highlight, getAnchors, …). */
   onReady?: (engine: LayoutEngine) => void;
+  /**
+   * v0.18.7: the `people` list (this very array) was given to the engine: Find and the routes know them
+   * now. (The embed's awaited setPeople resolves on it.)
+   */
+  onPeopleApplied?: (people: Person[]) => void;
   /** Building the layout: { done, total, floor, currentFloorReady, allBuilt } (the last one has allBuilt). */
   onProgress?: (progress: BuildProgress) => void;
   onInteract?: (event: InteractEvent) => void;
@@ -622,7 +627,10 @@ export function LayoutViewer(props: LayoutViewerProps) {
 
   const { people, departments } = props;
   useEffect(() => {
-    engine?.setPeople(people ?? []);
+    if (!engine) return;
+    const list = people ?? [];
+    engine.setPeople(list);
+    propsRef.current.onPeopleApplied?.(list);
   }, [engine, people]);
   useEffect(() => {
     engine?.setDepartments(departments ?? []);

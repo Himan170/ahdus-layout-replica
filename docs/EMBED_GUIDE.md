@@ -99,7 +99,7 @@ Copy `ahdus-workplace.js` and the `assets/` folder into your repo, side by side 
 | `highlight(ids, color?)` | Outlines rooms, items or hook points (default colour `#FFD700`). Replaces the ones highlighted before; `highlight([])` clears them. |
 | `anchors({ kind?, roomId?, floorId?, objectId? })` | Hook points, e.g. `anchors({ kind: 'machine' })` or every workstation on Floor 1: `anchors({ kind: 'workstation', floorId: 1 })`. `[]` until `ready`. |
 | `registerAction(match, { label, run, when? })` | A "Press E" action (below). Returns a function that removes it. |
-| `setPeople(list)` | Who sits at which desk (section 4b). Replaces the list before; `setPeople([])` = nobody. Returns a promise of how many people were given (after the manifest is read). Can be called before `ready`. |
+| `setPeople(list)` | Who sits at which desk (section 4b). Replaces the list before; `setPeople([])` = nobody. Returns a promise of how many people were given; it resolves once `find()`, Find and the routes know them (v0.18.7; called before `ready`, it waits for `ready`). Can be called before `ready`. |
 | `setPlayer({ personId, assetReference } \| null)` | The person looking (the signed-in user), as the `player` option. Returns a promise, done when their character is known (after the manifest is read). |
 | `setDepartments([{ name, description }])` | The departments' descriptions, as the `departments` option (replaces the list before). Returns how many were taken. |
 | `find(query, { limit? })` | Search people (name and department), rooms, departments and facilities (section 4d). `[]` until `ready`. |
