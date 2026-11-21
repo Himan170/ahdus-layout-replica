@@ -64,6 +64,7 @@ import { useLayoutCheck } from '../hooks/useLayoutCheck';
 import BuildPanel from '../ui/BuildPanel';
 import CanvasCard from '../ui/CanvasCard';
 import RoomLabels, { storedRoomLabels, storeRoomLabels } from '../ui/RoomLabels';
+import RoomEdgeHandles from '../ui/RoomEdgeHandles';
 import RoomHoverCard from '../ui/RoomHoverCard';
 import MeasurementOverlay from '../ui/MeasurementOverlay';
 import FloorPlanView from '../floorplan/FloorPlanView';
@@ -91,8 +92,9 @@ import { activeTile, toolHint, phoneIdleHint, PLAN_HINT } from '../ui/tools';
 
 import {
   openingData, openingPartner, openingCentre, resizeOpening, planOpeningStyle, planRemoveOpening,
-  planRoomResize, planWallThickness, planRoomTurn, planRoomCopy, planRoomMove, findRoomAt,
+  planRoomResize, planWallThickness, planRoomTurn, planRoomCopy, planRoomMove, findRoomAt, formatRoomSize,
 } from '../play/geometry';
+import { edgeResize, edgeTargetFor } from '../play/roomEdges';
 import { DEFAULT_HOTBAR, EMPTY_HAND, catalogSlot } from '../play/hotbarItems';
 
 // Team integration: how other modules connect to the layout (docs/TEAM_INTEGRATION.md)
@@ -777,6 +779,31 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     moveItemCarrying(id, { rotationY: (obj.rotationY ?? 0) + turnStep(fine) }, { label: `Turn ${name}` });
     showStudioMessage(`Turned ${name} ${turnText(fine)}. ${fine ? '' : 'Shift+R turns 15°. '}Ctrl+Z to undo.`);
   }, [moveItemCarrying, showStudioMessage]);
+
+  /**
+   * v0.18.7 (audit 3c): one edge of a room moved to `target` (world x for east / west, z for north / south), the
+   * opposite wall staying: Plan view's and 2D's edge handles (a drag or a typed length). The wall drag's rules
+   * (geometry.stretchRoom) against the whole floor, hidden rooms too; one undo step. false: refused (it says why).
+   */
+  const resizeRoomEdge = useCallback((id, side, target) => {
+    const st = useWorkspaceStore.getState();
+    const room = st.rooms[id];
+    if (!room) return false;
+    if (room.isLocked) { showStudioMessage(lockedText(room.name), true); return false; }
+    const below = floorBelow(st.floors, room.floor);
+    const result = edgeResize(room, side, target, {
+      rooms: Object.values(st.rooms).filter((r) => r.floor === room.floor),
+      objects: Object.values(st.objects),
+      below: below ? Object.values(st.rooms).filter((r) => r.floor === below.id) : null,
+      nameOf: (o) => o.label || ASSET_TYPES[o.assetType]?.label || 'An item',
+    });
+    if (result.problem) { showStudioMessage(`${result.problem}. The size was not changed.`, true); return false; }
+    const done = editor.updateRoom(id, result.patch, { label: `Resize ${room.name}` });
+    editor.endBurst();
+    if (done?.problem) return false; // its message shows (a lift shaft upstairs can't follow)
+    showStudioMessage(`${room.name} is now ${formatRoomSize(result.rect.width, result.rect.depth)}. Ctrl+Z to undo.`);
+    return true;
+  }, [editor, showStudioMessage]);
 
   const handleDuplicateRoom = useCallback((id) => {
     const st = useWorkspaceStore.getState();
@@ -1701,6 +1728,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               onMoveGroup={(dx, dz) => { groupActions.move(dx, dz); editor.endBurst(); }}
               onPointerWorld={(p) => { planPointerRef.current = p; }}
               onViewCentre={(c) => { planCentreRef.current = c; }}
+              onResizeRoom={resizeRoomEdge}
               onSelectRoom={(id) => {
                 storeActions.selectRoom(id);
                 storeActions.selectObject(null);
@@ -1776,6 +1804,13 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
             showNames={roomLabels !== 'off'}
             selectedRoomId={selectedOpening ? null : selectedRoomId}
             selectedAsPill
+          />
+          <RoomEdgeHandles
+            scene={sceneReady}
+            room={selectedRoom}
+            elevation={elevationOf(floorsMap, currentFloor)}
+            hidden={isPlaying || planView || is3D || !!selectedOpening || !selectedRoom || !!selectedRoom.isLocked}
+            onResize={(id, side, length) => resizeRoomEdge(id, side, edgeTargetFor(roomsMap[id], side, length))}
           />
           <RoomHoverCard
             scene={sceneReady}
