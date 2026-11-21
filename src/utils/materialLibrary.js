@@ -249,6 +249,8 @@ export const TILE_SIZE = {
   raised: 1.2, plaster: 2, paving: 2, grass: 4, ceiling: 1.2,
   // v0.18.1's room types: their painter's size
   cafeteria: 0.8, lounge: 2, cabin: 2, training: 4, lobby: 1.2,
+  // v0.18.6: the Inspector's Wood and Carpet (each its own material; a room type's own floor keeps its old one)
+  woodFinish: 2, carpetFinish: 1,
 };
 
 /**
@@ -266,6 +268,8 @@ export const FLOOR_TINTS = {
 /** Painter of each procedural floor (a corridor looks like reception, but has its own photo texture). */
 const PAINTER = {
   corridor: 'tile',
+  woodFinish: 'wood',
+  carpetFinish: 'carpet',
   ...Object.fromEntries(Object.entries(FLOOR_TINTS).map(([k, v]) => [k, v.painter])),
 };
 
@@ -290,12 +294,47 @@ export const FLOOR_BY_ROOM_TYPE = {
 /** Floors a room can be given instead of its type's (room field `floorFinish`; 'default' = the type's). */
 export const FLOOR_FINISHES = ['wood', 'carpet', 'tile', 'concrete'];
 const BASE_FLOOR_KINDS = ['wood', 'carpet', 'tile', 'corridor', 'smallTile', 'concrete', 'raised'];
+/**
+ * v0.18.6 (audit 5a): a CHOSEN Wood / Carpet floor has its own material. The kinds 'wood' / 'carpet' are the
+ * Office's / Meeting room's own floors, whose photo twins are carpet / parquet (that look is kept for every room
+ * that never chose a floor); a room that chose Wood gets wood, Carpet carpet. Saved values are unchanged.
+ */
+const FINISH_KIND = { wood: 'woodFinish', carpet: 'carpetFinish' };
+const FINISH_KINDS = Object.values(FINISH_KIND);
 const FLOOR_KINDS = new Set([...BASE_FLOOR_KINDS, ...Object.keys(FLOOR_TINTS)]);
 
 /** The floor a room is built with: its `floorFinish` when it names a floor, else its type's. */
 export function floorKindOf(room) {
-  if (FLOOR_KINDS.has(room?.floorFinish)) return room.floorFinish;
+  const f = room?.floorFinish;
+  if (FINISH_KIND[f]) return FINISH_KIND[f];
+  if (FLOOR_KINDS.has(f)) return f;
   return FLOOR_BY_ROOM_TYPE[room?.type] ?? 'wood';
+}
+
+/** The Inspector's floor choice for a room: one of FLOOR_FINISHES, or 'default' (its type's own floor). */
+export function floorChoiceOf(room) {
+  return FLOOR_FINISHES.includes(room?.floorFinish) ? room.floorFinish : 'default';
+}
+
+/** What each floor is called (by its realistic look: the photo you see). */
+export const FLOOR_NAMES = {
+  wood: 'Office carpet', carpet: 'Parquet', tile: 'Tiles', corridor: 'Laminate', smallTile: 'Small tiles',
+  concrete: 'Concrete', raised: 'Raised floor', cafeteria: 'Amber tiles', lounge: 'Sage wood', cabin: 'Walnut',
+  training: 'Teal floor', lobby: 'Light stone', woodFinish: 'Wood', carpetFinish: 'Carpet',
+};
+
+/**
+ * A floor's swatch (the Inspector's chips): the photo it is drawn with and its tint, so the chip shows what the
+ * floor looks like. → { name, texture: 'textures/<set>/color.jpg' | null, tint: '#rrggbb' | null, flat }
+ */
+export function floorSwatch(kind) {
+  const set = REALISTIC_SURFACES[`floor:${kind}`];
+  return {
+    name: FLOOR_NAMES[kind] ?? kind,
+    texture: set ? `${TEXTURE_DIR}${set}/color.jpg` : null,
+    tint: FLOOR_TINTS[kind]?.tint ?? null,
+    flat: FLAT_COLOUR[kind] ?? FLAT_COLOUR[PAINTER[kind] ?? kind] ?? '#999999',
+  };
 }
 
 const libraries = new WeakMap();
@@ -589,10 +628,10 @@ export function getMaterials(scene) {
   const cache = {};
   const lazy = (key, create) => () => (cache[key] ??= create());
   const floorGetters = Object.fromEntries(
-    [...BASE_FLOOR_KINDS, ...Object.keys(FLOOR_TINTS)].map((k) => [
+    [...BASE_FLOOR_KINDS, ...Object.keys(FLOOR_TINTS), ...FINISH_KINDS].map((k) => [
       k,
       lazy(k, () => makeTextureMaterial(scene, k, {
-        specular: ['tile', 'corridor', 'lobby', 'cafeteria'].includes(k) ? 0.25 : k === 'wood' || k === 'lounge' ? 0.12 : 0.04,
+        specular: ['tile', 'corridor', 'lobby', 'cafeteria'].includes(k) ? 0.25 : ['wood', 'lounge', 'woodFinish'].includes(k) ? 0.12 : 0.04,
         later: isRealistic(scene),
       })),
     ]),

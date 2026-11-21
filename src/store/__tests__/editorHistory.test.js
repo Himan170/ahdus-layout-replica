@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../workspaceStore';
 import { createEditorHistory } from '../editorHistory';
 import { elevationOf } from '../../play/building';
 import { planRoomMove, planRoomTurn } from '../../play/geometry';
+import { normaliseLayout } from '../layoutData';
 
 const S = () => useWorkspaceStore.getState();
 const objs = () => Object.values(S().objects);
@@ -70,6 +71,25 @@ describe('editor actions are all undoable', () => {
     expect(objs()).toHaveLength(1);
     editor.undo();
     expect(S().objects[id].isLocked).toBe(false);
+  });
+
+  it('a locked item keeps its place, angle and size whatever sends the change (v0.18.6, audit 6)', () => {
+    const said = [];
+    const ed = createEditorHistory(undefined, { onProblem: (t) => said.push(t) });
+    ed.addObject({ assetType: 'DESK_STANDARD', x: 0, z: 0, label: 'Desk' });
+    const id = objs()[0].id;
+    ed.updateObject(id, { scaleX: 1.5 }, { mergeKey: 'inspector' });
+    ed.endBurst?.();
+    ed.toggleLock(id);
+    ed.updateObject(id, { scaleX: 1.875, x: 3, rotationY: 1, y: 0.5 }, { mergeKey: 'inspector' });
+    expect(S().objects[id]).toMatchObject({ scaleX: 1.5, x: 0, rotationY: 0, isLocked: true });
+    expect(said.at(-1)).toMatch(/Desk is locked/);
+    // its name and department still change
+    ed.updateObject(id, { department: 'HR' });
+    expect(S().objects[id].department).toBe('HR');
+    // undo still puts back what came before the lock
+    ed.undo(); ed.undo(); ed.undo();
+    expect(S().objects[id].scaleX).toBe(1);
   });
 
   it('gizmo drag (no mergeKey) = one undo step per drag', () => {
@@ -448,6 +468,21 @@ describe('floor and wall heights (one undo step each)', () => {
     editor.undo();
     expect(S().floors[1]).toBeUndefined();
     expect(rooms()).toHaveLength(1);
+  });
+
+  it('"Copy rooms from below" keeps glass walls and the chosen floor, also after save and reopen (v0.18.6, audit 8)', () => {
+    editor.addRoom({ type: 'OFFICE', x: 0, z: 0, width: 8, depth: 6, floor: 0 });
+    const ground = rooms()[0].id;
+    editor.updateRoom(ground, { glassWalls: ['north', 'east', 'south', 'west'], floorFinish: 'tile' });
+    editor.addFloor({ copyRooms: true });
+    const [copy] = rooms().filter((r) => r.floor === 1);
+    const glass = rooms().find((r) => r.id === ground).glassWalls;
+    expect(glass).toHaveLength(4);
+    expect(copy).toMatchObject({ floorFinish: 'tile', glassWalls: glass });
+    const reopened = normaliseLayout(JSON.parse(JSON.stringify({ rooms: rooms(), objects: [], floors: S().floors })));
+    const up = reopened.rooms.find((r) => r.floor === 1);
+    expect(up.floorFinish).toBe('tile');
+    expect([...up.glassWalls].sort()).toEqual([...glass].sort());
   });
 
   it('"Empty floor" adds a standard 3.5 m floor', () => {

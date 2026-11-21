@@ -7,14 +7,14 @@
  *
  *   item:   name, Position, Rotation, Size, Details (department, hook points,
  *           linked position); Duplicate / Lock / Delete
- *   room:   name, room type, department (v0.14.9), Width / Length / Ceiling, floor swatches, wall thickness,
+ *   room:   name, room type, department (v0.14.9), Width / Depth / Wall height (drafts until Enter), floor swatches, wall thickness,
  *           the doors and windows (a click selects one) + "Add a door or window"; Duplicate, Delete room
  *   layers: outline of rooms and items on this floor; each row's eye (hide / show in Studio's view only,
  *           ui/hiddenLayers.js) and lock (v0.15.6)
  */
 
 import { styleOf, styleSize, styleOptions, styleName } from '../play/openingStyles';
-import { useEffect, useState, useMemo, useCallback, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { livePosition } from '../utils/livePosition';
 import {
   X, Copy, Lock, LockOpen, Trash2, Link2, Unlink2, LayoutGrid, DoorOpen, AppWindow, RotateCcw, Volume2, VolumeX, Plus,
@@ -27,7 +27,7 @@ import {
   MAX_ROOM_SIZE,
   wallThicknessOf, MIN_WALL_THICKNESS, MAX_WALL_THICKNESS, WALL_THICKNESS_STEP, roomOpenings,
 } from '../play/geometry';
-import { FLOOR_FINISHES, floorKindOf } from '../utils/materialLibrary';
+import { FLOOR_FINISHES, FLOOR_NAMES, floorKindOf, floorChoiceOf, floorSwatch } from '../utils/materialLibrary';
 import { MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, STAIRS_KEEP_SIZE, STAIR_SHAPES, STAIR_SHAPE_LABELS, stairShape } from '../play/building';
 import { describeRoom, describeObject, describeAccessibilityRoutes } from '../utils/accessibleSummary';
 import SeatSection from './SeatSection';
@@ -54,15 +54,28 @@ const toDeg = (rad) => Math.round((((rad * 180) / Math.PI) % 360 + 540) % 360 - 
 const toRad = (deg) => (deg * Math.PI) / 180;
 
 /**
+ * How a number box shows a value: `digits` decimals; `exact` (v0.18.6): up to 3 decimals, at least `digits`,
+ * so what is saved is what you read (12.34 m, not 12.3).
+ */
+export function formatField(value, digits = 2, exact = false) {
+  const v = Number(value ?? 0);
+  if (!exact) return v.toFixed(digits);
+  let text = (Math.round(v * 1000) / 1000).toFixed(3);
+  while (text.includes('.') && text.endsWith('0') && text.split('.')[1].length > digits) text = text.slice(0, -1);
+  return text.endsWith('.') ? text.slice(0, -1) : text;
+}
+
+/**
  * Number box that keeps what you type while you type it, sends each valid
  * value, and shows the stored value again when you leave it (so undo and
- * gizmo drags always show up).
+ * gizmo drags always show up). Focus selects what is there, so typing replaces it.
+ * lazy (v0.18.0; room sizes v0.18.6): a draft, sent once, on Enter or leaving the box; Esc puts the saved value back.
  */
-function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2, suffix, disabled = false, title, lazy = false }) {
+function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2, suffix, disabled = false, title, lazy = false, exact = false }) {
   const [draft, setDraft] = useState(null);
-  // lazy (v0.18.0): sent once, on Enter or leaving the box (a cluster is rebuilt for each value)
+  const cancelRef = useRef(false);
   const clampV = (v) => (min !== undefined || max !== undefined ? Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v)) : v);
-  const shown = draft ?? Number(value ?? 0).toFixed(digits);
+  const shown = draft ?? formatField(value, digits, exact);
   return (
     <label className="insp-field">
       <span className="insp-field__label">{label}</span>
@@ -77,7 +90,11 @@ function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2,
           step={step}
           min={min}
           max={max}
-          onFocus={() => setDraft(Number(value ?? 0).toFixed(digits))}
+          onFocus={(e) => {
+            setDraft(formatField(value, digits, exact));
+            const el = e.currentTarget;
+            try { el.select(); } catch { /* a browser that can't select a number box */ }
+          }}
           onChange={(e) => {
             setDraft(e.target.value);
             const v = parseFloat(e.target.value);
@@ -85,10 +102,21 @@ function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2,
           }}
           onBlur={() => {
             const v = parseFloat(draft);
-            if (lazy && draft !== null && Number.isFinite(v) && Math.abs(clampV(v) - Number(value)) > 1e-6) onCommit(clampV(v));
+            const cancelled = cancelRef.current;
+            cancelRef.current = false;
+            if (lazy && !cancelled && draft !== null && Number.isFinite(v) && Math.abs(clampV(v) - Number(value)) > 1e-6) onCommit(clampV(v));
             setDraft(null);
           }}
-          onKeyDown={(e) => { if (isCommitEnter(e)) e.currentTarget.blur(); }}
+          onKeyDown={(e) => {
+            if (isCommitEnter(e)) e.currentTarget.blur();
+            else if (lazy && e.key === 'Escape' && !isComposing(e)) {
+              // the draft goes, the saved value stays (and Studio's Esc doesn't also clear the selection)
+              e.preventDefault();
+              e.stopPropagation();
+              cancelRef.current = true;
+              e.currentTarget.blur();
+            }
+          }}
         />
         {suffix && <span className="insp-field__suffix">{suffix}</span>}
       </span>
@@ -132,6 +160,9 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
   const live = dragged?.id === object.id ? dragged : null;
   const deg = toDeg(object.rotationY ?? 0);
   const isStairs = object.assetType === 'STAIRCASE'; // on its floor, one size: what you walk on is what you see
+  // v0.18.6: a locked item keeps its place, angle and size (the editor refuses them too)
+  const locked = !!object.isLocked;
+  const lockTip = locked ? 'Locked: unlock it (L) to change this' : undefined;
 
   // Sizes are shown and typed in metres (v0.15.1); what is saved is still the scale
   const def = ASSET_TYPES[object.assetType];
@@ -142,7 +173,8 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
   };
   const sizeField = (axis, label) => {
     const { min, max } = sizeLimits(def, axis);
-    return <NumberField label={label} value={size[axis]} step={0.05} min={min} max={max} suffix="m" onCommit={(v) => setSize(axis, v)} />;
+    return <NumberField label={label} value={size[axis]} step={0.05} min={min} max={max} suffix="m" disabled={locked} title={lockTip}
+      onCommit={(v) => setSize(axis, v)} />;
   };
 
   const linkable = hookPoints.find((a) => a.kind === 'workstation') ?? hookPoints.find((a) => a.kind === 'reception');
@@ -171,10 +203,11 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
       )}
       <Section title="Position">
         <div className="insp-grid">
-          <NumberField label="X" value={live?.x ?? object.x} suffix="m" onCommit={(v) => commit({ x: v })} />
-          <NumberField label="Z" value={live?.z ?? object.z} suffix="m" onCommit={(v) => commit({ z: v })} />
+          <NumberField label="X" value={live?.x ?? object.x} suffix="m" disabled={locked} title={lockTip} onCommit={(v) => commit({ x: v })} />
+          <NumberField label="Z" value={live?.z ?? object.z} suffix="m" disabled={locked} title={lockTip} onCommit={(v) => commit({ z: v })} />
           {!isStairs && (
-            <NumberField label="Height" value={object.y} step={0.05} min={0} max={10} suffix="m" onCommit={(v) => commit({ y: v })} />
+            <NumberField label="Height" value={object.y} step={0.05} min={0} max={10} suffix="m" disabled={locked} title={lockTip}
+              onCommit={(v) => commit({ y: v })} />
           )}
           <div className="insp-field">
             <span className="insp-field__label">Floor</span>
@@ -185,12 +218,12 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
 
       <Section title="Rotation">
         <div className="insp-rotation">
-          <NumberField label="Angle" value={deg} step={5} digits={0} suffix="°"
+          <NumberField label="Angle" value={deg} step={5} digits={0} suffix="°" disabled={locked} title={lockTip}
             onCommit={(v) => commit({ rotationY: toRad(v) })} />
         </div>
         <div className="ui-segmented insp-quick" role="group" aria-label="Quick rotation">
           {[0, 90, 180, -90].map((d) => (
-            <button key={d} aria-pressed={deg === d} onClick={() => commit({ rotationY: toRad(d) })}>
+            <button key={d} aria-pressed={deg === d} disabled={locked} title={lockTip} onClick={() => commit({ rotationY: toRad(d) })}>
               {d < 0 ? d + 360 : d}°
             </button>
           ))}
@@ -202,7 +235,7 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
         <Section title="Shape">
           <div className="ui-segmented insp-quick" role="group" aria-label="Stairs shape" data-stairs-shape={stairShape(object)}>
             {STAIR_SHAPES.map((shape) => (
-              <button key={shape} type="button" aria-pressed={stairShape(object) === shape} data-stairs-shape-option={shape}
+              <button key={shape} type="button" aria-pressed={stairShape(object) === shape} data-stairs-shape-option={shape} disabled={locked}
                 aria-label={STAIR_SHAPE_LABELS[shape]} title={STAIR_SHAPE_LABELS[shape]}
                 onClick={() => {
                   if (stairShape(object) === shape) return;
@@ -223,7 +256,7 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
           {/* a save from before v0.14.5 can hold another size: it is drawn and walked so, until this */}
           {((object.scaleX ?? 1) !== 1 || (object.scaleY ?? 1) !== 1 || (object.scaleZ ?? 1) !== 1) && (
             <div className="insp-row">
-              <button className="ui-btn is-ghost insp-small" onClick={() => commit({ scaleX: 1, scaleY: 1, scaleZ: 1 })}>
+              <button className="ui-btn is-ghost insp-small" disabled={locked} title={lockTip} onClick={() => commit({ scaleX: 1, scaleY: 1, scaleZ: 1 })}>
                 Normal size
               </button>
             </div>
@@ -240,16 +273,18 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
             <button
               className="ui-btn is-ghost insp-small"
               aria-pressed={keepProportions}
-              title={keepProportions ? 'Sizes change together' : 'Each size changes on its own'}
+              disabled={locked}
+              title={lockTip ?? (keepProportions ? 'Sizes change together' : 'Each size changes on its own')}
               onClick={() => setKeepProportions((v) => !v)}
             >
               {keepProportions ? <Link2 {...ICON} /> : <Unlink2 {...ICON} />}
               Keep proportions
             </button>
-            <button className="ui-btn is-ghost insp-small" onClick={() => commit({ scaleX: 1, scaleY: 1, scaleZ: 1 })}>
+            <button className="ui-btn is-ghost insp-small" disabled={locked} title={lockTip} onClick={() => commit({ scaleX: 1, scaleY: 1, scaleZ: 1 })}>
               Normal size
             </button>
           </div>
+          {locked && <p className="insp-note" data-item-locked>Locked: unlock it (L) to move, turn or resize it.</p>}
         </Section>
       )}
 
@@ -315,13 +350,21 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
 
 // ── Room ────────────────────────────────────────────────────────────────
 
-/** The floor swatches: name and colour of each floor. */
-const FLOOR_SWATCH = {
-  wood: { label: 'Wood', color: '#d8b98f' },
-  carpet: { label: 'Carpet', color: '#c8d4de' },
-  tile: { label: 'Tiles', color: '#e7e5df' },
-  concrete: { label: 'Concrete', color: '#b8bbb6' },
-};
+/** The floor chips' short names (v0.18.6: Room default first, each chip the floor's own photo and tint). */
+const FLOOR_CHOICE_LABEL = { default: 'Room default', wood: 'Wood', carpet: 'Carpet', tile: 'Tiles', concrete: 'Concrete' };
+const ASSETS = `${import.meta.env?.BASE_URL ?? '/'}assets/`;
+
+/** A chip's look: the photo the floor is drawn with, multiplied by its tint (as in 3D). */
+export function swatchStyle(kind) {
+  const sw = floorSwatch(kind);
+  return {
+    backgroundColor: sw.tint ?? sw.flat,
+    ...(sw.texture ? {
+      backgroundImage: `url("${ASSETS}${sw.texture}")`, backgroundSize: '220%', backgroundPosition: 'center',
+      ...(sw.tint ? { backgroundBlendMode: 'multiply' } : {}),
+    } : {}),
+  };
+}
 const SIDE = { north: 'North wall', south: 'South wall', east: 'East wall', west: 'West wall' };
 
 const WALL_ORDER = ['north', 'east', 'south', 'west'];
@@ -420,7 +463,9 @@ function LiftStops({ stops, onChange }) {
 
 function RoomBody({ room, departmentChoices: choices, liftStops, onLiftStops, onUpdate, onSetFloor, onSelectOpening, onAddOpening }) {
   const area = room.width * room.depth;
-  const floor = floorKindOf(room);
+  const floor = floorChoiceOf(room);
+  const defaultKind = floorKindOf({ type: room.type });
+  const floorName = floor === 'default' ? `${FLOOR_NAMES[defaultKind] ?? 'Its own floor'} (room default)` : FLOOR_NAMES[floorKindOf(room)];
   const openings = roomOpenings(room);
   // a locked room keeps its size, place and walls (v0.15.6): unlock it first
   const locked = !!room.isLocked;
@@ -449,11 +494,12 @@ function RoomBody({ room, departmentChoices: choices, liftStops, onLiftStops, on
       <div className="insp-room__group">
         <h3 className="insp-room__title">Size</h3>
         <div className="insp-grid insp-grid--3">
-          <NumberField label="Width" value={room.width} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m" disabled={locked} title={lockTip}
+          {/* v0.18.6: drafts until Enter / leaving the box (a half-typed 1 never makes a 2 m room), Esc cancels */}
+          <NumberField label="Width" value={room.width} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} exact lazy suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { width: v })} />
-          <NumberField label="Length" value={room.depth} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m" disabled={locked} title={lockTip}
+          <NumberField label="Depth" value={room.depth} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} exact lazy suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { depth: v })} />
-          <NumberField label="Ceiling" value={room.wallHeight ?? 3} step={0.1} min={MIN_WALL_HEIGHT} max={MAX_WALL_HEIGHT} digits={1} suffix="m" disabled={locked} title={lockTip}
+          <NumberField label="Wall height" value={room.wallHeight ?? 3} step={0.1} min={MIN_WALL_HEIGHT} max={MAX_WALL_HEIGHT} digits={1} exact lazy suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { wallHeight: v })} />
         </div>
         <p className="insp-room__note">{Math.round(area * 10) / 10} m² · {locked ? 'locked: unlock it to resize it' : 'or drag its walls in the view'}</p>
@@ -473,12 +519,20 @@ function RoomBody({ room, departmentChoices: choices, liftStops, onLiftStops, on
       <div className="insp-room__group">
         <h3 className="insp-room__title" id="insp-floor">Floor</h3>
         <div className="insp-swatches" role="radiogroup" aria-labelledby="insp-floor">
-          {FLOOR_FINISHES.map((kind) => (
-            <button key={kind} type="button" role="radio" className="insp-swatch" aria-checked={floor === kind}
-              aria-label={FLOOR_SWATCH[kind].label} title={FLOOR_SWATCH[kind].label}
-              style={{ '--swatch': FLOOR_SWATCH[kind].color }} onClick={() => onSetFloor(room.id, kind)} />
-          ))}
+          {['default', ...FLOOR_FINISHES].map((choice) => {
+            const kind = choice === 'default' ? defaultKind : floorKindOf({ floorFinish: choice });
+            const title = choice === 'default' ? `Room default: ${FLOOR_NAMES[defaultKind] ?? 'its own floor'}` : FLOOR_NAMES[kind];
+            return (
+              <button key={choice} type="button" role="radio" className="insp-swatch" aria-checked={floor === choice}
+                aria-label={FLOOR_CHOICE_LABEL[choice]} title={title} data-floor-choice={choice}
+                onClick={() => onSetFloor(room.id, choice)}>
+                <span className="insp-swatch__chip" style={swatchStyle(kind)} aria-hidden />
+                <span className="insp-swatch__name">{choice === 'default' ? 'Default' : FLOOR_CHOICE_LABEL[choice]}</span>
+              </button>
+            );
+          })}
         </div>
+        <p className="insp-room__note" data-floor-name>{floorName}</p>
       </div>
 
       <div className="insp-room__group">

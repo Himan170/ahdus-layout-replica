@@ -348,6 +348,22 @@ const esc = await p.evaluate(() => ({ panel: !!document.querySelector('[data-pla
 log('nothing found says so; Esc closes the box (focus back on the button)',
   /Nothing found for “zzzz”/.test(none) && !esc.panel && esc.focus === 'Find a person, room or place', `${none} | ${JSON.stringify(esc)}`);
 
+// v0.18.6 (Astra audit 1a): a click on the view closes Find (what was typed kept); so does Esc with the focus on the view
+await p.click(`button${SEARCH}`);
+await p.fill('[data-place-search] input', 'meeting');
+await p.mouse.click(900, 520); await wait(150);
+const afterClick = await p.evaluate(() => !!document.querySelector('[data-place-search]'));
+await p.click(`button${SEARCH}`);
+const kept = await p.inputValue('[data-place-search] input').catch(() => '');
+await p.evaluate(() => document.querySelector('canvas')?.focus());
+await p.keyboard.press('Escape'); await wait(150);
+const afterEsc = await p.evaluate(() => !!document.querySelector('[data-place-search]'));
+log('a click on the view closes Find (the word typed is kept); Esc with the focus on the view closes it too',
+  !afterClick && kept === 'meeting' && !afterEsc, JSON.stringify({ afterClick, kept, afterEsc }));
+await p.click(`button${SEARCH}`);
+await p.fill('[data-place-search] input', '');
+await p.keyboard.press('Escape');
+
 // Walking: typing in the box doesn't walk; picking measures the walk there
 await p.click('button:has-text("Walk through")'); await frames(6);
 await p.evaluate(() => document.exitPointerLock?.()); await wait(300);

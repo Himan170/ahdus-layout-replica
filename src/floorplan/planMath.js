@@ -12,6 +12,7 @@ import { placementHeight, canStandOn, floorOnlyText, FLOOR_LIKE_TYPES } from '..
 import { carriedBy } from '../play/carry';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { isWallItem, mountOnWall, wallPieces } from '../play/wallMount';
+import { surfaceTopAt } from '../play/surfaces';
 import { snapTargets, snapDrag } from '../play/dragSnap';
 
 // the walls of the plan's floor, kept while its rooms and items are the same arrays (a drag asks every move)
@@ -218,9 +219,13 @@ export function roomContainsPoint(room, point) {
  * @returns {object[]}
  */
 export function planCarried(object, objects = []) {
-  const top = (Number(object.y) || 0) + itemSize(object).height;
-  const riders = objects.filter((o) => o.id !== object.id && (o.floor ?? 0) === (object.floor ?? 0) &&
-    Math.abs((Number(o.y) || 0) - top) < 0.2 && itemContains(object, { x: Number(o.x) || 0, z: Number(o.z) || 0 }));
+  const size = itemSize(object);
+  const riders = objects.filter((o) => {
+    if (o.id === object.id || (o.floor ?? 0) !== (object.floor ?? 0)) return false;
+    // v0.18.6: on its real surface (a shelf's bare board is lower than its books)
+    const t = surfaceTopAt(object, { x: Number(o.x) || 0, z: Number(o.z) || 0 }, size);
+    return t !== null && Math.abs((Number(o.y) || 0) - ((Number(object.y) || 0) + t)) < 0.2;
+  });
   return carriedBy(object, objects, riders).map((c) => c.item);
 }
 
@@ -261,10 +266,13 @@ export function planDrop(object, point, { objects = [], rooms = [], snap: snappi
   let top = null;
   let under = null; // the item it would stand on
   for (const other of objects) {
-    if (moving.has(other.id) || !itemContains(other, at)) continue;
+    if (moving.has(other.id)) continue;
+    // v0.18.6: its real top (the corner desk's arms, the round top, a shelf's board), not its square
+    const onTop = surfaceTopAt(other, at, itemSize(other));
+    if (onTop === null) continue;
     // a rug or a floor marker lies on the floor: what is dropped there stands on the floor
     if (FLOOR_LIKE_TYPES.has(other.assetType) && !(Number(other.y) > 0.1)) continue;
-    const t = (Number(other.y) || 0) + itemSize(other).height;
+    const t = (Number(other.y) || 0) + onTop;
     if (top === null || t > top) { top = t; under = other; }
   }
   const surface = top !== null ? 'object'

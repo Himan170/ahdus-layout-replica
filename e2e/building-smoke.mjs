@@ -313,7 +313,7 @@ log('Studio, Rooms tool on Floor 1: the outline of the ground floor is drawn on 
 // ── Studio: Inspector wall height past the floor raises it; the floor menu sets floor heights ──
 await p.evaluate((id) => { const s = window.__ahdusStore.getState(); s.selectFloor(0); s.selectRoom(id); }, ids.ground);
 await frames(3);
-await p.fill('aside[aria-label="Inspector"] input[aria-label="Ceiling"]', '4.5'); await frames(3);
+await p.fill('aside[aria-label="Inspector"] input[aria-label="Wall height"]', '4.5'); await frames(3);
 await p.evaluate(() => document.activeElement?.blur());
 st = await store();
 log('Inspector: 4.5 m walls raise the ground floor to 4.8 m and Floor 1 with it',

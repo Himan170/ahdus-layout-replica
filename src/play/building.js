@@ -243,22 +243,38 @@ export function wallHeightText(room, plan, floorName = 'The floor') {
 }
 
 /**
- * The rooms of a floor copied onto a new floor above it: same footprints,
- * types, wall heights, doors and windows. No furniture, no stairs.
+ * v0.18.6 (audit 8 + 9): what a copy of a room keeps, the ONE rule for "Copy rooms from below" and Duplicate:
+ * its type, colour, wall height and thickness, the floor chosen for it, its glass walls and a Meeting room's
+ * "first door in glass". Not its name, place, size, doors, windows, department or lock: each caller says what
+ * it does with those (the floor copy keeps the footprint and the openings, Duplicate neither).
+ * `glassWalls` is always given (empty: solid), so a copied Meeting room stays as solid as its original.
+ */
+export function roomLook(r) {
+  return {
+    type: r.type,
+    color: r.color,
+    wallHeight: r.wallHeight ?? DEFAULT_WALL_HEIGHT,
+    wallThickness: wallThicknessOf(r),
+    ...(r.floorFinish && r.floorFinish !== 'default' ? { floorFinish: r.floorFinish } : {}),
+    glassWalls: [...(r.glassWalls ?? [])],
+    ...(r.glassOnFirstDoor ? { glassOnFirstDoor: true } : {}),
+  };
+}
+
+/**
+ * The rooms of a floor copied onto a new floor above it: same footprints, doors and windows, and the room's
+ * look (roomLook: type, wall heights, floor, glass walls). No furniture, no stairs.
  * @returns {object[]} room data ready for addRoom (without ids)
  */
 export function copyRoomsUp(rooms, fromFloorId, toFloorId) {
   return rooms
     .filter((r) => (r.floor ?? 0) === fromFloorId)
     .map((r) => ({
-      type: r.type,
-      color: r.color,
+      ...roomLook(r),
       x: r.x,
       z: r.z,
       width: r.width,
       depth: r.depth,
-      wallHeight: r.wallHeight ?? DEFAULT_WALL_HEIGHT,
-      wallThickness: wallThicknessOf(r),
       doors: (r.doors ?? []).map((d) => ({ ...d })),
       windows: (r.windows ?? []).map((w) => ({ ...w })),
       floor: toFloorId,

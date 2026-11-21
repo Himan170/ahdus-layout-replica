@@ -69,7 +69,7 @@ import { createCharacter } from './character';
 import { moveWithSteps, createNearbyMeshes } from './movement';
 import { lockPointer } from '../utils/pointerLock';
 import { createDragLook } from './dragLook';
-import { createWalkMapCache, FREE, STAIRS, BLOCKED } from './navigation/walkMap';
+import { createWalkMapCache, FREE, STAIRS, BLOCKED, VOID } from './navigation/walkMap';
 import { entranceSpawn, nearestFree, NOT_BLOCKED } from './navigation/entrance';
 import { stairsClickGoal } from './navigation/route';
 import { NO_WALK_PARTS } from './clickHint';
@@ -1480,6 +1480,7 @@ export function createPlayController(scene, canvas, {
       case 'KeyF':
         flying = !flying;
         vy = 0;
+        if (!flying) landFromFlight();
         say(flying ? 'Flying. Space goes up, C goes down, F lands.' : 'Walking');
         break;
       case 'KeyV':
@@ -1751,6 +1752,24 @@ export function createPlayController(scene, canvas, {
   function groundHeightAt(x, z, fromY = levelElev() + 0.5) {
     const st = state();
     return supportHeight({ x, z, y: fromY, floors: st.floors, rooms: st.rooms, stairs: stairsList() });
+  }
+
+  /**
+   * v0.18.6 (audit 2b): ending a flight never lands you inside a table, a desk or a wall. You come down at the
+   * nearest spot of the walk map where the body fits, on the floor you fall to, as walking does (people don't
+   * stand on furniture). Over nothing the walk map knows (far outside, a stair opening) nothing changes.
+   */
+  function landFromFlight() {
+    const { x, z, y } = collider.position;
+    const floorId = levelForY(state().floors, groundHeightAt(x, z, y));
+    const map = walkMap(floorId);
+    const v = map.at(x, z);
+    if (v === VOID || v === STAIRS || map.isClear(x, z)) return;
+    const spot = nearestFree(map, x, z, { values: [FREE, STAIRS] });
+    if (!spot) return;
+    collider.position.x = spot.x;
+    collider.position.z = spot.z;
+    collider.computeWorldMatrix(true);
   }
 
   /** Update which floor the character is on (from its height). */

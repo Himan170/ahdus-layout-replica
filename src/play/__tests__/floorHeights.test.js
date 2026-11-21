@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   STOREY_HEIGHT, SLAB, DEFAULT_WALL_HEIGHT, MAX_STEP, STAIR,
   floorHeight, elevationOf, wallSpace, levelForY, floorPosition, fillsFloor,
-  planWallHeight, planFloorHeight, copyRoomsUp, stairDims, stairDimsFor, stairHeightAt,
+  planWallHeight, planFloorHeight, copyRoomsUp, roomLook, stairDims, stairDimsFor, stairHeightAt,
   supportHeight, stairNeedsRoomAbove, arrivalOnFloor, overhangArea, overhangs,
   MAX_WALL_HEIGHT, MAX_FLOOR_HEIGHT, STEEP_STAIRS_ABOVE, steepStairsText, wallHeightText,
 } from '../building';
@@ -147,6 +147,29 @@ describe('wall heights keep the storeys closed', () => {
     expect(copy.doors).toEqual(src[0].doors);
     expect(copy.doors).not.toBe(src[0].doors);
     expect(copy).not.toHaveProperty('id');
+  });
+});
+
+describe('a copy of a room keeps its look (v0.18.6, audit 8 + 9: one rule for the floor copy and Duplicate)', () => {
+  const office = { id: 'r1', name: 'Glass office', type: 'OFFICE', color: '#abc', floor: 0, x: 1, z: 2, width: 6, depth: 4,
+    wallHeight: 3.2, wallThickness: 0.3, floorFinish: 'tile', glassWalls: ['north', 'west'], departmentRef: 'Sales',
+    isLocked: true, doors: [{ wall: 'south', offset: 0, width: 1, height: 2.1 }], windows: [] };
+
+  it('roomLook: type, colour, walls, the chosen floor and the glass walls; not its name, place, openings or lock', () => {
+    expect(roomLook(office)).toEqual({
+      type: 'OFFICE', color: '#abc', wallHeight: 3.2, wallThickness: 0.3, floorFinish: 'tile', glassWalls: ['north', 'west'],
+    });
+    expect(roomLook(office).glassWalls).not.toBe(office.glassWalls);
+    // the room type's own floor is not written down; a Meeting room still waiting for its first door keeps that
+    expect(roomLook({ ...office, floorFinish: 'default', glassWalls: undefined, glassOnFirstDoor: true }))
+      .toEqual({ type: 'OFFICE', color: '#abc', wallHeight: 3.2, wallThickness: 0.3, glassWalls: [], glassOnFirstDoor: true });
+  });
+
+  it('copyRoomsUp keeps the glass walls and the floor (it lost both)', () => {
+    const [copy] = copyRoomsUp([office], 0, 1);
+    expect(copy).toMatchObject({ floor: 1, floorFinish: 'tile', glassWalls: ['north', 'west'], wallThickness: 0.3 });
+    expect(copy).not.toHaveProperty('name');
+    expect(copy).not.toHaveProperty('isLocked');
   });
 });
 

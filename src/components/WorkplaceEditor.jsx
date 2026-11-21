@@ -19,7 +19,7 @@ import { setCameraView, flyTo as flyCamera } from '../engine/systems/CameraSyste
 // Phase 2 utilities
 import {
   elevationOf, floorBelow,
-  floorPosition, steepStairsText, floorHeight,
+  floorPosition, steepStairsText, floorHeight, roomLook,
 } from '../play/building';
 import { stairFit, findStairSpot, stairRoomAt } from '../play/stairFit';
 import { isAltDown } from '../utils/altKey';
@@ -93,7 +93,6 @@ import {
   openingData, openingPartner, openingCentre, resizeOpening, planOpeningStyle, planRemoveOpening,
   planRoomResize, planWallThickness, planRoomTurn, planRoomCopy, planRoomMove, findRoomAt,
 } from '../play/geometry';
-import { FLOOR_BY_ROOM_TYPE } from '../utils/materialLibrary';
 import { DEFAULT_HOTBAR, EMPTY_HAND, catalogSlot } from '../play/hotbarItems';
 
 // Team integration: how other modules connect to the layout (docs/TEAM_INTEGRATION.md)
@@ -106,7 +105,7 @@ import { prefabById } from '../catalog/manifest';
 import { v4 as uuidv4 } from 'uuid';
 import { HighlightSystem } from '../engine/systems/HighlightSystem';
 import { readHidden, writeHidden, toggleHidden, liveHidden, hiddenText } from '../ui/hiddenLayers';
-import { lockedText } from '../play/locks';
+import { lockedText, allowedItemPatch } from '../play/locks';
 import { isWallItem, isOnWall, mountOnWall } from '../play/wallMount';
 import { createFloorWalls } from '../play/floorWalls';
 
@@ -724,18 +723,21 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     if ('width' in patch || 'depth' in patch) {
       const state = useWorkspaceStore.getState();
       const room = state.rooms[id];
+      // THE rule a wall drag uses: no door, window or item of the room left outside it (v0.18.6)
       const plan = planRoomResize(
         room,
         patch.width ?? room.width,
         patch.depth ?? room.depth,
         Object.values(state.rooms).filter((other) => other.floor === room.floor),
+        Object.values(state.objects),
+        (o) => o.label || ASSET_TYPES[o.assetType]?.label || 'An item',
       );
-      if (plan.blocker) {
-        showStudioMessage(`Would overlap ${plan.blocker.name}`, true);
-        return;
+      if (plan.problem) {
+        showStudioMessage(`${plan.problem}. The size was not changed.`, true);
+        return false;
       }
-      // An edge that lands near a wall snaps onto it, which can move the centre a little
-      patch = { ...patch, ...plan.rect };
+      // An edge that lands near a wall snaps onto it, which can move the centre a little (doors re-measured)
+      patch = { ...patch, ...plan.patch };
     }
     editor.updateRoom(id, patch, { mergeKey });
   }, [editor, showStudioMessage]);
@@ -784,19 +786,18 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     const rect = planRoomCopy(room, Object.values(st.rooms).filter((r) => r.floor === room.floor),
       below ? Object.values(st.rooms).filter((r) => r.floor === below.id) : null);
     if (!rect) { showStudioMessage('No free space next to it for a copy', true); return; }
-    // Same type, size, walls and floor; no doors or windows (it may stand back to back with this one)
-    editor.addRoom({
-      type: room.type, color: room.color, wallHeight: room.wallHeight, wallThickness: room.wallThickness,
-      ...(room.floorFinish ? { floorFinish: room.floorFinish } : {}), ...rect, floor: room.floor,
-    });
+    // Same size and look (building.roomLook: type, walls, floor, glass walls: the rule "Copy rooms from below"
+    // uses too); no doors or windows (it may stand back to back with this one)
+    editor.addRoom({ ...roomLook(room), ...rect, floor: room.floor });
     showStudioMessage(`Copied ${room.name}, without its doors and windows. Ctrl+Z to undo.`);
   }, [editor, showStudioMessage]);
 
   const handleSetFloorFinish = useCallback((id, kind) => {
     const room = useWorkspaceStore.getState().rooms[id];
     if (!room) return;
-    // The room type's own floor is stored as 'default', so a new type brings its floor
-    const floorFinish = kind === (FLOOR_BY_ROOM_TYPE[room.type] ?? 'wood') ? 'default' : kind;
+    // 'default' = the room type's own floor (a new type brings its floor); a chosen floor is kept as chosen
+    // (v0.18.6: choosing Wood in an Office was saved as 'default' and showed its carpet)
+    const floorFinish = kind === 'default' ? 'default' : kind;
     if ((room.floorFinish ?? 'default') === floorFinish) return;
     editor.updateRoom(id, { floorFinish }, { label: 'Change floor' });
   }, [editor]);
@@ -1067,12 +1068,18 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   // Inspector sliders / typing: a burst of edits on one object = one undo step.
   // Typed X / Z or an angle move the item with what it takes along (one step each).
   const handleUpdateObject = useCallback((id, patch) => {
+    const obj = useWorkspaceStore.getState().objects[id];
+    if (obj && allowedItemPatch(obj, patch).refused.length) {
+      // v0.18.6: a locked item keeps its place, angle and size (the editor refuses them too)
+      showStudioMessage(lockedText(obj.label || ASSET_TYPES[obj.assetType]?.label), true);
+      return;
+    }
     if ('x' in patch || 'z' in patch || 'rotationY' in patch) {
       moveItemCarrying(id, patch, { label: 'Edit properties', mergeKey: 'inspector-move' });
       return;
     }
     editor.updateObject(id, patch, { mergeKey: 'inspector', label: 'Edit properties' });
-  }, [editor, moveItemCarrying]);
+  }, [editor, moveItemCarrying, showStudioMessage]);
 
   const handleToggleLock = useCallback((id) => {
     editor.toggleLock(id);

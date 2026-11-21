@@ -11,6 +11,25 @@
 /** Room fields that move, resize or turn it: a locked room keeps them. */
 export const ROOM_SHAPE_KEYS = ['x', 'z', 'width', 'depth', 'wallHeight', 'wallThickness', 'floor'];
 
+/** Item fields that move, turn or resize it: a locked item keeps them (v0.18.6: in every path, the Inspector too). */
+export const ITEM_SHAPE_KEYS = ['x', 'y', 'z', 'rotationX', 'rotationY', 'rotationZ', 'scaleX', 'scaleY', 'scaleZ', 'floor', 'roomId'];
+
+/**
+ * The part of an item patch a lock allows: everything but its place, angle and size when it is locked
+ * (its name, department and other details still change; `isLocked` itself always does).
+ * @returns {{ patch: object, refused: string[] }}
+ */
+export function allowedItemPatch(obj, patch) {
+  if (!obj?.isLocked) return { patch, refused: [] };
+  const allowed = {};
+  const refused = [];
+  for (const [k, v] of Object.entries(patch)) {
+    if (ITEM_SHAPE_KEYS.includes(k) && obj[k] !== v) refused.push(k);
+    else allowed[k] = v;
+  }
+  return { patch: allowed, refused };
+}
+
 /** The words for "this is locked", the same in Studio, Plan view and Walk through. */
 export function lockedText(name) {
   return `${name || 'This'} is locked. Select it and press L to unlock it`;

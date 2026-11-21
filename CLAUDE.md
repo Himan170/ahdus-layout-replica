@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1770, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1828, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -128,7 +128,7 @@ npm run e2e:shared-walls  # 17     e2e/shared-walls-smoke.mjs (one wall + one do
 npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
                           #                                    rooms drawn inside sharing walls with each other and
                           #                                    the outer wall, doors, picks, upper floor, save + reopen)
-npm run e2e:viewer   # 34 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
+npm run e2e:viewer   # 35 checks   e2e/viewer-smoke.mjs    (viewer.html: <LayoutViewer> with no Studio code (also in
                      #                                       the vite build), where walking starts (no room events) + Home, setPose
                      #                                       into a machine, walk in, E + a module's action, edits
                      #                                       refused, Page Up, view mode, a saved layout; search: the
@@ -137,7 +137,8 @@ npm run e2e:viewer   # 34 checks   e2e/viewer-smoke.mjs    (viewer.html: <Layout
                      #                                       v0.14.2: the browse menu (chips of the kinds there are,
                      #                                       departments, kinds, floors; ↓ Enter / Esc), recent
                      #                                       searches, walking chips "Nearest stairs · 7 m");
-                     #                                       v0.14.3: ?debug=tour (the plan, its panel, its route)
+                     #                                       v0.14.3: ?debug=tour (the plan, its panel, its route); v0.18.6: a click
+                     #                                       on the view and Esc close Find
 npm run e2e:embed    # 41 checks   e2e/embed-smoke.mjs     (NO dev server needed: builds the embed, no saving code
                      #                                       (v0.17.0: no WebGPU shaders, no editor commands either)
                      #                                       in it (no Supabase), serves embed-test.html itself; keys at once, the page's own field / button, hover, Esc, walk in,
@@ -838,6 +839,8 @@ src/ui/hiddenLayers.js             Layers' eye (v0.15.6): hidden rooms / items p
 src/play/stairFit.js               PURE (v0.17.4): stairs that work: stairFit (problems + the floor they miss), stairPreview,
                                    stairProblems, stairSpots / findStairSpot (nearest spot that works), findItemSpot
 src/play/turnedRect.js             PURE (v0.17.4): turned rectangles (rectsOverlap, boxOf, distanceTo, farApart)
+src/play/surfaces.js               PURE (v0.18.6): an item's real top (surfaceTopAt: the corner desk's L, a round top, a
+                                   shelf's board) + Plan view's outline (planOutline)
 src/play/lifts.js                  PURE (v0.18.3): lifts derived from LIFT rooms (liftsOf), stops, ride time, Check, parts
 src/engine/systems/LiftSystem.ts   v0.18.3: the lifts' cars, doors' frames and call buttons (3 thin-instance meshes), riding
 src/play/doorSwing.js              PURE (v0.18.1): one door per doorway (doorOf), its leaves (doorParts / leafLines), who
@@ -1794,9 +1797,12 @@ site on the server (local mode renames the layout), the leave check. Saving, und
 - **Selection:** a dark green bar with Move, Rotate, Duplicate, Delete (`SelectionToolbar`; rooms too:
   Rotate = `geometry.planRoomTurn` (a quarter turn about its centre, doors and windows go round with it; refused with
   rooms inside, a shared door / window or an overlap), Duplicate = `geometry.planRoomCopy` (first free spot beside it;
-  type, colour, heights, thickness, floor; no doors / windows)). The selected room keeps its small name pill
-  (`RoomLabels selectedAsPill`). Inspector (`RoomBody`): room type, Width / Length / Ceiling, floor swatches
-  (Wood / Carpet / Tiles / Concrete = room field `floorFinish`, `materialLibrary.floorKindOf`; 'default' = the type's
+  `building.roomLook`: type, colour, heights, thickness, floor, glass walls; no doors / windows)). The selected room
+  keeps its small name pill (`RoomLabels selectedAsPill`). Inspector (`RoomBody`): room type, Width / Depth / Wall
+  height (v0.18.6: drafts until Enter or blur, Esc cancels, `NumberField lazy exact`; the size through
+  `geometry.planRoomResize` → `checkRoomRect`, the wall drag's rule), floor choices (`[data-floor-choice]`: Room
+  default first, then Wood / Carpet / Tiles / Concrete, each its photo + tint (`materialLibrary.floorSwatch`) = room
+  field `floorFinish`; Wood / Carpet = kinds `woodFinish` / `carpetFinish`, `floorKindOf`; 'default' = the type's
   floor; in `roomBuildInput`, so only that room rebuilds), wall thickness, the doors and windows (a click selects one),
   "Add a door or window", Duplicate, Delete room. Walls finishes: not yet.
 - **Phone** (≤ 600 px, `look.usePhone` / `PHONE_QUERY`): top bar = back, name (cut with …), Undo, ⋯ (`More`: Redo,
@@ -1821,6 +1827,7 @@ site on the server (local mode renames the layout), the leave check. Saving, und
   `Front view`, `Side view`, `Room type`, `Room department`; on a phone `More` (menu `More actions`) and `Close the library`.
   AHDUS seats: the section `Who sits here`, `Search people`, `People found`, the banner `People without a desk`.
   Doors & glass (v0.18.1): `Door type`, `Window type`, the glass wall buttons (`data-glass-wall`, aria-pressed).
+  Room size (v0.18.6): `Width`, `Depth`, `Wall height` (were Width / Length / Ceiling); a locked item's note `data-item-locked`.
   Workstations (v0.18.0): `Seats`, `Partition`, `Desk width`, `Desk depth`, `Partition height`, library tiles titled
   "<prefab label>: drag onto the floor…" (e2e:workstations finds them by `title^=`).
   `Export floor plan` and `Measurements` keep their labels (the visible text is "Export" / "Measure").
@@ -2143,7 +2150,18 @@ and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
 
-## IN REVIEW: Studio fixes (v0.18.5, 20 Nov 2026, branch `fix/v0.18.5-studio-fixes`)
+## IN REVIEW: fixes from the Astra audit (v0.18.6, 21 Nov 2026, branch `fix/v0.18.6-astra-audit`)
+
+private-docs/AUDIT_ASTRA_2026-11-21.md, plan private-docs/V0.18.6_PLAN.md, the rest in private-docs/V0.18.7_PLAN.md.
+One commit per item, each with a failing-first test (CHANGELOG.md): a typed room size checked like a wall drag
+(`geometry.checkRoomRect`), locked items refused by `editor.updateObject` (`locks.allowedItemPatch`) + disabled
+Inspector boxes, L stairs checked by their arms, Find closes on a click / tap on the view and on Esc, room size boxes
+as drafts (labels Width / Depth / Wall height), stairs flush to a wall (`stairFit.snapStairToWall`, placement only;
+dragSnap did it already), Wood / Carpet materials + Room default chip, real table tops (`play/surfaces.js`, Plan
+view + 3D after the grid snap), ending a flight over a table (`playController.landFromFlight`: the walk map's nearest
+free spot), Check's overlaps by boxes (no 6 m cull), one copy rule for rooms (`building.roomLook`).
+
+## DONE: Studio fixes (v0.18.5, 20 Nov 2026, branch `fix/v0.18.5-studio-fixes`)
 
 Seven Studio bugs, each with a failing-first test (CHANGELOG.md): Fix it after Import (restoreVersion keeps maps by id),
 Layers search with a dot, a cabin's door always leads in (PURE `play/cabinDoor.js`: `cabinDoor`, `doorLeadsIn`,

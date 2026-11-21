@@ -29,6 +29,7 @@ import {
   clampZoom, zoomViewBox, zoomTowards, roomDimensionLines, planRoomLabel,
   ANCHOR_COLORS, ANCHOR_BADGE_SYMBOLS, planViewCentre,
 } from './planMath';
+import { planOutline } from '../play/surfaces';
 
 /**
  * An L-shaped staircase in the plan (v0.18.3): its parts' outlines, a line per step, the way up as a bent arrow.
@@ -853,19 +854,26 @@ export default function FloorPlanView({
                 />
               ) : (
                 <>
-                  <rect
-                    className="floor-plan-shape"
-                    x={c.x - w / 2}
-                    y={c.y - d / 2}
-                    width={w}
-                    height={d}
-                    rx={0.05}
-                    fill={type.color || '#94a3b8'}
-                    fillOpacity={activeDrag ? 0.95 : 0.9}
-                    stroke={selected ? '#2563eb' : '#475569'}
-                    strokeWidth={selected ? 0.08 : 0.03}
-                    transform={`rotate(${planAngle(pos.rotationY ?? object.rotationY)} ${c.x} ${c.y})`}
-                  />
+                  {(() => {
+                    // v0.18.6: the outline its top really has (the corner desk's L, a round top), as in 3D
+                    const shape = planOutline(object.assetType);
+                    const look = {
+                      className: 'floor-plan-shape',
+                      'data-plan-outline': shape.kind,
+                      fill: type.color || '#94a3b8',
+                      fillOpacity: activeDrag ? 0.95 : 0.9,
+                      stroke: selected ? '#2563eb' : '#475569',
+                      strokeWidth: selected ? 0.08 : 0.03,
+                      transform: `rotate(${planAngle(pos.rotationY ?? object.rotationY)} ${c.x} ${c.y})`,
+                    };
+                    if (shape.kind === 'ellipse') return <ellipse {...look} cx={c.x} cy={c.y} rx={Math.abs(w) / 2} ry={Math.abs(d) / 2} />;
+                    if (shape.kind === 'polygon') {
+                      // fractions of its footprint (local x, z) → plan (x, −z): a negative scale mirrors it, as in 3D
+                      const pts = shape.points.map(([fx, fz]) => `${c.x + fx * w},${c.y - fz * d}`).join(' ');
+                      return <polygon {...look} points={pts} strokeLinejoin="round" />;
+                    }
+                    return <rect {...look} x={c.x - Math.abs(w) / 2} y={c.y - Math.abs(d) / 2} width={Math.abs(w)} height={Math.abs(d)} rx={0.05} />;
+                  })()}
                   <text
                     x={c.x}
                     y={c.y}

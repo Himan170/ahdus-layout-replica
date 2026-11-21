@@ -3,6 +3,44 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.18.6 (21 Nov 2026): fixes from an outside audit
+
+Thirteen problems found by an outside audit of v0.18.5 (and Himan's own notes), each with a test that failed before
+the fix. Nothing new is saved in a layout; saved values read as before.
+- **A typed room size can't leave a door or desk outside:** Width / Depth in the Inspector use the same check as
+  dragging a wall (`geometry.checkRoomRect`): doors and windows keep their place, one that no longer fits its wall is
+  in the way, the room's items stay inside. The message says what blocks ("Desk is in the way. The size was not
+  changed.").
+- **Locked items stay put:** a locked item's X / Z, height, angle and size can't be typed in the Inspector (the boxes
+  are disabled, with a note), and `editor.updateObject` refuses them on every path (arrow keys, gizmo, Walk through)
+  and says why (`locks.allowedItemPatch`).
+- **L-shaped stairs are checked by their arms:** a room in the L's empty corner no longer gives "The stairs run
+  into …" and a Fix it.
+- **Find closes like a menu:** a click or tap on the view closes it, and Esc closes it when the focus has left its
+  box. What was typed is kept.
+- **Room size boxes:** Width / Depth / Wall height (were Width / Length / Ceiling) change the room once, on Enter or
+  on leaving the box (typing 12 no longer resizes the room to 1 m on the way). Esc puts the saved value back, a click selects
+  the number, and the box shows what is saved (12.34, not 12.3).
+- **Stairs against a wall:** a staircase dropped near a wall has its side flush with the wall's inner face (its
+  thickness counted) before the 0.5 m grid; Alt = exactly where the mouse is (`stairFit.snapStairToWall`).
+- **Wood and Carpet floors:** choosing Wood gave a carpet and Carpet a parquet. Each now has its own material, and a
+  room that never chose a floor keeps its type's look. The Inspector's floor choices show each floor's own photo and
+  name, with **Room default** first (a Cabin's walnut, an Office's carpet).
+- **Table tops are real:** an item dropped in Plan view onto a corner desk stands on its L (the open corner is
+  floor), on a round table only inside its round top, on a wall shelf at its board. Plan view draws those shapes
+  (`play/surfaces.js`). In 3D, what is under the spot the grid snapped to is what the item stands on (a Desk Plant
+  snapped past a desk's edge goes to the floor, not to desk height in the air).
+- **Ending a flight over a table** (F in Walk through) lands you beside it, at the nearest spot where you fit, as
+  walking does. You no longer end up standing inside it.
+- **Check finds enlarged furniture in each other:** two meeting tables made three times bigger, 6.1 m apart, overlap
+  and are now reported (pairs were skipped by a 6 m distance between their centres).
+- **Copied rooms keep their look:** "Copy rooms from below" and Duplicate keep a room's glass walls and its chosen
+  floor (one rule, `building.roomLook`). Duplicate still copies no doors or windows.
+- Tests: `buildActions.test.js`, `editorHistory.test.js`, `inspectorFields.test.jsx`, `stairFit.test.js`,
+  `placeSearchClose.test.tsx`, `floorFinish.test.js`, `planSurfaces.test.js`, `playController.landing.test.js`,
+  `checkLayout.test.js`, `floorHeights.test.js`; e2e:viewer (Find closes), e2e:building (the new labels).
+- The rest of the audit is planned for v0.18.7.
+
 ## 0.18.5 (20 Nov 2026): Studio fixes
 
 Seven Studio bugs, each with a test that failed before the fix. Nothing new is saved in a layout.
