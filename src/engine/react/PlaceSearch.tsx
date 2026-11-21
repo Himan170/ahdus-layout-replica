@@ -243,7 +243,15 @@ export function PlaceSearch({
   const touchRef = useRef(touch);
   touchRef.current = touch;
   const uid = useId();
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  // v0.18.7: the viewer hears it in the same event, so its welcome card goes in the render Find's box appears in
+  // (it came from an effect after that render: for a frame both showed)
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onOpenChangeRef.current?.(next);
+  };
   const [query, setQuery] = useState('');
   // v0.18.7 (audit): the active option belongs to the list it was chosen in; a new list starts at its start
   // index in the SAME render (it was reset by an effect: for one render the keys, aria-selected and
@@ -342,8 +350,6 @@ export function PlaceSearch({
   // A new layout or engine: nothing is shown any more
   useEffect(() => () => { setShown(null); }, [engine]);
 
-  const onOpenChangeRef = useRef(onOpenChange);
-  onOpenChangeRef.current = onOpenChange;
   useEffect(() => {
     if (open) {
       inputRef.current?.focus({ preventScroll: true });
@@ -352,7 +358,6 @@ export function PlaceSearch({
       setView({ type: 'home' }); // opening again starts at the start
       setChooseKey(null);
     }
-    onOpenChangeRef.current?.(open);
   }, [open]);
 
   // Keep the chosen option in view
