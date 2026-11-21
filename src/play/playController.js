@@ -1557,7 +1557,7 @@ export function createPlayController(scene, canvas, {
   }
 
   function onMouseMove(e) {
-    if (!active || !locked) return;
+    if (!active || !syncLock()) return;
     // Chrome sometimes reports a huge jump while the pointer is locked
     // (e.g. when the cursor is re-centred). Ignore those single spikes.
     if (Math.abs(e.movementX) > 250 || Math.abs(e.movementY) > 250) return;
@@ -1645,9 +1645,8 @@ export function createPlayController(scene, canvas, {
     click: ({ x, y, button, touch }) => {
       if (mouseAim) { previewClick(x, y, button, touch); return; }
       if (button !== 0 || !active) return;
-      // mouse-look mode: the crosshair (the middle of the view) is what you click
-      const at = locked ? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 } : { x, y };
-      onPointClick({ ...clickTarget(at.x, at.y), touch: !!touch });
+      // mouse-look mode: the crosshair (the middle of the view) is what you click: what it was on at the press
+      onPointClick({ ...(takePressAim() ?? clickTarget(x, y)), touch: !!touch });
     },
     doubleClick: ({ x, y, button, touch }) => {
       // Walk through: two quick clicks are two clicks (two chairs placed), never mouse look (that is M)
@@ -1670,15 +1669,33 @@ export function createPlayController(scene, canvas, {
     toolHint();
     if (button === 2) { secondaryAction(); return; }
     if (button !== 0) return;
-    if (carry || tool) { primaryAction(); return; }
-    const at = locked ? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 } : { x, y };
-    onPointClick({ ...clickTarget(at.x, at.y), touch: !!touch });
+    if (carry || tool) { pressAim = null; primaryAction(); return; }
+    onPointClick({ ...(takePressAim() ?? clickTarget(x, y)), touch: !!touch });
+  }
+
+  /**
+   * v0.18.7 (audit, crosshair stairs): in mouse look a click is what the crosshair was on when the button went
+   * down, picked then from the camera of that frame (a staircase there: its other end). Mouse look is what the
+   * browser says (document.pointerLockElement): headless Chromium has locked the mouse without a lockchange
+   * reaching us, and the click went to the cursor's last place instead (the floor upstairs, not the flight).
+   */
+  let pressAim = null;
+  function syncLock() {
+    if ((document.pointerLockElement === canvas) !== locked) onPointerLockChange();
+    return locked;
+  }
+  const crosshair = () => ({ x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 });
+  function takePressAim() {
+    const aim = pressAim ?? (syncLock() ? clickTarget(crosshair().x, crosshair().y) : null);
+    pressAim = null;
+    return aim;
   }
 
   function onPointerDown(e) {
     if (!active) return;
     const touch = e.pointerType === 'touch'; // v0.14.1: a finger drags to look, a tap is a click
     const at = canvasPoint(e);
+    pressAim = !touch && syncLock() ? clickTarget(crosshair().x, crosshair().y) : null;
     if (mouseAim && !touch && e.button === 1) {
       // the middle button picks up what the mouse is on (as G)
       e.preventDefault();
@@ -1701,7 +1718,7 @@ export function createPlayController(scene, canvas, {
   function onPointerMove(e) {
     // Walk through: the mouse is what you aim with (a finger aims where it taps)
     if (active && mouseAim && !locked && e.pointerType !== 'touch') pointer = canvasPoint(e);
-    if (!active || locked || !drag.pressed) return; // locked: onMouseMove looks
+    if (!active || syncLock() || !drag.pressed) return; // locked: onMouseMove looks
     const at = canvasPoint(e);
     drag.move({ id: e.pointerId, x: at.x, y: at.y });
   }
