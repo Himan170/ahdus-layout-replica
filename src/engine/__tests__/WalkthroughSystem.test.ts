@@ -246,6 +246,36 @@ describe('the mouse (v0.14.0)', () => {
     expect(document.activeElement).toBe(box);
   });
 
+  it('v0.18.7 (audit): the second L releases the mouse even when the browser locks it late', async () => {
+    const w = walk();
+    let grant: (() => void) | null = null;
+    // a browser that takes a moment (after an Esc it may even refuse at first)
+    (canvas as any).requestPointerLock = vi.fn(() => new Promise<void>((res) => {
+      grant = () => { lockEl = canvas; document.dispatchEvent(new Event('pointerlockchange')); res(); };
+    }));
+    key('KeyL'); // asks
+    key('KeyL'); // changed my mind, before the lock came
+    grant!();
+    await Promise.resolve();
+    expect(document.pointerLockElement).toBeNull();
+    expect(w.isMouseLocked()).toBe(false);
+    // and the next L locks again
+    key('KeyL');
+    grant!();
+    await Promise.resolve();
+    expect(w.isMouseLocked()).toBe(true);
+    key('KeyL');
+    expect(document.pointerLockElement).toBeNull();
+  });
+
+  it('v0.18.7: L follows the browser: locked by the browser without a lockchange seen, L releases it', () => {
+    const w = walk();
+    lockEl = canvas; // no pointerlockchange (a frame where it was missed)
+    key('KeyL');
+    expect(document.pointerLockElement).toBeNull();
+    expect(w.isMouseLocked()).toBe(false);
+  });
+
   it('Esc while a route is followed only ends it: the view keeps the keys', () => {
     const w = walk();
     const pilot = { drive: () => null, key: vi.fn((code: string) => code === 'Escape') };

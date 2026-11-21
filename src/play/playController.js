@@ -1515,13 +1515,11 @@ export function createPlayController(scene, canvas, {
         // look 'drag' on a page: mouse-look mode on / off (Esc also releases the mouse).
         // Walk through uses M: L locks an item there (Edit item)
         if (!dragMode || mouseAim) break;
-        if (locked) document.exitPointerLock?.();
-        else lockPointer(canvas);
+        toggleMouseLook();
         break;
       case 'KeyM':
         if (!mouseAim) break;
-        if (locked) document.exitPointerLock?.();
-        else lockPointer(canvas);
+        toggleMouseLook();
         break;
       case 'Escape':
         // Walk through, the mouse free: cancel what is half done, else put the item away (an empty hand).
@@ -1585,7 +1583,35 @@ export function createPlayController(scene, canvas, {
 
   const onContextMenu = (e) => { if (active) e.preventDefault(); };
 
+  // v0.18.7 (audit): mouse look on / off follows the browser (document.pointerLockElement), not our own flag, and an
+  // L pressed again while the browser is still granting the lock cancels it: the lock that comes is let go at once
+  let lockAsked = false;    // a lock asked for, not granted (or refused) yet
+  let releaseOnLock = false; // ...and taken back meanwhile
+  function toggleMouseLook() {
+    if (document.pointerLockElement === canvas) {
+      releaseOnLock = false;
+      document.exitPointerLock?.();
+      if (locked) return;
+      onPointerLockChange(); // the browser had it locked without telling us: catch up
+      return;
+    }
+    if (lockAsked) { releaseOnLock = !releaseOnLock; return; }
+    lockAsked = true;
+    releaseOnLock = false;
+    lockPointer(canvas).then(() => {
+      lockAsked = false;
+      if (releaseOnLock && document.pointerLockElement === canvas) document.exitPointerLock?.();
+      releaseOnLock = false;
+    });
+  }
+
   function onPointerLockChange() {
+    if (document.pointerLockElement === canvas) lockAsked = false; // granted
+    if (releaseOnLock && document.pointerLockElement === canvas) {
+      releaseOnLock = false;
+      document.exitPointerLock?.();
+      return;
+    }
     const was = locked;
     locked = document.pointerLockElement === canvas;
     if (was !== locked) onLockChange(locked);
