@@ -131,6 +131,43 @@ export function nearestFree(map, x, z, { maxDistance = SEARCH_RADIUS, values = [
   return best && { ...best, distance: Math.sqrt(bestD) };
 }
 
+/** v0.18.8: a free patch smaller than this (m²), closed in by walls and items, is a pocket you can't walk out of. */
+export const POCKET_AREA = 3;
+
+/**
+ * v0.18.8: the FREE cells you can walk to from (x, z) (4-neighbour flood fill), when they are a closed-in pocket:
+ * fewer than POCKET_AREA m² and none on the map's edge (open floor beyond). null when the patch is bigger (you
+ * can walk away) or (x, z) is not FREE. STAIRS cells count as a way out (you can climb them).
+ * @returns {Set<number>|null} cell indexes (j * cols + i)
+ */
+export function freePocket(map, x, z, { area = POCKET_AREA } = {}) {
+  const { cell, cols, rows, x0, z0, cells } = map;
+  const i0 = Math.floor((x - x0) / cell);
+  const j0 = Math.floor((z - z0) / cell);
+  if (i0 < 0 || j0 < 0 || i0 >= cols || j0 >= rows || cells[j0 * cols + i0] !== FREE) return null;
+  const limit = Math.ceil(area / (cell * cell));
+  const seen = new Set([j0 * cols + i0]);
+  const todo = [j0 * cols + i0];
+  while (todo.length) {
+    const k = todo.pop();
+    const i = k % cols;
+    const j = (k - i) / cols;
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ni = i + di;
+      const nj = j + dj;
+      if (ni < 0 || nj < 0 || ni >= cols || nj >= rows) return null; // reaches the edge: open
+      const n = nj * cols + ni;
+      const v = cells[n];
+      if (v === STAIRS || v === VOID) return null; // a way out
+      if (v !== FREE || seen.has(n)) continue;
+      seen.add(n);
+      if (seen.size > limit) return null;
+      todo.push(n);
+    }
+  }
+  return seen;
+}
+
 /** Anything but a wall or a solid item (flying, or a VOID spot you'll fall from). */
 export const NOT_BLOCKED = [FREE, STAIRS, VOID];
 

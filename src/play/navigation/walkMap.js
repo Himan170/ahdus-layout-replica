@@ -40,6 +40,7 @@ import {
 } from '../building';
 import { CORNER_DESK_ARM } from '../people';
 import { hangsOnWall } from '../wallMount';
+import { thinGaps } from './thinGaps';
 import { UNKNOWN_ITEM_SIZE } from '../../catalog/manifest';
 
 const UNKNOWN_DEF = { defaultWidth: UNKNOWN_ITEM_SIZE.width, defaultDepth: UNKNOWN_ITEM_SIZE.depth };
@@ -404,6 +405,13 @@ export function buildWalkMap(layout, floorId, options = {}) {
       if (o.kind === 'stairs' && !o.nowhere && ex === 0 && ez === 0) return; // on the flight itself: STAIRS
       if (ex * ex + ez * ez < c2) cells[k] = BLOCKED;
     });
+  }
+  // 4b. v0.18.8: thin strips (narrower than a person, beside stairs or furniture: thinGaps) are no place to walk,
+  //     even where a cell's centre is just far enough from both sides (a 0.7 m strip between two desks)
+  if (options.thinGaps !== false) {
+    for (const g of thinGaps(layout, floorId, { catalog })) {
+      forBox(g.box, (k, x, z) => { if (rectContains(g.box, x, z) && cells[k] !== VOID) cells[k] = BLOCKED; });
+    }
   }
   // 5. Door passages: a narrow door's free strip (a 0.8 m door: 0.06 m wide) can fall between two
   //    cell centres, and a door under 0.74 m has none. The cells a door's centre line crosses are

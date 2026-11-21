@@ -71,7 +71,8 @@ import { lockPointer } from '../utils/pointerLock';
 import { createDragLook } from './dragLook';
 import { createWalkMapCache, FREE, STAIRS, BLOCKED, VOID, isSolidItem } from './navigation/walkMap';
 import { itemWalkGoal } from './navigation/itemGoal';
-import { entranceSpawn, nearestFree, NOT_BLOCKED } from './navigation/entrance';
+import { entranceSpawn, nearestFree, freePocket, NOT_BLOCKED } from './navigation/entrance';
+import { floorBlockers, bodyPushOut } from './navigation/thinGaps';
 import { stairsClickGoal } from './navigation/route';
 import { NO_WALK_PARTS } from './clickHint';
 import {
@@ -102,6 +103,11 @@ const GRAVITY = -18;
 const MOUSE_SENS = 0.0022;
 const BODY_RADIUS = 0.32;
 const BODY_HEIGHT = 1.8;
+/** v0.18.8: pressing a direction for STUCK_AFTER s and getting less than STUCK_MOVED m from where you were … */
+const STUCK_AFTER = 1.0;
+const STUCK_MOVED = 0.25;
+/** … where the nearest free floor is further than this (m: not just a wall in front of you): Get unstuck. */
+const STUCK_FAR = 0.15;
 const EYE = 1.62; // the built-in figure's; another character brings its own (setCharacter)
 const CAM_DISTANCE = 3.8;
 const SHOULDER = 0.85;
@@ -317,6 +323,7 @@ export function createPlayController(scene, canvas, {
   let grounded = true;
   let flying = false;
   let firstPerson = false;
+  let stuckWindow = null; // v0.18.8: { x, z, t } where a press of a direction started (the safety net)
   // v0.18.3: standing in a lift car (a LIFT room, not flying) the camera is first person and your character hidden:
   // a third-person camera in a 2.2 m car sits right behind your head. Back to your own choice (V) once you step out.
   let liftView = false;
@@ -398,6 +405,19 @@ export function createPlayController(scene, canvas, {
   const floorName = (id) => Object.values(state().floors).find((f) => f.id === id)?.name ?? 'This floor';
   // Where the body fits (navigation/walkMap.js), per floor, built when first needed, kept until the layout changes
   const walkMaps = sharedWalkMaps ?? createWalkMapCache({ catalog: ASSET_TYPES });
+  // v0.18.8: what keeps the body out of furniture (by the box you see: Babylon's collisions miss most models' faces)
+  // and out of thin strips beside stairs and furniture (navigation/thinGaps.js), per floor, until the layout changes
+  let blockersFor = { objects: null, rooms: null, map: new Map() };
+  const blockersAt = (floorId) => {
+    const st = state();
+    if (blockersFor.objects !== st.objects || blockersFor.rooms !== st.rooms) blockersFor = { objects: st.objects, rooms: st.rooms, map: new Map() };
+    let b = blockersFor.map.get(floorId);
+    if (!b) {
+      b = floorBlockers({ rooms: st.rooms, objects: st.objects, floors: st.floors }, floorId, { catalog: ASSET_TYPES });
+      blockersFor.map.set(floorId, b);
+    }
+    return b;
+  };
   const walkMap = (floorId) => {
     const st = state();
     return walkMaps.get({ rooms: st.rooms, objects: st.objects, floors: st.floors }, floorId);
@@ -1487,6 +1507,10 @@ export function createPlayController(scene, canvas, {
       case 'KeyV':
         firstPerson = !firstPerson;
         break;
+      case 'KeyU':
+        // v0.18.8: Get unstuck: the nearest free floor of this room, this floor
+        getUnstuck();
+        break;
       case 'KeyR':
         ghostRotation += turnStep(e.shiftKey); // R = 90°, Shift+R = 15°
         break;
@@ -1809,6 +1833,64 @@ export function createPlayController(scene, canvas, {
    * nearest spot of the walk map where the body fits, on the floor you fall to, as walking does (people don't
    * stand on furniture). Over nothing the walk map knows (far outside, a stair opening) nothing changes.
    */
+  /** v0.18.8: the body out of every solid item's box and every thin strip on this floor (one small push). */
+  function keepOutOfFurniture() {
+    if (!collider.isEnabled?.()) return;
+    const p = collider.position;
+    const push = bodyPushOut(blockersAt(currentLevel), { x: p.x, z: p.z, y: p.y - levelElev(), radius: BODY_RADIUS });
+    if (!push) return;
+    collider.computeWorldMatrix(true);
+    collider.moveWithCollisions(new Vector3(push.dx, 0, push.dz)); // walls still stop it
+    collider.computeWorldMatrix(true);
+  }
+
+  /**
+   * v0.18.8: where "Get unstuck" (U, and the safety net) takes you: the nearest free floor of the walk map in the SAME
+   * room (or outside, if you are outside) on the SAME floor: never through a wall, never another floor. null when you
+   * already stand where the body fits, or on a flight (stairs are walked, not stuck in).
+   */
+  function unstuckSpot() {
+    const map = walkMap(currentLevel);
+    const { x, z } = collider.position;
+    const here = map.at(x, z);
+    const feet = collider.position.y - levelElev();
+    if (here === STAIRS && feet > 0.05) return null;
+    // FREE: stuck only in a small pocket closed in by items (desks in a ring); out of it, never back into it
+    let pocket = here === FREE ? freePocket(map, x, z) : null;
+    if (here === FREE && !pocket) return null;
+    const rooms = floorRooms();
+    const room = findRoomAt(rooms, x, z)?.id ?? null;
+    const { cell, cols, x0, z0 } = map;
+    const sameRoom = (px, pz) => (findRoomAt(rooms, px, pz)?.id ?? null) === room;
+    const opts = { values: [FREE], maxDistance: 6 };
+    const cellOf = (px, pz) => Math.floor((pz - z0) / cell) * cols + Math.floor((px - x0) / cell);
+    for (let tries = 0; tries < 4; tries++) {
+      const spot = nearestFree(map, x, z, { ...opts, accept: (px, pz) => sameRoom(px, pz) && !pocket?.has(cellOf(px, pz)) });
+      if (!spot) return null;
+      const inner = freePocket(map, spot.x, spot.z); // the nearest free floor is itself a pocket: look past it
+      if (!inner) return spot;
+      for (const k of inner) (pocket ?? (pocket = new Set())).add(k);
+    }
+    return null;
+  }
+
+  /** U, or stuck for STUCK_AFTER s: to unstuckSpot. auto: only when the body is really wedged (not just at a wall). */
+  function getUnstuck({ auto = false } = {}) {
+    if (flying) return false;
+    const spot = unstuckSpot();
+    if (!spot || (auto && spot.distance < STUCK_FAR)) {
+      if (!auto) say('You are not stuck here. Walk with W A S D.', 2000);
+      return false;
+    }
+    collider.position.x = spot.x;
+    collider.position.z = spot.z;
+    collider.position.y = Math.max(levelElev(), groundHeightAt(spot.x, spot.z, levelElev() + 0.5));
+    vy = 0;
+    collider.computeWorldMatrix(true);
+    say(auto ? 'You were stuck: moved you to free floor (U does this too)' : 'Moved you to free floor', 2500);
+    return true;
+  }
+
   function landFromFlight() {
     const { x, z, y } = collider.position;
     const floorId = levelForY(state().floors, groundHeightAt(x, z, y));
@@ -1950,12 +2032,15 @@ export function createPlayController(scene, canvas, {
     const before = collider.position.clone();
     // Step up (stairs, room floors) after every small move, so climbing works at any frame rate
     const stepUp = () => {
+      keepOutOfFurniture();
       if (flying) return;
-      // the solid part of a flight: only its steps are walked on (from the side or behind it stops you)
+      // the solid part of a flight: only its steps are walked on (from the side or behind it stops you); inside it
+      // (under the stairs) out by a side with free floor beyond it, never into a wall (v0.18.8)
       const st = state();
+      const map = walkMap(currentLevel);
       const out = stairPushOut({
         x: collider.position.x, z: collider.position.z, y: collider.position.y, floors: st.floors, rooms: st.rooms,
-        stairs: stairsList(), radius: BODY_RADIUS, bodyHeight: BODY_HEIGHT,
+        stairs: stairsList(), radius: BODY_RADIUS, bodyHeight: BODY_HEIGHT, isOpen: (px, pz) => map.at(px, pz) === FREE,
       });
       if (out) {
         if (out.nowhere) say(STAIRS_LEAD_NOWHERE);
@@ -1969,6 +2054,21 @@ export function createPlayController(scene, canvas, {
       }
     };
     moveWithSteps(collider, move.x, move.z, stepUp);
+    if (move.x === 0 && move.z === 0) stepUp(); // standing still: a table (or a flight) can't be put on you either
+    // v0.18.8: the safety net: pressing a direction and not moving for STUCK_AFTER s where the body doesn't fit
+    // (a thin strip, under the stairs) → the nearest free floor of the same room, on the same floor
+    // (measured over the whole second: pushed back and forth between two things is stuck too)
+    if (userMoving && !pilot && !flying) {
+      const now = performance.now();
+      const at = collider.position;
+      if (!stuckWindow) stuckWindow = { x: at.x, z: at.z, t: now };
+      else if (now - stuckWindow.t >= STUCK_AFTER * 1000) {
+        if (Math.hypot(at.x - stuckWindow.x, at.z - stuckWindow.z) < STUCK_MOVED) getUnstuck({ auto: true });
+        stuckWindow = { x: at.x, z: at.z, t: now };
+      }
+    } else {
+      stuckWindow = null;
+    }
     const steps = Math.max(1, Math.ceil(dt / 0.03)); // for gravity integration
 
     // ── Vertical: stand on the floor, the ground or the stairs ──
