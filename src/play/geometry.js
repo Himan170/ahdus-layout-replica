@@ -725,14 +725,18 @@ export function planRoomMove(room, x, z, rooms, objects = []) {
  * rect.z (patch has them, with the doors and windows re-measured).
  * @returns {{ rect, patch, blocker: object|null, problem: string|null }}
  */
+/** A millimetre: room sizes and centres are kept to it (v0.18.7: a typed 6.65 was saved as 6.6499999999999995). */
+export const roundMm = (v) => Math.round(v * 1000) / 1000;
+
 export function planRoomResize(room, width, depth, rooms, objects = [], nameOf = (o) => o.label || o.name || 'An item') {
   const edges = [
     ...(Math.abs(width - room.width) > GEOMETRY_EPSILON ? ['west', 'east'] : []),
     ...(Math.abs(depth - room.depth) > GEOMETRY_EPSILON ? ['south', 'north'] : []),
   ];
-  const rect = snapRoomRect({ x: room.x, z: room.z, width, depth, floor: floorOf(room) }, rooms, {
+  const snapped = snapRoomRect({ x: room.x, z: room.z, width, depth, floor: floorOf(room) }, rooms, {
     id: room.id, container: containerOf(room, rooms), edges,
   });
+  const rect = { x: roundMm(snapped.x), z: roundMm(snapped.z), width: roundMm(snapped.width), depth: roundMm(snapped.depth) };
   const others = rooms.filter((r) => r.id !== room.id && floorOf(r) === floorOf(room));
   const check = checkRoomRect(room, rect, { others, objects, nameOf });
   return {
