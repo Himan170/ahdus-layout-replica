@@ -69,7 +69,8 @@ import { createCharacter } from './character';
 import { moveWithSteps, createNearbyMeshes } from './movement';
 import { lockPointer } from '../utils/pointerLock';
 import { createDragLook } from './dragLook';
-import { createWalkMapCache, FREE, STAIRS, BLOCKED, VOID } from './navigation/walkMap';
+import { createWalkMapCache, FREE, STAIRS, BLOCKED, VOID, isSolidItem } from './navigation/walkMap';
+import { itemWalkGoal } from './navigation/itemGoal';
 import { entranceSpawn, nearestFree, NOT_BLOCKED } from './navigation/entrance';
 import { stairsClickGoal } from './navigation/route';
 import { NO_WALK_PARTS } from './clickHint';
@@ -1730,6 +1731,12 @@ export function createPlayController(scene, canvas, {
     const stairs = st
       ? stairsClickGoal({ rooms: st.rooms, objects: st.objects, floors: st.floors }, obj.id, currentLevel, { maps: walkMaps })
       : null;
+    // v0.18.7 (audit 2c): a solid item (a big meeting table) is walked up to: just outside its edge nearest to
+    // the click, not the spot clicked (its middle was too far from any free spot: "no room to stand there")
+    if (obj && !stairs && isSolidItem(obj, ASSET_TYPES)) {
+      const edge = itemWalkGoal(obj, p, { catalog: ASSET_TYPES, towards: camera.position });
+      if (edge) { gx = edge.x; gz = edge.z; }
+    }
     // v0.17.3: a wall, a window, a ceiling, a roof is not a place to walk to (the click shows a hint, clickHint.js)
     const nowhere = !objectId && !!part && NO_WALK_PARTS.has(part.part);
     return {
