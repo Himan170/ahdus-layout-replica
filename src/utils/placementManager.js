@@ -28,7 +28,7 @@ import { placementHeight, canStandOn, floorOnlyText } from '../play/building';
 import { isWallItem, mountOnWall } from '../play/wallMount';
 import { ASSET_TYPES } from './assetCatalog';
 import { createBuildPreview } from './buildPreview';
-import { stairPreview } from '../play/stairFit';
+import { snapStairToWall, stairPreview } from '../play/stairFit';
 import { isAltDown } from './altKey';
 
 // ─── Ghost visual config ───
@@ -238,9 +238,17 @@ export function createPlacementManager(scene, options = {}) {
       });
       const baseY = height ? height.worldY : pick.pickedPoint.y;
 
+      // v0.18.6: a side of a staircase near a wall goes flush against it first (the grid could skip that spot)
+      let flush = { x: false, z: false };
+      if (currentAssetType === 'STAIRCASE' && getLayout && !isAltDown()) {
+        const layout = getLayout();
+        const s = snapStairToWall({ x, z, rotationY: currentRotationY, floor: layout.currentFloor ?? 0, metadata: currentMetadata ?? undefined },
+          layout.rooms);
+        x = s.x; z = s.z; flush = s.snapped;
+      }
       if (snapEnabled) {
-        x = snap(x, snapStep);
-        z = snap(z, snapStep);
+        if (!flush.x) x = snap(x, snapStep);
+        if (!flush.z) z = snap(z, snapStep);
       }
 
       _surfaceY = baseY;

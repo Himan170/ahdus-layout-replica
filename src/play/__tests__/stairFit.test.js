@@ -3,7 +3,7 @@
 
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { stairFit, stairProblems, stairSpots, findStairSpot, findItemSpot, stairPreview, STAIR_CLEAR } from '../stairFit';
+import { stairFit, stairProblems, stairSpots, findStairSpot, findItemSpot, stairPreview, snapStairToWall, STAIR_CLEAR } from '../stairFit';
 import { stairTop, rectContains, roomRect, STAIRS_LEAD_NOWHERE } from '../building';
 import { floorLinks } from '../navigation/route';
 import { checkLayout, walkingProblems, CHECK_KINDS } from '../navigation/checkLayout';
@@ -139,6 +139,38 @@ describe('an L staircase is checked by its arms, not its square (v0.18.6, audit 
     // a quarter turn: local (x, z) → world (z, -x): the empty corner is x -1.6 … 0.4, z -1.6 … 0.4
     const cabin = room('c', 'Corner cabin', -1.1, -2, 2, 2);
     expect(codes(turned, { floors: twoFloors, rooms: rooms([cabin]) })).toEqual([]);
+  });
+});
+
+describe('snapStairToWall: a side of the flight flush to a wall (v0.18.6, audit 4a)', () => {
+  // 12 x 12 rooms, 0.15 m walls: the inner face of the east wall is at x 5.925; a 1.2 m flight meets it at x 5.325
+  const rooms = [room('a', 'Hall', 0, 0, 12, 12), room('b', 'Upper hall', 0, 0, 12, 12, { floor: 1 })];
+  const at = (over) => snapStairToWall(stair(over), rooms);
+
+  it('near the wall, the side goes flush (the half-metre grid would give 5.0 or 5.5)', () => {
+    for (const x of [5.0, 5.2, 5.45, 5.6]) expect(at({ x }).x).toBeCloseTo(5.325, 6);
+    expect(at({ x: 5.2 }).snapped).toEqual({ x: true, z: false });
+    expect(at({ x: -5.1 }).x).toBeCloseTo(-5.325, 6);
+    expect(stairFit(stair({ x: 5.325 }), { floors: twoFloors, rooms }, { catalog }).ok).toBe(true);
+  });
+  it('far from a wall, or at the ends of the flight, nothing snaps (an end needs 0.8 m of floor)', () => {
+    expect(at({ x: 4 })).toMatchObject({ x: 4, snapped: { x: false, z: false } });
+    expect(at({ x: 0, z: 3.8 })).toMatchObject({ z: 3.8, snapped: { z: false } });
+  });
+  it('turned a quarter, its sides are along X: they snap in Z', () => {
+    const s = at({ x: 0, z: 5.2, rotationY: 90 * DEG });
+    expect(s.z).toBeCloseTo(5.325, 6);
+    expect(s.snapped).toEqual({ x: false, z: true });
+  });
+  it("an L: the first flight's outer side and the second flight's outer side", () => {
+    const s = at({ x: -4.2, z: 4.2, metadata: { stairShape: 'L-right' } });
+    expect(s.x).toBeCloseTo(-5.925 + 1.6, 6);
+    expect(s.z).toBeCloseTo(5.925 - 1.6, 6);
+  });
+  it('the wall of a room inside the hall counts too', () => {
+    const cabin = room('c', 'Cabin', 3, 0, 2, 3);
+    // the cabin's west wall is 1.925 … 2.075 m: a flight meets it at x 1.325
+    expect(snapStairToWall(stair({ x: 1.1 }), [...rooms, cabin]).x).toBeCloseTo(1.325, 6);
   });
 });
 

@@ -314,6 +314,61 @@ export function stairProblems(stair, floors, rooms, { objects = [], catalog } = 
   return stairFit(stair, { floors, rooms, objects }, { catalog }).problems;
 }
 
+/** How near a side of a staircase snaps flush to a wall while it is placed (m): more than half Studio's 0.5 m grid. */
+export const STAIR_WALL_SNAP = 0.35;
+
+/**
+ * v0.18.6 (audit 4a): a staircase being placed: a SIDE of its flight (never an end: those need STAIR_CLEAR of
+ * floor) within `tolerance` of a wall's face goes flush against it, before Studio's grid. The walls: its room's
+ * inner faces (its wall thickness counted) and the outer faces of the rooms inside that room. Only for stairs
+ * turned in quarter turns. → { x, z, snapped: { x, z } } (an axis snapped: leave it off the grid).
+ */
+export function snapStairToWall(stair, rooms, { tolerance = STAIR_WALL_SNAP } = {}) {
+  const none = { x: stair.x, z: stair.z, snapped: { x: false, z: false } };
+  const rot = stair.rotationY ?? 0;
+  const quarter = Math.PI / 2;
+  if (Math.abs(rot - Math.round(rot / quarter) * quarter) > 1e-3) return none;
+  const f = floorOf(stair);
+  const here = list(rooms).filter((r) => floorOf(r) === f);
+  const host = stairRoomAt(here, stair.x, stair.z);
+  if (!host) return none;
+  const box = stairRects(stair).map(boxOf).reduce((a, b) => ({
+    x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), z0: Math.min(a.z0, b.z0), z1: Math.max(a.z1, b.z1),
+  }));
+  const ends = stairEnds(stair);
+  const isEnd = (axis, v) => [ends.bottom, ends.top].some((e) => Math.abs(e[axis] - v) < 0.02);
+  const inner = innerBox(host);
+  const inside = here.filter((r) => holds(host, r));
+  const best = (axis) => {
+    const lo = axis === 'x' ? 'x0' : 'z0';
+    const hi = axis === 'x' ? 'x1' : 'z1';
+    const across = axis === 'x' ? ['z0', 'z1'] : ['x0', 'x1'];
+    let move = null;
+    const offer = (d) => { if (Math.abs(d) <= tolerance + 1e-9 && (move === null || Math.abs(d) < Math.abs(move))) move = d; };
+    if (!isEnd(axis, box[lo])) {
+      offer(inner[lo] - box[lo]);
+      for (const r of inside) {
+        const g = grow(roomRect(r), wallThicknessOf(r) / 2);
+        if (g[across[0]] < box[across[1]] && g[across[1]] > box[across[0]] && g[hi] <= box[lo] + tolerance) offer(g[hi] - box[lo]);
+      }
+    }
+    if (!isEnd(axis, box[hi])) {
+      offer(inner[hi] - box[hi]);
+      for (const r of inside) {
+        const g = grow(roomRect(r), wallThicknessOf(r) / 2);
+        if (g[across[0]] < box[across[1]] && g[across[1]] > box[across[0]] && g[lo] >= box[hi] - tolerance) offer(g[lo] - box[hi]);
+      }
+    }
+    return move;
+  };
+  const dx = best('x');
+  const dz = best('z');
+  return {
+    x: dx === null ? stair.x : r3(stair.x + dx), z: dz === null ? stair.z : r3(stair.z + dz),
+    snapped: { x: dx !== null, z: dz !== null },
+  };
+}
+
 /** Offsets from (0, 0), nearest first: every 5 cm within 2 m, 10 cm within 6 m, 25 cm beyond (up to `radius`). */
 function* offsets(radius) {
   const bands = [[0, 2, 0.05], [2, 6, 0.1], [6, radius, 0.25]];
