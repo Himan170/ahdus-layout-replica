@@ -71,10 +71,6 @@ function endRect(end, d0, d1, hw) {
   return { x: c.x, z: c.z, hw, hd: (d1 - d0) / 2, rot: end.rot };
 }
 
-/** The union box of turned rectangles. */
-const boxOfAll = (rects) => rects.map(boxOf).reduce((a, b) => ({
-  x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), z0: Math.min(a.z0, b.z0), z1: Math.max(a.z1, b.z1),
-}));
 
 function localRect(stair, lz0, lz1, hw) {
   const r = stair.rotationY ?? 0;
@@ -234,8 +230,8 @@ function fitWith(ctx, stair) {
   const room = stairRoomAt(ctx.floorData(f).rooms, stair.x, stair.z);
   const name = roomName(room);
   const flights = stairRects(stair, { width, length });
-  const flightBox = boxOfAll(flights);
-  const wall = room ? wallBlocker(ctx, f, flightBox, room) : null;
+  // v0.18.6: each arm on its own (an L's empty corner is floor, not stairs: a room may stand there)
+  const wall = room ? flights.map((fl) => wallBlocker(ctx, f, boxOf(fl), room)).find(Boolean) ?? null : null;
   if (wall) {
     // its own room's walls, or a room inside it (a lift shaft, a cabin) standing where the stairs go
     add('STICKS_OUT', wall === room ? `The stairs stick out of ${name}` : `The stairs run into ${roomName(wall)}`);

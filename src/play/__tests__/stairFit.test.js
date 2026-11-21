@@ -117,6 +117,31 @@ describe('stairFit: what Studio says about a staircase', () => {
   });
 });
 
+describe('an L staircase is checked by its arms, not its square (v0.18.6, audit 4b)', () => {
+  // 12 x 12 rooms on both floors, a right-turning L at (0, 0): its empty corner is x -0.4 … 1.6, z -1.6 … 0.4
+  const rooms = (extra = []) => [
+    room('a', 'Hall', 0, 0, 12, 12, { doors: [{ wall: 'south', offset: 0, width: 1.2, height: 2.1 }] }),
+    room('b', 'Upper hall', 0, 0, 12, 12, { floor: 1 }), ...extra];
+  const L = stair({ metadata: { stairShape: 'L-right' } });
+
+  it('a small room reaching into the empty corner is not in the way', () => {
+    const cabin = room('c', 'Corner cabin', 2, -1.1, 2, 2);
+    expect(codes(L, { floors: twoFloors, rooms: rooms() })).toEqual([]);
+    expect(codes(L, { floors: twoFloors, rooms: rooms([cabin]) })).toEqual([]);
+  });
+  it('a room over one of its arms still is', () => {
+    const onArm = room('c', 'Corner cabin', 1.5, 1.6, 2, 2);
+    const fit = stairFit(L, { floors: twoFloors, rooms: rooms([onArm]) }, { catalog });
+    expect(fit.problems.map((p) => p.text)).toContain('The stairs run into Corner cabin');
+  });
+  it('the same when it is turned a quarter', () => {
+    const turned = { ...L, rotationY: 90 * DEG };
+    // a quarter turn: local (x, z) → world (z, -x): the empty corner is x -1.6 … 0.4, z -1.6 … 0.4
+    const cabin = room('c', 'Corner cabin', -1.1, -2, 2, 2);
+    expect(codes(turned, { floors: twoFloors, rooms: rooms([cabin]) })).toEqual([]);
+  });
+});
+
 describe('stairSpots / findStairSpot: the nearest spot that works', () => {
   const hall = room('sr', 'Stair hall', 5.325, -3.825, 5.35, 6.35, { type: 'STAIRCASE' });
   const up = room('u', 'Upper', 5.325, -3.825, 5.35, 6.35, { floor: 1 });
