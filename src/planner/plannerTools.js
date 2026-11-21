@@ -55,7 +55,7 @@ import { isDesk } from '../play/people';
 import { groupMembers, lockedNote } from '../play/group';
 import { selectedGroup, selectionFor } from '../play/prefab';
 import { cabinRoomFor } from '../play/cabinDoor';
-import { stairPreview, findStairSpot } from '../play/stairFit';
+import { stairPreview, findStairSpot, snapStairToWall } from '../play/stairFit';
 
 const FLOOR_Y = 0.02;
 const CLICK_SLOP = 5; // px the mouse may move with the button down and still count as a click
@@ -106,6 +106,29 @@ export function createPlannerTools(scene, canvas, {
     guideMesh.renderingGroupId = 1; // drawn over the furniture and the floor
     guideMesh.metadata = { key, guides };
   }
+  /**
+   * v0.18.8: a staircase where it would stand, a side within 0.5 m of a wall flush against it, when the stairs still
+   * work there (else as it was). motion: the move that brought it here (a side never snaps back against it).
+   * → { x, z, guides }
+   */
+  function stairWallSnap(stair, { motion = null } = {}) {
+    const floor = stair.floor ?? 0;
+    const sw = snapStairToWall(stair, Object.values(st().rooms),
+      { motion, objects: Object.values(st().objects).filter((o) => (o.floor ?? 0) === floor), catalog: ASSET_TYPES });
+    if (!sw.snapped.x && !sw.snapped.z) return { x: stair.x, z: stair.z, guides: [] };
+    const fits = stairPreview({ ...stair, x: sw.x, z: sw.z }, st(), { catalog: ASSET_TYPES }).ok
+      || !stairPreview(stair, st(), { catalog: ASSET_TYPES }).ok; // not worse than where it was
+    return fits ? { x: sw.x, z: sw.z, guides: sw.guides } : { x: stair.x, z: stair.z, guides: [] };
+  }
+  const flushStairs = (stair) => { const r = stairWallSnap(stair); return { x: r.x, z: r.z }; };
+  let guideTimer = null;
+  /** The guide lines for a moment (a move by a key, the move arrows or R: no drag to show them during). */
+  function flashGuides(guides) {
+    clearTimeout(guideTimer);
+    showGuides(guides);
+    if (guides.length) guideTimer = setTimeout(() => { if (!drag) showGuides([]); }, 1500);
+  }
+
   const onAltKey = (e) => {
     if (e.key !== 'Alt') return;
     const down = e.type === 'keydown';
@@ -475,7 +498,19 @@ export function createPlannerTools(scene, canvas, {
         const onFloor = Object.values(st().objects).filter((o) => (o.floor ?? 0) === floor);
         drag.targets = snapTargets(onFloor, floorWalls(st(), floor), { catalog: ASSET_TYPES, ignore: drag.items.map((it) => it.id) });
       }
-      const snapped = snapDrag(obj, { x: rawX, z: rawZ }, drag.targets, { grid: getSnapStep(), free: altDown });
+      const stairs = obj.assetType === 'STAIRCASE';
+      // v0.18.8: stairs line up with walls by their real outline (stairFit.snapStairToWall: an L's arms, sides only,
+      // 0.5 m), never by dragSnap's box (a straight flight's 1.2 × 4 m: an L "against the wall" stood 0.3 m off it)
+      const snapped = snapDrag(obj, { x: rawX, z: rawZ }, stairs ? { ...drag.targets, walls: [] } : drag.targets, { grid: getSnapStep(), free: altDown });
+      if (stairs && !altDown) {
+        const floor = obj.floor ?? 0;
+        const sw = snapStairToWall({ ...obj, x: rawX, z: rawZ }, Object.values(st().rooms),
+          { objects: Object.values(st().objects).filter((o) => (o.floor ?? 0) === floor), catalog: ASSET_TYPES });
+        const along = (g) => (g.ax === g.bx ? 'x' : 'z');
+        if (sw.snapped.x) { snapped.x = sw.x; snapped.snapped.x = 'wall'; }
+        if (sw.snapped.z) { snapped.z = sw.z; snapped.snapped.z = 'wall'; }
+        snapped.guides = [...sw.guides, ...snapped.guides.filter((g) => !sw.snapped[along(g)])];
+      }
       x = snapped.x;
       z = snapped.z;
       showGuides(snapped.guides);
@@ -1014,7 +1049,9 @@ export function createPlannerTools(scene, canvas, {
     if (lead?.assetType === 'STAIRCASE' && !d.group && !altDown) {
       const at = { ...lead, x: r3(d.items[0].x + plan.dx), z: r3(d.items[0].z + plan.dz) };
       if (!stairPreview(at, st(), { catalog: ASSET_TYPES }).ok) {
-        const spot = findStairSpot(at, st(), { catalog: ASSET_TYPES });
+        let spot = findStairSpot(at, st(), { catalog: ASSET_TYPES });
+        // v0.18.8: the spot that works, flush to a wall near it when it still works there (no thin strip beside it)
+        if (spot) spot = { ...spot, ...flushStairs({ ...lead, x: spot.x, z: spot.z }) };
         if (spot) {
           plan.dx = spot.x - d.items[0].x;
           plan.dz = spot.z - d.items[0].z;
@@ -1413,7 +1450,7 @@ export function createPlannerTools(scene, canvas, {
      * @param {{ label?: string, mergeKey?: string }} [options]  mergeKey: typing = one undo step per burst
      * @returns {boolean} whether anything was asked to change
      */
-    moveItem(id, patch, { label, mergeKey } = {}) {
+    moveItem(id, patch, { label, mergeKey, snapStairs = false } = {}) {
       const obj = st().objects[id];
       if (!obj || obj.isLocked) return false;
       const { x, z, rotationY, roomId: _roomId, ...rest } = patch;
@@ -1421,6 +1458,16 @@ export function createPlannerTools(scene, canvas, {
       if (x !== undefined) target.x = x;
       if (z !== undefined) target.z = z;
       if (rotationY !== undefined) target.rotationY = rotationY;
+      // v0.18.8: stairs moved by the arrow keys / the move arrows, or turned (R): a side within 0.5 m of a wall goes
+      // flush (never back against the move). Typed X / Z and Alt never snap (the callers leave snapStairs off).
+      if (snapStairs && obj.assetType === 'STAIRCASE') {
+        // as it will be: its new place, turn and shape (the Inspector's Stairs shape changes its outline)
+        const at = { ...obj, ...rest, x: target.x ?? obj.x, z: target.z ?? obj.z, rotationY: target.rotationY ?? obj.rotationY ?? 0 };
+        const motion = { x: at.x - obj.x, z: at.z - obj.z };
+        const sw = stairWallSnap(at, { motion });
+        if (Math.abs(sw.x - at.x) > 1e-6 || Math.abs(sw.z - at.z) > 1e-6) { target.x = sw.x; target.z = sw.z; }
+        flashGuides(sw.guides);
+      }
       const moving = Math.abs((target.x ?? obj.x) - obj.x) > 1e-6 || Math.abs((target.z ?? obj.z) - obj.z) > 1e-6 ||
         Math.abs((target.rotationY ?? obj.rotationY ?? 0) - (obj.rotationY ?? 0)) > 1e-9;
       const carried = moving ? carriedWith(obj) : [];
@@ -1451,8 +1498,12 @@ export function createPlannerTools(scene, canvas, {
       refresh();
     },
 
+    /** v0.18.8: guide lines from elsewhere (placing stairs: the placement manager's ghost against a wall). */
+    showGuides(guides = []) { if (!drag) showGuides(guides); },
+
     dispose() {
       cancelDrag();
+      clearTimeout(guideTimer);
       showGuides([]);
       window.removeEventListener('keydown', onAltKey, true);
       window.removeEventListener('keyup', onAltKey, true);

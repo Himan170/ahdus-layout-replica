@@ -14,6 +14,7 @@ import { ASSET_TYPES } from '../utils/assetCatalog';
 import { isWallItem, mountOnWall, wallPieces } from '../play/wallMount';
 import { surfaceTopAt } from '../play/surfaces';
 import { snapTargets, snapDrag } from '../play/dragSnap';
+import { snapStairToWall } from '../play/stairFit';
 
 // the walls of the plan's floor, kept while its rooms and items are the same arrays (a drag asks every move)
 let wallCache = { rooms: null, objects: null, pieces: [] };
@@ -261,6 +262,17 @@ export function planDrop(object, point, { objects = [], rooms = [], snap: snappi
     x = lined.x;
     z = lined.z;
     guides = lined.guides;
+  }
+  // v0.18.8: a staircase's side within 0.5 m of a wall goes flush against it (its real outline: an L's arms);
+  // Alt (free): exactly where it is dropped
+  if (object.assetType === 'STAIRCASE' && !free) {
+    const st = snapStairToWall({ ...object, x: point.x, z: point.z }, rooms, { objects, catalog: ASSET_TYPES });
+    if (st.snapped.x) x = st.x;
+    if (st.snapped.z) z = st.z;
+    if (st.guides.length) {
+      const along = (g) => (g.ax === g.bx ? 'x' : 'z'); // a guide along x = … lines up an X position
+      guides = [...st.guides, ...(guides ?? []).filter((g) => !st.snapped[along(g)])];
+    }
   }
   const at = { x, z };
   let top = null;

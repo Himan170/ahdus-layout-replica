@@ -109,7 +109,13 @@ export function createPlacementManager(scene, options = {}) {
   const ghostMaterials = createGhostMaterials(scene);
 
   // ── Ghost cleanup ──
+  /** v0.18.8: where the snap guide lines go (plannerTools.showGuides): stairs placed against a wall show one. */
+  let guideSink = null;
+  function setGuideSink(fn) { guideSink = fn; }
+  const guidesFor = (g) => guideSink?.(g);
+
   function clearGhost() {
+    guidesFor([]);
     if (ghostRoot) {
       ghostRoot.getChildMeshes(false).forEach(m => m.dispose());
       ghostRoot.dispose();
@@ -240,8 +246,11 @@ export function createPlacementManager(scene, options = {}) {
       if (currentAssetType === 'STAIRCASE' && getLayout && !isAltDown()) {
         const layout = getLayout();
         const s = snapStairToWall({ x, z, rotationY: currentRotationY, floor: layout.currentFloor ?? 0, metadata: currentMetadata ?? undefined },
-          layout.rooms);
+          layout.rooms, { objects: Object.values(layout.objects ?? {}).filter((o) => (o.floor ?? 0) === (layout.currentFloor ?? 0)), catalog: ASSET_TYPES });
         x = s.x; z = s.z; flush = s.snapped;
+        guidesFor(s.guides);
+      } else if (currentAssetType === 'STAIRCASE') {
+        guidesFor([]); // Alt: no snapping, no guide
       }
       if (snapEnabled) {
         if (!flush.x) x = snap(x, snapStep);
@@ -407,6 +416,7 @@ export function createPlacementManager(scene, options = {}) {
     getProblem,
     getWarning,
     setLayoutSource,
+    setGuideSink,
     adjustHeight,
     rotatePreview,
     duplicateLast,

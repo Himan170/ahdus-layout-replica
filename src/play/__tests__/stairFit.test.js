@@ -3,7 +3,8 @@
 
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { stairFit, stairProblems, stairSpots, findStairSpot, findItemSpot, stairPreview, snapStairToWall, STAIR_CLEAR } from '../stairFit';
+import { stairFit, stairProblems, stairSpots, findStairSpot, findItemSpot, stairPreview, snapStairToWall, stairBox, STAIR_CLEAR, STAIR_WALL_SNAP } from '../stairFit';
+import { itemBox } from '../dragSnap';
 import { stairTop, rectContains, roomRect, STAIRS_LEAD_NOWHERE } from '../building';
 import { floorLinks } from '../navigation/route';
 import { checkLayout, walkingProblems, CHECK_KINDS } from '../navigation/checkLayout';
@@ -171,6 +172,85 @@ describe('snapStairToWall: a side of the flight flush to a wall (v0.18.6, audit 
     const cabin = room('c', 'Cabin', 3, 0, 2, 3);
     // the cabin's west wall is 1.925 … 2.075 m: a flight meets it at x 1.325
     expect(snapStairToWall(stair({ x: 1.1 }), [...rooms, cabin]).x).toBeCloseTo(1.325, 6);
+  });
+});
+
+describe('snapStairToWall v0.18.8: 0.5 m, the real outline, every side, never back against a move', () => {
+  // a 12 × 12 hall (inner faces ±5.925)
+  const rooms = [room('a', 'Hall', 0, 0, 12, 12), room('b', 'Upper hall', 0, 0, 12, 12, { floor: 1 })];
+  const snapAt = (over, opts) => snapStairToWall(stair(over), rooms, opts);
+  const F = 5.925;
+
+  it('reaches 0.5 m (was 0.35): 0.45 m off a wall snaps, 0.55 m does not', () => {
+    expect(STAIR_WALL_SNAP).toBe(0.5);
+    expect(snapAt({ x: F - 0.6 - 0.45 }).x).toBeCloseTo(F - 0.6, 6);
+    expect(snapAt({ x: F - 0.6 - 0.55 }).snapped.x).toBe(false);
+  });
+  it('a straight flight: each side at each quarter turn, flush to the face (no gap, no overlap)', () => {
+    for (const deg of [0, 90, 180, 270]) {
+      const across = deg % 180 === 0 ? 'x' : 'z'; // the sides face this axis
+      for (const sign of [1, -1]) {
+        const s = snapAt({ rotationY: deg * DEG, [across]: sign * (F - 0.6 - 0.3) });
+        const b = stairBox(stair({ rotationY: deg * DEG, x: s.x, z: s.z }));
+        expect(sign > 0 ? b[`${across}1`] : b[`${across}0`]).toBeCloseTo(sign * F, 6);
+        expect(s.snapped[across]).toBe(true);
+      }
+    }
+  });
+  it('an end never snaps (the bottom and top steps need 0.8 m of floor)', () => {
+    expect(snapAt({ z: F - 2 - 0.3 }).snapped.z).toBe(false);
+    expect(snapAt({ z: -(F - 2 - 0.3) }).snapped.z).toBe(false);
+  });
+  it("an L (Himan's case): its first flight and landing against one wall, the landing and second flight against the other", () => {
+    // L-left turned 180°: climbs north along the west wall, the landing in the north-west corner (stairs-gap.png)
+    const l = { metadata: { stairShape: 'L-left' }, rotationY: Math.PI };
+    for (const gap of [0.1, 0.2, 0.3, 0.45]) {
+      const s = snapAt({ ...l, x: -F + gap + 1.6, z: -F + gap + 1.6 });
+      const b = stairBox(stair({ ...l, x: s.x, z: s.z }));
+      expect([b.x0, b.z0].map((v) => +v.toFixed(6))).toEqual([-F, -F]);
+      expect(s.guides).toHaveLength(2);
+      expect(s.guides.every((g) => g.kind === 'wall')).toBe(true);
+    }
+  });
+  it("an L in each corner, both shapes, all four turns: the two outer sides (the landing's) snap, the ends never", () => {
+    for (const shape of ['L-left', 'L-right']) {
+      for (const deg of [0, 90, 180, 270]) {
+        const base = stair({ metadata: { stairShape: shape }, rotationY: deg * DEG });
+        // put the landing's corner 0.3 m off the nearest corner of the hall
+        const parts = stairBox(base);
+        const ends = [];
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+          const x = sx * (F - 1.6 - 0.3);
+          const z = sz * (F - 1.6 - 0.3);
+          const s = snapStairToWall({ ...base, x, z }, rooms);
+          ends.push((s.snapped.x ? 1 : 0) + (s.snapped.z ? 1 : 0));
+        }
+        expect(parts.x1 - parts.x0).toBeCloseTo(3.2, 6);
+        // exactly one corner holds the landing: both its sides snap there; never a side with an end of the flight
+        expect(ends.filter((n) => n === 2)).toHaveLength(1);
+      }
+    }
+  });
+  it("the drag used a straight flight's box for an L (the bug): stairBox is the L's 3.2 × 3.2", () => {
+    const l = stair({ metadata: { stairShape: 'L-left' }, rotationY: Math.PI, x: -4, z: -4 });
+    const wrong = itemBox(l, catalog);
+    const right = stairBox(l);
+    expect(wrong.x1 - wrong.x0).not.toBeCloseTo(3.2, 1);
+    expect(right.x1 - right.x0).toBeCloseTo(3.2, 6);
+    expect(right.z1 - right.z0).toBeCloseTo(3.2, 6);
+  });
+  it('motion: moved away from a wall it stays; moved towards it, it goes flush; a turn (no motion) snaps either way', () => {
+    const near = F - 0.6 - 0.25;
+    expect(snapAt({ x: near }, { motion: { x: -0.25, z: 0 } }).snapped.x).toBe(false); // the arrow key pointed away
+    expect(snapAt({ x: near }, { motion: { x: 0.25, z: 0 } }).x).toBeCloseTo(F - 0.6, 6);
+    expect(snapAt({ x: near }, { motion: { x: 0, z: 0 } }).x).toBeCloseTo(F - 0.6, 6);
+  });
+  it('a Wall-tool wall in the room counts; stairs turned off a quarter turn never snap', () => {
+    const wall = item('WALL_SEGMENT', 2, 0, { rotationY: Math.PI / 2 }); // a wall along Z at x = 2
+    const w = itemBox(wall, catalog);
+    const s = snapStairToWall(stair({ x: w.x0 - 0.6 - 0.3 }), rooms, { objects: [wall], catalog });
+    expect(s.x).toBeCloseTo(w.x0 - 0.6, 6);
+    expect(snapAt({ x: F - 0.9, rotationY: 30 * DEG }).snapped).toEqual({ x: false, z: false });
   });
 });
 

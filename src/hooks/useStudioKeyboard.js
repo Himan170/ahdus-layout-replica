@@ -233,7 +233,8 @@ export function useStudioKeyboard({
 
           // with what it takes along (a desk: its chair and its monitor), one undo step
           const patch = { x: newX, z: newZ, roomId: findRoomAt(Object.values(store.rooms), newX, newZ, obj.floor ?? 0)?.id ?? null };
-          if (!plannerToolsRef.current?.moveItem(store.selectedObjectId, patch, { label: 'Move item (keyboard)' })) {
+          // v0.18.8: stairs within 0.5 m of a wall go flush (never back against the key; Alt: fine steps, no snap)
+          if (!plannerToolsRef.current?.moveItem(store.selectedObjectId, patch, { label: 'Move item (keyboard)', snapStairs: !e.altKey })) {
             editor.updateObject(store.selectedObjectId, patch, { label: 'Move item (keyboard)' });
           }
           setAnnounceText(`Moved ${obj.label || obj.assetType} to X ${newX}, Z ${newZ}`);
