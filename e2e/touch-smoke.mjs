@@ -71,7 +71,20 @@ const frames = (n = 3) => p.evaluate((n) => new Promise((res) => {
 const pose = async (x, z, yaw, pitch) => { await p.evaluate((a) => window.__ahdusViewer.walkthrough.setPose(a), { x, z, yaw, pitch }); await frames(3); };
 const pos = () => p.evaluate(() => { const v = window.__ahdusViewer.walkthrough.getPosition(); return { x: +v.x.toFixed(3), z: +v.z.toFixed(3) }; });
 const yaw = () => p.evaluate(() => window.__ahdusViewer.walkthrough.getYaw());
-const stick = () => p.evaluate(() => window.__ahdusViewer.walkthrough.getStick());
+const readStick = () => p.evaluate(() => window.__ahdusViewer.walkthrough.getStick());
+/** Two animation frames: Chromium delivers touch moves as pointer events aligned to frames, not when CDP returns. */
+const twoFrames = () => p.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))));
+/** The joystick once the fingers' last moves have reached it (v0.18.7: it was read one move early: 0.88, not 1). */
+async function stick() {
+  let was = await readStick();
+  for (let i = 0; i < 20; i++) {
+    await twoFrames();
+    const now = await readStick();
+    if (now.x === was.x && now.y === was.y) return now;
+    was = now;
+  }
+  return was;
+}
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const nav = () => p.evaluate(() => (window.__viewerNav ?? []).map((e) => ({ state: e.state, source: e.source ?? null, paused: !!e.paused })));
 const walkingNow = () => p.evaluate(() => window.__ahdusViewer.navigation.walking);
