@@ -106,7 +106,7 @@ import { prefabById } from '../catalog/manifest';
 import { v4 as uuidv4 } from 'uuid';
 import { HighlightSystem } from '../engine/systems/HighlightSystem';
 import { readHidden, writeHidden, toggleHidden, liveHidden, hiddenText } from '../ui/hiddenLayers';
-import { lockedText } from '../play/locks';
+import { lockedText, allowedItemPatch } from '../play/locks';
 import { isWallItem, isOnWall, mountOnWall } from '../play/wallMount';
 import { createFloorWalls } from '../play/floorWalls';
 
@@ -1070,12 +1070,18 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   // Inspector sliders / typing: a burst of edits on one object = one undo step.
   // Typed X / Z or an angle move the item with what it takes along (one step each).
   const handleUpdateObject = useCallback((id, patch) => {
+    const obj = useWorkspaceStore.getState().objects[id];
+    if (obj && allowedItemPatch(obj, patch).refused.length) {
+      // v0.18.6: a locked item keeps its place, angle and size (the editor refuses them too)
+      showStudioMessage(lockedText(obj.label || ASSET_TYPES[obj.assetType]?.label), true);
+      return;
+    }
     if ('x' in patch || 'z' in patch || 'rotationY' in patch) {
       moveItemCarrying(id, patch, { label: 'Edit properties', mergeKey: 'inspector-move' });
       return;
     }
     editor.updateObject(id, patch, { mergeKey: 'inspector', label: 'Edit properties' });
-  }, [editor, moveItemCarrying]);
+  }, [editor, moveItemCarrying, showStudioMessage]);
 
   const handleToggleLock = useCallback((id) => {
     editor.toggleLock(id);

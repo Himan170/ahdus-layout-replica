@@ -72,6 +72,25 @@ describe('editor actions are all undoable', () => {
     expect(S().objects[id].isLocked).toBe(false);
   });
 
+  it('a locked item keeps its place, angle and size whatever sends the change (v0.18.6, audit 6)', () => {
+    const said = [];
+    const ed = createEditorHistory(undefined, { onProblem: (t) => said.push(t) });
+    ed.addObject({ assetType: 'DESK_STANDARD', x: 0, z: 0, label: 'Desk' });
+    const id = objs()[0].id;
+    ed.updateObject(id, { scaleX: 1.5 }, { mergeKey: 'inspector' });
+    ed.endBurst?.();
+    ed.toggleLock(id);
+    ed.updateObject(id, { scaleX: 1.875, x: 3, rotationY: 1, y: 0.5 }, { mergeKey: 'inspector' });
+    expect(S().objects[id]).toMatchObject({ scaleX: 1.5, x: 0, rotationY: 0, isLocked: true });
+    expect(said.at(-1)).toMatch(/Desk is locked/);
+    // its name and department still change
+    ed.updateObject(id, { department: 'HR' });
+    expect(S().objects[id].department).toBe('HR');
+    // undo still puts back what came before the lock
+    ed.undo(); ed.undo(); ed.undo();
+    expect(S().objects[id].scaleX).toBe(1);
+  });
+
   it('gizmo drag (no mergeKey) = one undo step per drag', () => {
     editor.addObject({ assetType: 'DESK_STANDARD', x: 0 });
     const id = objs()[0].id;

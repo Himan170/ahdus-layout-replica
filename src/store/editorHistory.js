@@ -22,7 +22,7 @@ import {
   GROUND_FLOOR_STAYS, stairPatch,
 } from '../play/building';
 import { toV1 } from '../engine/model/toV1';
-import { lockedText, allowedRoomPatch } from '../play/locks';
+import { lockedText, allowedRoomPatch, allowedItemPatch } from '../play/locks';
 import { normaliseLayout } from './layoutData';
 import { LIFT_TYPE, LIFT_DOOR, planLiftStops, liftFollow, liftOfRoom } from '../play/lifts';
 import { planRoomTurn } from '../play/geometry';
@@ -316,8 +316,11 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
     updateObject(id, patch, options) {
       const obj = s.getObject(id);
       if (!obj) return;
+      // A locked item keeps its place, angle and size (v0.18.6: the Inspector's boxes too)
+      const lock = allowedItemPatch(obj, patch);
+      if (lock.refused.length) refuse(lockedText(obj.label || obj.name || 'This item'));
       // Stairs keep their size, stand on their floor and stay level (what you walk on is what you see)
-      const allowed = obj.assetType === 'STAIRCASE' ? stairPatch(patch) : patch;
+      const allowed = obj.assetType === 'STAIRCASE' ? stairPatch(lock.patch) : lock.patch;
       // Skip no-op updates so they don't create empty undo steps
       const changed = Object.keys(allowed).some((k) => obj[k] !== allowed[k]);
       if (!changed) return;

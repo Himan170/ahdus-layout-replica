@@ -132,6 +132,9 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
   const live = dragged?.id === object.id ? dragged : null;
   const deg = toDeg(object.rotationY ?? 0);
   const isStairs = object.assetType === 'STAIRCASE'; // on its floor, one size: what you walk on is what you see
+  // v0.18.6: a locked item keeps its place, angle and size (the editor refuses them too)
+  const locked = !!object.isLocked;
+  const lockTip = locked ? 'Locked: unlock it (L) to change this' : undefined;
 
   // Sizes are shown and typed in metres (v0.15.1); what is saved is still the scale
   const def = ASSET_TYPES[object.assetType];
@@ -142,7 +145,8 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
   };
   const sizeField = (axis, label) => {
     const { min, max } = sizeLimits(def, axis);
-    return <NumberField label={label} value={size[axis]} step={0.05} min={min} max={max} suffix="m" onCommit={(v) => setSize(axis, v)} />;
+    return <NumberField label={label} value={size[axis]} step={0.05} min={min} max={max} suffix="m" disabled={locked} title={lockTip}
+      onCommit={(v) => setSize(axis, v)} />;
   };
 
   const linkable = hookPoints.find((a) => a.kind === 'workstation') ?? hookPoints.find((a) => a.kind === 'reception');
@@ -171,10 +175,11 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
       )}
       <Section title="Position">
         <div className="insp-grid">
-          <NumberField label="X" value={live?.x ?? object.x} suffix="m" onCommit={(v) => commit({ x: v })} />
-          <NumberField label="Z" value={live?.z ?? object.z} suffix="m" onCommit={(v) => commit({ z: v })} />
+          <NumberField label="X" value={live?.x ?? object.x} suffix="m" disabled={locked} title={lockTip} onCommit={(v) => commit({ x: v })} />
+          <NumberField label="Z" value={live?.z ?? object.z} suffix="m" disabled={locked} title={lockTip} onCommit={(v) => commit({ z: v })} />
           {!isStairs && (
-            <NumberField label="Height" value={object.y} step={0.05} min={0} max={10} suffix="m" onCommit={(v) => commit({ y: v })} />
+            <NumberField label="Height" value={object.y} step={0.05} min={0} max={10} suffix="m" disabled={locked} title={lockTip}
+              onCommit={(v) => commit({ y: v })} />
           )}
           <div className="insp-field">
             <span className="insp-field__label">Floor</span>
@@ -185,12 +190,12 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
 
       <Section title="Rotation">
         <div className="insp-rotation">
-          <NumberField label="Angle" value={deg} step={5} digits={0} suffix="°"
+          <NumberField label="Angle" value={deg} step={5} digits={0} suffix="°" disabled={locked} title={lockTip}
             onCommit={(v) => commit({ rotationY: toRad(v) })} />
         </div>
         <div className="ui-segmented insp-quick" role="group" aria-label="Quick rotation">
           {[0, 90, 180, -90].map((d) => (
-            <button key={d} aria-pressed={deg === d} onClick={() => commit({ rotationY: toRad(d) })}>
+            <button key={d} aria-pressed={deg === d} disabled={locked} title={lockTip} onClick={() => commit({ rotationY: toRad(d) })}>
               {d < 0 ? d + 360 : d}°
             </button>
           ))}
@@ -202,7 +207,7 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
         <Section title="Shape">
           <div className="ui-segmented insp-quick" role="group" aria-label="Stairs shape" data-stairs-shape={stairShape(object)}>
             {STAIR_SHAPES.map((shape) => (
-              <button key={shape} type="button" aria-pressed={stairShape(object) === shape} data-stairs-shape-option={shape}
+              <button key={shape} type="button" aria-pressed={stairShape(object) === shape} data-stairs-shape-option={shape} disabled={locked}
                 aria-label={STAIR_SHAPE_LABELS[shape]} title={STAIR_SHAPE_LABELS[shape]}
                 onClick={() => {
                   if (stairShape(object) === shape) return;
@@ -223,7 +228,7 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
           {/* a save from before v0.14.5 can hold another size: it is drawn and walked so, until this */}
           {((object.scaleX ?? 1) !== 1 || (object.scaleY ?? 1) !== 1 || (object.scaleZ ?? 1) !== 1) && (
             <div className="insp-row">
-              <button className="ui-btn is-ghost insp-small" onClick={() => commit({ scaleX: 1, scaleY: 1, scaleZ: 1 })}>
+              <button className="ui-btn is-ghost insp-small" disabled={locked} title={lockTip} onClick={() => commit({ scaleX: 1, scaleY: 1, scaleZ: 1 })}>
                 Normal size
               </button>
             </div>
@@ -240,16 +245,18 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
             <button
               className="ui-btn is-ghost insp-small"
               aria-pressed={keepProportions}
-              title={keepProportions ? 'Sizes change together' : 'Each size changes on its own'}
+              disabled={locked}
+              title={lockTip ?? (keepProportions ? 'Sizes change together' : 'Each size changes on its own')}
               onClick={() => setKeepProportions((v) => !v)}
             >
               {keepProportions ? <Link2 {...ICON} /> : <Unlink2 {...ICON} />}
               Keep proportions
             </button>
-            <button className="ui-btn is-ghost insp-small" onClick={() => commit({ scaleX: 1, scaleY: 1, scaleZ: 1 })}>
+            <button className="ui-btn is-ghost insp-small" disabled={locked} title={lockTip} onClick={() => commit({ scaleX: 1, scaleY: 1, scaleZ: 1 })}>
               Normal size
             </button>
           </div>
+          {locked && <p className="insp-note" data-item-locked>Locked: unlock it (L) to move, turn or resize it.</p>}
         </Section>
       )}
 
