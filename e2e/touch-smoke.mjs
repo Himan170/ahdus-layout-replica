@@ -173,7 +173,9 @@ await fingerDown(1, ring.cx, ring.cy);
 await fingerMove(1, ring.cx, ring.cy - radius * 1.2, 4); // pushed all the way up (past the ring)
 const full = await stick();
 const held = await p.locator('[data-touch-joystick="held"]').count();
-await frames(4);
+// v0.18.7: walked 0.6 m (up to 5 s), not "4 frames": how far 4 frames go depends on the frame rate
+await frames(2);
+await p.waitForFunction((z0) => window.__ahdusViewer.walkthrough.getPosition().z - z0 > 0.6, from.z, { timeout: 5000, polling: 50 }).catch(() => {});
 const walkedUp = await pos();
 // the knob pushed all the way forward rises above the ring: never under the HUD (v0.14.2)
 const knob = await rect('[data-touch-knob]');
