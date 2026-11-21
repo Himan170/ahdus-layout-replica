@@ -25,6 +25,10 @@ const url = process.argv[2] ?? 'http://localhost:3000/';
 const exe = process.env.CHROME;
 const MAX_DRAW_CALLS = 1500;
 const MAX_MESHES = 2000;
+// v0.18.7: the longest main-thread task while the saved building opens (software WebGL: a frame alone is 150-300 ms)
+const OPEN_TASK_MS = Number(process.env.OPEN_TASK_MS ?? 450);
+// v0.18.7: our JavaScript in one walking frame among 300 seated people (not the drawing itself)
+const WALK_JS_MS = Number(process.env.WALK_JS_MS ?? 25);
 
 const b = await chromium.launch({ ...(exe ? { executablePath: exe } : {}), args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const p = await b.newPage({ viewport: { width: 1280, height: 720 } });
@@ -303,6 +307,10 @@ await cdp.send('Profiler.enable');
 await cdp.send('Profiler.setSamplingInterval', { interval: 1000 });
 await cdp.send('Profiler.start');
 const timing = p.evaluate(() => new Promise((resolve) => {
+  // v0.18.7: a marker the CPU profile can find, to line its clock up with performance.now()
+  window.__profileMark = function __ahdusProfileMark() { const end = performance.now() + 12; let x = 0; while (performance.now() < end) x++; return x; };
+  window.__profileMarkAt = performance.now();
+  window.__profileMark();
   const t0 = performance.now();
   window.__openT0 = t0;
   const out = { current: null, all: null };
@@ -343,7 +351,11 @@ const { profile } = await cdp.send('Profiler.stop');
 const tasks = await p.evaluate(() => {
   const t0 = window.__openT0;
   const list = window.__longTasks.filter((t) => t.start >= t0 - 5);
+  const top = list.reduce((a, t) => (!a || t.ms > a.ms ? t : a), null);
   return {
+    top,
+    markAt: window.__profileMarkAt,
+    t0,
     count: list.length,
     longest: Math.round(Math.max(0, ...list.map((t) => t.ms))),
     blocking: Math.round(list.reduce((s, t) => s + Math.max(0, t.ms - 50), 0)),
@@ -382,6 +394,33 @@ profile.samples.forEach((id, i) => {
     others[key] = (others[key] ?? 0) + (dt[i] ?? 0) / 1000;
   }
 });
+// v0.18.7: what the longest task did (the profile's samples inside it, lined up by the marker function)
+const longestWhat = (() => {
+  if (!tasks.top) return 'none';
+  let t = profile.startTime; // µs
+  const times = profile.samples.map((_, i) => (t += dt[i] ?? 0));
+  const markIndex = profile.samples.findIndex((id) => stackNames(id).includes('__ahdusProfileMark'));
+  if (markIndex < 0) return 'no marker in the profile';
+  const offset = times[markIndex] / 1000 - tasks.markAt; // profile ms − page ms
+  const from = tasks.top.start + offset;
+  const to = from + tasks.top.ms;
+  const byGroup = {};
+  const byFn = {};
+  profile.samples.forEach((id, i) => {
+    const at = times[i] / 1000;
+    if (at < from || at > to) return;
+    const f = byId.get(id).callFrame;
+    if (f.functionName === '(idle)') return;
+    const names = stackNames(id);
+    const key = `${f.functionName || '(anonymous)'}@${(f.url.match(/[^/]+$/) ?? [''])[0].replace(/\?.*$/, '')}`;
+    byFn[key] = (byFn[key] ?? 0) + (dt[i] ?? 0) / 1000;
+    const chain = names.filter((n) => n && n !== '(root)').reverse();
+    const g = chain.includes('_renderFrame') || chain.includes('_renderLoop') ? 'rendering' : chain.slice(0, 5).join(' > ') || '?';
+    byGroup[g] = (byGroup[g] ?? 0) + (dt[i] ?? 0) / 1000;
+  });
+  const fmt = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, ms]) => `${k} ${Math.round(ms)}`).join('; ');
+  return `${Math.round(tasks.top.ms)} ms at +${Math.round(tasks.top.start - tasks.t0)} ms: ${fmt(byGroup)} | self: ${fmt(byFn)}`;
+})();
 const cpuTop = Object.entries(groups).sort((a, b) => b[1] - a[1]).slice(0, 9)
   .map(([g, ms]) => `${g} ${Math.round(ms)} ms`).join('; ');
 log('opening the saved building: everything gets built', opened.current > 0 && opened.all > 0,
@@ -389,6 +428,26 @@ log('opening the saved building: everything gets built', opened.current > 0 && o
 log('opening: main-thread long tasks (reported)', true,
   `${tasks.count} long tasks, longest ${tasks.longest} ms, blocking ${tasks.blocking} ms`);
 log('opening: CPU time by group (reported)', true, cpuTop);
+log('opening: what the longest task did (reported)', true, longestWhat);
+// v0.18.7: the 417 ms task of the audit was the performance monitor lowering the resolution 0.25 at a time
+// (each step resizes the canvas: one long task each). Now: measured only once built, then straight to the level the
+// frame rate needs (and once more if the next 3 s still say so).
+{
+  const settle = await p.evaluate(() => new Promise((resolve) => {
+    const engine = window.__ahdusScene.getEngine();
+    const calls = [];
+    const own = engine.setHardwareScalingLevel;
+    engine.setHardwareScalingLevel = function (level) { calls.push(Math.round(level * 1000) / 1000); return own.call(this, level); };
+    const t0 = performance.now();
+    setTimeout(() => {
+      engine.setHardwareScalingLevel = own;
+      const list = window.__longTasks.filter((t) => t.start >= t0);
+      resolve({ calls, level: engine.getHardwareScalingLevel(), longest: Math.round(Math.max(0, ...list.map((t) => t.ms))), tasks: list.length });
+    }, 12000);
+  }));
+  log('opening: the resolution changes at most twice in the 12 s after the building is drawn (was 4 steps of 0.25)', settle.calls.length <= 2, JSON.stringify(settle));
+  log(`opening: no main-thread task over ${OPEN_TASK_MS} ms while opening (longest ${tasks.longest} ms)`, tasks.longest <= OPEN_TASK_MS, longestWhat);
+}
 log('opening: inside room building, by function (reported)', true, Object.entries(inRooms)
   .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([f, ms]) => `${f} ${Math.round(ms)} ms`).join('; '));
 log('opening: the rest ("other"), by function (reported)', true, Object.entries(others)
@@ -635,6 +694,42 @@ if (process.env.WS !== 'off') {
   }));
   const walking = await vMeasure();
   walking.fps = await fpsOf(v, 'window.__ahdusViewer.scene');
+  // v0.18.7: where a walking frame's main-thread time goes (a CPU profile of 4 s, per frame)
+  {
+    const cdpV = await v.context().newCDPSession(v);
+    await cdpV.send('Profiler.enable');
+    await cdpV.send('Profiler.setSamplingInterval', { interval: 500 });
+    await v.evaluate(() => { window.__frames = 0; const sc = window.__ahdusViewer.scene; window.__frameObs = sc.onAfterRenderObservable.add(() => window.__frames++); });
+    await cdpV.send('Profiler.start');
+    await v.waitForTimeout(4000);
+    const { profile: prof } = await cdpV.send('Profiler.stop');
+    const nFrames = await v.evaluate(() => { window.__ahdusViewer.scene.onAfterRenderObservable.remove(window.__frameObs); return window.__frames; });
+    const byIdV = new Map(prof.nodes.map((n) => [n.id, n]));
+    const parentV = new Map();
+    for (const n of prof.nodes) for (const c of n.children ?? []) parentV.set(c, n.id);
+    const self = {};
+    const systems = {};
+    let busy = 0;
+    prof.samples.forEach((id, i) => {
+      const f = byIdV.get(id).callFrame;
+      const ms = (prof.timeDeltas[i] ?? 0) / 1000;
+      if (f.functionName === '(idle)') return;
+      busy += ms;
+      const key = `${f.functionName || '(anonymous)'}@${(f.url.match(/[^/]+$/) ?? [''])[0].replace(/\?.*$/, '')}`;
+      self[key] = (self[key] ?? 0) + ms;
+      // the outermost of OUR files on the stack (src/…), else Babylon / the browser
+      let ours = null;
+      for (let n = id; n !== undefined; n = parentV.get(n)) {
+        const cf = byIdV.get(n).callFrame;
+        if (/\/src\//.test(cf.url)) ours = `${cf.functionName || '(anonymous)'}@${cf.url.match(/[^/]+$/)?.[0].replace(/\?.*$/, '')}`;
+      }
+      const g = ours ?? (f.functionName === '(program)' ? '(program)' : f.functionName === '(garbage collector)' ? '(gc)' : 'Babylon / browser');
+      systems[g] = (systems[g] ?? 0) + ms;
+    });
+    const per = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, ms]) => `${k} ${(ms / Math.max(1, nFrames)).toFixed(1)}`).join('; ');
+    walking.jsMs = Math.round((busy - (systems['(program)'] ?? 0)) / Math.max(1, nFrames) * 10) / 10;
+    walking.profile = `${nFrames} frames in 4 s, main thread busy ${(busy / Math.max(1, nFrames)).toFixed(0)} ms / frame | by caller: ${per(systems)} | self: ${per(self)}`;
+  }
   if (shots && shotName) await v.screenshot({ path: `${shots}/${shotName}`, timeout: 120000 });
   await v.close();
   return { ...walk, ...walking };
@@ -650,6 +745,9 @@ if (process.env.WS !== 'off') {
   const walkDesks = await vRun(await layoutNow(), shots ? '300-seats-walking-v017.png' : null);
   log('walking: 300 seats in clusters against the same seats as v0.17 desks (reported)', true,
     `clusters ${walkClusters.meshes} meshes, ${walkClusters.drawCalls} draw calls, ${walkClusters.fps} FPS | v0.17 desks ${walkDesks.meshes} meshes, ${walkDesks.drawCalls} draw calls, ${walkDesks.fps} FPS`);
+  // v0.18.7: with software WebGL a walking frame is ~770 ms, our JavaScript ~5 ms of it (the rest is drawing): keep it so
+  log(`walking among 300 seats: our JavaScript ≤ ${WALK_JS_MS} ms of each frame (the rest is drawing)`, walkClusters.jsMs <= WALK_JS_MS,
+    `${walkClusters.jsMs} ms · ${walkClusters.profile}`);
 }
 
 log('no page errors', errs.length === 0, errs.slice(0, 3).join(' | '));
