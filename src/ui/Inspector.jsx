@@ -7,14 +7,14 @@
  *
  *   item:   name, Position, Rotation, Size, Details (department, hook points,
  *           linked position); Duplicate / Lock / Delete
- *   room:   name, room type, department (v0.14.9), Width / Length / Ceiling, floor swatches, wall thickness,
+ *   room:   name, room type, department (v0.14.9), Width / Depth / Wall height (drafts until Enter), floor swatches, wall thickness,
  *           the doors and windows (a click selects one) + "Add a door or window"; Duplicate, Delete room
  *   layers: outline of rooms and items on this floor; each row's eye (hide / show in Studio's view only,
  *           ui/hiddenLayers.js) and lock (v0.15.6)
  */
 
 import { styleOf, styleSize, styleOptions, styleName } from '../play/openingStyles';
-import { useEffect, useState, useMemo, useCallback, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { livePosition } from '../utils/livePosition';
 import {
   X, Copy, Lock, LockOpen, Trash2, Link2, Unlink2, LayoutGrid, DoorOpen, AppWindow, RotateCcw, Volume2, VolumeX, Plus,
@@ -54,15 +54,28 @@ const toDeg = (rad) => Math.round((((rad * 180) / Math.PI) % 360 + 540) % 360 - 
 const toRad = (deg) => (deg * Math.PI) / 180;
 
 /**
+ * How a number box shows a value: `digits` decimals; `exact` (v0.18.6): up to 3 decimals, at least `digits`,
+ * so what is saved is what you read (12.34 m, not 12.3).
+ */
+export function formatField(value, digits = 2, exact = false) {
+  const v = Number(value ?? 0);
+  if (!exact) return v.toFixed(digits);
+  let text = (Math.round(v * 1000) / 1000).toFixed(3);
+  while (text.includes('.') && text.endsWith('0') && text.split('.')[1].length > digits) text = text.slice(0, -1);
+  return text.endsWith('.') ? text.slice(0, -1) : text;
+}
+
+/**
  * Number box that keeps what you type while you type it, sends each valid
  * value, and shows the stored value again when you leave it (so undo and
- * gizmo drags always show up).
+ * gizmo drags always show up). Focus selects what is there, so typing replaces it.
+ * lazy (v0.18.0; room sizes v0.18.6): a draft, sent once, on Enter or leaving the box; Esc puts the saved value back.
  */
-function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2, suffix, disabled = false, title, lazy = false }) {
+function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2, suffix, disabled = false, title, lazy = false, exact = false }) {
   const [draft, setDraft] = useState(null);
-  // lazy (v0.18.0): sent once, on Enter or leaving the box (a cluster is rebuilt for each value)
+  const cancelRef = useRef(false);
   const clampV = (v) => (min !== undefined || max !== undefined ? Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v)) : v);
-  const shown = draft ?? Number(value ?? 0).toFixed(digits);
+  const shown = draft ?? formatField(value, digits, exact);
   return (
     <label className="insp-field">
       <span className="insp-field__label">{label}</span>
@@ -77,7 +90,11 @@ function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2,
           step={step}
           min={min}
           max={max}
-          onFocus={() => setDraft(Number(value ?? 0).toFixed(digits))}
+          onFocus={(e) => {
+            setDraft(formatField(value, digits, exact));
+            const el = e.currentTarget;
+            try { el.select(); } catch { /* a browser that can't select a number box */ }
+          }}
           onChange={(e) => {
             setDraft(e.target.value);
             const v = parseFloat(e.target.value);
@@ -85,10 +102,21 @@ function NumberField({ label, value, onCommit, step = 0.1, min, max, digits = 2,
           }}
           onBlur={() => {
             const v = parseFloat(draft);
-            if (lazy && draft !== null && Number.isFinite(v) && Math.abs(clampV(v) - Number(value)) > 1e-6) onCommit(clampV(v));
+            const cancelled = cancelRef.current;
+            cancelRef.current = false;
+            if (lazy && !cancelled && draft !== null && Number.isFinite(v) && Math.abs(clampV(v) - Number(value)) > 1e-6) onCommit(clampV(v));
             setDraft(null);
           }}
-          onKeyDown={(e) => { if (isCommitEnter(e)) e.currentTarget.blur(); }}
+          onKeyDown={(e) => {
+            if (isCommitEnter(e)) e.currentTarget.blur();
+            else if (lazy && e.key === 'Escape' && !isComposing(e)) {
+              // the draft goes, the saved value stays (and Studio's Esc doesn't also clear the selection)
+              e.preventDefault();
+              e.stopPropagation();
+              cancelRef.current = true;
+              e.currentTarget.blur();
+            }
+          }}
         />
         {suffix && <span className="insp-field__suffix">{suffix}</span>}
       </span>
@@ -456,11 +484,12 @@ function RoomBody({ room, departmentChoices: choices, liftStops, onLiftStops, on
       <div className="insp-room__group">
         <h3 className="insp-room__title">Size</h3>
         <div className="insp-grid insp-grid--3">
-          <NumberField label="Width" value={room.width} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m" disabled={locked} title={lockTip}
+          {/* v0.18.6: drafts until Enter / leaving the box (a half-typed 1 never makes a 2 m room), Esc cancels */}
+          <NumberField label="Width" value={room.width} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} exact lazy suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { width: v })} />
-          <NumberField label="Length" value={room.depth} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} suffix="m" disabled={locked} title={lockTip}
+          <NumberField label="Depth" value={room.depth} step={0.5} min={2} max={MAX_ROOM_SIZE} digits={1} exact lazy suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { depth: v })} />
-          <NumberField label="Ceiling" value={room.wallHeight ?? 3} step={0.1} min={MIN_WALL_HEIGHT} max={MAX_WALL_HEIGHT} digits={1} suffix="m" disabled={locked} title={lockTip}
+          <NumberField label="Wall height" value={room.wallHeight ?? 3} step={0.1} min={MIN_WALL_HEIGHT} max={MAX_WALL_HEIGHT} digits={1} exact lazy suffix="m" disabled={locked} title={lockTip}
             onCommit={(v) => onUpdate(room.id, { wallHeight: v })} />
         </div>
         <p className="insp-room__note">{Math.round(area * 10) / 10} m² · {locked ? 'locked: unlock it to resize it' : 'or drag its walls in the view'}</p>

@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import Inspector from '../Inspector';
+import Inspector, { formatField } from '../Inspector';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -48,4 +48,58 @@ describe('the Inspector boxes (v0.18.6)', () => {
     render(<Inspector mode="object" object={desk()} floorName="Ground Floor" rooms={[]} objects={[]} onUpdateObject={() => {}} />);
     expect(field('Width').disabled).toBe(false);
   });
+  describe("a room's size (audit 3a)", () => {
+    const show = (room, onUpdateRoom) => render(<Inspector mode="room" room={room} floorName="Ground Floor" rooms={[room]} objects={[]}
+      onUpdateRoom={onUpdateRoom} />);
+
+    it('the boxes are Width, Depth and Wall height', () => {
+      show(office(), () => {});
+      expect(field('Width')).not.toBeNull();
+      expect(field('Depth')).not.toBeNull();
+      expect(field('Wall height')).not.toBeNull();
+      expect(field('Length')).toBeNull();
+      expect(field('Ceiling')).toBeNull();
+    });
+
+    it('typing 1 then 2 changes nothing until Enter, then once: 12 m', () => {
+      const onUpdateRoom = vi.fn();
+      show(office(), onUpdateRoom);
+      const w = field('Width');
+      act(() => w.focus());
+      type(w, '1');
+      type(w, '12');
+      expect(onUpdateRoom).not.toHaveBeenCalled();
+      key(w, 'Enter');
+      expect(onUpdateRoom).toHaveBeenCalledTimes(1);
+      expect(onUpdateRoom).toHaveBeenCalledWith('room_office', { width: 12 });
+    });
+
+    it('Esc puts the saved size back and sends nothing', () => {
+      const onUpdateRoom = vi.fn();
+      show(office(), onUpdateRoom);
+      const w = field('Width');
+      act(() => w.focus());
+      type(w, '4');
+      key(w, 'Escape');
+      expect(onUpdateRoom).not.toHaveBeenCalled();
+      expect(field('Width').value).toBe('10.0');
+    });
+
+    it('focus selects what is there, so typing replaces it', () => {
+      const select = vi.spyOn(HTMLInputElement.prototype, 'select');
+      show(office(), () => {});
+      act(() => field('Depth').focus());
+      expect(select).toHaveBeenCalled();
+      select.mockRestore();
+    });
+
+    it('shows what is saved: 12.34 m, not 12.3', () => {
+      show(office({ width: 12.34, depth: 5.925 }), () => {});
+      expect(field('Width').value).toBe('12.34');
+      expect(field('Depth').value).toBe('5.925');
+      expect(formatField(10, 1, true)).toBe('10.0');
+      expect(formatField(3.2, 1, true)).toBe('3.2');
+    });
+  });
 });
+
