@@ -282,3 +282,22 @@ describe('planRoomResize: the same rule as dragging a wall (v0.18.6, audit 3b)',
     expect(doorX).toBeCloseTo(4 + 3);
   });
 });
+
+describe('planRoomResize keeps sizes to the millimetre (v0.18.7)', () => {
+  it('a typed 6.65 / 3.1 is saved as 6.65 / 3.1, and the centre has no float noise', () => {
+    for (const x of [0, 0.35, 1.1, -2.7]) {
+      for (const z of [0, 0.15, -1.3]) {
+        for (const w of [6.65, 3.1, 4.35, 7.05]) {
+          const room = { id: 'a', x, z, width: 6, depth: 4, floor: 0, doors: [], windows: [] };
+          const plan = planRoomResize(room, w, 4.15, [room], []);
+          expect(plan.problem).toBeNull();
+          expect(plan.patch.width).toBe(w);
+          expect(plan.patch.depth).toBe(4.15);
+          expect(plan.patch.x).toBe(Math.round(plan.patch.x * 1000) / 1000);
+          expect(plan.patch.z).toBe(Math.round(plan.patch.z * 1000) / 1000);
+          expect(plan.rect).toEqual({ x: plan.patch.x, z: plan.patch.z, width: plan.patch.width, depth: plan.patch.depth });
+        }
+      }
+    }
+  });
+});

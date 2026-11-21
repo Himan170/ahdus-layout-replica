@@ -246,6 +246,67 @@ describe('the mouse (v0.14.0)', () => {
     expect(document.activeElement).toBe(box);
   });
 
+  it('v0.18.7 (audit): the second L releases the mouse even when the browser locks it late', async () => {
+    const w = walk();
+    let grant: (() => void) | null = null;
+    // a browser that takes a moment (after an Esc it may even refuse at first)
+    (canvas as any).requestPointerLock = vi.fn(() => new Promise<void>((res) => {
+      grant = () => { lockEl = canvas; document.dispatchEvent(new Event('pointerlockchange')); res(); };
+    }));
+    key('KeyL'); // asks
+    key('KeyL'); // changed my mind, before the lock came
+    grant!();
+    await Promise.resolve();
+    expect(document.pointerLockElement).toBeNull();
+    expect(w.isMouseLocked()).toBe(false);
+    // and the next L locks again
+    key('KeyL');
+    grant!();
+    await Promise.resolve();
+    expect(w.isMouseLocked()).toBe(true);
+    key('KeyL');
+    expect(document.pointerLockElement).toBeNull();
+  });
+
+  it('v0.18.7: L follows the browser: locked by the browser without a lockchange seen, L releases it', () => {
+    const w = walk();
+    lockEl = canvas; // no pointerlockchange (a frame where it was missed)
+    key('KeyL');
+    expect(document.pointerLockElement).toBeNull();
+    expect(w.isMouseLocked()).toBe(false);
+  });
+
+  it('v0.18.7 (audit, crosshair stairs): a click in mouse look is at the crosshair, even when the lockchange was missed', () => {
+    const onPointClick = vi.fn();
+    walk({ onPointClick });
+    lockEl = canvas; // the browser captured the mouse; no pointerlockchange reached us (seen in headless Chromium)
+    pointer('pointerdown', 10, 10);
+    pointer('pointerup', 10, 10);
+    expect(onPointClick).toHaveBeenCalledTimes(1);
+    // what the crosshair (the middle of the view) is on, not the cursor's last place
+    expect(onPointClick.mock.calls[0][0].screen).toEqual({ x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 });
+  });
+
+  it('v0.18.7: a click in mouse look is what the crosshair was on when the button went down', () => {
+    const onPointClick = vi.fn();
+    Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: engine.getRenderWidth() });
+    Object.defineProperty(canvas, 'clientHeight', { configurable: true, value: engine.getRenderHeight() });
+    const w = walk({ onPointClick });
+    key('KeyL');
+    expect(w.isMouseLocked()).toBe(true);
+    scene.render();
+    const pressed = w.clickTarget(canvas.clientWidth / 2, canvas.clientHeight / 2);
+    expect(pressed.walkTo).not.toBeNull(); // the ground ahead
+    pointer('pointerdown', 10, 10);
+    w.setPose({ x: 0, z: -20, yaw: Math.PI, pitch: 0.4 }); // the view turned before the button came up
+    scene.render();
+    pointer('pointerup', 10, 10);
+    expect(onPointClick).toHaveBeenCalledTimes(1);
+    expect(onPointClick.mock.calls[0][0].walkTo).toEqual(pressed.walkTo);
+    delete (canvas as any).clientWidth;
+    delete (canvas as any).clientHeight;
+  });
+
   it('Esc while a route is followed only ends it: the view keeps the keys', () => {
     const w = walk();
     const pilot = { drive: () => null, key: vi.fn((code: string) => code === 'Escape') };

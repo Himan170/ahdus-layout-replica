@@ -157,6 +157,29 @@ try {
     t = setTimeout(done, 60000);
   }), n);
   const hover = async (x, y, z) => { const p = await toScreen(x, y, z); await page.mouse.move(p.x, p.y, { steps: 3 }); await frames(2); };
+  /** 2D (orthographic): centre the view on (x, z), `top` m above and below it; the returned function puts it back. */
+  const zoom2D = async (x, z, top) => {
+    const was = await page.evaluate(([x, z, top]) => {
+      const c = window.__ahdusScene.activeCamera;
+      const before = { x: c.target.x, z: c.target.z, top: c.orthoTop, ortho: c.mode === 1 };
+      if (!before.ortho) return before;
+      const aspect = window.__ahdusScene.getEngine().getAspectRatio(c);
+      c.target.x = x; c.target.z = z;
+      c.orthoTop = top; c.orthoBottom = -top; c.orthoLeft = -top * aspect; c.orthoRight = top * aspect;
+      return before;
+    }, [x, z, top]);
+    await frames(3);
+    return async () => {
+      if (!was.ortho) return;
+      await page.evaluate((w) => {
+        const c = window.__ahdusScene.activeCamera;
+        const aspect = window.__ahdusScene.getEngine().getAspectRatio(c);
+        c.target.x = w.x; c.target.z = w.z;
+        c.orthoTop = w.top; c.orthoBottom = -w.top; c.orthoLeft = -w.top * aspect; c.orthoRight = w.top * aspect;
+      }, was);
+      await frames(3);
+    };
+  };
   const clickAt = async (x, y, z) => { await hover(x, y, z); await page.mouse.down(); await page.mouse.up(); await frames(3); };
   const dragWorld = async (from, to) => {
     await hover(...from);
@@ -229,13 +252,20 @@ try {
     await clickAt(edges.o5.west - T / 2 - 0.03, y + 3, 0.5);
     await clickAt(37.97, y + 3, 0.5);
     await tile('Select');
-    // Picks: the shared outer wall from inside is the inner room, from outside the office
-    await clickAt(37.98, y + 3, -1.2);
-    const fromInside = await page.evaluate(() => window.__ahdusStore.getState().selectedRoomId);
-    await clickAt(38.05, y + 3, -1.2);
-    const fromOutside = await page.evaluate(() => window.__ahdusStore.getState().selectedRoomId);
+    // Picks: the shared outer wall from inside is the inner room, from outside the office.
+    // v0.18.7: the 2D view zoomed onto the wall first (a 4 m view): the two clicks are 0.02 / 0.05 m from the wall's
+    // centre line, less than a pixel of the whole building's view when SwiftShader lowers the resolution (flaky)
+    const restore = await zoom2D(38, -1.2, 2);
+    const pickAt = async (x) => {
+      await clickAt(x, y + 3, -1.2);
+      return page.evaluate(() => ({ room: window.__ahdusStore.getState().selectedRoomId }));
+    };
+    const fromInside = await pickAt(37.98);
+    const fromOutside = await pickAt(38.05);
+    await restore();
     log(`Floor ${floor}: clicking the wall the room stands on selects it from inside, the office from outside`,
-      fromInside === ids.o5 && fromOutside === big, `${fromInside === ids.o5 ? 'inner' : fromInside} / ${fromOutside === big ? 'office' : fromOutside}`);
+      fromInside.room === ids.o5 && fromOutside.room === big,
+      `${fromInside.room === ids.o5 ? 'inner' : JSON.stringify(fromInside)} / ${fromOutside.room === big ? 'office' : JSON.stringify(fromOutside)} (inner ${ids.o5}, office ${big})`);
     return ids;
   }
   const caseGround = await buildCase(0);

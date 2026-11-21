@@ -304,7 +304,9 @@ log('"Choose your character" only on your own card (the player), and only if the
   chose?.id === 'user_2' && chose.link === null && mine?.id === 'user_14' && mine.link?.endsWith('/choose-character.html'),
   `${JSON.stringify(chose)} | ${JSON.stringify(mine)}`);
 await p.mouse.click(5, 5);
+await p.waitForSelector('[data-person-card]', { state: 'detached', timeout: 10000 }).catch(() => {}); // the old card first (else it is read again)
 await p.evaluate(() => window.workplace.setPlayer(null));
+await frames(2);
 await p.mouse.click(desk14.x, desk14.y);
 await p.waitForSelector('[data-person-card][data-pinned]', { timeout: 30000 }).catch(() => {});
 const nobodyMe = await cardNow();

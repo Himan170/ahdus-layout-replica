@@ -141,6 +141,11 @@ export interface LayoutViewerProps {
   departments?: { name: string; description?: string }[];
   /** The engine is ready and the layout is fully built (focusOn, highlight, getAnchors, …). */
   onReady?: (engine: LayoutEngine) => void;
+  /**
+   * v0.18.7: the `people` list (this very array) was given to the engine: Find and the routes know them
+   * now. (The embed's awaited setPeople resolves on it.)
+   */
+  onPeopleApplied?: (people: Person[]) => void;
   /** Building the layout: { done, total, floor, currentFloorReady, allBuilt } (the last one has allBuilt). */
   onProgress?: (progress: BuildProgress) => void;
   onInteract?: (event: InteractEvent) => void;
@@ -622,7 +627,10 @@ export function LayoutViewer(props: LayoutViewerProps) {
 
   const { people, departments } = props;
   useEffect(() => {
-    engine?.setPeople(people ?? []);
+    if (!engine) return;
+    const list = people ?? [];
+    engine.setPeople(list);
+    propsRef.current.onPeopleApplied?.(list);
   }, [engine, people]);
   useEffect(() => {
     engine?.setDepartments(departments ?? []);
@@ -752,9 +760,11 @@ export function LayoutViewer(props: LayoutViewerProps) {
     if (!walking) setWelcome(false);
   }, [walking]);
   // v0.17.1, one box at a time: the tour, Find or More opened closes it too
+  // (v0.18.7: hidden in that same render, `welcomeShown`; the effect only keeps it from coming back)
   useEffect(() => {
     if (touring || findOpen || moreOpen) setWelcome(false);
   }, [touring, findOpen, moreOpen]);
+  const welcomeShown = welcome && walking && !touring && !findOpen && !moreOpen;
   useEffect(() => {
     if (!engine || !welcome || !tour || engine.navigation.tourPlanReady) return undefined;
     let live = true;
@@ -1100,7 +1110,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
   // v0.17.1, one box at a time: a route's end holds the "E …" line (no HUD box under it); a card near you waits while
   // another box shows (a card next to the cursor, from above, only while a menu is open)
   const navEnd = strip === 'arrived' || strip === 'failed';
-  const boxBusy = helpOpen || moreOpen || findOpen || navEnd || strip === 'shown' || (welcome && walking) || noteShown;
+  const boxBusy = helpOpen || moreOpen || findOpen || navEnd || strip === 'shown' || welcomeShown || noteShown;
   const showPerson = !!person && !error && !(touring && narrow && !person.at && !person.pinned)
     && (person.pinned || (person.at ? !(helpOpen || moreOpen || findOpen) : !boxBusy));
   const hudLine = walking && hud ? (
@@ -1229,7 +1239,7 @@ export function LayoutViewer(props: LayoutViewerProps) {
           </div>
         );
       })()}
-      {welcome && walking && floorReady && !error && (
+      {welcomeShown && floorReady && !error && (
         <WelcomeCard name={welcomeName} tour={tour && welcomeTourDetail !== ''} search={search} keys={welcomeKeys ?? null}
           tourDetail={welcomeTourDetail || null}
           narrow={narrow} bottom={tourBottom} compact={short} onAction={onWelcome} />

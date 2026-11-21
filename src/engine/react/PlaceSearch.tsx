@@ -243,13 +243,24 @@ export function PlaceSearch({
   const touchRef = useRef(touch);
   touchRef.current = touch;
   const uid = useId();
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  // v0.18.7: the viewer hears it in the same event, so its welcome card goes in the render Find's box appears in
+  // (it came from an effect after that render: for a frame both showed)
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onOpenChangeRef.current?.(next);
+  };
   const [query, setQuery] = useState('');
-  const [active, setActive] = useState(0);
+  // v0.18.7 (audit): the active option belongs to the list it was chosen in; a new list starts at its start
+  // index in the SAME render (it was reset by an effect: for one render the keys, aria-selected and
+  // aria-activedescendant disagreed, and Enter right after could pick the wrong entry)
+  const [activeIn, setActiveIn] = useState<{ of: unknown; i: number }>({ of: null, i: 0 });
   const [view, setView] = useState<BrowseView>({ type: 'home' });
+  // the entry to choose when the menu shows the start again (the one that opened the list, going back)
+  const [chooseKey, setChooseKey] = useState<string | null>(null);
   const [recent, setRecent] = useState<string[]>(readRecent);
-  // after the menu changes, the entry to choose (the one opened, when going back)
-  const chooseRef = useRef<string | null>(null);
   // stairs: "Use the stairs this time" (v0.18.4): this place's walk may use them though "Avoid stairs" is on
   const [shown, setShown] = useState<(ShowResult & { nearest?: string; stairs?: boolean }) | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -323,28 +334,30 @@ export function PlaceSearch({
   // the order shown (Rooms first for "Engineering"): up / down follow it
   const options = useMemo(() => (result ? result.order.flatMap((g) => result.groups[g]) : []), [result]);
   const optionCount = typed ? options.length : entries.length;
-  useEffect(() => { setActive(0); }, [result]);
-  useEffect(() => {
-    const key = chooseRef.current;
-    chooseRef.current = null;
-    const i = key ? entries.findIndex((e) => e.key === key) : -1;
+  const shownList: unknown = typed ? options : entries;
+  const startIndex = useMemo(() => {
+    if (typed) return 0;
+    const i = chooseKey ? entries.findIndex((e) => e.key === chooseKey) : -1;
     // a list opened: its first entry after Back
-    setActive(i >= 0 ? i : entries[0]?.type === 'back' && entries.length > 1 ? 1 : 0);
-  }, [entries]);
+    return i >= 0 ? i : entries[0]?.type === 'back' && entries.length > 1 ? 1 : 0;
+  }, [typed, entries, chooseKey]);
+  const active = activeIn.of === shownList ? Math.min(activeIn.i, Math.max(0, optionCount - 1)) : startIndex;
+  const setActive = (next: number | ((was: number) => number)) => setActiveIn((was) => {
+    const from = was.of === shownList ? was.i : startIndex;
+    return { of: shownList, i: typeof next === 'function' ? next(from) : next };
+  });
 
   // A new layout or engine: nothing is shown any more
   useEffect(() => () => { setShown(null); }, [engine]);
 
-  const onOpenChangeRef = useRef(onOpenChange);
-  onOpenChangeRef.current = onOpenChange;
   useEffect(() => {
     if (open) {
       inputRef.current?.focus({ preventScroll: true });
       setRecent(readRecent()); // another tab of this browser may have added some
     } else {
       setView({ type: 'home' }); // opening again starts at the start
+      setChooseKey(null);
     }
-    onOpenChangeRef.current?.(open);
   }, [open]);
 
   // Keep the chosen option in view
@@ -395,14 +408,14 @@ export function PlaceSearch({
     close();
   };
 
-  const openView = (next: BrowseView) => {
+  const openView = (next: BrowseView, choose: string | null = null) => {
+    setChooseKey(choose);
     setView(next);
     inputRef.current?.focus({ preventScroll: true });
   };
   const goBack = () => {
     if (view.type === 'home') return false;
-    chooseRef.current = view.id; // the entry that opened it
-    openView({ type: 'home' });
+    openView({ type: 'home' }, view.id); // back on the entry that opened it
     return true;
   };
 
@@ -513,7 +526,7 @@ export function PlaceSearch({
   const status = !typed ? (screen?.status ?? '')
     : !result?.total ? `Nothing found for “${query.trim()}”`
       : `${result.total} ${result.total === 1 ? 'result' : 'results'}`;
-  const activeId = optionCount ? `${uid}-opt-${Math.min(active, optionCount - 1)}` : undefined;
+  const activeId = optionCount ? `${uid}-opt-${active}` : undefined;
   let n = -1;
 
   /** One option of the menu (an entry). */

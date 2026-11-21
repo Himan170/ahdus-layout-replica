@@ -30,6 +30,7 @@ import {
   ANCHOR_COLORS, ANCHOR_BADGE_SYMBOLS, planViewCentre,
 } from './planMath';
 import { planOutline } from '../play/surfaces';
+import { EDGE_SIDES, edgeMidpoint, edgeHandleSpot, edgeLength, edgeResize, edgeResizeTo, edgeTargetAt, edgeCoordinate, parseLength, lengthText } from '../play/roomEdges';
 
 /**
  * An L-shaped staircase in the plan (v0.18.3): its parts' outlines, a line per step, the way up as a bent arrow.
@@ -105,6 +106,8 @@ export default function FloorPlanView({
   onMoveGroup = () => {},      // (dx, dz) => void   a group dragged (one undo step)
   onPointerWorld = () => {},   // ({ x, z } | null) => void   where the mouse is (Ctrl+V pastes there)
   onViewCentre = () => {},     // v0.18.5: ({ x, z } | null) => void   the middle of the Plan (a library click lands there)
+  // v0.18.7 (audit 3c): a selected room's edge handles: (roomId, side, edge coordinate) => false when refused (it says why)
+  onResizeRoom = null,
 }) {
   const svgRef = useRef(null);
 
@@ -144,6 +147,13 @@ export default function FloorPlanView({
   // The same drag, kept at once: on a slow machine pointer moves can arrive before React re-renders
   const dragRef = useRef(null);
   const startDrag = (next) => { dragRef.current = next; setDrag(next); };
+
+  // ── v0.18.7 (audit 3c): a selected room's edge dragged (the opposite wall stays), or its length typed ──
+  const [edge, setEdge] = useState(null); // { roomId, side, x0, y0, moved, result }
+  const edgeRef = useRef(null);
+  const setEdgeDrag = (next) => { edgeRef.current = next; setEdge(next); };
+  const [edgeInput, setEdgeInput] = useState(null); // { roomId, side, text, left, top, problem }
+  const viewRef = useRef(null);
 
   // Base plan bounds: the WHOLE building (v0.15.5), so every floor has the same scale and place and
   // Page Up / Down keep where you were looking
@@ -187,6 +197,9 @@ export default function FloorPlanView({
     if (!inv) return { x: 0, z: 0 };
     return screenToWorld(clientX, clientY, inv);
   }, []);
+
+  // ── v0.18.7: the edge rule's context (this floor's rooms, its items, the floor below to line up with) ──
+  const edgeContext = useCallback(() => ({ rooms, objects, below: below.length ? below : null }), [rooms, objects, below]);
 
   // ── Helper: Where the dragged item lands (snapped, on table or floor) ──
   const dropOf = useCallback((d) => {
@@ -286,6 +299,41 @@ export default function FloorPlanView({
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
 
+  // ── v0.18.7: an edge handle pressed: a drag moves that edge, a click asks for the length ──
+  function handleEdgePointerDown(event, room, side) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setEdgeInput(null);
+    setEdgeDrag({ roomId: room.id, side, x0: event.clientX, y0: event.clientY, moved: false, result: null });
+    try { svgRef.current?.setPointerCapture?.(event.pointerId); } catch { /* that pointer is gone */ }
+  }
+
+  /** The box to type a length in, next to the handle (in the plan's own box). */
+  function openEdgeInput(room, side) {
+    const svg = svgRef.current;
+    const box = viewRef.current?.getBoundingClientRect();
+    const ctm = svg?.getScreenCTM();
+    const m = at(edgeHandleSpot(room, side));
+    const left = ctm && box ? ctm.a * m.x + ctm.c * m.y + ctm.e - box.left : 0;
+    const top = ctm && box ? ctm.b * m.x + ctm.d * m.y + ctm.f - box.top : 0;
+    setEdgeInput({ roomId: room.id, side, text: edgeLength(room, side).toFixed(2), left, top, problem: null });
+  }
+
+  /** The typed length: the edge moves, the opposite wall stays (the wall drag's rules). false: refused (it says why). */
+  function applyEdgeInput(input) {
+    const room = rooms.find((r) => r.id === input.roomId);
+    if (!room) { setEdgeInput(null); return true; }
+    const length = parseLength(input.text);
+    if (length === null) { setEdgeInput({ ...input, problem: 'Type a length in metres, like 6.4' }); return false; }
+    if (Math.abs(length - edgeLength(room, input.side)) < 0.0005) { setEdgeInput(null); return true; }
+    const result = edgeResizeTo(room, input.side, length, edgeContext());
+    if (result.problem) { setEdgeInput({ ...input, problem: result.problem }); onProblem(result.problem); return false; }
+    if (onResizeRoom?.(room.id, input.side, edgeCoordinate(result.rect, input.side)) === false) return false;
+    setEdgeInput(null);
+    return true;
+  }
+
   // ── Pointer Down on Background (Pan plan) ──
   function handleBackgroundPointerDown(event) {
     if (event.button !== 0) return; // Left mouse button only
@@ -321,6 +369,17 @@ export default function FloorPlanView({
     const here = pointerWorld(event.clientX, event.clientY);
     onPointerWorld(here);
     if (box) { setBox({ ...box, current: here }); return; }
+    // 0. An edge of the selected room (v0.18.7): after PAN_START_PX, the edge follows the pointer on its axis
+    if (edgeRef.current) {
+      const e = edgeRef.current;
+      if (!e.moved && Math.hypot(event.clientX - e.x0, event.clientY - e.y0) < PAN_START_PX) return;
+      const room = rooms.find((r) => r.id === e.roomId);
+      if (!room) { setEdgeDrag(null); return; }
+      const step = snap?.enabled && !event.altKey && snap.step > 0 ? snap.step : 0;
+      const result = edgeResize(room, e.side, edgeTargetAt(e.side, here, { step }), edgeContext());
+      setEdgeDrag({ ...e, moved: true, result });
+      return;
+    }
     // 1. Moving an item
     if (dragRef.current) {
       const current = pointerWorld(event.clientX, event.clientY);
@@ -352,6 +411,18 @@ export default function FloorPlanView({
 
   // ── Pointer Up (Finish drag or pan) ──
   function handlePointerUp() {
+    if (edgeRef.current) {
+      const e = edgeRef.current;
+      setEdgeDrag(null);
+      justDraggedRef.current = true; // the click that follows keeps the room selected
+      const room = rooms.find((r) => r.id === e.roomId);
+      if (!room) return;
+      if (!e.moved) { openEdgeInput(room, e.side); return; }
+      if (!e.result) return;
+      if (e.result.problem) { onProblem(e.result.problem); return; }
+      if (Math.abs(e.result.length - edgeLength(room, e.side)) >= 0.0005) onResizeRoom?.(room.id, e.side, edgeCoordinate(e.result.rect, e.side));
+      return;
+    }
     if (box) {
       const ids = itemsInBox(box);
       const now = selectedObjectIds.length ? selectedObjectIds : selectedObjectId ? [selectedObjectId] : [];
@@ -431,7 +502,7 @@ export default function FloorPlanView({
   }
 
   return (
-    <div className="floor-plan-view" aria-label="2D Floor plan view">
+    <div className="floor-plan-view" aria-label="2D Floor plan view" ref={viewRef}>
       {/* ── Top left: zoom, then the plan's toggles under it. Nothing on the bottom row: that is
           the floor switcher's (v0.15.5: the old bottom bar covered it) ── */}
       <div className="floor-plan-chrome">
@@ -1076,7 +1147,109 @@ export default function FloorPlanView({
             );
           })}
         </g>
+
+        {/* ── v0.18.7 (audit 3c): the selected room's edge handles: drag one to move that wall (the opposite one stays),
+            click one to type the length. While dragging: the new outline and its length at the edge. ── */}
+        {onResizeRoom && (() => {
+          const room = plan.rooms.find((r) => r.id === selectedRoomId);
+          if (!room || room.isLocked || !dynamicView) return null;
+          const unit = dynamicView.width / Math.max(1, svgRef.current?.clientWidth || 1000); // metres per CSS px
+          const live = edge?.roomId === room.id && edge.result ? edge.result : null;
+          const shown = live ? { ...room, ...live.rect } : room;
+          const name = room.name || room.type || 'room';
+          const c = at(shown);
+          const s = 5 * unit; // half a handle: 10 px
+          return (
+            <g className="floor-plan-room-handles" data-plan-room-handles={room.id}>
+              {live && (
+                <rect
+                  data-plan-edge-preview={live.problem ? 'bad' : 'ok'}
+                  x={c.x - shown.width / 2} y={c.y - shown.depth / 2} width={shown.width} height={shown.depth}
+                  fill={live.problem ? '#fee2e2' : '#dbeafe'} fillOpacity={0.35}
+                  stroke={live.problem ? '#dc2626' : '#2563eb'} strokeWidth={2 * unit} strokeDasharray={`${6 * unit} ${4 * unit}`}
+                  pointerEvents="none"
+                />
+              )}
+              {EDGE_SIDES.map((side) => {
+                const m = at(edgeHandleSpot(shown, side));
+                const along = side === 'north' || side === 'south';
+                const active = edge?.side === side && edge.roomId === room.id;
+                return (
+                  <rect
+                    key={side}
+                    data-plan-room-handle={side}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Move the ${side} wall of ${name}`}
+                    x={m.x - (along ? 2 * s : s)} y={m.y - (along ? s : 2 * s)}
+                    width={along ? 4 * s : 2 * s} height={along ? 2 * s : 4 * s}
+                    rx={s * 0.6}
+                    fill={active ? '#2563eb' : '#ffffff'} stroke="#2563eb" strokeWidth={2 * unit}
+                    style={{ cursor: along ? 'ns-resize' : 'ew-resize' }}
+                    onPointerDown={(e) => handleEdgePointerDown(e, room, side)}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={selectOnKey(() => openEdgeInput(room, side))}
+                  >
+                    <title>{`Drag to move the ${side} wall (the opposite wall stays) · click to type the length`}</title>
+                  </rect>
+                );
+              })}
+              {live && (() => {
+                const m = at(edgeMidpoint(shown, live.side));
+                const along = live.side === 'north' || live.side === 'south';
+                const fs = 13 * unit;
+                const dx = along ? 0 : (live.side === 'east' ? 1 : -1) * 14 * unit;
+                const dy = along ? (live.side === 'north' ? -1 : 1) * 16 * unit : 0;
+                return (
+                  <text
+                    data-plan-edge-label={live.problem ? 'bad' : 'ok'}
+                    x={m.x + dx} y={m.y + dy}
+                    textAnchor={along ? 'middle' : live.side === 'east' ? 'start' : 'end'}
+                    dominantBaseline="middle" fontSize={fs} fontWeight="700"
+                    fill={live.problem ? '#b91c1c' : '#1d4ed8'}
+                    stroke="#ffffff" strokeWidth={fs * 0.3} paintOrder="stroke" pointerEvents="none"
+                  >
+                    {live.problem ?? lengthText(live.length)}
+                  </text>
+                );
+              })()}
+            </g>
+          );
+        })()}
       </svg>
+      {edgeInput && (() => {
+        const room = rooms.find((r) => r.id === edgeInput.roomId);
+        if (!room) return null;
+        const along = edgeInput.side === 'north' || edgeInput.side === 'south';
+        const opposite = { north: 'south', south: 'north', east: 'west', west: 'east' }[edgeInput.side];
+        return (
+          <div className="floor-plan-edge-input" data-plan-edge-typing={edgeInput.side}
+            style={{ position: 'absolute', left: edgeInput.left, top: edgeInput.top, transform: 'translate(-50%, -130%)', zIndex: 5 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fff', border: '1px solid #2563eb', borderRadius: 6, padding: '2px 6px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', fontSize: 12 }}>
+              <span>{along ? 'Depth' : 'Width'}</span>
+              <input
+                data-plan-edge-input=""
+                aria-label={`${along ? 'Depth' : 'Width'} of ${room.name || 'the room'} in metres (the ${opposite} wall stays)`}
+                value={edgeInput.text}
+                autoFocus
+                inputMode="decimal"
+                size={6}
+                style={{ width: 64, font: 'inherit', border: 'none', outline: 'none' }}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setEdgeInput({ ...edgeInput, text: e.target.value, problem: null })}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); applyEdgeInput(edgeInput); }
+                  else if (e.key === 'Escape') { e.preventDefault(); setEdgeInput(null); }
+                }}
+                onBlur={() => { if (!applyEdgeInput(edgeInput)) setEdgeInput(null); }}
+              />
+              <span>m</span>
+            </label>
+            {edgeInput.problem && <div role="alert" data-plan-edge-problem="" style={{ marginTop: 4, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '2px 6px', fontSize: 12, whiteSpace: 'nowrap' }}>{edgeInput.problem}</div>}
+          </div>
+        );
+      })()}
     </div>
   );
 }

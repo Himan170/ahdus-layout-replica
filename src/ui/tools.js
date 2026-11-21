@@ -321,6 +321,8 @@ export const PHONE_HINT = 'Drag to turn · pinch to zoom · tap a room to select
  */
 /** Plan view's hint (v0.15.5: was a bar at the bottom of the plan, over the floor switcher). */
 export const PLAN_HINT = 'Click to select · drag to move · scroll to zoom · Page Up / Down: floors';
+/** v0.18.7: Plan view with a room selected (its edge handles). */
+export const PLAN_ROOM_HINT = 'Drag a blue handle to move that wall (the opposite wall stays) · click it to type the length';
 
 export function phoneIdleHint({ sheetOpen = false, touched = false } = {}) {
   return sheetOpen || touched ? '' : PHONE_HINT;

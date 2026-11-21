@@ -206,17 +206,22 @@ if (!VIEWER_ONLY) try {
   // (placed in the middle of the view, which is where the lift shaft is: the stairs belong to the Hall around it,
   // never to the shaft, and go to the nearest spot in the Hall that works, clear of the shaft)
   {
-    const placed = await store(() => {
+    const placed = await store(async () => {
+      const { stairRects } = await import('/src/play/building.js');
+      const { rectsOverlap } = await import('/src/play/turnedRect.js');
       const st = window.__ahdusStore.getState();
       const s = Object.values(st.objects).find((o) => o.assetType === 'STAIRCASE');
       const lift = Object.values(st.rooms).find((r) => r.type === 'LIFT' && r.floor === 0);
-      return s && { x: s.x, z: s.z, room: st.rooms[s.roomId]?.name ?? null, lift: { x: lift.x, z: lift.z, w: lift.width, d: lift.depth } };
+      const shaft = { x: lift.x, z: lift.z, hw: lift.width / 2, hd: lift.depth / 2, rot: 0 };
+      // v0.18.6: an L is checked by its arms (and landing), not by its 3.2 m square: its open corner may reach over the shaft
+      const armsClear = !!s && stairRects(s).every((r) => !rectsOverlap(r, shaft, 0.01));
+      return s && { x: s.x, z: s.z, room: st.rooms[s.roomId]?.name ?? null, armsClear, lift: { x: lift.x, z: lift.z, w: lift.width, d: lift.depth } };
     });
     const footer = (await page.locator('[data-studio="hint"]').textContent().catch(() => '')) ?? '';
-    // the L's 3.2 m box clear of the shaft's rectangle
-    const clear = placed && (Math.abs(placed.x - placed.lift.x) >= 1.6 + placed.lift.w / 2 - 0.01 || Math.abs(placed.z - placed.lift.z) >= 1.6 + placed.lift.d / 2 - 0.01);
+    // the L's arms and landing clear of the shaft's rectangle
+    const clear = placed?.armsClear;
     log('L stairs dropped over the lift shaft: placed in the Hall, beside the shaft, no "Lift shaft" in the message',
-      placed?.room === 'Hall' && clear && !/Lift shaft/.test(footer), `${JSON.stringify(placed)} | "${footer.replace(/s+/g, ' ').slice(0, 120)}"`);
+      placed?.room === 'Hall' && clear && !/Lift shaft/.test(footer), `${JSON.stringify(placed)} | "${footer.replace(/\s+/g, ' ').slice(0, 120)}"`);
   }
   await frames(3);
   const stairs = () => store(() => Object.values(window.__ahdusStore.getState().objects).filter((o) => o.assetType === 'STAIRCASE')

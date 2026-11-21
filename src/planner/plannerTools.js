@@ -38,6 +38,9 @@ import {
   openingData, wallLine, formatOpeningSize, resizeOpening, OPENING_STEP, wallThicknessOf, OVERHANG_WARNING,
   planWallSegmentOpening, moveOpening, findRoomAt,
 } from '../play/geometry';
+import { handleAt, edgeLength, roundMm } from '../play/roomEdges';
+import { liveEdge } from '../utils/liveEdge';
+import { projectPoint } from '../ui/projection';
 import {
   elevationOf, floorBelow, planWallHeight, wallHeightText, HEIGHT_STEP, MIN_WALL_HEIGHT, MAX_WALL_HEIGHT,
   placementHeight, canStandOn, floorOnlyText, stairSize,
@@ -57,6 +60,7 @@ import { stairPreview, findStairSpot } from '../play/stairFit';
 const FLOOR_Y = 0.02;
 const CLICK_SLOP = 5; // px the mouse may move with the button down and still count as a click
 const WALL_LABEL = { north: 'north', south: 'south', east: 'east', west: 'west' };
+const OPPOSITE_SIDE = { north: 'south', south: 'north', east: 'west', west: 'east' };
 const VIEW_KEYS = [['Right-drag', 'Move the view'], ['Wheel', 'Zoom'], ['Esc', 'Stop']];
 /** Building parts keep their height when dragged (never stacked on a table); stairs stand on their floor. */
 const objectIdOf = (m) => m?.metadata?.objectId ?? m?.parent?.metadata?.objectId ?? null;
@@ -626,6 +630,25 @@ export function createPlannerTools(scene, canvas, {
       hover = null;
       return { title: room.name, detail: 'Locked. Press L to unlock it.', keys: [['L', 'Unlock']] };
     }
+    // v0.18.7 (audit 3c): from above, the handle in the middle of each edge (ui/RoomEdgeHandles.jsx draws them)
+    // grabs that wall within HANDLE_GRAB_PX, before the furniture and the floor under it: a drag moves that wall
+    // (the opposite one stays), a click asks for the length
+    if (!st().is3D) {
+      const side = handleAt(room, { x: scene.pointerX, y: scene.pointerY }, (x, z) => {
+        const q = projectPoint(scene, x, elev() + 0.05, z);
+        return q.visible ? q : null;
+      });
+      if (side) {
+        pv.wallHighlight(room, side, elev(), true);
+        setCursor(side === 'north' || side === 'south' ? 'ns-resize' : 'ew-resize');
+        hover = { type: 'grabWall', roomId: room.id, wallName: side, handle: true };
+        return {
+          title: `Resize ${room.name}`,
+          detail: `${WALL_LABEL[side]} wall · drag to move it (the ${OPPOSITE_SIDE[side]} wall stays) · click to type the length · ${formatRoomSize(room.width, room.depth)}`,
+          keys: [['Drag', 'Move this wall (the opposite one stays)'], ['Click', 'Type the length']],
+        };
+      }
+    }
     // From above (2D) the walls' height can't be dragged; in 3D their top handles can
     if (st().is3D) {
       showHeightHandles(room);
@@ -832,9 +855,17 @@ export function createPlannerTools(scene, canvas, {
       if (!room) { cancelDrag(); return null; }
       if (!p) return lastDragHint();
       const alongZ = drag.wallName === 'north' || drag.wallName === 'south';
+      if (!drag.moved && Math.hypot(scene.pointerX - (drag.x0 ?? scene.pointerX), scene.pointerY - (drag.y0 ?? scene.pointerY)) < CLICK_SLOP) {
+        return saveDragHint({ title: `Resize ${room.name}`, detail: `${WALL_LABEL[drag.wallName]} wall · ${formatRoomSize(room.width, room.depth)}`, keys: [['Drag', 'Move this wall'], ['Esc', 'Cancel']] });
+      }
+      drag.moved = true;
       const result = stretchRoom(room, drag.wallName, alongZ ? p.z : p.x, {
         rooms: floorRooms(), objects: Object.values(st().objects), below: belowRooms(), nameOf,
       });
+      // v0.18.7: the new length at the edge being dragged (ui/RoomEdgeHandles.jsx), the opposite wall staying
+      result.rect = { x: roundMm(result.rect.x), z: roundMm(result.rect.z), width: roundMm(result.rect.width), depth: roundMm(result.rect.depth) };
+      result.patch = { ...result.patch, ...result.rect };
+      liveEdge.setDrag({ roomId: room.id, side: drag.wallName, rect: result.rect, length: edgeLength(result.rect, drag.wallName), problem: result.problem ?? null });
       pv.room(result.rect, elev(), room.wallHeight ?? 3, !result.problem);
       drag.plan = result.problem ? null : { room, result };
       if (result.problem) return saveDragHint({ title: `Resize ${room.name}`, detail: result.problem, bad: true, keys: [['Esc', 'Cancel']] });
@@ -913,6 +944,12 @@ export function createPlannerTools(scene, canvas, {
       return;
     }
     if (d.kind === 'move' && !d.plan) restoreRoomItems(d);
+    // v0.18.7: a click (no drag) on an edge handle: type that edge's length
+    if (d.kind === 'stretch' && d.handle && !d.moved) {
+      liveEdge.openTyping(d.roomId, d.wallName);
+      onMessage(null);
+      return;
+    }
     if (!d.plan) {
       // Say why nothing was built (a plain click, an overlap, too short)
       if (d.hint?.bad) onMessage(d.hint.detail, true);
@@ -1034,6 +1071,7 @@ export function createPlannerTools(scene, canvas, {
 
   function endDrag() {
     drag = null;
+    liveEdge.clearDrag();
     showGuides([]);
     livePosition.clear();
     pv.hideAll();
@@ -1266,7 +1304,8 @@ export function createPlannerTools(scene, canvas, {
       } else if (hover?.type === 'grabHeight') {
         startDrag({ kind: 'height', roomId: hover.roomId, wallName: hover.wallName });
       } else if (hover?.type === 'grabWall') {
-        startDrag({ kind: 'stretch', roomId: hover.roomId, wallName: hover.wallName });
+        startDrag({ kind: 'stretch', roomId: hover.roomId, wallName: hover.wallName, handle: !!hover.handle, x0: scene.pointerX, y0: scene.pointerY });
+        liveEdge.closeTyping();
       } else if (hover?.type === 'grabRoom') {
         // Not yet a move: a click selects what is under the cursor, as usual;
         // the room moves once the mouse has really been dragged (CLICK_SLOP)

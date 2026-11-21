@@ -69,7 +69,8 @@ import { createCharacter } from './character';
 import { moveWithSteps, createNearbyMeshes } from './movement';
 import { lockPointer } from '../utils/pointerLock';
 import { createDragLook } from './dragLook';
-import { createWalkMapCache, FREE, STAIRS, BLOCKED, VOID } from './navigation/walkMap';
+import { createWalkMapCache, FREE, STAIRS, BLOCKED, VOID, isSolidItem } from './navigation/walkMap';
+import { itemWalkGoal } from './navigation/itemGoal';
 import { entranceSpawn, nearestFree, NOT_BLOCKED } from './navigation/entrance';
 import { stairsClickGoal } from './navigation/route';
 import { NO_WALK_PARTS } from './clickHint';
@@ -1514,13 +1515,11 @@ export function createPlayController(scene, canvas, {
         // look 'drag' on a page: mouse-look mode on / off (Esc also releases the mouse).
         // Walk through uses M: L locks an item there (Edit item)
         if (!dragMode || mouseAim) break;
-        if (locked) document.exitPointerLock?.();
-        else lockPointer(canvas);
+        toggleMouseLook();
         break;
       case 'KeyM':
         if (!mouseAim) break;
-        if (locked) document.exitPointerLock?.();
-        else lockPointer(canvas);
+        toggleMouseLook();
         break;
       case 'Escape':
         // Walk through, the mouse free: cancel what is half done, else put the item away (an empty hand).
@@ -1558,7 +1557,7 @@ export function createPlayController(scene, canvas, {
   }
 
   function onMouseMove(e) {
-    if (!active || !locked) return;
+    if (!active || !syncLock()) return;
     // Chrome sometimes reports a huge jump while the pointer is locked
     // (e.g. when the cursor is re-centred). Ignore those single spikes.
     if (Math.abs(e.movementX) > 250 || Math.abs(e.movementY) > 250) return;
@@ -1584,7 +1583,35 @@ export function createPlayController(scene, canvas, {
 
   const onContextMenu = (e) => { if (active) e.preventDefault(); };
 
+  // v0.18.7 (audit): mouse look on / off follows the browser (document.pointerLockElement), not our own flag, and an
+  // L pressed again while the browser is still granting the lock cancels it: the lock that comes is let go at once
+  let lockAsked = false;    // a lock asked for, not granted (or refused) yet
+  let releaseOnLock = false; // ...and taken back meanwhile
+  function toggleMouseLook() {
+    if (document.pointerLockElement === canvas) {
+      releaseOnLock = false;
+      document.exitPointerLock?.();
+      if (locked) return;
+      onPointerLockChange(); // the browser had it locked without telling us: catch up
+      return;
+    }
+    if (lockAsked) { releaseOnLock = !releaseOnLock; return; }
+    lockAsked = true;
+    releaseOnLock = false;
+    lockPointer(canvas).then(() => {
+      lockAsked = false;
+      if (releaseOnLock && document.pointerLockElement === canvas) document.exitPointerLock?.();
+      releaseOnLock = false;
+    });
+  }
+
   function onPointerLockChange() {
+    if (document.pointerLockElement === canvas) lockAsked = false; // granted
+    if (releaseOnLock && document.pointerLockElement === canvas) {
+      releaseOnLock = false;
+      document.exitPointerLock?.();
+      return;
+    }
     const was = locked;
     locked = document.pointerLockElement === canvas;
     if (was !== locked) onLockChange(locked);
@@ -1618,9 +1645,8 @@ export function createPlayController(scene, canvas, {
     click: ({ x, y, button, touch }) => {
       if (mouseAim) { previewClick(x, y, button, touch); return; }
       if (button !== 0 || !active) return;
-      // mouse-look mode: the crosshair (the middle of the view) is what you click
-      const at = locked ? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 } : { x, y };
-      onPointClick({ ...clickTarget(at.x, at.y), touch: !!touch });
+      // mouse-look mode: the crosshair (the middle of the view) is what you click: what it was on at the press
+      onPointClick({ ...(takePressAim() ?? clickTarget(x, y)), touch: !!touch });
     },
     doubleClick: ({ x, y, button, touch }) => {
       // Walk through: two quick clicks are two clicks (two chairs placed), never mouse look (that is M)
@@ -1643,15 +1669,33 @@ export function createPlayController(scene, canvas, {
     toolHint();
     if (button === 2) { secondaryAction(); return; }
     if (button !== 0) return;
-    if (carry || tool) { primaryAction(); return; }
-    const at = locked ? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 } : { x, y };
-    onPointClick({ ...clickTarget(at.x, at.y), touch: !!touch });
+    if (carry || tool) { pressAim = null; primaryAction(); return; }
+    onPointClick({ ...(takePressAim() ?? clickTarget(x, y)), touch: !!touch });
+  }
+
+  /**
+   * v0.18.7 (audit, crosshair stairs): in mouse look a click is what the crosshair was on when the button went
+   * down, picked then from the camera of that frame (a staircase there: its other end). Mouse look is what the
+   * browser says (document.pointerLockElement): headless Chromium has locked the mouse without a lockchange
+   * reaching us, and the click went to the cursor's last place instead (the floor upstairs, not the flight).
+   */
+  let pressAim = null;
+  function syncLock() {
+    if ((document.pointerLockElement === canvas) !== locked) onPointerLockChange();
+    return locked;
+  }
+  const crosshair = () => ({ x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 });
+  function takePressAim() {
+    const aim = pressAim ?? (syncLock() ? clickTarget(crosshair().x, crosshair().y) : null);
+    pressAim = null;
+    return aim;
   }
 
   function onPointerDown(e) {
     if (!active) return;
     const touch = e.pointerType === 'touch'; // v0.14.1: a finger drags to look, a tap is a click
     const at = canvasPoint(e);
+    pressAim = !touch && syncLock() ? clickTarget(crosshair().x, crosshair().y) : null;
     if (mouseAim && !touch && e.button === 1) {
       // the middle button picks up what the mouse is on (as G)
       e.preventDefault();
@@ -1674,7 +1718,7 @@ export function createPlayController(scene, canvas, {
   function onPointerMove(e) {
     // Walk through: the mouse is what you aim with (a finger aims where it taps)
     if (active && mouseAim && !locked && e.pointerType !== 'touch') pointer = canvasPoint(e);
-    if (!active || locked || !drag.pressed) return; // locked: onMouseMove looks
+    if (!active || syncLock() || !drag.pressed) return; // locked: onMouseMove looks
     const at = canvasPoint(e);
     drag.move({ id: e.pointerId, x: at.x, y: at.y });
   }
@@ -1730,6 +1774,12 @@ export function createPlayController(scene, canvas, {
     const stairs = st
       ? stairsClickGoal({ rooms: st.rooms, objects: st.objects, floors: st.floors }, obj.id, currentLevel, { maps: walkMaps })
       : null;
+    // v0.18.7 (audit 2c): a solid item (a big meeting table) is walked up to: just outside its edge nearest to
+    // the click, not the spot clicked (its middle was too far from any free spot: "no room to stand there")
+    if (obj && !stairs && isSolidItem(obj, ASSET_TYPES)) {
+      const edge = itemWalkGoal(obj, p, { catalog: ASSET_TYPES, towards: camera.position });
+      if (edge) { gx = edge.x; gz = edge.z; }
+    }
     // v0.17.3: a wall, a window, a ceiling, a roof is not a place to walk to (the click shows a hint, clickHint.js)
     const nowhere = !objectId && !!part && NO_WALK_PARTS.has(part.part);
     return {

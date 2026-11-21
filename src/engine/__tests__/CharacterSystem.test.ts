@@ -287,3 +287,30 @@ describe('CharacterSystem', () => {
     cs.dispose();
   });
 });
+
+describe('frames with nothing new (v0.18.7)', () => {
+  it('the simple figures are not set again every frame; a change (a desk hidden) still redraws them', async () => {
+    const cs = system();
+    cs.setPeople([person('n', 'd1', null), person('s', 'd2', null), person('m', 'd3', null)]);
+    await settle(cs);
+    const seated = scene.getMeshByName('people_seated') as Mesh;
+    const standing = scene.getMeshByName('people_standing') as Mesh;
+    let sets = 0;
+    for (const mesh of [seated, standing]) {
+      const own = mesh.thinInstanceSetBuffer.bind(mesh);
+      mesh.thinInstanceSetBuffer = ((...args: Parameters<Mesh['thinInstanceSetBuffer']>) => { sets++; return own(...args); }) as Mesh['thinInstanceSetBuffer'];
+    }
+    for (let i = 0; i < 10; i++) cs.update();
+    expect(sets).toBe(0);
+    expect(seated.thinInstanceCount).toBe(2);
+    shown.d3 = false; // one desk hidden: seated figures drawn again (one fewer)
+    cs.update();
+    expect(sets).toBeGreaterThan(0);
+    expect(seated.thinInstanceCount).toBe(1);
+    const after = sets;
+    for (let i = 0; i < 10; i++) cs.update();
+    expect(sets).toBe(after);
+    cs.dispose();
+  });
+
+});

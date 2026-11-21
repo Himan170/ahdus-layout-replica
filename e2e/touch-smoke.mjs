@@ -71,7 +71,20 @@ const frames = (n = 3) => p.evaluate((n) => new Promise((res) => {
 const pose = async (x, z, yaw, pitch) => { await p.evaluate((a) => window.__ahdusViewer.walkthrough.setPose(a), { x, z, yaw, pitch }); await frames(3); };
 const pos = () => p.evaluate(() => { const v = window.__ahdusViewer.walkthrough.getPosition(); return { x: +v.x.toFixed(3), z: +v.z.toFixed(3) }; });
 const yaw = () => p.evaluate(() => window.__ahdusViewer.walkthrough.getYaw());
-const stick = () => p.evaluate(() => window.__ahdusViewer.walkthrough.getStick());
+const readStick = () => p.evaluate(() => window.__ahdusViewer.walkthrough.getStick());
+/** Two animation frames: Chromium delivers touch moves as pointer events aligned to frames, not when CDP returns. */
+const twoFrames = () => p.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))));
+/** The joystick once the fingers' last moves have reached it (v0.18.7: it was read one move early: 0.88, not 1). */
+async function stick() {
+  let was = await readStick();
+  for (let i = 0; i < 20; i++) {
+    await twoFrames();
+    const now = await readStick();
+    if (now.x === was.x && now.y === was.y) return now;
+    was = now;
+  }
+  return was;
+}
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const nav = () => p.evaluate(() => (window.__viewerNav ?? []).map((e) => ({ state: e.state, source: e.source ?? null, paused: !!e.paused })));
 const walkingNow = () => p.evaluate(() => window.__ahdusViewer.navigation.walking);
@@ -160,7 +173,9 @@ await fingerDown(1, ring.cx, ring.cy);
 await fingerMove(1, ring.cx, ring.cy - radius * 1.2, 4); // pushed all the way up (past the ring)
 const full = await stick();
 const held = await p.locator('[data-touch-joystick="held"]').count();
-await frames(4);
+// v0.18.7: walked 0.6 m (up to 5 s), not "4 frames": how far 4 frames go depends on the frame rate
+await frames(2);
+await p.waitForFunction((z0) => window.__ahdusViewer.walkthrough.getPosition().z - z0 > 0.6, from.z, { timeout: 5000, polling: 50 }).catch(() => {});
 const walkedUp = await pos();
 // the knob pushed all the way forward rises above the ring: never under the HUD (v0.14.2)
 const knob = await rect('[data-touch-knob]');

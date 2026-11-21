@@ -10,6 +10,7 @@ import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
+import { RenderTargetTexture } from '@babylonjs/core/Materials/Textures/renderTargetTexture';
 
 /**
  * Set up the scene lighting.
@@ -61,12 +62,27 @@ export function createLighting(scene) {
 
 /**
  * Switch lighting for 2D mode (flatter, no shadows, cleaner top-down look).
+ *
+ * v0.18.7 (audit 12): the sun's shadows stay ENABLED: `shadowEnabled = false` marked every material dirty, and until
+ * each compiled again it drew with its shadow shader while no shadow map was bound (Direct3D's ANGLE refused those
+ * draws: "Mismatch between texture format and sampler type"). Now the shadows are only made invisible (darkness 1)
+ * and the shadow map is no longer drawn every frame; no shader changes at all, so switching is quicker too.
  */
+const shadows3D = new WeakMap(); // shadowGenerator → { darkness, refreshRate } as they were in 3D
+
 export function setLighting2D(hemispheric, directional, shadowGenerator) {
   hemispheric.intensity = 0.9;
   directional.intensity = 0.3;
-  // Turn shadows off without forgetting which meshes cast them
-  directional.shadowEnabled = false;
+  if (!shadowGenerator) {
+    directional.shadowEnabled = false;
+    return;
+  }
+  const map = shadowGenerator.getShadowMap?.();
+  if (!shadows3D.has(shadowGenerator)) {
+    shadows3D.set(shadowGenerator, { darkness: shadowGenerator.getDarkness(), refreshRate: map?.refreshRate });
+  }
+  shadowGenerator.setDarkness(1); // 1 = no shadow
+  if (map) map.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
 }
 
 /**
@@ -76,4 +92,10 @@ export function setLighting3D(hemispheric, directional, shadowGenerator) {
   hemispheric.intensity = 0.6;
   directional.intensity = 0.8;
   directional.shadowEnabled = true;
+  const was = shadowGenerator && shadows3D.get(shadowGenerator);
+  if (!was) return;
+  shadows3D.delete(shadowGenerator);
+  shadowGenerator.setDarkness(was.darkness);
+  const map = shadowGenerator.getShadowMap?.();
+  if (map && was.refreshRate !== undefined) map.refreshRate = was.refreshRate;
 }

@@ -406,3 +406,30 @@ describe('the Small Office template with a door removed', () => {
     expect(check(layout).filter((p) => p.severity === 'error')).toEqual([]);
   });
 });
+
+describe('door gaps made once per floor (v0.18.7)', () => {
+  it('floorDoorGaps: the same list and floor give the same gaps; roomHasDoor answers as before', async () => {
+    const { floorDoorGaps, roomHasDoor } = await import('../route');
+    const { doorGaps } = await import('../walkMap');
+    const { wallThicknessOf } = await import('../../geometry');
+    const rooms = Object.values(meridianLike().rooms);
+    expect(floorDoorGaps(rooms, 0)).toBe(floorDoorGaps(rooms, 0));
+    expect(floorDoorGaps(rooms, 0)).toEqual(doorGaps(rooms.filter((r) => (r.floor ?? 0) === 0)));
+    expect(floorDoorGaps([...rooms], 0)).not.toBe(floorDoorGaps(rooms, 0)); // another list: made again
+    // the answer of the old code (the floor's gaps made for each room)
+    const old = (room) => {
+      const T = wallThicknessOf(room);
+      const x0 = room.x - room.width / 2; const x1 = room.x + room.width / 2;
+      const z0 = room.z - room.depth / 2; const z1 = room.z + room.depth / 2;
+      return doorGaps(rooms.filter((r) => (r.floor ?? 0) === (room.floor ?? 0))).some((g) =>
+        g.x >= x0 - T && g.x <= x1 + T && g.z >= z0 - T && g.z <= z1 + T &&
+        !(g.x >= x0 + T && g.x <= x1 - T && g.z >= z0 + T && g.z <= z1 - T));
+    };
+    for (const room of rooms) expect(roomHasDoor(room, rooms)).toBe(old(room));
+    // the doors changed = a new list (the store never changes a room in place): the new gaps, not the cached ones
+    const room = rooms.find((r) => (r.doors ?? []).length === 1 && roomHasDoor(r, rooms));
+    const closed = rooms.map((r) => (r === room ? { ...r, doors: [] } : r));
+    const gapsBefore = floorDoorGaps(rooms, room.floor ?? 0).length;
+    expect(floorDoorGaps(closed, room.floor ?? 0).length).toBeLessThan(gapsBefore);
+  });
+});
