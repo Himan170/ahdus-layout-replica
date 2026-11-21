@@ -104,7 +104,8 @@ export function useStudioScene({
     if (import.meta.env.DEV) window.__ahdusBuild = builder;
 
     // ── Phase 4: Performance monitor ──
-    const perfMonitor = createPerformanceMonitor(engine);
+    // paused until everything is built (onProgress above turns it on)
+    const perfMonitor = createPerformanceMonitor(engine, { enabled: false });
     perfMonitorRef.current = perfMonitor;
 
     // ── Walk through: a click on the floor walks there (v0.15.2), with the viewer's own route code ──

@@ -15,40 +15,73 @@ import { Color3 } from '@babylonjs/core/Maths/math.color';
 const LOW_FPS_THRESHOLD  = 30;   // auto-downscale below this
 const HIGH_FPS_THRESHOLD = 50;   // restore quality above this
 const FPS_SAMPLE_COUNT   = 10;   // rolling average window size
+// v0.18.7: every change resizes the canvas (one long task: 150 to 300 ms with software WebGL), so decide on a few
+// seconds, go to the level needed in ONE change, and start counting again after it
+const MIN_SAMPLES   = 3;   // seconds of frame rate before lowering the resolution
+const RAISE_SAMPLES = 5;   // seconds above HIGH_FPS_THRESHOLD before raising it one step
+const TARGET_FPS    = 40;  // what a lowered resolution aims at
+const STEP          = 0.25;
+const MAX_SCALE     = 2;
+
+/** Studio's base pixel ratio (SceneSetup: never above 2). */
+const baseRatio = () => Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
+
+/**
+ * The scale (1 = full resolution, 2 = half each way) for a frame rate `fps` measured at `scale`: the pixels drawn
+ * go down with the square of the scale, so the scale that reaches TARGET_FPS is scale × √(TARGET_FPS / fps), rounded
+ * UP to a quarter (at least one step), at most MAX_SCALE.
+ */
+export function scaleFor(scale, fps) {
+  const want = scale * Math.sqrt(TARGET_FPS / Math.max(1, fps));
+  return Math.min(MAX_SCALE, Math.max(scale + STEP, Math.ceil(want / STEP - 1e-9) * STEP));
+}
 
 /**
  * Creates a performance monitor that can auto-adjust the hardware
  * scaling level when FPS drops below a threshold.
  *
  * @param {Engine} engine  - The Babylon engine
+ * @param {{ enabled?: boolean }} [options]  enabled false: paused until setEnabled(true) (v0.18.7: Studio, until the
+ *   layout is built: its first second used to be measured while building and lowered the resolution)
  * @returns {{ update, getScaleFactor, dispose }}
  */
-export function createPerformanceMonitor(engine) {
+export function createPerformanceMonitor(engine, { enabled = true } = {}) {
   let _samples = [];
   let _currentScale = 1;
   let _interval = null;
-  let _enabled = true;
+  let _enabled = enabled;
 
-  function _average() {
-    if (_samples.length === 0) return 60;
-    return _samples.reduce((a, b) => a + b, 0) / _samples.length;
+  function _average(n = _samples.length) {
+    const last = _samples.slice(-n);
+    if (last.length === 0) return 60;
+    return last.reduce((a, b) => a + b, 0) / last.length;
+  }
+
+  function _set(scale) {
+    _currentScale = scale;
+    engine.setHardwareScalingLevel(scale / baseRatio());
+    _samples = []; // the next decision is made on frames drawn at the new resolution
   }
 
   function _adjust() {
     if (!_enabled) return;
 
-    const avg = _average();
-
-    if (avg < LOW_FPS_THRESHOLD && _currentScale < 2) {
-      // Reduce resolution to regain FPS
-      _currentScale = Math.min(_currentScale + 0.25, 2);
-      engine.setHardwareScalingLevel(_currentScale);
-      console.debug(`[perf] FPS ${avg.toFixed(0)} — scaling up to ${_currentScale}x`);
-    } else if (avg > HIGH_FPS_THRESHOLD && _currentScale > 1) {
-      // CPU/GPU has headroom — increase quality
-      _currentScale = Math.max(_currentScale - 0.25, 1);
-      engine.setHardwareScalingLevel(_currentScale / window.devicePixelRatio);
-      console.debug(`[perf] FPS ${avg.toFixed(0)} — restoring quality to ${_currentScale}x`);
+    if (_samples.length >= MIN_SAMPLES && _currentScale < MAX_SCALE) {
+      const avg = _average(MIN_SAMPLES);
+      if (avg < LOW_FPS_THRESHOLD) {
+        // Reduce resolution to regain FPS: straight to the level needed (one resize)
+        _set(scaleFor(_currentScale, avg));
+        console.debug(`[perf] FPS ${avg.toFixed(0)} — scaling up to ${_currentScale}x`);
+        return;
+      }
+    }
+    if (_samples.length >= RAISE_SAMPLES && _currentScale > 1) {
+      const avg = _average(RAISE_SAMPLES);
+      if (avg > HIGH_FPS_THRESHOLD) {
+        // CPU/GPU has headroom — increase quality, one step at a time
+        _set(Math.max(_currentScale - STEP, 1));
+        console.debug(`[perf] FPS ${avg.toFixed(0)} — restoring quality to ${_currentScale}x`);
+      }
     }
   }
 
@@ -82,7 +115,7 @@ export function createPerformanceMonitor(engine) {
         _interval = null;
       }
       // Restore default scaling
-      engine.setHardwareScalingLevel(1 / window.devicePixelRatio);
+      engine.setHardwareScalingLevel(1 / baseRatio());
     },
   };
 }
