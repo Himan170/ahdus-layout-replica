@@ -179,6 +179,22 @@ describe('furniture', () => {
     expect(of(layout, CHECK_KINDS.ITEMS_OVERLAP)).toEqual([]);
   });
 
+  it('two enlarged meeting tables (9.6 × 4.2 m) 6.1 m apart lie in each other: found (v0.18.6, audit 7)', () => {
+    const layout = { rooms: [room('hall', 'Hall', 0, 0, 36, 24, { doors: [door('south')] })], objects: [], floors: floors1 };
+    layout.objects.push(
+      item('TABLE_MEETING', -3.05, 0, { id: 'left', scaleX: 3, scaleZ: 3 }),
+      item('TABLE_MEETING', 3.05, 0, { id: 'right', scaleX: 3, scaleZ: 3 }),
+    );
+    expect(of(layout, CHECK_KINDS.ITEMS_OVERLAP).map((p) => p.key)).toEqual(['ITEMS_OVERLAP:left|right']);
+    // turned a quarter, the 9.6 m side goes along Z: they no longer touch
+    for (const o of layout.objects) o.rotationY = Math.PI / 2;
+    expect(of(layout, CHECK_KINDS.ITEMS_OVERLAP)).toEqual([]);
+    // far apart along Z but long enough to reach: turned, 7 m apart along Z
+    layout.objects[0].x = 0; layout.objects[0].z = -3.5;
+    layout.objects[1].x = 0; layout.objects[1].z = 3.5;
+    expect(of(layout, CHECK_KINDS.ITEMS_OVERLAP)).toHaveLength(1);
+  });
+
   it('a monitor on an L-shaped desk, put down a little under the desk height of the catalogue, stands ON it (a real layout)', () => {
     const layout = twoRooms();
     const top = ASSET_TYPES.DESK_CORNER.defaultHeight;

@@ -23,7 +23,7 @@
 import { roomOpenings, openingCentre, wallThicknessOf } from '../geometry';
 import { floorsInOrder, FLOOR_LIKE_TYPES } from '../building';
 import { stairFit, stairSpots, findItemSpot } from '../stairFit';
-import { rectsOverlap, reachOf, farApart, distanceTo } from '../turnedRect';
+import { rectsOverlap, reachOf, farApart, distanceTo, boxOf } from '../turnedRect';
 import { deskSeat, isDesk } from '../people';
 import {
   createWalkMapCache, wallObstacles, itemFootprints, isSolidItem, groundFloorId, FREE,
@@ -83,6 +83,17 @@ export const DESK_REACH = 1.0;
 // Turned rectangles ({ x, z, hw, hd, rot }, Babylon's rotationY): play/turnedRect.js
 export { rectsOverlap };
 const far = farApart;
+
+/** The axis-aligned box around an item's rectangles (none: a box nothing touches). */
+function itemBox(rects) {
+  const u = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+  for (const r of rects) {
+    const b = boxOf(r);
+    u.x0 = Math.min(u.x0, b.x0); u.x1 = Math.max(u.x1, b.x1);
+    u.z0 = Math.min(u.z0, b.z0); u.z1 = Math.max(u.z1, b.z1);
+  }
+  return u;
+}
 
 // ── Names ────────────────────────────────────────────────────────────────
 
@@ -248,15 +259,19 @@ export function checkLayout(layout, options = {}) {
     const furniture = items.filter((o) => !BUILDING_PARTS.has(o.assetType));
     const all = itemsOn.get(id) ?? [];
 
-    // in each other
+    // in each other. v0.18.6 (audit 7): what can't touch is skipped by the boxes the items really cover (scaled and
+    // turned); a 6 m distance between centres used to skip two enlarged meeting tables lying in each other
+    const boxes = furniture.map((o) => itemBox(fp(o)));
     for (let i = 0; i < furniture.length; i++) {
       const a = furniture[i];
       const ra = fp(a);
+      const ba = boxes[i];
       const a0 = a.y ?? 0;
       const a1 = a0 + heightOf(a);
       for (let j = i + 1; j < furniture.length; j++) {
         const b = furniture[j];
-        if (Math.abs((a.x ?? 0) - (b.x ?? 0)) > 6 || Math.abs((a.z ?? 0) - (b.z ?? 0)) > 6) continue;
+        const bb = boxes[j];
+        if (bb.x0 >= ba.x1 || bb.x1 <= ba.x0 || bb.z0 >= ba.z1 || bb.z1 <= ba.z0) continue;
         // one on top of the other (a monitor on a desk), or one above the other: not in each other
         const b0 = b.y ?? 0;
         if (Math.min(a1, b0 + heightOf(b)) - Math.max(a0, b0) <= 0.05) continue;
