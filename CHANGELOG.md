@@ -3,6 +3,37 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.18.7 (22 Nov 2026): the rest of the outside audit
+
+The audit items v0.18.6 left (`private-docs/V0.18.7_PLAN.md`), each with a test that failed before the fix. Nothing
+new is saved in a layout.
+- **Resize a room by one wall:** a selected room shows a blue handle on each edge, in Plan view and in Studio's 2D
+  view. Drag one and only that wall moves (the opposite wall stays), with the new length shown at the edge; one
+  Ctrl+Z puts it back. Click a handle to type the length (6.4 + Enter). A length that runs into another room, cuts
+  off a door or leaves a desk outside is refused with the reason (the wall drag's rule, `geometry.stretchRoom`). A
+  handle never sits on a door or window: it slides along the wall to the nearest free spot. Locked rooms have none.
+  The hints say which wall stays. Pure rules in `play/roomEdges.js`.
+- **Sizes to the millimetre:** a typed 6.65 m is saved as 6.65 (it was 6.6499999999999995), centres too.
+- **A click on a big table** walks to its edge, not "no room to stand there" (`play/navigation/itemGoal.js`).
+- **The embed's `await setPeople(…)`** resolves once `find()` knows the people.
+- **Mouse look:** the second L always gives the mouse back; a click in mouse look walks where the crosshair was (a
+  flight's other end).
+- **Find:** the keys, the highlighted row and `aria-activedescendant` agree in every render. The welcome card closes
+  in the same render as Find or More opens (no 250 ms overlap).
+- **No WebGL sampler warnings** when Studio switches between 2D and 3D (D3D11: ~50 per session, now 0).
+- **No freeze after opening a layout:** Studio's performance monitor lowered the resolution 0.25 at a time, four
+  canvas resizes in four seconds (each a 150 to 600 ms task with software WebGL). It now waits until the layout is
+  built, goes straight to the level the frame rate needs and keeps the pixel ratio. The longest task while the
+  72-room building opens: 615 → 157 ms.
+- **Check my layout is faster:** each floor's door gaps are made once, not once per room (72 rooms: 284 → 146 ms
+  cold, 211 → 102 ms warm).
+- **Measured, not changed:** walking among 300 seated people, our JavaScript is about 5 ms of a frame; the rest is
+  the drawing (software WebGL ~770 ms a frame). e2e:perf now checks both numbers.
+- Tests: `roomEdges.test.js`, `buildActions.test.js`, `itemGoal.test.js`, `performanceOptimiser.test.js`,
+  `checkLayout.test.js`, `CharacterSystem.test.ts`, the embed / Find / pointer-lock tests, new `npm run
+  e2e:room-edges` (20 checks); e2e:touch, e2e:nested-rooms and e2e:characters made steady; e2e:lifts checks an L over a lift
+  shaft by its arms (v0.18.6's rule); e2e:perf's long-task limit leaves out the driver's shader compiling.
+
 ## 0.18.6 (21 Nov 2026): fixes from an outside audit
 
 Thirteen problems found by an outside audit of v0.18.5 (and Himan's own notes), each with a test that failed before

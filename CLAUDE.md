@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1828, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1862, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -114,7 +114,11 @@ npm run e2e:stability # 13 checks e2e/stability-smoke.mjs (v0.18.2: a library dr
                      #                                       Tab from Settings / on the canvas; 1024 × 768 with both panels:
                      #                                       every canvas control clickable; v0.18.5: 601–1023 px, panels
                      #                                       closed or open: nothing sticks out sideways; Esc on a phone: one level)
-npm run e2e:perf     # 29 checks   e2e/perf-smoke.mjs (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
+npm run e2e:room-edges # 20 checks e2e/room-edges-smoke.mjs (v0.18.7: a selected room's edge handles in 2D and Plan view:
+                     #                                       drag = that wall only (the opposite stays) + its length at the edge,
+                     #                                       one Ctrl+Z, a click = type the length (6.4, 6.65 exactly), an overlap
+                     #                                       refused with why, Esc, the hints, no handles on a locked room)
+npm run e2e:perf     # 33 checks   e2e/perf-smoke.mjs (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
                      #                                       and in viewer.html with the company tour walking / at a stop (TOUR=off skips it);
                      #                                       one room change rebuilds only it + its neighbours; all items
                      #                                       real models; REALISTIC=off measures the simple look;
@@ -839,6 +843,11 @@ src/ui/hiddenLayers.js             Layers' eye (v0.15.6): hidden rooms / items p
 src/play/stairFit.js               PURE (v0.17.4): stairs that work: stairFit (problems + the floor they miss), stairPreview,
                                    stairProblems, stairSpots / findStairSpot (nearest spot that works), findItemSpot
 src/play/turnedRect.js             PURE (v0.17.4): turned rectangles (rectsOverlap, boxOf, distanceTo, farApart)
+src/play/roomEdges.js              PURE (v0.18.7): resizing a room by one edge (edgeResize = stretchRoom, the opposite wall
+                                   stays; edgeHandleSpot: off doors / windows; handleAt, parseLength, roundMm)
+src/ui/RoomEdgeHandles.jsx         v0.18.7: Studio 2D's edge handles, the live length, the typing box (plannerTools grabs them)
+src/utils/liveEdge.js              v0.18.7: the edge being dragged / typed now (plannerTools → RoomEdgeHandles), not saved
+src/play/navigation/itemGoal.js    PURE (v0.18.7): a click on an item walks to its edge nearest the click
 src/play/surfaces.js               PURE (v0.18.6): an item's real top (surfaceTopAt: the corner desk's L, a round top, a
                                    shelf's board) + Plan view's outline (planOutline)
 src/play/lifts.js                  PURE (v0.18.3): lifts derived from LIFT rooms (liftsOf), stops, ride time, Check, parts
@@ -2150,7 +2159,22 @@ and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
 
-## IN REVIEW: fixes from the Astra audit (v0.18.6, 21 Nov 2026, branch `fix/v0.18.6-astra-audit`)
+## DONE: the rest of the Astra audit (v0.18.7, 22 Nov 2026, branch `fix/v0.18.7-audit-rest`)
+
+private-docs/V0.18.7_PLAN.md, one commit per item (CHANGELOG.md): **room edge handles** (Plan view
+`FloorPlanView` `[data-plan-room-handle]` = side, `[data-plan-edge-label]`, `[data-plan-edge-input]`,
+`[data-plan-edge-problem]`; 2D `ui/RoomEdgeHandles.jsx` `[data-room-handle]`, `[data-room-edge-label]`,
+`[data-room-edge-input]`; plannerTools grabs a handle within `HANDLE_GRAB_PX` 12 px; both → `WorkplaceEditor.resizeRoomEdge`
+→ `editor.updateRoom`, one undo step; `PLAN_ROOM_HINT`), sizes to the mm (`geometry.roundMm` in `planRoomResize`), a click
+on a big item walks to its edge (`itemGoal`), the embed's `setPeople` resolves when `find()` knows them
+(`onPeopleApplied`), L / M follow `document.pointerLockElement`, the mouse-look click uses the crosshair, Find's one
+active index, the welcome card closes in the same render, no WebGL sampler warnings (`utils/lightingSetup.js`: 2D
+keeps the shadows' shaders), **Studio's performance monitor** (`utils/performanceOptimiser.js`: paused until built,
+`scaleFor` = one change to the level needed: reopen's longest task 615 → 157 ms), Check's door gaps once per floor
+(`route.floorDoorGaps`), e2e:perf's new checks (the longest task, our JS per walking frame ≈ 5 ms of 770). Left for
+later: the two hooks-deps lint warnings (one-time effects, on purpose), the Rooms library pin, wall / furniture paint.
+
+## DONE: fixes from the Astra audit (v0.18.6, 21 Nov 2026, branch `fix/v0.18.6-astra-audit`)
 
 private-docs/AUDIT_ASTRA_2026-11-21.md, plan private-docs/V0.18.6_PLAN.md, the rest in private-docs/V0.18.7_PLAN.md.
 One commit per item, each with a failing-first test (CHANGELOG.md): a typed room size checked like a wall drag
