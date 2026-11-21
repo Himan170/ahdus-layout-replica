@@ -717,11 +717,15 @@ export function planRoomMove(room, x, z, rooms, objects = []) {
 }
 
 /**
- * Validate an Inspector resize (about the room's centre) against enclosing
- * rooms and neighbouring rooms. The edges that move snap like everywhere else,
- * so the centre can move a little: use rect.x / rect.z too.
+ * Validate an Inspector resize (about the room's centre) with THE rule a wall
+ * drag uses (`checkRoomRect`): enclosing and neighbouring rooms, the doors and
+ * windows (they keep their place in the world; one that no longer fits its wall
+ * is in the way) and the room's items (none left outside it). The edges that
+ * move snap like everywhere else, so the centre can move a little: use rect.x /
+ * rect.z (patch has them, with the doors and windows re-measured).
+ * @returns {{ rect, patch, blocker: object|null, problem: string|null }}
  */
-export function planRoomResize(room, width, depth, rooms) {
+export function planRoomResize(room, width, depth, rooms, objects = [], nameOf = (o) => o.label || o.name || 'An item') {
   const edges = [
     ...(Math.abs(width - room.width) > GEOMETRY_EPSILON ? ['west', 'east'] : []),
     ...(Math.abs(depth - room.depth) > GEOMETRY_EPSILON ? ['south', 'north'] : []),
@@ -729,10 +733,60 @@ export function planRoomResize(room, width, depth, rooms) {
   const rect = snapRoomRect({ x: room.x, z: room.z, width, depth, floor: floorOf(room) }, rooms, {
     id: room.id, container: containerOf(room, rooms), edges,
   });
+  const others = rooms.filter((r) => r.id !== room.id && floorOf(r) === floorOf(room));
+  const check = checkRoomRect(room, rect, { others, objects, nameOf });
   return {
     rect: { x: rect.x, z: rect.z, width: rect.width, depth: rect.depth },
-    blocker: roomRectBlocker(room, rect, rooms),
+    blocker: check.blocker,
+    problem: check.problem,
+    patch: { x: rect.x, z: rect.z, width: rect.width, depth: rect.depth, doors: check.doors, windows: check.windows },
   };
+}
+
+/**
+ * THE check of a room's new rectangle, shared by the wall drag (`stretchRoom`,
+ * Studio + Walk through's Stretch) and the Inspector's size (`planRoomResize`).
+ * Doors / windows keep their place in the world (offsets re-measured from the
+ * new centre); one that no longer fits on its wall is in the way. Items of the
+ * room that were inside it must stay inside (0.1 m from its edge).
+ * @returns {{ problem: string|null, blocker: object|null, doors, windows }}
+ */
+export function checkRoomRect(room, rect, { others = [], objects = [], nameOf = (o) => o.label || o.name || 'An item' } = {}) {
+  let problem = null;
+  const moveOpenings = (list, kind) => (list ?? []).map((o) => {
+    const alongX = ALONG_X(o.wall);
+    const shift = alongX ? rect.x - room.x : rect.z - room.z;
+    const length = alongX ? rect.width : rect.depth;
+    const offset = (o.offset ?? 0) - shift;
+    const width = o.width ?? (kind === 'door' ? DOOR_DEFAULTS.width : WINDOW_DEFAULTS.width);
+    if (!problem && Math.abs(offset) + width / 2 > length / 2 - 0.05) {
+      problem = `The ${kind} on the ${o.wall} wall is in the way`;
+    }
+    return Math.abs(shift) > 1e-9 ? { ...o, offset } : o;
+  });
+  const doors = moveOpenings(room.doors, 'door');
+  const windows = moveOpenings(room.windows, 'window');
+
+  if (rect.width < MIN_ROOM_SIZE - 1e-6 || rect.depth < MIN_ROOM_SIZE - 1e-6) {
+    problem = `Too small (rooms are at least ${MIN_ROOM_SIZE} m)`;
+  }
+  if (rect.width > MAX_ROOM_SIZE + 1e-6 || rect.depth > MAX_ROOM_SIZE + 1e-6) {
+    problem = `Too big (rooms are at most ${MAX_ROOM_SIZE} m)`;
+  }
+  let blocker = null;
+  if (!problem) {
+    blocker = roomRectBlocker(room, rect, others);
+    if (blocker) problem = `Would overlap ${blocker.name}`;
+  }
+  if (!problem) {
+    // Don't cut through furniture that belongs to this room (an item already outside it stays a matter for Check)
+    const margin = 0.1;
+    const inside = (r, o) => o.x >= r.x - r.width / 2 + margin - 1e-9 && o.x <= r.x + r.width / 2 - margin + 1e-9 &&
+      o.z >= r.z - r.depth / 2 + margin - 1e-9 && o.z <= r.z + r.depth / 2 - margin + 1e-9;
+    const outside = objects.find((o) => o.roomId === room.id && inside(room, o) && !inside(rect, o));
+    if (outside) problem = `${nameOf(outside)} is in the way`;
+  }
+  return { problem, blocker, doors, windows };
 }
 
 /**
@@ -1072,44 +1126,8 @@ export function stretchRoom(room, wallName, target, context = {}) {
   const after = wallName === 'east' ? x1 : wallName === 'west' ? x0 : wallName === 'north' ? z1 : z0;
   const delta = wallName === 'east' || wallName === 'north' ? after - before : before - after;
 
-  // Doors/windows: the moving wall's own openings ride along with it (their
-  // offset is along the wall, which doesn't change). Openings on the two
-  // side walls must stay put in the world, so re-measure from the new centre.
-  const shift = ALONG_X(wallName) ? rect.z - room.z : rect.x - room.x;
-  const sideWalls = ALONG_X(wallName) ? ['east', 'west'] : ['north', 'south'];
-  const sideLength = ALONG_X(wallName) ? rect.depth : rect.width;
-  let problem = null;
-
-  const moveOpenings = (list, kind) => (list ?? []).map((o) => {
-    if (!sideWalls.includes(o.wall)) return o;
-    const offset = (o.offset ?? 0) - shift;
-    const width = o.width ?? (kind === 'door' ? DOOR_DEFAULTS.width : WINDOW_DEFAULTS.width);
-    if (!problem && Math.abs(offset) + width / 2 > sideLength / 2 - 0.05) {
-      problem = `The ${kind} on the ${o.wall} wall is in the way`;
-    }
-    return { ...o, offset };
-  });
-  const doors = moveOpenings(room.doors, 'door');
-  const windows = moveOpenings(room.windows, 'window');
-
-  if (rect.width < MIN_ROOM_SIZE - 1e-6 || rect.depth < MIN_ROOM_SIZE - 1e-6) {
-    problem = `Too small (rooms are at least ${MIN_ROOM_SIZE} m)`;
-  }
-  if (rect.width > MAX_ROOM_SIZE + 1e-6 || rect.depth > MAX_ROOM_SIZE + 1e-6) {
-    problem = `Too big (rooms are at most ${MAX_ROOM_SIZE} m)`;
-  }
-  if (!problem) {
-    const blocker = roomRectBlocker(room, rect, others);
-    if (blocker) problem = `Would overlap ${blocker.name}`;
-  }
-  if (!problem && delta < 0) {
-    // Shrinking: don't cut through furniture that belongs to this room
-    const margin = 0.1;
-    const outside = objects.find((o) => o.roomId === room.id && (
-      o.x < rect.x - rect.width / 2 + margin || o.x > rect.x + rect.width / 2 - margin ||
-      o.z < rect.z - rect.depth / 2 + margin || o.z > rect.z + rect.depth / 2 - margin));
-    if (outside) problem = `${nameOf(outside)} is in the way`;
-  }
+  // Doors/windows keep their place in the world; items stay inside (the Inspector's size: the same check)
+  const { problem, doors, windows } = checkRoomRect(room, rect, { others, objects, nameOf });
 
   return {
     rect: { x: rect.x, z: rect.z, width: rect.width, depth: rect.depth },

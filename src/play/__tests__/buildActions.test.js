@@ -250,3 +250,35 @@ describe('placementHeight (furniture on floors and table tops)', () => {
     expect(placementHeight({ surface: 'object', normalY: 0.1, pointY: 0.4 })).toBeNull();
   });
 });
+
+describe('planRoomResize: the same rule as dragging a wall (v0.18.6, audit 3b)', () => {
+  // 10 x 8 office at (0, 0), a 1 m door on its north wall at offset +3, a desk at (3, 1)
+  const room = {
+    id: 'office', name: 'Office', floor: 0, x: 0, z: 0, width: 10, depth: 8,
+    doors: [{ wall: 'north', offset: 3, width: 1 }], windows: [],
+  };
+  const desk = { id: 'desk', roomId: 'office', x: -3, z: 1, assetType: 'DESK_STANDARD', label: 'Desk' };
+
+  it('typing 4 for the width is refused: the north door would be cut off (as the wall drag says)', () => {
+    const plan = planRoomResize(room, 4, 8, [room], [desk]);
+    expect(plan.problem).toBe('The door on the north wall is in the way');
+  });
+  it('a desk the narrower room would leave outside is named', () => {
+    const plan = planRoomResize({ ...room, doors: [] }, 4, 8, [room], [desk], (o) => o.label);
+    expect(plan.problem).toBe('Desk is in the way');
+  });
+  it('a size that keeps the door and the desk is fine, and keeps the door in its place', () => {
+    const plan = planRoomResize(room, 9, 8, [room], [desk]);
+    expect(plan.problem).toBeNull();
+    expect(plan.patch.doors[0]).toMatchObject({ wall: 'north', offset: 3 });
+  });
+  it('a centre that snaps moves the door offsets with it, so the door stays put in the world', () => {
+    const outer = { id: 'hall', name: 'Hall', floor: 0, x: 0, z: 0, width: 20, depth: 20, doors: [], windows: [] };
+    const inner = { ...room, x: 4, z: 0, width: 10, depth: 8, doors: [{ wall: 'north', offset: 3, width: 1 }] };
+    // 11.8 wide about x = 4 reaches 9.9: it snaps onto the hall's east wall (x = 10)
+    const plan = planRoomResize(inner, 11.8, 8, [outer, inner], []);
+    expect(plan.problem).toBeNull();
+    const doorX = plan.rect.x + plan.patch.doors[0].offset;
+    expect(doorX).toBeCloseTo(4 + 3);
+  });
+});

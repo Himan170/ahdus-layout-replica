@@ -724,18 +724,21 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     if ('width' in patch || 'depth' in patch) {
       const state = useWorkspaceStore.getState();
       const room = state.rooms[id];
+      // THE rule a wall drag uses: no door, window or item of the room left outside it (v0.18.6)
       const plan = planRoomResize(
         room,
         patch.width ?? room.width,
         patch.depth ?? room.depth,
         Object.values(state.rooms).filter((other) => other.floor === room.floor),
+        Object.values(state.objects),
+        (o) => o.label || ASSET_TYPES[o.assetType]?.label || 'An item',
       );
-      if (plan.blocker) {
-        showStudioMessage(`Would overlap ${plan.blocker.name}`, true);
-        return;
+      if (plan.problem) {
+        showStudioMessage(`${plan.problem}. The size was not changed.`, true);
+        return false;
       }
-      // An edge that lands near a wall snaps onto it, which can move the centre a little
-      patch = { ...patch, ...plan.rect };
+      // An edge that lands near a wall snaps onto it, which can move the centre a little (doors re-measured)
+      patch = { ...patch, ...plan.patch };
     }
     editor.updateRoom(id, patch, { mergeKey });
   }, [editor, showStudioMessage]);
