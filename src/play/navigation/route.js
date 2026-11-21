@@ -227,14 +227,28 @@ export function roomAt(layout, floorId, x, z) {
   return best;
 }
 
+const floorGapCache = new WeakMap();
+
+/**
+ * v0.18.7: the door gaps of one floor of `rooms` (walkMap.doorGaps), made once per rooms list and floor: Check my
+ * layout asks for every room, and each answer built the whole floor's walls against every room (72 rooms: a third
+ * of its time). The list is the caller's (a new list = new gaps); room records are never changed in place.
+ */
+export function floorDoorGaps(rooms, floor) {
+  let byFloor = floorGapCache.get(rooms);
+  if (!byFloor) { byFloor = new Map(); floorGapCache.set(rooms, byFloor); }
+  let gaps = byFloor.get(floor);
+  if (!gaps) { gaps = doorGaps(rooms.filter((r) => floorOf(r) === floor)); byFloor.set(floor, gaps); }
+  return gaps;
+}
+
 /** Does any door (its own, or a neighbour's through a wall it shares) lead out of this room? */
 export function roomHasDoor(room, rooms) {
   const T = wallThicknessOf(room);
   const rect = roomRect(room);
   const grown = { x0: rect.x0 - T, x1: rect.x1 + T, z0: rect.z0 - T, z1: rect.z1 + T };
   const inner = { x0: rect.x0 + T, x1: rect.x1 - T, z0: rect.z0 + T, z1: rect.z1 - T };
-  const onFloor = rooms.filter((r) => floorOf(r) === floorOf(room));
-  return doorGaps(onFloor).some((g) => rectContains(grown, g.x, g.z) && !rectContains(inner, g.x, g.z));
+  return floorDoorGaps(rooms, floorOf(room)).some((g) => rectContains(grown, g.x, g.z) && !rectContains(inner, g.x, g.z));
 }
 
 /** A door, or a link (stairs arriving) inside it: a way into the room. */
