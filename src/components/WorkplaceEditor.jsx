@@ -19,7 +19,7 @@ import { setCameraView, flyTo as flyCamera } from '../engine/systems/CameraSyste
 // Phase 2 utilities
 import {
   elevationOf, floorBelow,
-  floorPosition, steepStairsText, floorHeight,
+  floorPosition, steepStairsText, floorHeight, roomLook,
 } from '../play/building';
 import { stairFit, findStairSpot, stairRoomAt } from '../play/stairFit';
 import { isAltDown } from '../utils/altKey';
@@ -786,11 +786,9 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     const rect = planRoomCopy(room, Object.values(st.rooms).filter((r) => r.floor === room.floor),
       below ? Object.values(st.rooms).filter((r) => r.floor === below.id) : null);
     if (!rect) { showStudioMessage('No free space next to it for a copy', true); return; }
-    // Same type, size, walls and floor; no doors or windows (it may stand back to back with this one)
-    editor.addRoom({
-      type: room.type, color: room.color, wallHeight: room.wallHeight, wallThickness: room.wallThickness,
-      ...(room.floorFinish ? { floorFinish: room.floorFinish } : {}), ...rect, floor: room.floor,
-    });
+    // Same size and look (building.roomLook: type, walls, floor, glass walls: the rule "Copy rooms from below"
+    // uses too); no doors or windows (it may stand back to back with this one)
+    editor.addRoom({ ...roomLook(room), ...rect, floor: room.floor });
     showStudioMessage(`Copied ${room.name}, without its doors and windows. Ctrl+Z to undo.`);
   }, [editor, showStudioMessage]);
 

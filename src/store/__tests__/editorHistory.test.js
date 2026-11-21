@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../workspaceStore';
 import { createEditorHistory } from '../editorHistory';
 import { elevationOf } from '../../play/building';
 import { planRoomMove, planRoomTurn } from '../../play/geometry';
+import { normaliseLayout } from '../layoutData';
 
 const S = () => useWorkspaceStore.getState();
 const objs = () => Object.values(S().objects);
@@ -467,6 +468,21 @@ describe('floor and wall heights (one undo step each)', () => {
     editor.undo();
     expect(S().floors[1]).toBeUndefined();
     expect(rooms()).toHaveLength(1);
+  });
+
+  it('"Copy rooms from below" keeps glass walls and the chosen floor, also after save and reopen (v0.18.6, audit 8)', () => {
+    editor.addRoom({ type: 'OFFICE', x: 0, z: 0, width: 8, depth: 6, floor: 0 });
+    const ground = rooms()[0].id;
+    editor.updateRoom(ground, { glassWalls: ['north', 'east', 'south', 'west'], floorFinish: 'tile' });
+    editor.addFloor({ copyRooms: true });
+    const [copy] = rooms().filter((r) => r.floor === 1);
+    const glass = rooms().find((r) => r.id === ground).glassWalls;
+    expect(glass).toHaveLength(4);
+    expect(copy).toMatchObject({ floorFinish: 'tile', glassWalls: glass });
+    const reopened = normaliseLayout(JSON.parse(JSON.stringify({ rooms: rooms(), objects: [], floors: S().floors })));
+    const up = reopened.rooms.find((r) => r.floor === 1);
+    expect(up.floorFinish).toBe('tile');
+    expect([...up.glassWalls].sort()).toEqual([...glass].sort());
   });
 
   it('"Empty floor" adds a standard 3.5 m floor', () => {
