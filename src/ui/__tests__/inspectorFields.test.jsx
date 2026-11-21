@@ -101,5 +101,35 @@ describe('the Inspector boxes (v0.18.6)', () => {
       expect(formatField(3.2, 1, true)).toBe('3.2');
     });
   });
+  describe("a room's floor (audit 5a + 10)", () => {
+    const chip = (choice) => container.querySelector(`[data-floor-choice="${choice}"]`);
+    it('Room default comes first and is chosen for a Cabin that never chose a floor; it says Walnut', () => {
+      const onSetFloorFinish = vi.fn();
+      const cabin = office({ type: 'CABIN', name: 'Cabin' });
+      render(<Inspector mode="room" room={cabin} floorName="Ground Floor" rooms={[cabin]} objects={[]} onUpdateRoom={() => {}}
+        onSetFloorFinish={onSetFloorFinish} />);
+      const choices = [...container.querySelectorAll('[data-floor-choice]')].map((b) => b.dataset.floorChoice);
+      expect(choices).toEqual(['default', 'wood', 'carpet', 'tile', 'concrete']);
+      expect(chip('default').getAttribute('aria-checked')).toBe('true');
+      expect(container.querySelector('[data-floor-name]').textContent).toBe('Walnut (room default)');
+      act(() => chip('wood').click());
+      expect(onSetFloorFinish).toHaveBeenCalledWith('room_office', 'wood');
+    });
+    it('a chosen floor is checked, and Room default takes it back', () => {
+      const onSetFloorFinish = vi.fn();
+      const cabin = office({ type: 'CABIN', floorFinish: 'tile' });
+      render(<Inspector mode="room" room={cabin} floorName="Ground Floor" rooms={[cabin]} objects={[]} onUpdateRoom={() => {}}
+        onSetFloorFinish={onSetFloorFinish} />);
+      expect(chip('tile').getAttribute('aria-checked')).toBe('true');
+      expect(chip('default').getAttribute('aria-checked')).toBe('false');
+      act(() => chip('default').click());
+      expect(onSetFloorFinish).toHaveBeenCalledWith('room_office', 'default');
+    });
+    it("each chip shows the floor's own photo", () => {
+      render(<Inspector mode="room" room={office()} floorName="Ground Floor" rooms={[office()]} objects={[]} onUpdateRoom={() => {}} />);
+      expect(chip('wood').querySelector('.insp-swatch__chip').style.backgroundImage).toContain('herringbone_parquet');
+      expect(chip('carpet').querySelector('.insp-swatch__chip').style.backgroundImage).toContain('carpet_office');
+    });
+  });
 });
 

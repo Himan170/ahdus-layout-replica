@@ -27,7 +27,7 @@ import {
   MAX_ROOM_SIZE,
   wallThicknessOf, MIN_WALL_THICKNESS, MAX_WALL_THICKNESS, WALL_THICKNESS_STEP, roomOpenings,
 } from '../play/geometry';
-import { FLOOR_FINISHES, floorKindOf } from '../utils/materialLibrary';
+import { FLOOR_FINISHES, FLOOR_NAMES, floorKindOf, floorChoiceOf, floorSwatch } from '../utils/materialLibrary';
 import { MIN_WALL_HEIGHT, MAX_WALL_HEIGHT, STAIRS_KEEP_SIZE, STAIR_SHAPES, STAIR_SHAPE_LABELS, stairShape } from '../play/building';
 import { describeRoom, describeObject, describeAccessibilityRoutes } from '../utils/accessibleSummary';
 import SeatSection from './SeatSection';
@@ -350,13 +350,21 @@ function ObjectBody({ object, floorName, onUpdate, hookPoints, positions, onSetP
 
 // ── Room ────────────────────────────────────────────────────────────────
 
-/** The floor swatches: name and colour of each floor. */
-const FLOOR_SWATCH = {
-  wood: { label: 'Wood', color: '#d8b98f' },
-  carpet: { label: 'Carpet', color: '#c8d4de' },
-  tile: { label: 'Tiles', color: '#e7e5df' },
-  concrete: { label: 'Concrete', color: '#b8bbb6' },
-};
+/** The floor chips' short names (v0.18.6: Room default first, each chip the floor's own photo and tint). */
+const FLOOR_CHOICE_LABEL = { default: 'Room default', wood: 'Wood', carpet: 'Carpet', tile: 'Tiles', concrete: 'Concrete' };
+const ASSETS = `${import.meta.env?.BASE_URL ?? '/'}assets/`;
+
+/** A chip's look: the photo the floor is drawn with, multiplied by its tint (as in 3D). */
+export function swatchStyle(kind) {
+  const sw = floorSwatch(kind);
+  return {
+    backgroundColor: sw.tint ?? sw.flat,
+    ...(sw.texture ? {
+      backgroundImage: `url("${ASSETS}${sw.texture}")`, backgroundSize: '220%', backgroundPosition: 'center',
+      ...(sw.tint ? { backgroundBlendMode: 'multiply' } : {}),
+    } : {}),
+  };
+}
 const SIDE = { north: 'North wall', south: 'South wall', east: 'East wall', west: 'West wall' };
 
 const WALL_ORDER = ['north', 'east', 'south', 'west'];
@@ -455,7 +463,9 @@ function LiftStops({ stops, onChange }) {
 
 function RoomBody({ room, departmentChoices: choices, liftStops, onLiftStops, onUpdate, onSetFloor, onSelectOpening, onAddOpening }) {
   const area = room.width * room.depth;
-  const floor = floorKindOf(room);
+  const floor = floorChoiceOf(room);
+  const defaultKind = floorKindOf({ type: room.type });
+  const floorName = floor === 'default' ? `${FLOOR_NAMES[defaultKind] ?? 'Its own floor'} (room default)` : FLOOR_NAMES[floorKindOf(room)];
   const openings = roomOpenings(room);
   // a locked room keeps its size, place and walls (v0.15.6): unlock it first
   const locked = !!room.isLocked;
@@ -509,12 +519,20 @@ function RoomBody({ room, departmentChoices: choices, liftStops, onLiftStops, on
       <div className="insp-room__group">
         <h3 className="insp-room__title" id="insp-floor">Floor</h3>
         <div className="insp-swatches" role="radiogroup" aria-labelledby="insp-floor">
-          {FLOOR_FINISHES.map((kind) => (
-            <button key={kind} type="button" role="radio" className="insp-swatch" aria-checked={floor === kind}
-              aria-label={FLOOR_SWATCH[kind].label} title={FLOOR_SWATCH[kind].label}
-              style={{ '--swatch': FLOOR_SWATCH[kind].color }} onClick={() => onSetFloor(room.id, kind)} />
-          ))}
+          {['default', ...FLOOR_FINISHES].map((choice) => {
+            const kind = choice === 'default' ? defaultKind : floorKindOf({ floorFinish: choice });
+            const title = choice === 'default' ? `Room default: ${FLOOR_NAMES[defaultKind] ?? 'its own floor'}` : FLOOR_NAMES[kind];
+            return (
+              <button key={choice} type="button" role="radio" className="insp-swatch" aria-checked={floor === choice}
+                aria-label={FLOOR_CHOICE_LABEL[choice]} title={title} data-floor-choice={choice}
+                onClick={() => onSetFloor(room.id, choice)}>
+                <span className="insp-swatch__chip" style={swatchStyle(kind)} aria-hidden />
+                <span className="insp-swatch__name">{choice === 'default' ? 'Default' : FLOOR_CHOICE_LABEL[choice]}</span>
+              </button>
+            );
+          })}
         </div>
+        <p className="insp-room__note" data-floor-name>{floorName}</p>
       </div>
 
       <div className="insp-room__group">

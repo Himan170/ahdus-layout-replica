@@ -93,7 +93,6 @@ import {
   openingData, openingPartner, openingCentre, resizeOpening, planOpeningStyle, planRemoveOpening,
   planRoomResize, planWallThickness, planRoomTurn, planRoomCopy, planRoomMove, findRoomAt,
 } from '../play/geometry';
-import { FLOOR_BY_ROOM_TYPE } from '../utils/materialLibrary';
 import { DEFAULT_HOTBAR, EMPTY_HAND, catalogSlot } from '../play/hotbarItems';
 
 // Team integration: how other modules connect to the layout (docs/TEAM_INTEGRATION.md)
@@ -798,8 +797,9 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   const handleSetFloorFinish = useCallback((id, kind) => {
     const room = useWorkspaceStore.getState().rooms[id];
     if (!room) return;
-    // The room type's own floor is stored as 'default', so a new type brings its floor
-    const floorFinish = kind === (FLOOR_BY_ROOM_TYPE[room.type] ?? 'wood') ? 'default' : kind;
+    // 'default' = the room type's own floor (a new type brings its floor); a chosen floor is kept as chosen
+    // (v0.18.6: choosing Wood in an Office was saved as 'default' and showed its carpet)
+    const floorFinish = kind === 'default' ? 'default' : kind;
     if ((room.floorFinish ?? 'default') === floorFinish) return;
     editor.updateRoom(id, { floorFinish }, { label: 'Change floor' });
   }, [editor]);

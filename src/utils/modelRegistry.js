@@ -137,6 +137,9 @@ export const REALISTIC_SURFACES = {
   'floor:cabin': 'herringbone_parquet',  // CABIN
   'floor:training': 'concrete_floor',    // TRAINING
   'floor:lobby': 'floor_tiles',          // LOBBY
+  // v0.18.6: the Inspector's Wood and Carpet (a room type's own floor above keeps its look)
+  'floor:woodFinish': 'herringbone_parquet',
+  'floor:carpetFinish': 'carpet_office',
   plaster: 'beige_wall',                 // walls
   structure: 'grey_plaster',             // slab, roof, parapet, wall band
   ceiling: 'office_ceiling',

@@ -581,7 +581,7 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 .insp-room__title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
 .insp-room__group .insp-field__label { color: var(--text-muted); font-weight: 400; }
 .insp-room__note { margin: 0; font-size: 13px; color: var(--text-muted); }
-.insp-swatches { display: flex; gap: 10px; }
+.insp-swatches { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
 /* Glass walls (v0.18.1) */
 .insp-glass { display: flex; flex-direction: column; gap: 8px; }
 .insp-glass__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -607,16 +607,30 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 .insp-glass__wall[aria-pressed="true"] { border-color: #6aa9cf; background: #e3f1fa; color: #134a6b; }
 .insp-glass__wall[aria-pressed="true"] .insp-glass__state { color: #1d6390; font-weight: 600; }
 .insp-swatch {
-  width: 44px;
-  height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
   padding: 0;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: var(--swatch);
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
   cursor: pointer;
 }
-.insp-swatch:hover { border-color: var(--accent); }
-.insp-swatch[aria-checked="true"] { border: 2px solid var(--accent-strong); box-shadow: inset 0 0 0 2px var(--bg-panel); }
+/* v0.18.6: the chip is the floor's own photo (and tint), as drawn in 3D */
+.insp-swatch__chip {
+  width: 100%;
+  max-width: 44px;
+  aspect-ratio: 1;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+}
+.insp-swatch__name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.insp-swatch:hover .insp-swatch__chip { border-color: var(--accent); }
+.insp-swatch[aria-checked="true"] { color: var(--text); font-weight: 600; }
+.insp-swatch[aria-checked="true"] .insp-swatch__chip { border: 2px solid var(--accent-strong); box-shadow: inset 0 0 0 2px var(--bg-panel); }
 .insp-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .insp-openings { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .insp-openings li + li { border-top: 1px solid var(--border); }
