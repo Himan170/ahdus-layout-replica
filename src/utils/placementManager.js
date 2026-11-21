@@ -202,14 +202,20 @@ export function createPlacementManager(scene, options = {}) {
    * clicked while the Plan is shown: the Plan's middle). A table top there takes it as under the mouse;
    * nothing picked (the 3D view not drawn yet): on the floor. A wall item hangs on the nearest wall.
    */
+  /** Straight down at (x, z) on the floor being edited: the floor or the furniture top there, else null. */
+  function pickBelow(x, z) {
+    const ray = new Ray(new Vector3(x, getElevation() + 2.6, z), new Vector3(0, -1, 0), 3);
+    const pick = scene.pickWithRay(ray, (mesh) => mesh.isPickable && mesh.isEnabled() && (!pickFilter || pickFilter(mesh)) && (
+      mesh.name === 'ground' || mesh.metadata?.part === 'floor' || !!objectIdOf(mesh)));
+    return pick?.hit ? pick : null;
+  }
+
   function updateAt(x, z) {
     if (!ghostRoot) return;
     const wallItem = isWallItem(currentAssetType) && !!getWalls;
     const floorY = getElevation();
-    const ray = new Ray(new Vector3(x, floorY + 2.6, z), new Vector3(0, -1, 0), 3);
-    const pick = scene.pickWithRay(ray, (mesh) => mesh.isPickable && mesh.isEnabled() && (!pickFilter || pickFilter(mesh)) && (
-      mesh.name === 'ground' || mesh.metadata?.part === 'floor' || !!objectIdOf(mesh)));
-    if (pick?.hit) { aimAt(pick, wallItem); return; }
+    const pick = pickBelow(x, z);
+    if (pick) { aimAt(pick, wallItem); return; }
     const flat = { hit: true, pickedPoint: new Vector3(x, floorY, z), pickedMesh: { name: 'ground', metadata: null, parent: null }, getNormal: () => ({ y: 1 }) };
     aimAt(flat, wallItem);
   }
@@ -228,15 +234,6 @@ export function createPlacementManager(scene, options = {}) {
     if (pick?.hit) {
       let x = pick.pickedPoint.x;
       let z = pick.pickedPoint.z;
-      // On the floor, or stacked on top of furniture; the side of furniture is not a place
-      const surface = objectIdOf(pick.pickedMesh) ? 'object' : pick.pickedMesh.name === 'ground' ? 'ground' : 'floor';
-      const height = placementHeight({
-        surface,
-        normalY: pick.getNormal(true)?.y ?? 0,
-        pointY: pick.pickedPoint.y,
-        elevation: getElevation(),
-      });
-      const baseY = height ? height.worldY : pick.pickedPoint.y;
 
       // v0.18.6: a side of a staircase near a wall goes flush against it first (the grid could skip that spot)
       let flush = { x: false, z: false };
@@ -250,6 +247,19 @@ export function createPlacementManager(scene, options = {}) {
         if (!flush.x) x = snap(x, snapStep);
         if (!flush.z) z = snap(z, snapStep);
       }
+      // v0.18.6 (audit 13): what is under the SNAPPED spot is what it stands on (a plant snapped past a desk's
+      // edge goes to the floor, not desk height in mid-air)
+      if (Math.abs(x - pick.pickedPoint.x) > 1e-4 || Math.abs(z - pick.pickedPoint.z) > 1e-4) pick = pickBelow(x, z) ?? pick;
+
+      // On the floor, or stacked on top of furniture; the side of furniture is not a place
+      const surface = objectIdOf(pick.pickedMesh) ? 'object' : pick.pickedMesh.name === 'ground' ? 'ground' : 'floor';
+      const height = placementHeight({
+        surface,
+        normalY: pick.getNormal(true)?.y ?? 0,
+        pointY: pick.pickedPoint.y,
+        elevation: getElevation(),
+      });
+      const baseY = height ? height.worldY : pick.pickedPoint.y;
 
       _surfaceY = baseY;
       ghostRoot.position.set(x, baseY + currentYOffset, z);
