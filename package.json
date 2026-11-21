@@ -52,7 +52,8 @@
     "e2e:lifts": "node e2e/lifts-smoke.mjs",
     "e2e:avoid-stairs": "node e2e/avoid-stairs-smoke.mjs",
     "e2e:stability": "node e2e/stability-smoke.mjs",
-    "e2e:room-edges": "node e2e/room-edges-smoke.mjs"
+    "e2e:room-edges": "node e2e/room-edges-smoke.mjs",
+    "e2e:stuck": "node e2e/stuck-smoke.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^7.0.0",
