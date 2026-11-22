@@ -35,3 +35,23 @@ export function keepOrthoView(ortho, w0, h0, w1, h1) {
     shiftY: halfH0 - halfH, // the top edge stays
   };
 }
+
+/**
+ * The extra shift of the view's middle (view space, metres) that brings a point back inside the view after a
+ * resize, `margin` metres from its edges (0 when it is inside already). Studio keeps the selection in view this
+ * way: an item selected near the right edge stayed where it was on screen and the narrower canvas (the Inspector
+ * opening) hid it.
+ * @param {number} px @param {number} py  the point in view space, from the view's middle now
+ * @param {number} halfW @param {number} halfH  the view's half size now
+ * @param {number} [margin]
+ * @returns {{ x: number, y: number }}
+ */
+export function shiftToShow(px, py, halfW, halfH, margin = 0) {
+  const along = (p, half) => {
+    const m = Math.min(margin, half * 0.45);
+    if (p > half - m) return p - (half - m);
+    if (p < -half + m) return p - (-half + m);
+    return 0;
+  };
+  return { x: along(px, halfW), y: along(py, halfH) };
+}

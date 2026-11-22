@@ -56,6 +56,7 @@ import { groupMembers, lockedNote } from '../play/group';
 import { selectedGroup, selectionFor } from '../play/prefab';
 import { cabinRoomFor } from '../play/cabinDoor';
 import { stairPreview, findStairSpot, snapStairToWall } from '../play/stairFit';
+import { floorWallBoxes, clearOfWalls, NO_ROOM_TEXT } from '../play/wallClear';
 
 const FLOOR_Y = 0.02;
 const CLICK_SLOP = 5; // px the mouse may move with the button down and still count as a click
@@ -475,6 +476,21 @@ export function createPlannerTools(scene, canvas, {
     return saveDragHint({ title: `Move ${nameOf(obj)}`, detail: mountText(nameOf(obj), true), keys: [['Release', 'Hang it here'], ['Esc', 'Cancel']] });
   }
 
+  /** v0.18.9: the dragged items at (x, z) for the first one, pushed out of the walls; null = no room for them there. */
+  function wallPush(d, x, z) {
+    const objs = st().objects;
+    const first = d.items[0];
+    const moved = d.items.map((it) => objs[it.id] && { ...objs[it.id], x: it.x + x - first.x, z: it.z + z - first.z }).filter(Boolean);
+    if (!moved.length) return { x, z };
+    const floor = moved[0].floor ?? 0;
+    if (!d.wallBoxes) {
+      d.wallBoxes = floorWallBoxes(st().rooms, objs, floor, { catalog: ASSET_TYPES, ignore: d.items.map((it) => it.id) });
+      d.wallFrom = { x: d.items.reduce((t, it) => t + it.x, 0) / d.items.length, z: d.items.reduce((t, it) => t + it.z, 0) / d.items.length };
+    }
+    const res = clearOfWalls(moved, d.wallBoxes, { catalog: ASSET_TYPES, from: d.wallFrom });
+    return res.ok ? { x: x + res.dx, z: z + res.dz } : null;
+  }
+
   function updateItemDrag() {
     const obj = st().objects[drag.objectId];
     if (!obj || !getObjectMesh(drag.objectId)) { cancelDrag(); return null; }
@@ -524,6 +540,14 @@ export function createPlannerTools(scene, canvas, {
       // the footer shows the title and detail only: say how to drag freely where it matters
       snapNote = altDown ? 'No snapping (Alt)' : lined && `${lined} · hold Alt for no snapping`;
     }
+    // v0.18.9: never in a wall: what is dragged stops flush against it (the editor's moveObjects does the same on release)
+    const out = wallPush(drag, x, z);
+    if (!out) {
+      drag.plan = null;
+      return saveDragHint({ title: `Move ${drag.group ? `${drag.group} items` : nameOf(obj)}`, detail: NO_ROOM_TEXT, bad: true, keys: [['Esc', 'Cancel']] });
+    }
+    x = out.x;
+    z = out.z;
     // a group (v0.15.5) keeps every item's height: it slides over the floor as it is
     const s = drag.group ? { y: drag.items[0].y ?? 0, on: null } : dragSurface(drag, x, z);
     const name = drag.group ? `${drag.group} items` : nameOf(obj);
@@ -1428,7 +1452,8 @@ export function createPlannerTools(scene, canvas, {
     /** What an item takes along (its chair, what stands on it): groups, copy and paste (v0.15.5). */
     carriedWith: (obj) => (obj ? carriedWith(obj) : []),
     /** The point on the floor being edited under the mouse (paste goes there), or null. */
-    pointerGround: () => groundPoint(),
+    /** The floor point under the mouse (`at`: a point of the canvas in CSS pixels, else Babylon's last pointer). */
+    pointerGround: (at = null) => groundPoint(0, at),
 
     /**
      * A move arrow is being dragged (v0.15.2): the item's mesh is at (x, z) now. Its chair and what
@@ -1468,7 +1493,7 @@ export function createPlannerTools(scene, canvas, {
      * @param {{ label?: string, mergeKey?: string }} [options]  mergeKey: typing = one undo step per burst
      * @returns {boolean} whether anything was asked to change
      */
-    moveItem(id, patch, { label, mergeKey, snapStairs = false } = {}) {
+    moveItem(id, patch, { label, mergeKey, snapStairs = false, sweep = false } = {}) {
       const obj = st().objects[id];
       if (!obj || obj.isLocked) return false;
       const { x, z, rotationY, roomId: _roomId, ...rest } = patch;
@@ -1499,7 +1524,7 @@ export function createPlannerTools(scene, canvas, {
       });
       // a turn about the item itself only: keep the exact x / z it had (no rounding drift)
       if (target.x === undefined && target.z === undefined) { delete moves[0][1].x; delete moves[0][1].z; }
-      actions.moveObjects(moves, { label: label ?? `Move ${nameOf(obj)}`, mergeKey });
+      actions.moveObjects(moves, { label: label ?? `Move ${nameOf(obj)}`, mergeKey, sweep });
       return true;
     },
     cancel: cancelDrag,

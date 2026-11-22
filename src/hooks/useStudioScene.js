@@ -73,6 +73,14 @@ export function useStudioScene({
     roomSystemRef.current = roomSystem;
     const objectSystem = new ObjectSystem(scene, { shadowGenerator: lights.shadowGenerator });
     objectSystemRef.current = objectSystem;
+    // v0.18.9: the 2D view keeps the selection in view when the Inspector opens (SceneSetup's resize)
+    layoutScene.setKeepInView(() => {
+      const st = useWorkspaceStore.getState();
+      const mesh = st.selectedObjectId ? objectSystem.getObjectMesh(st.selectedObjectId) : null;
+      if (mesh && !mesh.isDisposed?.()) { const p = mesh.getAbsolutePosition(); return { x: p.x, y: p.y, z: p.z }; }
+      const room = st.selectedRoomId ? st.rooms[st.selectedRoomId] : null;
+      return room ? { x: room.x, y: elevationOf(st.floors, room.floor ?? 0), z: room.z } : null;
+    });
     const floorSystem = new FloorSystem(roomSystem, objectSystem, () => useWorkspaceStore.getState());
     floorSystemRef.current = floorSystem;
     // People at their desks: nothing is drawn until WorkplaceEditor gets `people`; none with the simple look

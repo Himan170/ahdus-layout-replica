@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { canvasIsUnder } from '../canvasHit';
+import { canvasIsUnder, pasteOverView } from '../canvasHit';
 
 function setup() {
   document.body.innerHTML = `
@@ -32,5 +32,19 @@ describe('canvasIsUnder (v0.18.2: a drop over a control edits nothing)', () => {
     const canvas = setup();
     expect(canvasIsUnder(canvas, 50, 300, at('c'))).toBe(false);
     expect(canvasIsUnder(canvas, 400, 700, at('c'))).toBe(false);
+  });
+});
+
+describe('pasteOverView (v0.18.9: Ctrl+V at the mouse)', () => {
+  it('the canvas, a room name, the floating selection bar and its buttons are the view', () => {
+    const canvas = setup();
+    for (const id of ['c', 'label', 'sep', 'reset', 'icon']) expect(pasteOverView(canvas, 400, 300, at(id))).toBe(true);
+  });
+  it('outside the canvas, or over a panel / menu / dialog over it: not the view', () => {
+    const canvas = setup();
+    expect(pasteOverView(canvas, 50, 300, at('c'))).toBe(false);
+    document.body.insertAdjacentHTML('beforeend', '<aside class="inspector"><input id="field"></aside><div class="ui-pop"><span id="menu"></span></div>');
+    expect(pasteOverView(canvas, 400, 300, at('field'))).toBe(false);
+    expect(pasteOverView(canvas, 400, 300, at('menu'))).toBe(false);
   });
 });

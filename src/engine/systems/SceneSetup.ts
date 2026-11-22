@@ -13,7 +13,7 @@ import { Color4 } from '@babylonjs/core/Maths/math.color';
 import { Camera } from '@babylonjs/core/Cameras/camera';
 import { MAX_PIXEL_RATIO } from '../../play/quality';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { keepOrthoView } from '../../utils/orthoResize';
+import { keepOrthoView, shiftToShow } from '../../utils/orthoResize';
 import type { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 // Side-effect imports: Babylon tree-shakes aggressively
 import '@babylonjs/core/Meshes/meshBuilder';
@@ -48,6 +48,11 @@ export interface LayoutScene {
    * and drawing it every frame made a big layout's plan slow). Unlike a hold, it has no time limit.
    */
   pauseRendering(paused: boolean): void;
+  /**
+   * v0.18.9: the 2D view keeps its left / top edges when the canvas changes size, unless that hides this point (the
+   * selection, Studio): then it slides just enough to show it. null: nothing to keep in view.
+   */
+  setKeepInView(point: (() => { x: number, y: number, z: number } | null) | null): void;
   /** Stops rendering and disposes the site, the scene and the engine. */
   dispose(): void;
 }
@@ -91,6 +96,7 @@ export function createLayoutScene(canvas: HTMLCanvasElement, options: LayoutScen
 
   let heldUntil = 0; // holdRendering: no frames until then (performance.now())
   let paused = false; // pauseRendering
+  let keepInView: (() => { x: number, y: number, z: number } | null) | null = null;
   engine.runRenderLoop(() => {
     if (paused) return;
     if (heldUntil && performance.now() < heldUntil) return;
@@ -114,12 +120,20 @@ export function createLayoutScene(canvas: HTMLCanvasElement, options: LayoutScen
         camera.orthoRight = k.halfW;
         camera.orthoTop = k.halfH;
         camera.orthoBottom = -k.halfH;
-        if (k.shiftX || k.shiftY) {
-          camera.computeWorldMatrix();
-          const right = camera.getDirection(new Vector3(1, 0, 0));
-          const up = camera.getDirection(new Vector3(0, 1, 0));
-          camera.target.addInPlace(right.scale(k.shiftX).addInPlace(up.scale(k.shiftY)));
+        camera.computeWorldMatrix();
+        const right = camera.getDirection(new Vector3(1, 0, 0));
+        const up = camera.getDirection(new Vector3(0, 1, 0));
+        let sx = k.shiftX;
+        let sy = k.shiftY;
+        const keep = keepInView?.();
+        if (keep) {
+          // where the point is in the view once shifted: back inside it, 12 % of the width from the edge
+          const d = new Vector3(keep.x, keep.y, keep.z).subtractInPlace(camera.target);
+          const more = shiftToShow(Vector3.Dot(d, right) - sx, Vector3.Dot(d, up) - sy, k.halfW, k.halfH, k.halfW * 0.24);
+          sx += more.x;
+          sy += more.y;
         }
+        if (sx || sy) camera.target.addInPlace(right.scale(sx).addInPlace(up.scale(sy)));
       } else {
         const aspect = engine.getAspectRatio(camera);
         camera.orthoLeft = -camera.orthoTop * aspect;
@@ -142,6 +156,9 @@ export function createLayoutScene(canvas: HTMLCanvasElement, options: LayoutScen
     },
     pauseRendering(on: boolean) {
       paused = on;
+    },
+    setKeepInView(point) {
+      keepInView = point;
     },
     dispose() {
       window.removeEventListener('resize', onResize);

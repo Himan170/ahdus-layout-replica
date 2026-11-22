@@ -276,6 +276,9 @@ const visitors = st.objects.filter((o) => o.metadata?.visitor);
 log('a manager workstation: its desk, its chair and 2 visitor chairs', visitors.length === 2
   && st.objects.some((o) => o.assetType === 'DESK_MANAGER'), `${visitors.length} visitor chairs`);
 const roomsBefore = st.rooms.length;
+// v0.18.9: the 2D view keeps its left edge when the Inspector opens (no jump under the mouse), so the spot is
+// under the manager desk's Inspector: nothing selected, the Inspector closes and the whole floor shows again
+await deselect(); await frames(4);
 await dragTile('Private cabin', 7.5, -3.5);
 st = await store();
 const cabin = st.rooms.find((r) => r.id !== 'open_0' && r.id !== 'open_1');

@@ -147,6 +147,10 @@ const blur = () => p.evaluate(() => document.activeElement?.blur?.());
 const key = async (k) => { await blur(); await p.keyboard.press(k); await frames(2); await wait(200); };
 const panel = p.getByRole('dialog', { name: 'Check my layout', exact: true });
 const checkStatus = () => panel.getByRole('status').innerText().catch(() => '');
+// v0.18.9: the problems this test is about, not ignored (the layout file may also have furniture a little inside a
+// wall: its own "… is inside a wall" warnings)
+const openStairsRows = () => panel.locator('li[data-check-kind]').evaluateAll((els) =>
+  els.filter((e) => e.dataset.checkKind !== 'ITEM_IN_WALL' && !e.closest('[data-check-ignored-list]')).length).catch(() => -1);
 const until = async (fn, ms = 20000) => {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) { if (await fn()) return true; await wait(200); }
@@ -166,7 +170,7 @@ log('the Check button counts what is ignored ("…, 2 ignored")', titled, await 
 await checkBtn.click();
 await panel.waitFor();
 const status0 = await checkStatus();
-log('the Check bar: "1 problem to look at · 2 ignored · Show"', /1 problem/.test(status0) && /2 ignored/.test(status0)
+log('the Check bar: "1 problem to look at · 2 ignored · Show" (the stairs)', await openStairsRows() === 1 && /2 ignored/.test(status0)
   && await panel.locator('[data-check-ignored="2"] [data-check-show-ignored]').count() === 1, status0.replace(/\s+/g, ' '));
 const doorRow = panel.locator(`[data-check-key="STAIRS_BLOCKS_DOOR:${STAIR.id}"]`);
 log('"The stairs block a door of …" has Fix it', await doorRow.locator('[data-check-fix]').count() === 1, await doorRow.innerText().catch(() => 'no row'));
@@ -213,10 +217,10 @@ log('one Undo puts the stairs back where they were', near(s.x, STAIR.x) && near(
 if (!(await panel.isVisible())) await checkBtn.click();
 await until(async () => (await doorRow.count()) === 1);
 await doorRow.locator('[data-check-fix]').click();
-await until(async () => /No problems found/.test(await checkStatus()));
+await until(async () => (await openStairsRows()) === 0 && !/ignored/.test(await checkStatus()));
 const fixed = await fitOf(STAIR.id);
 const status1 = await checkStatus();
-log('Fix it in Check: "No problems found", nothing left ignored', /No problems found/.test(status1) && !/ignored/.test(status1), status1.replace(/\s+/g, ' '));
+log('Fix it in Check: no stairs problem left, nothing left ignored', (await openStairsRows()) === 0 && !/ignored/.test(status1), status1.replace(/\s+/g, ' '));
 log('…the stairs moved a little (same room, same turn) and still arrive in Staircase 2 on Floor 1',
   fixed.ok && fixed.roomId === STAIR.roomId && near(fixed.rotationY, STAIR.rotationY) && Math.hypot(fixed.x - STAIR.x, fixed.z - STAIR.z) < 1.5
   && fixed.above.includes('Staircase 2'), `${fixed.x}, ${fixed.z} → ${fixed.above.join(', ')}`);

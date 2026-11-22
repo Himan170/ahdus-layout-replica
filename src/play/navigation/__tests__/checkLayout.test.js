@@ -205,19 +205,29 @@ describe('furniture', () => {
     expect(of(layout, CHECK_KINDS.ITEMS_OVERLAP)).toHaveLength(1);
   });
 
-  it('an item in a wall: "3-Seat Sofa stands in a wall of Office"; a whiteboard on the wall is fine', () => {
+  it('an item in a wall (v0.18.9): "3-Seat Sofa is inside a wall of Office" + Move out; a whiteboard on the wall is fine', () => {
     const layout = twoRooms();
     layout.objects.push(item('SOFA_3SEAT', -1, 2.5, { id: 'sofa' }), item('WHITEBOARD', 1.5, 2.4), item('BOOKSHELF', 1.5, -2.2));
     const found = of(layout, CHECK_KINDS.ITEM_IN_WALL);
     expect(found).toHaveLength(1);
-    expect(found[0]).toMatchObject({ key: 'ITEM_IN_WALL:sofa', severity: 'warning', message: '3-Seat Sofa stands in a wall of Office', objectId: 'sofa' });
+    expect(found[0]).toMatchObject({ key: 'ITEM_IN_WALL:sofa', severity: 'warning', message: '3-Seat Sofa is inside a wall of Office', objectId: 'sofa' });
+    // Move out: flush with the wall, and the warning is gone
+    expect(found[0].fix.label).toBe('Move out');
+    const [[id, to]] = found[0].fix.moves;
+    expect(id).toBe('sofa');
+    const moved = { ...layout, objects: layout.objects.map((o) => (o.id === 'sofa' ? { ...o, ...to } : o)) };
+    expect(of(moved, CHECK_KINDS.ITEM_IN_WALL)).toEqual([]);
+    expect(Math.hypot(to.x - -1, to.z - 2.5)).toBeLessThan(1);
+    // a locked one: no Move out
+    const locked = { ...layout, objects: layout.objects.map((o) => (o.id === 'sofa' ? { ...o, isLocked: true } : o)) };
+    expect(of(locked, CHECK_KINDS.ITEM_IN_WALL)[0].fix).toBeUndefined();
   });
 
-  it('an item in a wall drawn with the Wall tool: "… stands in a wall"', () => {
+  it('an item in a wall drawn with the Wall tool: "… is inside a wall"', () => {
     const layout = twoRooms();
     layout.objects.push(item('WALL_SEGMENT', 0, 0, { ...wallSegmentData({ x: -1, z: 0 }, { x: 1, z: 0 }, layout.rooms).data, id: 'w' }),
       item('PLANT_LARGE', 0, 0.1, { id: 'plant' }));
-    expect(of(layout, CHECK_KINDS.ITEM_IN_WALL).map((p) => p.message)).toEqual(['Large Plant stands in a wall']);
+    expect(of(layout, CHECK_KINDS.ITEM_IN_WALL).map((p) => p.message)).toEqual(['Large Plant is inside a wall']);
   });
 
   it('upstairs, an item outside every room floats: listed. On the ground floor, and markers: not', () => {

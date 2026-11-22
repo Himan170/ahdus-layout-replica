@@ -52,6 +52,7 @@ import { useAhdusSeats } from '../hooks/useAhdusSeats';
 import SeatsBanner from '../ui/SeatsBanner';
 import { isDesk, seatAtDesk, seatOfPerson, losingDeskText } from '../ui/seatFlow';
 import { useLibraryDrop } from '../hooks/useLibraryDrop';
+import { pasteOverView } from '../ui/canvasHit';
 
 // Components
 import PlayHUD from './PlayHUD';
@@ -1190,12 +1191,24 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     carriedWith: (obj) => plannerToolsRef.current?.carriedWith(obj) ?? [],
     message: (text, bad) => showStudioMessage(text, bad),
   }), [editor, showStudioMessage]);
-  // Where Ctrl+V pastes: the mouse over the 3D / 2D view, or over the Plan (its own pointer), else null
-  const canvasHoverRef = useRef(false);
+  // Where Ctrl+V pastes: the mouse over the 3D / 2D view, or over the Plan (its own pointer), else null.
+  // v0.18.9: from the mouse's last place on the page, checked against what is under it NOW (ui/canvasHit): a
+  // pointerenter / leave flag went false whenever the selection bar floating over the view (or the hover card)
+  // came under the mouse, so the paste went 0.5 m aside of where it was copied instead of to the mouse.
+  const lastMouseRef = useRef(null);
+  useEffect(() => {
+    const onMove = (e) => { lastMouseRef.current = e.pointerType === 'mouse' ? { x: e.clientX, y: e.clientY } : null; };
+    window.addEventListener('pointermove', onMove, { passive: true, capture: true });
+    return () => window.removeEventListener('pointermove', onMove, { capture: true });
+  }, []);
   const planPointerRef = useRef(null);
   const pasteTarget = useCallback(() => {
     if (planView) return planPointerRef.current;
-    return canvasHoverRef.current ? plannerToolsRef.current?.pointerGround() ?? null : null;
+    const m = lastMouseRef.current;
+    const canvas = canvasRef.current;
+    if (!m || !canvas || !pasteOverView(canvas, m.x, m.y)) return null;
+    const r = canvas.getBoundingClientRect();
+    return plannerToolsRef.current?.pointerGround({ x: m.x - r.left, y: m.y - r.top }) ?? null;
   }, [planView]);
 
   // ─── Keyboard shortcuts (hooks/useStudioKeyboard.js) ───
@@ -1715,8 +1728,6 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
             ref={canvasRef}
             className={measureMode ? 'is-measuring' : ''}
             onPointerDown={phone && !canvasTouched ? () => setCanvasTouched(true) : undefined}
-            onPointerEnter={(e) => { if (e.pointerType === 'mouse') canvasHoverRef.current = true; }}
-            onPointerLeave={() => { canvasHoverRef.current = false; }}
             style={{
               visibility: planView && !isPlaying ? 'hidden' : 'visible',
               pointerEvents: planView && !isPlaying ? 'none' : 'auto',

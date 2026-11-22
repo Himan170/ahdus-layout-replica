@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { keepOrthoView } from '../orthoResize';
+import { keepOrthoView, shiftToShow } from '../orthoResize';
 
 const ortho = (halfW, halfH) => ({ orthoLeft: -halfW, orthoRight: halfW, orthoTop: halfH, orthoBottom: -halfH });
 
@@ -39,5 +39,17 @@ describe('keepOrthoView (v0.18.9: the 2D view when the Inspector opens)', () => 
     expect(keepOrthoView(ortho(10, 10), 0, 500, 800, 500)).toBeNull();
     expect(keepOrthoView(ortho(10, 10), 500, 500, 0, 500)).toBeNull();
     expect(keepOrthoView({}, 500, 500, 800, 500)).toBeNull();
+  });
+});
+
+describe('shiftToShow (v0.18.9: the selection stays in view when the Inspector opens)', () => {
+  it('a point past the right edge comes back inside, the margin from it; one inside stays', () => {
+    expect(shiftToShow(9, 0, 10, 10, 2)).toEqual({ x: 1, y: 0 });
+    expect(shiftToShow(14, -12, 10, 10, 2)).toEqual({ x: 6, y: -4 });
+    expect(shiftToShow(3, 4, 10, 10, 2)).toEqual({ x: 0, y: 0 });
+  });
+  it('a margin bigger than the view: at most a little under half of it', () => {
+    const s = shiftToShow(12, 0, 4, 4, 10);
+    expect(s.x).toBeCloseTo(12 - 4 * 0.55);
   });
 });

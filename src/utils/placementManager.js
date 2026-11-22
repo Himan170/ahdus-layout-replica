@@ -29,6 +29,7 @@ import { isWallItem, mountOnWall } from '../play/wallMount';
 import { ASSET_TYPES } from './assetCatalog';
 import { createBuildPreview } from './buildPreview';
 import { snapStairToWall, stairPreview } from '../play/stairFit';
+import { clearOfWalls, cachedFloorWallBoxes, NO_ROOM_TEXT } from '../play/wallClear';
 import { isAltDown } from './altKey';
 
 // ─── Ghost visual config ───
@@ -256,6 +257,15 @@ export function createPlacementManager(scene, options = {}) {
         if (!flush.x) x = snap(x, snapStep);
         if (!flush.z) z = snap(z, snapStep);
       }
+      // v0.18.9: never in a wall: the ghost goes flush against it (play/wallClear.js; the editor does the same)
+      let wallProblem = null;
+      if (getLayout && currentAssetType !== 'STAIRCASE') {
+        const layout = getLayout();
+        const floor = layout.currentFloor ?? 0;
+        const item = { assetType: currentAssetType, x, z, y: 0, rotationY: currentRotationY, floor, scaleX: 1, scaleY: 1, scaleZ: 1 };
+        const res = clearOfWalls([item], cachedFloorWallBoxes(layout.rooms, layout.objects, floor, { catalog: ASSET_TYPES }), { catalog: ASSET_TYPES });
+        if (res.ok) { x += res.dx; z += res.dz; } else wallProblem = NO_ROOM_TEXT;
+      }
       // v0.18.6 (audit 13): what is under the SNAPPED spot is what it stands on (a plant snapped past a desk's
       // edge goes to the floor, not desk height in mid-air)
       if (Math.abs(x - pick.pickedPoint.x) > 1e-4 || Math.abs(z - pick.pickedPoint.z) > 1e-4) pick = pickBelow(x, z) ?? pick;
@@ -276,7 +286,7 @@ export function createPlacementManager(scene, options = {}) {
 
       // a floor-only item (a Large Plant) can't go on a table top
       const under = pick.pickedMesh.metadata?.assetType ?? pick.pickedMesh.parent?.metadata?.assetType ?? null;
-      _problem = canStandOn(currentAssetType, surface, under) ? null : floorOnlyText(ASSET_TYPES[currentAssetType]?.label);
+      _problem = wallProblem ?? (canStandOn(currentAssetType, surface, under) ? null : floorOnlyText(ASSET_TYPES[currentAssetType]?.label));
       _valid = !!height && !_problem && (baseY + currentYOffset) >= -0.05;
       applyGhostMaterial(ghostRoot, _valid ? ghostMaterials.valid : ghostMaterials.invalid);
       checkStairs();
