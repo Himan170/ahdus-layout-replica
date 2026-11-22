@@ -26,9 +26,10 @@ export const SEARCH_DELAY_MS = 250;
  *   onRemove: () => void,
  *   search: (q: string, signal: AbortSignal) => Promise<{ ok, people?, error? }>,
  *   whereSits?: (userId) => string | null,   // "Desk 2" when they sit somewhere else
+ *   ofDesk?: string,   // v0.18.9: a desk's own chair: that desk's name (its person shows, read only)
  * }} props
  */
-export default function SeatSection({ access, seat, busy, onAssign, onRemove, search, whereSits }) {
+export default function SeatSection({ access, seat, busy, onAssign, onRemove, search, whereSits, ofDesk }) {
   const [searching, setSearching] = useState(false);
   const [q, setQ] = useState('');
   const [found, setFound] = useState({ q: '', people: [], error: null, loading: false });
@@ -65,6 +66,9 @@ export default function SeatSection({ access, seat, busy, onAssign, onRemove, se
         </div>
       ) : (
         <p className="insp-note">Nobody sits here yet.</p>
+      )}
+      {ofDesk && (
+        <p className="insp-note" data-seat-of-desk>This is the chair of {ofDesk}. Choose who sits there on the desk.</p>
       )}
 
       {access === 'manage' && !searching && (

@@ -49,6 +49,9 @@ desks.forEach(([x, z], i) => {
   objects.push({ id: `obj_desk_${i + 1}`, assetType: 'DESK_STANDARD', floor: 0, roomId: 'room_open', x, y: 0, z, rotationY: 0 });
   objects.push({ id: `obj_chair_${i + 1}`, assetType: 'CHAIR_OFFICE', floor: 0, roomId: 'room_open', x, y: 0, z: z + 0.7, rotationY: Math.PI });
 });
+// v0.18.9: chairs that are not a desk's own chair can be someone's seat
+objects.push({ id: 'obj_chair_free', assetType: 'CHAIR_OFFICE', floor: 0, roomId: 'room_open', x: 5, y: 0, z: 3, rotationY: Math.PI / 2 });
+objects.push({ id: 'obj_lounge', assetType: 'LOUNGE_CHAIR', floor: 0, roomId: 'room_open', x: -5, y: 0, z: 3, rotationY: -Math.PI / 2 });
 const DRAFT = {
   layoutName: 'Seats HQ', layoutVersion: 1,
   floors: { 0: { id: 0, name: 'Ground Floor', height: 3.5 } },
@@ -179,8 +182,18 @@ log('a desk: "Who sits here" shows Asha Rao, Design, with Change and Remove (no 
   `${s1} | ${buttons1.join(', ')}`);
 if (SHOTS) await shot(p, 'desktop-desk-person.png');
 await select(p, 'obj_chair_1');
+await p.waitForTimeout(500);
+const deskChair = (await section(p).count()) ? await section(p).textContent() : '';
+log('v0.18.9: the chair at a desk shows that desk\'s person (Asha Rao), no Assign there', /Asha Rao/.test(deskChair) && !/Assign someone/.test(deskChair), JSON.stringify(deskChair));
+// ── v0.18.9: a chair that is not a desk's own chair is a seat of its own ──
+await select(p, 'obj_chair_free');
+await p.waitForTimeout(500);
+const freeChair = (await section(p).count()) ? await section(p).textContent() : '';
+log('v0.18.9: a chair on its own: "Who sits here", "Nobody sits here yet" + Assign someone', /Nobody sits here yet/.test(freeChair) && /Assign someone/.test(freeChair), JSON.stringify(freeChair));
+if (SHOTS) await shot(p, 'desktop-free-chair.png');
+await select(p, 'obj_lounge');
 await p.waitForTimeout(300);
-log('a chair has no "Who sits here"', (await section(p).count()) === 0);
+log('v0.18.9: an armchair on its own too', (await section(p).count()) === 1);
 
 // ── 3. An empty desk: Assign someone, the debounced search ──
 await select(p, 'obj_desk_3');
@@ -261,13 +274,62 @@ log('the list: Kiran <b>Das</b> as text (no HTML), with Assign a desk and Remove
   rowText.includes('Kiran <b>Das</b>') && (await row.locator('b').count()) === 0, rowText);
 if (SHOTS) await shot(p, 'desktop-people-without-desk.png');
 await row.getByRole('button', { name: 'Assign a desk' }).click();
-const hint = await p.getByText(/Click the desk where Kiran/).textContent({ timeout: 10000 }).catch(() => '');
+const hint = await p.getByText(/Click the desk or chair where Kiran/).textContent({ timeout: 10000 }).catch(() => '');
 await select(p, 'obj_desk_1');
 await until(() => api.seats.find((s) => s.deskId === 'obj_desk_1')?.userId === 4);
 await p.waitForSelector('[data-seats-banner]', { state: 'detached', timeout: 15000 }).catch(() => {});
 log('Assign a desk: the hint says to click a desk; the desk clicked is Kiran\'s; the list is gone',
-  /Click the desk where Kiran <b>Das<\/b> sits · Esc cancels/.test(hint) && api.seats.find((s) => s.deskId === 'obj_desk_1')?.userId === 4 &&
+  /Click the desk or chair where Kiran <b>Das<\/b> sits · Esc cancels/.test(hint) && api.seats.find((s) => s.deskId === 'obj_desk_1')?.userId === 4 &&
   (await p.locator('[data-seats-banner]').count()) === 0, hint);
+
+// ── 6b. v0.18.9: people on chairs ──
+await select(p, 'obj_chair_free');
+await section(p).waitFor({ timeout: 15000 });
+await section(p).getByRole('button', { name: /Assign someone/ }).click();
+await p.getByLabel('Search people').pressSequentially('ravi', { delay: 30 });
+await p.getByRole('button', { name: /Ravi Kumar/ }).click();
+await until(() => api.seats.find((s) => s.deskId === 'obj_chair_free')?.userId === 2);
+await p.waitForFunction(() => /Ravi Kumar/.test(document.querySelector('[aria-label="Who sits here"]')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
+const toastChair = await p.locator('[data-toast]').last().textContent().catch(() => '');
+log('v0.18.9: a chair on its own: choosing Ravi seats him at once (PUT …/seats/obj_chair_free), "Ravi Kumar now sits at Office Chair 1"',
+  calls('PUT', /\/seats\/obj_chair_free$/)[0]?.body?.userId === 2 && /Ravi Kumar now sits at Office Chair 1/.test(toastChair) &&
+  (await p.locator('.ui-dialog').count()) === 0, toastChair);
+const onChair = await p.waitForFunction(() => window.__ahdusCharacters?.getPlaced().some((x) => x.personId === '2'), null, { timeout: 15000 })
+  .then(() => p.evaluate(() => window.__ahdusCharacters.getPlaced().find((x) => x.personId === '2')))
+  .catch(() => null);
+log('v0.18.9: Studio draws Ravi sitting on that chair (its place and the way it faces)',
+  onChair?.deskId === 'obj_chair_free' && onChair.seated === true && Math.abs(onChair.x - 5) < 0.01 && Math.abs(onChair.z - 3) < 0.01
+  && Math.abs(onChair.yaw - Math.PI / 2) < 0.01, JSON.stringify(onChair && { desk: onChair.deskId, x: onChair.x, z: onChair.z, yaw: onChair.yaw }));
+if (SHOTS) await shot(p, 'desktop-person-on-chair.png');
+// the server also has Meera on desk 3's own chair (an older seat); Asha sits at desk 3
+api.seats.push({ deskId: 'obj_chair_3', userId: 3 });
+await select(p, 'obj_lounge');
+await section(p).waitFor({ timeout: 15000 });
+await section(p).getByRole('button', { name: /Assign someone/ }).click();
+await p.getByLabel('Search people').pressSequentially('ravi', { delay: 30 });
+await p.getByRole('button', { name: /Ravi Kumar/ }).click();
+const askChair = await p.locator('[data-seat-question]').textContent({ timeout: 15000 }).catch(() => '');
+log('v0.18.9: the same question as desks: "Ravi Kumar already sits at Office Chair 1. Move them here?"',
+  askChair === 'Ravi Kumar already sits at Office Chair 1. Move them here?', askChair);
+await p.locator('.ui-dialog').getByRole('button', { name: 'Move here' }).click();
+await until(() => api.seats.find((s) => s.deskId === 'obj_lounge')?.userId === 2);
+await p.waitForSelector('[data-seats-banner="1"]', { timeout: 15000 }).catch(() => {});
+const drawn = await p.evaluate(() => window.__ahdusCharacters.getPlaced().map((x) => [x.personId, x.deskId]));
+log('v0.18.9: Ravi moved to the armchair; Meera, whom the server has on desk 3\'s own chair, is not drawn (Asha at desk 3, once)',
+  drawn.some(([id, d]) => id === '2' && d === 'obj_lounge') && !drawn.some(([id]) => id === '3')
+  && drawn.filter(([, d]) => d === 'obj_desk_3').length === 1 && !api.seats.some((s) => s.deskId === 'obj_chair_free'), JSON.stringify(drawn));
+await select(p, 'obj_chair_3');
+await p.waitForTimeout(400);
+const ownChair = (await section(p).count()) ? await section(p).textContent() : '';
+log('v0.18.9: …desk 3\'s chair shows the desk\'s person (Asha Rao), never two; Meera is under "People without a desk (1)"',
+  /Asha Rao/.test(ownChair) && !/Meera/.test(ownChair) && (await p.locator('[data-seats-banner="1"]').count()) === 1, JSON.stringify(ownChair));
+await p.evaluate(() => window.__ahdusStore.getState().selectObject(null));
+if (!(await p.locator('[data-seat-without-desk="3"]').count())) await p.locator('[data-seats-banner] .seats-banner__toggle').click(); // still open from step 6?
+await p.locator('[data-seat-without-desk="3"]').getByRole('button', { name: 'Remove' }).click();
+await until(() => !api.seats.some((s) => s.deskId === 'obj_chair_3'));
+await p.waitForSelector('[data-seats-banner]', { state: 'detached', timeout: 15000 }).catch(() => {});
+log('v0.18.9: Remove there takes that seat off the server (DELETE …/seats/obj_chair_3); the list is gone',
+  calls('DELETE', /\/seats\/obj_chair_3$/).length === 1 && (await p.locator('[data-seats-banner]').count()) === 0);
 
 // ── 7. Publishing a draft without a desk someone sits at ──
 await select(p, 'obj_desk_3'); // Asha's

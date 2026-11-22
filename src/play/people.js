@@ -142,6 +142,59 @@ export function deskSeat(desk, objects) {
   return deskSeats(list(objects).filter((o) => o.id === desk.id || floorOf(o) === floorOf(desk))).get(desk.id) ?? null;
 }
 
+// ── v0.18.9: chairs as seats ──
+
+/** Chairs a person can be given (as the AHDUS server's seats.is_chair): every CHAIR* type and the lounge chair. */
+export const isSeatChair = (type) => isChair(type) || type === 'LOUNGE_CHAIR';
+
+const byId = (objects, id) => (Array.isArray(objects) ? objects.find((o) => o?.id === id) : objects?.[id]) ?? null;
+const ownChairs = (seats) => new Map([...seats].map(([deskId, chair]) => [chair.id, deskId]));
+
+/**
+ * What kind of seat an item is: 'desk'; 'chair' (a chair on its own: a seat of its own); 'desk-chair' (a desk's
+ * own chair, deskSeats: its desk's person sits there, it is no seat of its own); null (not a seat).
+ * @param {object | null} obj
+ * @param {object[] | Record<string, object>} objects
+ * @param {Map<string, object> | null} [seats]  deskSeats(objects), to save the search
+ */
+export function seatKind(obj, objects, seats = null) {
+  if (!obj) return null;
+  if (isDesk(obj.assetType)) return 'desk';
+  if (!isSeatChair(obj.assetType)) return null;
+  const own = ownChairs(seats ?? deskSeats(objects));
+  return own.has(obj.id) ? 'desk-chair' : 'chair';
+}
+
+/** The seat an id stands for: a desk or a chair on its own = itself; a desk's own chair = its desk; else null. */
+export function seatTarget(seatId, objects, seats = null) {
+  const obj = byId(objects, seatId);
+  if (!obj) return null;
+  if (isDesk(obj.assetType)) return obj.id;
+  if (!isSeatChair(obj.assetType)) return null;
+  return ownChairs(seats ?? deskSeats(objects)).get(obj.id) ?? obj.id;
+}
+
+/**
+ * The people who are drawn in this layout, one per seat and one seat per person (the first entry wins): those
+ * at a desk or on a chair on its own. Someone given a desk's own chair is not drawn there: that chair shows its
+ * desk's person (never two people on one seat); Studio lists them under "People without a desk". Entries whose
+ * seat is not in the layout are left out; the entries themselves are kept as given.
+ * @template {{ personId: any, deskId: any }} P
+ * @param {P[]} people
+ * @param {object[] | Record<string, object>} objects
+ * @param {Map<string, object> | null} [seats]  deskSeats(objects)
+ * @returns {P[]}
+ */
+export function seatedAt(people, objects, seats = null) {
+  const pairs = seats ?? deskSeats(objects);
+  const own = ownChairs(pairs);
+  return uniqueSeats((Array.isArray(people) ? people : []).filter((p) => {
+    if (!p || p.deskId == null) return false;
+    const obj = byId(objects, String(p.deskId)) ?? byId(objects, p.deskId);
+    return !!obj && (isDesk(obj.assetType) || (isSeatChair(obj.assetType) && !own.has(obj.id)));
+  }));
+}
+
 /**
  * Where a person at this desk is, in world space: seated on its chair, else
  * standing on its work side (where a chair would be, turned with the desk),
@@ -158,6 +211,16 @@ export function deskSeat(desk, objects) {
 export function seatPose(deskId, objects, floors, seats = null) {
   const all = Array.isArray(objects) ? null : objects;
   const desk = all ? all[deskId] : list(objects).find((o) => o.id === deskId);
+  if (desk && isSeatChair(desk.assetType)) {
+    // v0.18.9: a chair on its own = seated on it; a desk's own chair = that desk's place
+    const owner = ownChairs(seats ?? deskSeats(objects)).get(desk.id);
+    if (owner) return seatPose(owner, objects, floors, seats);
+    return {
+      deskId: desk.id, chairId: desk.id, seated: true, floor: floorOf(desk),
+      x: desk.x, y: elevationOf(floors, floorOf(desk)) + (desk.y ?? 0), z: desk.z, yaw: desk.rotationY ?? 0,
+      seatHeight: SEAT_HEIGHT * Math.abs(desk.scaleY ?? 1),
+    };
+  }
   if (!desk || !isDesk(desk.assetType)) return null;
   const floor = floorOf(desk);
   const chair = seats ? seats.get(deskId) ?? null : deskSeat(desk, objects);

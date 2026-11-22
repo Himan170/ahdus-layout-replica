@@ -75,7 +75,7 @@ export function createGroupActions({ editor, getState, carriedWith = () => [], m
     selection,
 
     /** Move the group by (dx, dz) metres (arrow keys). */
-    move(dx, dz, { label, mergeKey } = {}) {
+    move(dx, dz, { label, mergeKey, sweep = false } = {}) {
       const ids = selection();
       const cabin = cabinOf(ids);
       if (cabin) {
@@ -86,7 +86,7 @@ export function createGroupActions({ editor, getState, carriedWith = () => [], m
       }
       const { items, locked } = members(ids);
       if (!items.length) { message(lockedNote(locked.length) ?? 'Nothing to move', true); return false; }
-      editor.moveObjects(withRooms(groupMoves(items, dx, dz)), { label: label ?? `Move ${plural(ids.length)}`, mergeKey });
+      editor.moveObjects(withRooms(groupMoves(items, dx, dz)), { label: label ?? `Move ${plural(ids.length)}`, mergeKey, sweep });
       if (locked.length) message(lockedNote(locked.length), true);
       return true;
     },

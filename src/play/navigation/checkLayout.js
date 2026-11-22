@@ -37,6 +37,7 @@ import { prefabById } from '../../catalog/manifest';
 import { narrowAisles, AISLE_MIN, metres } from '../aisles';
 import { liftProblems } from '../lifts';
 import { cabinFixes, isCabin } from '../cabinDoor';
+import { insideWalls } from '../wallClear';
 
 const list = (v) => (Array.isArray(v) ? v : Object.values(v ?? {}));
 const floorOf = (r) => r.floor ?? r.floorId ?? 0;
@@ -288,18 +289,18 @@ export function checkLayout(layout, options = {}) {
       }
     }
 
-    // in a wall: a room's wall, or a wall drawn with the Wall tool
-    const walls = [
-      ...wallObstacles(here).map((w) => ({ ...w, name: roomName(here.find((r) => r.id === w.roomId)) })),
-      ...all.filter((o) => o.assetType === 'WALL_SEGMENT').flatMap((o) => fp(o).map((r) => ({ ...r, name: null }))),
-    ];
-    for (const item of furniture) {
-      if (WALL_HUNG.has(item.assetType)) continue;
-      const rects = fp(item);
-      const wall = walls.find((w) => rects.some((r) => !far(r, w) && rectsOverlap(r, w, OVERLAP_TOLERANCE * 2)));
-      if (!wall) continue;
-      add(CHECK_KINDS.ITEM_IN_WALL, 'warning',
-        `${itemName(item)} stands in ${wall.name ? `a wall of ${wall.name}` : 'a wall'}`, [item.id], id, { objectId: item.id });
+    // v0.18.9: inside a wall (play/wallClear.js, the rule Studio keeps to): a room's wall, a glass wall, a wall drawn
+    // with the Wall tool, a glass partition; heights count (under a door's opening is no wall). A wall item hung on
+    // its wall is not in it; one off its wall has its own warning below. Move out: flush, on its own room's side.
+    let hung = null; // the floor's wall pieces, made only when a wall item is in a wall
+    for (const { item, wall, to } of insideWalls(here, all, id, { catalog })) {
+      if (isWallItem(item.assetType) && !isOnWall(item, (hung ??= wallPieces(here, all)), { catalog })) continue;
+      const owner = wall.roomId ? here.find((r) => r.id === wall.roomId) : null;
+      const where = owner ? `a wall of ${roomName(owner)}` : 'a wall';
+      add(CHECK_KINDS.ITEM_IN_WALL, 'warning', `${itemName(item)} is inside ${where}`, [item.id], id, {
+        objectId: item.id,
+        ...(to && !item.isLocked ? { fix: { moves: [[item.id, { x: to.x, z: to.z }]], label: 'Move out' } } : {}),
+      });
     }
 
     // a wall item (play/wallMount.js) that doesn't hang on a wall: on the floor, or off its wall (v0.15.6)

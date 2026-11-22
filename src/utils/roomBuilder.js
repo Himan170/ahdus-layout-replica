@@ -491,17 +491,24 @@ export function disposeRoomMesh(rootNode) {
  * shared walls if it is the neighbour they are shared with.
  * @param {string|null} selectedRoomId
  * @param {string} [color]  the selected room's colour
+ * @param {{ roomId: string, color?: string } | null} [hover]  v0.18.9: the room under the mouse (a lighter outline)
  */
-export function setRoomSelected(rootNode, selectedRoomId, color = '#6c8cff') {
+export function setRoomSelected(rootNode, selectedRoomId, color = '#6c8cff', hover = null) {
   if (!rootNode) return;
   const outline = Color3.FromHexString(color);
   const own = selectedRoomId != null && rootNode.metadata?.roomId === selectedRoomId;
+  // v0.18.9: the room under the mouse (Studio): a thinner, lighter outline; the selection's wins
+  const hoverId = hover?.roomId ?? null;
+  const hoverOwn = hoverId != null && rootNode.metadata?.roomId === hoverId;
+  const hoverColor = hoverId != null ? Color3.FromHexString(hover.color ?? '#93c5fd') : null;
   for (const child of rootNode.getChildMeshes(false)) {
     const { part, sharedWith } = child.metadata ?? {};
     if (part === 'wall' || part === 'floor') {
-      child.renderOutline = own || (selectedRoomId != null && sharedWith === selectedRoomId);
-      child.outlineColor = outline;
-      child.outlineWidth = 0.04;
+      const selected = own || (selectedRoomId != null && sharedWith === selectedRoomId);
+      const hovered = !selected && (hoverOwn || (hoverId != null && sharedWith === hoverId));
+      child.renderOutline = selected || hovered;
+      child.outlineColor = hovered ? hoverColor : outline;
+      child.outlineWidth = hovered ? 0.03 : 0.05;
     }
   }
 }

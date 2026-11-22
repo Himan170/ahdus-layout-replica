@@ -104,9 +104,11 @@ describe('seatPose', () => {
     expect(Math.sin(pose.yaw)).toBeCloseTo(1); // facing +X: over the counter
   });
 
-  it('is null for an unknown id or something that is not a desk', () => {
+  it('is null for an unknown id or something that is not a seat', () => {
     expect(seatPose('nope', [desk('d', 0, 0)], floors)).toBeNull();
-    expect(seatPose('c', [chair('c', 0, 0, 0)], floors)).toBeNull();
+    expect(seatPose('p', [{ id: 'p', assetType: 'PLANT_LARGE', x: 0, z: 0 }], floors)).toBeNull();
+    // v0.18.9: a chair on its own is a seat (chairSeats.test.js)
+    expect(seatPose('c', [chair('c', 0, 0, 0)], floors)).toMatchObject({ deskId: 'c', chairId: 'c', seated: true });
   });
 });
 

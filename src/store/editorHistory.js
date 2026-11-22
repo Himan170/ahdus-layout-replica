@@ -26,6 +26,8 @@ import { lockedText, allowedRoomPatch, allowedItemPatch } from '../play/locks';
 import { normaliseLayout } from './layoutData';
 import { LIFT_TYPE, LIFT_DOOR, planLiftStops, liftFollow, liftOfRoom } from '../play/lifts';
 import { planRoomTurn } from '../play/geometry';
+import { floorWallBoxes, clearOfWalls, isWallFree, NO_ROOM_TEXT } from '../play/wallClear';
+import { ASSET_TYPES } from '../utils/assetCatalog';
 import { v4 as uuidv4 } from 'uuid';
 import { CommandHistory } from '../engine/commands/CommandHistory';
 import {
@@ -272,6 +274,8 @@ export function inputTime() {
  * @param {{ now?: () => number, workspace?: object }} [options]  now: input clock (tests pass a fake one);
  *   workspace: the store to edit (default the app's; a LayoutEngine passes its own)
  */
+const r3 = (v) => Math.round(v * 1000) / 1000;
+
 export function createEditorHistory(onChange, { now = inputTime, workspace = useWorkspaceStore, onProblem } = {}) {
   const store = () => workspace.getState();
   /** A change refused here (v0.18.3: a lift shaft on another floor can't follow): the caller's message line. */
@@ -295,12 +299,62 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
   const s = workspace === useWorkspaceStore ? zustandLayoutStore : layoutStoreFor(workspace);
   const run = (cmd) => history.execute(cmd);
 
+  /**
+   * v0.18.9: furniture never in a wall (play/wallClear.js). Items moved, turned, resized or added together (one
+   * item, a desk with its chair and what stands on it, a group, a paste) are pushed out of any wall as ONE, to the
+   * side they came from (`from`: their old middle; null = the side their middle is on), so they end flush with
+   * its face. Returns the items' new x / z, or `{ problem }` when they don't fit there at all.
+   * @param {object[]} items  the items as they would be (store shape, ids may be new)
+   * @param {{ x: number, z: number } | null} from
+   * @returns {{ dx: number, dz: number } | { problem: string }}
+   */
+  const keepOutOfWalls = (items, from, sweep = null) => {
+    const solid = items.filter((o) => o && !isWallFree(o, ASSET_TYPES));
+    if (!solid.length) return { dx: 0, dz: 0 };
+    const st = store();
+    const floor = solid[0].floor ?? 0;
+    const moving = new Set(items.map((o) => o.id));
+    const walls = floorWallBoxes(st.rooms, st.objects, floor, { catalog: ASSET_TYPES, ignore: moving });
+    const res = clearOfWalls(solid, walls, { catalog: ASSET_TYPES, from, sweep });
+    return res.ok ? { dx: res.dx, dz: res.dz } : { problem: NO_ROOM_TEXT };
+  };
+  const GEOMETRY = ['x', 'z', 'y', 'rotationY', 'scaleX', 'scaleY', 'scaleZ'];
+  const middle = (list) => (list.length
+    ? { x: list.reduce((t, o) => t + (Number(o.x) || 0), 0) / list.length, z: list.reduce((t, o) => t + (Number(o.z) || 0), 0) / list.length }
+    : null);
+  /** [id, patch] moves of existing items, pushed out of the walls together; null = refused (it said why). */
+  const clearMoves = (moves, { sweep = false } = {}) => {
+    const touched = moves.filter(([id, patch]) => s.getObject(id) && GEOMETRY.some((k) => k in patch && patch[k] !== s.getObject(id)[k]));
+    if (!touched.length) return moves;
+    const before = moves.map(([id]) => s.getObject(id)).filter(Boolean);
+    const after = moves.map(([id, patch]) => (s.getObject(id) ? { ...s.getObject(id), ...patch } : null)).filter(Boolean);
+    // sweep (an arrow key): the step the moved item made; a wall on its way stops it there
+    const first = before[0] && after[0];
+    const step = sweep && first ? { dx: (after[0].x ?? 0) - (before[0].x ?? 0), dz: (after[0].z ?? 0) - (before[0].z ?? 0) } : null;
+    const res = keepOutOfWalls(after, middle(before), step);
+    if (res.problem) { refuse(res.problem); return null; }
+    if (!res.dx && !res.dz) return moves;
+    return moves.map(([id, patch]) => {
+      const o = s.getObject(id);
+      return o ? [id, { ...patch, x: r3((patch.x ?? o.x) + res.dx), z: r3((patch.z ?? o.z) + res.dz) }] : [id, patch];
+    });
+  };
+  /** New items (placed, pasted, copied) pushed out of the walls together; null = refused. */
+  const clearNew = (list, from = null) => {
+    const res = keepOutOfWalls(list, from);
+    if (res.problem) { refuse(res.problem); return null; }
+    if (!res.dx && !res.dz) return list;
+    return list.map((o) => ({ ...o, x: r3((Number(o.x) || 0) + res.dx), z: r3((Number(o.z) || 0) + res.dz) }));
+  };
+
   const api = {
     history,
 
     // ── Objects ──
     addObject(data) {
-      run(new AddObjectCommand(s, data));
+      const [placed] = clearNew([data]) ?? [];
+      if (!placed) return;
+      run(new AddObjectCommand(s, placed));
     },
     deleteObject(id) {
       if (!s.getObject(id)) return;
@@ -324,7 +378,9 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
       // Skip no-op updates so they don't create empty undo steps
       const changed = Object.keys(allowed).some((k) => obj[k] !== allowed[k]);
       if (!changed) return;
-      run(new TransformCommand(s, id, allowed, options));
+      const cleared = clearMoves([[id, allowed]]);
+      if (!cleared) return;
+      run(new TransformCommand(s, id, cleared[0][1], options));
     },
     duplicateObject(id) {
       const obj = s.getObject(id);
@@ -336,12 +392,14 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
         rest.metadata = { ...rest.metadata };
         delete rest.metadata.group;
       }
-      run(new AddObjectCommand(s, {
+      const [copy] = clearNew([{
         ...rest,
         x: obj.x + 1.0,
         z: obj.z + 1.0,
         label: obj.label ? `${obj.label} (copy)` : '',
-      }));
+      }], { x: obj.x, z: obj.z }) ?? []; // v0.18.9: pushed to the original's side of a wall
+      if (!copy) return;
+      run(new AddObjectCommand(s, copy));
     },
     /**
      * Move several items as ONE undo step: an item dragged in Studio with what
@@ -349,10 +407,13 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
      * @param {[string, object][]} moves  [objectId, patch]
      * @param {{label?: string, mergeKey?: string}} [options]  mergeKey: a burst on the same items (typing) = one step
      */
-    moveObjects(moves, { label = 'Move items', mergeKey } = {}) {
+    moveObjects(moves, { label = 'Move items', mergeKey, sweep = false } = {}) {
       const cmds = [];
       const ids = [];
-      for (const [id, patch] of moves) {
+      const free = moves.filter(([id]) => s.getObject(id) && !s.getObject(id).isLocked);
+      const cleared = clearMoves(free, { sweep });
+      if (!cleared) return;
+      for (const [id, patch] of cleared) {
         const obj = s.getObject(id);
         if (!obj || obj.isLocked) continue;
         const allowed = obj.assetType === 'STAIRCASE' ? stairPatch(patch) : patch;
@@ -373,8 +434,12 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
      * @param {{label?: string}} [options]
      */
     replaceObjects(removeIds, addList, { label = 'Change items' } = {}) {
-      const removes = removeIds.filter((id) => s.getObject(id)).map((id) => new DeleteObjectCommand(s, id));
-      const adds = addList.map((data) => new AddObjectCommand(s, data));
+      const removed = removeIds.map((id) => s.getObject(id)).filter(Boolean);
+      // v0.18.9: what is added (a paste, a copy, a cluster rebuilt) is pushed out of the walls as one
+      const list = addList.length ? clearNew(addList, middle(removed.filter((o) => !isWallFree(o, ASSET_TYPES)))) : addList;
+      if (!list) return { problem: NO_ROOM_TEXT };
+      const removes = removed.map((o) => new DeleteObjectCommand(s, o.id));
+      const adds = list.map((data) => new AddObjectCommand(s, data));
       if (removes.length + adds.length === 0) return;
       const cmd = new CompositeCommand(label, [...removes, ...adds]);
       run(cmd);
@@ -387,7 +452,10 @@ export function createEditorHistory(onChange, { now = inputTime, workspace = use
     placePrefab({ room = null, objects = [], label = 'Add workstations' }) {
       const cmds = [];
       if (room) cmds.push(new AddRoomCommand(s, room));
-      for (const data of objects) cmds.push(new AddObjectCommand(s, data));
+      // v0.18.9: a cluster dropped by a wall is pushed out of it as one (a cabin brings its own room: as it is)
+      const items = room ? objects : clearNew(objects);
+      if (!items) return;
+      for (const data of items) cmds.push(new AddObjectCommand(s, data));
       if (!cmds.length) return;
       run(new CompositeCommand(label, cmds));
     },

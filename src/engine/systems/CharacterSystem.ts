@@ -56,7 +56,7 @@ import '@babylonjs/core/Meshes/thinInstanceMesh';
 
 import {
   deskSeats, seatPose, personNear, chooseFullCharacters, canonicalBoneName, boneKey, SEATED_POSE, STANDING_POSE,
-  SEAT_HEIGHT, HIPS_ABOVE_SEAT, HIPS_BEHIND_SEAT, breathing, phaseOf, MAX_FULL_CHARACTERS, MAX_ANIMATED, workClip, uniqueSeats,
+  SEAT_HEIGHT, HIPS_ABOVE_SEAT, HIPS_BEHIND_SEAT, breathing, phaseOf, MAX_FULL_CHARACTERS, MAX_ANIMATED, workClip, uniqueSeats, seatedAt,
 } from '../../play/people';
 import { levelForY } from '../../play/building';
 import { cleanClothing, outfitLook, partName } from '../../play/outfit';
@@ -501,7 +501,8 @@ export class CharacterSystem {
     const seats = deskSeats(objects);
     const before = new Map(this.placed.map((x) => [x.personId, x]));
     this.placed = [];
-    for (const person of this.people) {
+    // v0.18.9: at a desk or on a chair on its own; a desk's own chair shows its desk's person (never two)
+    for (const person of seatedAt(this.people, objects, seats) as Person[]) {
       const pose = seatPose(person.deskId, objects, floors, seats);
       if (pose) this.placed.push({ ...person, ...pose });
     }

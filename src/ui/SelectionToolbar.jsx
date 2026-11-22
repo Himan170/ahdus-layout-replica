@@ -13,6 +13,9 @@ import { useEffect, useRef } from 'react';
 import { Move, RotateCw, Copy, Trash2 } from 'lucide-react';
 import { projectBox } from './projection';
 import { selectionSpot } from './selectionSpot';
+import { selectionLabel } from './selectionLabel';
+import { ASSET_TYPES } from '../utils/assetCatalog';
+import { ROOM_TYPES } from '../utils/roomStore';
 
 const ICON = { size: 18, strokeWidth: 1.75 };
 const FAST = 14;         // px per frame: the view is moving fast → hide
@@ -99,9 +102,20 @@ export default function SelectionToolbar({
 
   const isRoom = kind === 'room';
   const locked = isRoom ? !!room?.isLocked : !!object?.isLocked;
+  // v0.18.9: the bar starts with what is selected ("Office Chair", "Team office · Office"), as text only
+  const { name, type } = selectionLabel({ object: isRoom ? null : object, room: isRoom ? room : null, catalog: ASSET_TYPES, roomTypes: ROOM_TYPES });
   return (
     <div className="selection-toolbar is-labelled" ref={ref} data-hidden="true" role="toolbar"
       aria-label={isRoom ? 'Room actions' : 'Item actions'}>
+      {name && (
+        <>
+          <span className="selection-toolbar__name" data-selection-name={isRoom ? 'room' : 'item'} title={type ? `${name} · ${type}` : name}>
+            <strong>{name}</strong>
+            {type && <span className="selection-toolbar__type">{type}</span>}
+          </span>
+          <span className="selection-toolbar__sep" aria-hidden />
+        </>
+      )}
       <ToolButton label="Move" text="Move" icon={Move}
         title={locked ? 'Unlock it first to move it' : (isRoom ? "Move: drag the room's floor" : 'Move: drag it, or show the arrows (W)')}
         pressed={!isRoom && gizmoMode === 'position'} disabled={locked}

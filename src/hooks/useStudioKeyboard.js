@@ -201,7 +201,7 @@ export function useStudioKeyboard({
               : snapRef.current?.enabled && snapRef.current?.step > 0 ? snapRef.current.step : 0.25;
             const gx = e.key === 'ArrowLeft' ? -gStep : e.key === 'ArrowRight' ? gStep : 0;
             const gz = e.key === 'ArrowUp' ? -gStep : e.key === 'ArrowDown' ? gStep : 0;
-            if (groupActions.move(gx, gz, { label: 'Move items (keyboard)' })) {
+            if (groupActions.move(gx, gz, { label: 'Move items (keyboard)', sweep: true })) {
               setAnnounceText(`Moved ${store.selectedObjectIds.length} items`);
             }
             break;
@@ -234,7 +234,7 @@ export function useStudioKeyboard({
           // with what it takes along (a desk: its chair and its monitor), one undo step
           const patch = { x: newX, z: newZ, roomId: findRoomAt(Object.values(store.rooms), newX, newZ, obj.floor ?? 0)?.id ?? null };
           // v0.18.8: stairs within 0.5 m of a wall go flush (never back against the key; Alt: fine steps, no snap)
-          if (!plannerToolsRef.current?.moveItem(store.selectedObjectId, patch, { label: 'Move item (keyboard)', snapStairs: !e.altKey })) {
+          if (!plannerToolsRef.current?.moveItem(store.selectedObjectId, patch, { label: 'Move item (keyboard)', snapStairs: !e.altKey, sweep: true })) {
             editor.updateObject(store.selectedObjectId, patch, { label: 'Move item (keyboard)' });
           }
           setAnnounceText(`Moved ${obj.label || obj.assetType} to X ${newX}, Z ${newZ}`);
