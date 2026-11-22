@@ -242,6 +242,7 @@ export const WALK_HELP_MORE: [string, string][] = [
   ['F', 'Fly (Space up, C down, F lands)'],
   ['V', 'First / third person'],
   ['Home', 'Back to the entrance'],
+  ['U', 'Get unstuck: to free floor nearby'],
   ['G', 'Walk on along a route'],
   ['P', 'Pause / resume the tour'],
   ['Double-click or L', 'Mouse look (Esc releases)'],

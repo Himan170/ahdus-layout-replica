@@ -40,6 +40,7 @@ const CONTROLS = [
   ['N', 'New floor above (copy the rooms below, or empty)'],
   ['Page Up / Down', 'Go to the floor above / below'],
   ['Home', 'Back to the entrance'],
+  ['U', 'Get unstuck: to free floor nearby'],
   ['2 + / −', 'Stretch: raise or lower the walls'],
   ['Ctrl+Z', 'Undo'],
   ['Tab', 'Back to Studio'],

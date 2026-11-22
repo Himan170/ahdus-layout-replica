@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1862, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1895, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -118,6 +118,13 @@ npm run e2e:room-edges # 20 checks e2e/room-edges-smoke.mjs (v0.18.7: a selected
                      #                                       drag = that wall only (the opposite stays) + its length at the edge,
                      #                                       one Ctrl+Z, a click = type the length (6.4, 6.65 exactly), an overlap
                      #                                       refused with why, Esc, the hints, no handles on a locked room)
+npm run e2e:stuck    # 41 checks  e2e/stuck-smoke.mjs     (v0.18.8, Himan's two reports rebuilt: PART=studio: an L dragged into the
+                     #                                       corner / one arrow key = flush; PART=table: keys (third + first person),
+                     #                                       a stretched + turned table, click-to-walk, landing, spawning: never
+                     #                                       inside, a seat still reached; PART=gap (GAP=0.2 default, try 0.4): the
+                     #                                       strips beside the L never entered, never stuck, forced in / under the
+                     #                                       stairs / a desk ring: out (U, the 1 s net), U on open floor stays;
+                     #                                       SHOTS=<dir>: screenshots)
 npm run e2e:perf     # 33 checks   e2e/perf-smoke.mjs (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
                      #                                       and in viewer.html with the company tour walking / at a stop (TOUR=off skips it);
                      #                                       one room change rebuilds only it + its neighbours; all items
@@ -2158,6 +2165,24 @@ Step v0.13.2 of private-docs/NAVIGATION_PLAN.md (4.3, 5.2): `route.js` + the `?d
 and the walk map fixes routes needed (upper floors under walls, `ITEM_CLEARANCE`, `isClear`, `passages`, 5 more
 `MODEL_SIZES`). Screenshots (Meridian, entrance → a desk on Floor 1): private-docs/screenshots/v0.13.2/ (not in git).
 Search followed as v0.13.3 (below).
+
+## DONE: stairs against walls, never stuck (v0.18.8, 22 Nov 2026, branch `fix/v0.18.8-stuck-and-walkthrough`)
+
+Himan's two live-site reports, reproduced first (`e2e:stuck`, screenshots in private-docs/screenshots/v0.18.8/
+before / after). PURE `play/navigation/thinGaps.js`: `thinGaps` (strips < `THIN_GAP` 0.75 m between stairs / a solid
+quarter-turned item and a wall (room faces, nested rooms, WALL_SEGMENTs) or each other in a room; stair ends, chairs
+(`isSeatLike`), touching (`TOUCH`) and a door beside the strip don't count), `floorBlockers` + `bodyPushOut` (the body
+out of every solid item's `itemFootprints` box, chairs too, and out of a strip by its open end: real models' faces
+were missed by `moveWithCollisions`). Walk map step 4b: strip cells BLOCKED (`thinGaps: false` off).
+`building.stairPushOut({ isOpen })`: inside a flight, out by a side with free floor (`openSide`), never into a wall.
+playController: `keepOutOfFurniture` in `stepUp` (every substep and at rest), **U** = `getUnstuck` (`unstuckSpot`:
+`nearestFree` FREE ≤ 6 m in the same `findRoomAt` room; on FREE floor only out of a closed-in pocket,
+`entrance.freePocket` < `POCKET_AREA` 3 m²), the safety net (`STUCK_AFTER` 1 s pressing, < `STUCK_MOVED` 0.25 m net,
+the spot ≥ `STUCK_FAR` 0.15 m away). Studio: `stairFit.snapStairToWall` (`STAIR_WALL_SNAP` 0.5 m on `stairBox`, the
+real outline; sides only; `motion` never pulls back against the move) in `plannerTools.moveItem(…, { snapStairs })`
+(arrows, gizmo, R, Stairs shape; typed X / Z not), the drag, placing (placement manager `setGuideSink`), Plan view's
+`planDrop`; Alt = none. Check: `THIN_GAP` (stairs only, a warning, key `THIN_GAP:<id>`), Fix it = "Snap to wall"
+(the button says so) when the stairs work at least as well there. First for v0.18.9: private-docs/V0.18.9_PLAN.md.
 
 ## DONE: the rest of the Astra audit (v0.18.7, 22 Nov 2026, branch `fix/v0.18.7-audit-rest`)
 
