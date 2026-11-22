@@ -44,7 +44,7 @@ export default function LayoutCheckPanel({ checks, floors, inspectorOpen, onSele
     className={`check-row is-${p.severity}`}>
     <button className="check-message" onClick={() => onSelect(p)}>{p.message}</button>
     {p.fix && onFix && <button className="ui-btn is-primary check-fix" data-check-fix onClick={() => onFix(p)} title={p.fix.label}>
-      <Wrench size={14} aria-hidden /> Fix it</button>}
+      <Wrench size={14} aria-hidden /> {p.kind === 'THIN_GAP' ? p.fix.label : 'Fix it'}</button>}
     <button className="ui-btn" onClick={() => ignore(p, !hidden)} data-check-ignore>{hidden ? 'Show again' : 'Ignore'}</button>
     {asking === p.key && <div className="check-confirm" role="alertdialog" aria-label="Ignore this problem?" data-check-confirm>
       <p>{IGNORE_WALKING_TEXT}</p>

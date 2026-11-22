@@ -314,58 +314,86 @@ export function stairProblems(stair, floors, rooms, { objects = [], catalog } = 
   return stairFit(stair, { floors, rooms, objects }, { catalog }).problems;
 }
 
-/** How near a side of a staircase snaps flush to a wall while it is placed (m): more than half Studio's 0.5 m grid. */
-export const STAIR_WALL_SNAP = 0.35;
+/**
+ * How near (m) a side of a staircase snaps flush to a wall when it is placed, dragged, moved by the arrow keys or the
+ * move arrows, or turned (v0.18.8: 0.5, was 0.35; Himan's L stood 0.2–0.3 m off two walls). Hold Alt for none.
+ */
+export const STAIR_WALL_SNAP = 0.5;
+
+/** The axis-aligned box around a staircase as drawn and walked (an L: both arms, never the straight 1.2 × 4 m one). */
+export function stairBox(stair) {
+  return stairRects(stair).map(boxOf).reduce((a, b) => ({
+    x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), z0: Math.min(a.z0, b.z0), z1: Math.max(a.z1, b.z1),
+  }));
+}
+
+const quarterTurned = (rot) => Math.abs((rot ?? 0) - Math.round((rot ?? 0) / (Math.PI / 2)) * (Math.PI / 2)) <= 1e-3;
 
 /**
- * v0.18.6 (audit 4a): a staircase being placed: a SIDE of its flight (never an end: those need STAIR_CLEAR of
- * floor) within `tolerance` of a wall's face goes flush against it, before Studio's grid. The walls: its room's
- * inner faces (its wall thickness counted) and the outer faces of the rooms inside that room. Only for stairs
- * turned in quarter turns. → { x, z, snapped: { x, z } } (an axis snapped: leave it off the grid).
+ * v0.18.6 (audit 4a), v0.18.8: a SIDE of a staircase (never an end: those need STAIR_CLEAR of floor) within
+ * `tolerance` of a wall's face goes flush against it: no overlap, no gap. The walls: its room's inner faces (its wall
+ * thickness counted), the outer faces of the rooms inside that room, and Wall-tool walls (`objects`' WALL_SEGMENTs,
+ * their size from `catalog`)
+ * along X / Z. Its outline is its real one (stairRects: an L's two arms, the landing's outer sides included). Only for
+ * stairs turned in quarter turns.
+ *   motion: { x, z } of the move that brought it here (the arrow keys, the move arrows): an axis it moved along
+ *           only snaps further the same way, never back (moving stairs AWAY from a wall leaves them there).
+ * → { x, z, snapped: { x, z }, guides: [{ ax, az, bx, bz, kind: 'wall' }] } (dragSnap's guide lines along the faces).
  */
-export function snapStairToWall(stair, rooms, { tolerance = STAIR_WALL_SNAP } = {}) {
-  const none = { x: stair.x, z: stair.z, snapped: { x: false, z: false } };
-  const rot = stair.rotationY ?? 0;
-  const quarter = Math.PI / 2;
-  if (Math.abs(rot - Math.round(rot / quarter) * quarter) > 1e-3) return none;
+export function snapStairToWall(stair, rooms, { tolerance = STAIR_WALL_SNAP, motion = null, objects = [], catalog = {} } = {}) {
+  const none = { x: stair.x, z: stair.z, snapped: { x: false, z: false }, guides: [] };
+  if (!quarterTurned(stair.rotationY)) return none;
   const f = floorOf(stair);
   const here = list(rooms).filter((r) => floorOf(r) === f);
   const host = stairRoomAt(here, stair.x, stair.z);
   if (!host) return none;
-  const box = stairRects(stair).map(boxOf).reduce((a, b) => ({
-    x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), z0: Math.min(a.z0, b.z0), z1: Math.max(a.z1, b.z1),
-  }));
+  const box = stairBox(stair);
   const ends = stairEnds(stair);
   const isEnd = (axis, v) => [ends.bottom, ends.top].some((e) => Math.abs(e[axis] - v) < 0.02);
   const inner = innerBox(host);
-  const inside = here.filter((r) => holds(host, r));
+  // what stands in its room: the rooms inside it (grown by half their wall) and Wall-tool walls, as boxes
+  const solids = here.filter((r) => holds(host, r)).map((r) => grow(roomRect(r), wallThicknessOf(r) / 2));
+  for (const o of list(objects)) {
+    if (o?.assetType !== 'WALL_SEGMENT' || floorOf(o) !== f || !quarterTurned(o.rotationY)) continue;
+    for (const r of itemFootprints(o, catalog)) {
+      const b = boxOf(r);
+      if (overlapsBox(b, inner, 0)) solids.push(b);
+    }
+  }
   const best = (axis) => {
     const lo = axis === 'x' ? 'x0' : 'z0';
     const hi = axis === 'x' ? 'x1' : 'z1';
     const across = axis === 'x' ? ['z0', 'z1'] : ['x0', 'x1'];
+    const way = Math.sign(motion?.[axis] ?? 0);
     let move = null;
-    const offer = (d) => { if (Math.abs(d) <= tolerance + 1e-9 && (move === null || Math.abs(d) < Math.abs(move))) move = d; };
+    const offer = (d, at, from, to) => {
+      if (Math.abs(d) > tolerance + 1e-9) return;
+      if (way !== 0 && Math.abs(d) > 1e-6 && Math.sign(d) !== way) return; // never back against the move
+      if (move === null || Math.abs(d) < Math.abs(move.d)) move = { d, at, from, to };
+    };
+    const beside = (g) => g[across[0]] < box[across[1]] && g[across[1]] > box[across[0]];
     if (!isEnd(axis, box[lo])) {
-      offer(inner[lo] - box[lo]);
-      for (const r of inside) {
-        const g = grow(roomRect(r), wallThicknessOf(r) / 2);
-        if (g[across[0]] < box[across[1]] && g[across[1]] > box[across[0]] && g[hi] <= box[lo] + tolerance) offer(g[hi] - box[lo]);
-      }
+      offer(inner[lo] - box[lo], inner[lo], inner[across[0]], inner[across[1]]);
+      for (const g of solids) if (beside(g) && g[hi] <= box[lo] + tolerance) offer(g[hi] - box[lo], g[hi], g[across[0]], g[across[1]]);
     }
     if (!isEnd(axis, box[hi])) {
-      offer(inner[hi] - box[hi]);
-      for (const r of inside) {
-        const g = grow(roomRect(r), wallThicknessOf(r) / 2);
-        if (g[across[0]] < box[across[1]] && g[across[1]] > box[across[0]] && g[lo] >= box[hi] - tolerance) offer(g[lo] - box[hi]);
-      }
+      offer(inner[hi] - box[hi], inner[hi], inner[across[0]], inner[across[1]]);
+      for (const g of solids) if (beside(g) && g[lo] >= box[hi] - tolerance) offer(g[lo] - box[hi], g[lo], g[across[0]], g[across[1]]);
     }
     return move;
   };
-  const dx = best('x');
-  const dz = best('z');
+  const mx = best('x');
+  const mz = best('z');
+  const guides = [];
+  // the guide runs along the face, over the length of the stairs (and 0.4 m past them, within the wall)
+  const span = (from, to, a, b) => [Math.max(from, a - 0.4), Math.min(to, b + 0.4)];
+  if (mx) { const [a, b] = span(mx.from, mx.to, box.z0 + (mz?.d ?? 0), box.z1 + (mz?.d ?? 0)); guides.push({ ax: r3(mx.at), az: r3(a), bx: r3(mx.at), bz: r3(b), kind: 'wall' }); }
+  if (mz) { const [a, b] = span(mz.from, mz.to, box.x0 + (mx?.d ?? 0), box.x1 + (mx?.d ?? 0)); guides.push({ ax: r3(a), az: r3(mz.at), bx: r3(b), bz: r3(mz.at), kind: 'wall' }); }
   return {
-    x: dx === null ? stair.x : r3(stair.x + dx), z: dz === null ? stair.z : r3(stair.z + dz),
-    snapped: { x: dx !== null, z: dz !== null },
+    x: mx ? r3(stair.x + mx.d) : stair.x,
+    z: mz ? r3(stair.z + mz.d) : stair.z,
+    snapped: { x: !!mx, z: !!mz },
+    guides,
   };
 }
 

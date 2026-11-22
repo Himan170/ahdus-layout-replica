@@ -21,7 +21,7 @@ import {
   elevationOf, floorBelow,
   floorPosition, steepStairsText, floorHeight, roomLook,
 } from '../play/building';
-import { stairFit, findStairSpot, stairRoomAt } from '../play/stairFit';
+import { stairFit, findStairSpot, stairRoomAt, snapStairToWall } from '../play/stairFit';
 import { isAltDown } from '../utils/altKey';
 
 // Phase 3 utilities
@@ -311,6 +311,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       if (!stairFit(stair, store, { catalog: ASSET_TYPES }).ok) {
         const spot = findStairSpot(stair, store, { catalog: ASSET_TYPES });
         if (spot) {
+          // v0.18.8: and flush to a wall near that spot when they still work there (no thin strip beside them)
+          const flush = snapStairToWall({ ...stair, x: spot.x, z: spot.z }, Object.values(store.rooms),
+            { objects: Object.values(store.objects).filter((o) => o.floor === store.currentFloor), catalog: ASSET_TYPES });
+          if ((flush.snapped.x || flush.snapped.z) && stairFit({ ...stair, x: flush.x, z: flush.z }, store, { catalog: ASSET_TYPES }).ok) {
+            spot.x = flush.x; spot.z = flush.z;
+          }
           result = { ...result, x: spot.x, z: spot.z };
           roomId = spot.roomId ?? roomId;
           moved = true;
@@ -748,8 +754,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
    * Move / turn an item with what it takes along (a desk: its chair and what stands on it), ONE undo
    * step (plannerTools.moveItem → editor.moveObjects). Before the scene is up: the item alone.
    */
-  const moveItemCarrying = useCallback((id, patch, { label, mergeKey } = {}) => {
-    if (plannerToolsRef.current?.moveItem(id, patch, { label, mergeKey })) return;
+  const moveItemCarrying = useCallback((id, patch, { label, mergeKey, snapStairs } = {}) => {
+    if (plannerToolsRef.current?.moveItem(id, patch, { label, mergeKey, snapStairs })) return;
     editor.updateObject(id, patch, { label, mergeKey });
   }, [editor]);
 
@@ -776,7 +782,8 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     if (!obj) return;
     const name = obj.label || ASSET_TYPES[obj.assetType]?.label || 'Item';
     if (obj.isLocked) { showStudioMessage(`${name} is locked. Select it and press L`, true); return; }
-    moveItemCarrying(id, { rotationY: (obj.rotationY ?? 0) + turnStep(fine) }, { label: `Turn ${name}` });
+    // v0.18.8: stairs turned near a wall go flush against it (snapStairs: only stairs, sides within 0.5 m)
+    moveItemCarrying(id, { rotationY: (obj.rotationY ?? 0) + turnStep(fine) }, { label: `Turn ${name}`, snapStairs: !isAltDown() });
     showStudioMessage(`Turned ${name} ${turnText(fine)}. ${fine ? '' : 'Shift+R turns 15°. '}Ctrl+Z to undo.`);
   }, [moveItemCarrying, showStudioMessage]);
 
@@ -1102,7 +1109,13 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       return;
     }
     if ('x' in patch || 'z' in patch || 'rotationY' in patch) {
+      // typed X / Z / angle: exactly what was typed (never snapped)
       moveItemCarrying(id, patch, { label: 'Edit properties', mergeKey: 'inspector-move' });
+      return;
+    }
+    if (obj?.assetType === 'STAIRCASE' && 'metadata' in patch) {
+      // v0.18.8: a new shape (straight ↔ L) is a new outline: a side within 0.5 m of a wall goes flush, one undo step
+      moveItemCarrying(id, patch, { label: 'Stairs shape', snapStairs: !isAltDown() });
       return;
     }
     editor.updateObject(id, patch, { mergeKey: 'inspector', label: 'Edit properties' });

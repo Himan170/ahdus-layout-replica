@@ -511,7 +511,7 @@ export function stairOpenings(stair, dims = stairSize(stair), margin = 0.05) {
  * stairPushOut for an L (v0.18.3): each arm is a solid block up to its steps. `y` = feet over the stair's
  * floor. The way out (world dx, dz), or null.
  */
-function lPushOut(s, dims, { x, z, y, rooms, floors, radius }) {
+function lPushOut(s, dims, { x, z, y, rooms, floors, radius, isOpen }) {
   const { lx, lz } = toStairLocal(s, x, z);
   let nowhere = null;
   for (const b of stairBlocks(s, dims)) {
@@ -534,7 +534,7 @@ function lPushOut(s, dims, { x, z, y, rooms, floors, radius }) {
       const sides = [
         [b.x1 - lx, 1, 0], [lx - b.x0, -1, 0], [b.z1 - lz, 0, 1], [lz - b.z0, 0, -1],
       ].filter(([, sx, sz]) => nowhere || !startSide(b, sx, sz));
-      const out = sides.sort((p, q) => p[0] - q[0])[0];
+      const out = openSide(s, lx, lz, sides, radius, isOpen);
       ox = out[1] * (out[0] + radius);
       oz = out[2] * (out[0] + radius);
     }
@@ -542,6 +542,22 @@ function lPushOut(s, dims, { x, z, y, rooms, floors, radius }) {
     return { dx: ox * Math.cos(r) + oz * Math.sin(r), dz: oz * Math.cos(r) - ox * Math.sin(r), nowhere };
   }
   return null;
+}
+
+/**
+ * v0.18.8: out of a flight's block by the nearest side with free floor beyond it (`isOpen(x, z)`: the walk map), so
+ * under the stairs next to a wall you go out into the room, not into the wall (stuck: Himan's L, 0.2 m off a wall).
+ * No `isOpen` or no open side: the nearest, as before. sides: [[distance, sx, sz]] in the flight's own frame.
+ */
+function openSide(s, lx, lz, sides, radius, isOpen) {
+  const sorted = [...sides].sort((p, q) => p[0] - q[0]);
+  if (!isOpen) return sorted[0];
+  const beyond = radius + 0.1; // past the body's clearance of the flight (walk map: 0.34 m)
+  for (const side of sorted) {
+    const w = stairWorld(s, lx + side[1] * (side[0] + beyond), lz + side[2] * (side[0] + beyond));
+    if (isOpen(w.x, w.z)) return side;
+  }
+  return sorted[0];
 }
 
 /** Is this side of a block (its outward normal sx, sz) the one where it starts, where you step on? */
@@ -656,13 +672,13 @@ export function stairTop(stair, dims = stairSize(stair)) {
  * Stairs that lead nowhere (`stairNeedsRoomAbove`, given `rooms`) are a block all round, the bottom
  * step too: `nowhere: true` in the answer (the walker says why: STAIRS_LEAD_NOWHERE).
  */
-export function stairPushOut({ x, z, y, floors, rooms = null, stairs = [], radius = 0.32, bodyHeight = 1.8 }) {
+export function stairPushOut({ x, z, y, floors, rooms = null, stairs = [], radius = 0.32, bodyHeight = 1.8, isOpen = null }) {
   for (const s of stairs) {
     const base = elevationOf(floors, s.floor ?? 0);
     if (y + bodyHeight <= base) continue; // underneath it, on the floor below
     const dims = stairDimsFor(floors, s);
     if (stairShape(s) !== 'straight') {
-      const out = lPushOut(s, dims, { x, z, y: y - base, rooms, floors, radius });
+      const out = lPushOut(s, dims, { x, z, y: y - base, rooms, floors, radius, isOpen });
       if (out) return out;
       continue;
     }
@@ -691,11 +707,12 @@ export function stairPushOut({ x, z, y, floors, rooms = null, stairs = [], radiu
       ox = out[1] * (out[0] + radius);
       oz = out[2] * (out[0] + radius);
     } else {
-      // inside the block (put there, or fallen in): out by the nearest side or end, never up the steps
-      const toSide = hw - Math.abs(lx);
-      const toTop = hl - lz;
-      if (toSide <= toTop) { ox = Math.sign(lx || 1) * (toSide + radius); oz = 0; }
-      else { ox = 0; oz = toTop + radius; }
+      // inside the block (put there, or fallen in): out by the nearest side or end with free floor beyond it
+      // (v0.18.8: never into a wall), never up the steps
+      const side = Math.sign(lx || 1);
+      const out = openSide(s, lx, lz, [[hw - Math.abs(lx), side, 0], [hw + Math.abs(lx), -side, 0], [hl - lz, 0, 1]], radius, isOpen);
+      ox = out[1] * (out[0] + radius);
+      oz = out[2] * (out[0] + radius);
     }
     const r = s.rotationY ?? 0;
     return { dx: ox * Math.cos(r) + oz * Math.sin(r), dz: oz * Math.cos(r) - ox * Math.sin(r), nowhere };

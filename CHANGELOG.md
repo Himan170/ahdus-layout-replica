@@ -3,6 +3,34 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.18.8 (22 Nov 2026): stairs against walls, never stuck in walk through
+
+Two cases Himan reported on the live site (v0.18.7), reproduced first (`npm run e2e:stuck`, a test layout made
+to match his screenshots), then fixed. Nothing new is saved in a layout, and no saved stairs move by themselves.
+- **The avatar never stands inside a table** (or a desk, a cabinet, any blocking item, chairs too: walk past them,
+  not through). The real table models let the body walk 2 m into them from the ends and corners (Babylon's
+  collisions missed their faces). Walking now keeps the body out of every solid item's box as drawn (scaled and
+  turned) every step and while standing still: keys in first and third person, click-to-walk, landing after flying,
+  spawning. Click-to-walk still reaches a seat behind its chair.
+- **Thin gaps:** a strip beside stairs or furniture narrower than a person (0.75 m) is blocked for the keys and
+  click-to-walk; put into one (an old save, a landing), you are pushed out of its open end.
+- **Under the stairs:** the floor under a flight is walked out of by the side with free floor, never into the wall
+  (forward and back were both blocked there).
+- **Get unstuck:** press **U** to go to the nearest free floor of the same room, on the same floor (never through a
+  wall or to another floor). The same happens by itself when you press a direction for 1 s and move less than
+  0.25 m where the body doesn't fit (a strip, a pocket closed in by desks). On open floor U says you are not stuck.
+- **Stairs snap flush to a wall** within 0.5 m, by their real outline (an L is 3.2 × 3.2 m, not the straight flight's
+  1.2 × 4 m), with the orange guide line: placing them, dragging, the move arrows, the arrow keys, R and the
+  Inspector's Stairs shape. To leave a gap on purpose: Alt while dragging (no snap), arrow keys moving away from a
+  wall are never pulled back, typed X / Z are never snapped.
+- **Check my layout:** "Thin gap next to Stairs - people can get stuck. Push it to the wall or leave at least
+  0.75 m." A warning only (it never blocks saving or publishing; Ignore keeps it hidden). **Snap to wall** puts the
+  stairs flush, one undo step. Only stairs: chairs never count, and other furniture that close to a wall is a choice.
+- Tests: `play/navigation/__tests__/thinGaps.test.js` (+ the real layout, read from private-docs at run time and
+  skipped without it), `stairFit.test.js` (the snap), `npm run e2e:stuck`.
+- Found, not fixed (first item of v0.18.9): in Studio's 2D view, dragging an item that is not selected yet makes it
+  jump.
+
 ## 0.18.7 (22 Nov 2026): the rest of the outside audit
 
 The audit items v0.18.6 left (`private-docs/V0.18.7_PLAN.md`), each with a test that failed before the fix. Nothing

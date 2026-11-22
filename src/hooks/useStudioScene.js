@@ -30,6 +30,7 @@ import { findRoomAt } from '../play/geometry';
 import { createFloorOutline } from '../utils/floorOutline';
 import { createPlacementManager } from '../utils/placementManager';
 import { createGizmoController } from '../utils/gizmoController';
+import { isAltDown } from '../utils/altKey';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { createPerformanceMonitor } from '../utils/performanceOptimiser';
 import { createPlayController } from '../play/playController';
@@ -348,6 +349,7 @@ export function useStudioScene({
       onMessage: (text, bad) => showStudioMessage(text, bad),
     });
     plannerToolsRef.current = plannerTools;
+    placementMgr.setGuideSink((g) => plannerTools.showGuides(g)); // v0.18.8: stairs placed against a wall
     const floorOutline = createFloorOutline(scene);
     floorOutlineRef.current = floorOutline;
 
@@ -363,7 +365,8 @@ export function useStudioScene({
       const room = findRoomAt(Object.values(st.rooms), transform.x, transform.z, floor);
       const patch = { ...transform, y: transform.y - elev, roomId: room?.id ?? null };
       // a desk takes its chair and what stands on it along (one undo step)
-      if (!plannerToolsRef.current?.moveItem(objectId, patch, { label: 'Move / rotate / scale' })) {
+      // v0.18.8: stairs moved by the arrows within 0.5 m of a wall go flush (Alt held: exactly there)
+      if (!plannerToolsRef.current?.moveItem(objectId, patch, { label: 'Move / rotate / scale', snapStairs: !isAltDown() })) {
         editor.updateObject(objectId, patch, { label: 'Move / rotate / scale' });
       }
     }, (objectId, at) => {

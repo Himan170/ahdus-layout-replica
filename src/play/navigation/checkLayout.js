@@ -22,7 +22,8 @@
 
 import { roomOpenings, openingCentre, wallThicknessOf } from '../geometry';
 import { floorsInOrder, FLOOR_LIKE_TYPES } from '../building';
-import { stairFit, stairSpots, findItemSpot } from '../stairFit';
+import { stairFit, stairSpots, findItemSpot, snapStairToWall } from '../stairFit';
+import { thinGaps, THIN_GAP } from './thinGaps';
 import { rectsOverlap, reachOf, farApart, distanceTo, boxOf } from '../turnedRect';
 import { deskSeat, isDesk } from '../people';
 import {
@@ -55,6 +56,7 @@ export const CHECK_KINDS = {
   STAIRS: 'STAIRS',
   WALL_ITEM_OFF_WALL: 'WALL_ITEM_OFF_WALL', // v0.15.6: a TV, a clock… that doesn't hang on a wall
   AISLE_NARROW: 'AISLE_NARROW', // v0.18.0: less than 0.9 m beside a workstation cluster or desk row
+  THIN_GAP: 'THIN_GAP', // v0.18.8: a strip beside stairs narrower than THIN_GAP (0.75 m): people get stuck
   LIFT: 'LIFT', // v0.18.3: a lift that skips a floor, a floor no lift stops at (code LIFT_GAP / LIFT_FLOOR_NOT_SERVED)
 };
 
@@ -390,6 +392,34 @@ export function checkLayout(layout, options = {}) {
     add(CHECK_KINDS.AISLE_NARROW, 'warning', a.message, a.ids, a.floor, { objectId: a.objectId, gap: a.gap, sides: a.sides, groups: a.groups });
   }
 
+  // ── 6c. Thin gaps beside stairs (v0.18.8, thinGaps.js): a strip between a staircase and a wall or an item too
+  // narrow to walk, where people walking off the flight get stuck. One line per staircase (its narrowest strip).
+  // Only stairs: a desk or a cabinet that close to a wall is a choice (walking keeps people out of that strip
+  // anyway), and chairs never count. Fix it = Snap to wall (one undo step) when a strip is against a wall ──
+  for (const id of floorIds) {
+    const worst = new Map(); // stairs id → { first: its narrowest gap, wall: it has a strip against a wall, others }
+    for (const g of thinGaps(safe, id, { catalog })) {
+      const side = g.a.kind === 'stairs' ? g.a : g.b.kind === 'stairs' ? g.b : null;
+      if (!side) continue;
+      const other = side === g.a ? g.b : g.a;
+      if (!worst.has(side.id)) worst.set(side.id, { first: g, wall: false, others: new Set() });
+      const w = worst.get(side.id);
+      if (g.gap < w.first.gap) w.first = g;
+      if (other.kind === 'wall') w.wall = true;
+      else if (other.id) w.others.add(other.id);
+    }
+    for (const [objectId, w] of worst) {
+      const obj = objects.find((o) => o.id === objectId);
+      const name = String(obj?.label ?? '').trim() || 'Stairs';
+      add(CHECK_KINDS.THIN_GAP, 'warning',
+        `Thin gap next to ${name} - people can get stuck. Push it to the wall or leave at least ${THIN_GAP} m.`,
+        [objectId], id, { objectId, gap: w.first.gap, others: [...w.others] });
+      if (options.fixes === false || !obj || obj.isLocked || !w.wall) continue;
+      const fix = snapToWallFix(obj, safe, { catalog, rooms });
+      if (fix) problems[problems.length - 1].fix = fix;
+    }
+  }
+
   // ── 7. Stairs (play/stairFit.js: the same words as the Inspector). Stairs nobody can use are errors ──
   for (const stair of objects) {
     if (stair.assetType !== 'STAIRCASE') continue;
@@ -431,6 +461,24 @@ export function checkLayout(layout, options = {}) {
   unique.sort((a, b) => (order.get(a.floorId) ?? 0) - (order.get(b.floorId) ?? 0) ||
     SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.message.localeCompare(b.message));
   return { problems: unique, ms: now() - t0 };
+}
+
+// ── Snap to wall (v0.18.8) ───────────────────────────────────────────────
+
+/**
+ * Fix it for a thin gap between stairs and a wall: the stairs flush with the wall by snapStairToWall (their real
+ * outline, the same snap as Studio: in a corner both strips close), only when they work at least as well there.
+ * @returns {{ moves: [string, { x, z }][], label: 'Snap to wall' } | null}
+ */
+function snapToWallFix(stair, layout, { catalog, rooms }) {
+  const objects = list(layout.objects);
+  const f = floorOf(stair);
+  const sw = snapStairToWall(stair, rooms, { tolerance: THIN_GAP, objects: objects.filter((o) => floorOf(o) === f), catalog });
+  if (!sw.snapped.x && !sw.snapped.z) return null;
+  const moved = { ...stair, x: sw.x, z: sw.z };
+  const withMoved = { ...layout, objects: objects.map((o) => (o.id === moved.id ? moved : o)) };
+  if (stairFit(moved, withMoved, { catalog }).problems.length > stairFit(stair, layout, { catalog }).problems.length) return null;
+  return { moves: [[stair.id, { x: sw.x, z: sw.z }]], label: 'Snap to wall' };
 }
 
 // ── Fix it (v0.17.4) ─────────────────────────────────────────────────────
