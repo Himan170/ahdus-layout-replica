@@ -139,7 +139,7 @@ describe('wallClear (v0.18.9): furniture never in a wall', () => {
     expect(WALL_TOLERANCE).toBeLessThan(0.01);
   });
 
-  it('insideWalls: less than 3 cm into a wall is not listed (touching, an older layout's lamp)', () => {
+  it("insideWalls: less than 3 cm into a wall is not listed (touching, an older layout's lamp)", () => {
     // the cabinet's west side 2.5 cm past the room's west wall face, then 4 cm
     const at = (d) => item('c', 'FILING_CABINET', FACE_W + 0.23 - d, 0, { roomId: 'office' });
     expect(IN_WALL_WARN).toBe(0.03);
