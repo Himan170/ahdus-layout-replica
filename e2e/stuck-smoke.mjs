@@ -289,7 +289,7 @@ async function tablePart() {
     const end = await pos();
     const into = o.worst[id] ?? -Infinity;
     const chairInto = Math.max(...chairs.map((c) => o.worst[c.id] ?? -Infinity));
-    if (shotName && !shotTaken && into > ALLOWED) await shot(shotName);
+    if (shotName && !shotTaken) await shot(shotName); // never inside: the shot where it stopped (the "after")
     log(`${view} person, keys: ${name}: the body never overlaps the table`, into <= ALLOWED,
       `${into > -Infinity ? `${f2(into)} m into it at ${JSON.stringify(o.at[id])}` : 'never near it'}; end (${f2(end.x)}, ${f2(end.z)}) floor ${end.floor}; chairs: ${f2(chairInto)} m`);
     return into;
