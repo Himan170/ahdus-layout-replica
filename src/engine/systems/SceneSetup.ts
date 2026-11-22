@@ -12,6 +12,8 @@ import { Scene } from '@babylonjs/core/scene';
 import { Color4 } from '@babylonjs/core/Maths/math.color';
 import { Camera } from '@babylonjs/core/Cameras/camera';
 import { MAX_PIXEL_RATIO } from '../../play/quality';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { keepOrthoView } from '../../utils/orthoResize';
 import type { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 // Side-effect imports: Babylon tree-shakes aggressively
 import '@babylonjs/core/Meshes/meshBuilder';
@@ -100,13 +102,29 @@ export function createLayoutScene(canvas: HTMLCanvasElement, options: LayoutScen
   // in Preview). Otherwise Babylon keeps rendering at the old size and the
   // picture is stretched, so the crosshair no longer matches the aim.
   const onResize = () => {
+    const w0 = engine.getRenderWidth();
+    const h0 = engine.getRenderHeight();
     engine.resize();
-    // 2D view: keep the picture's proportions when the canvas changes size
-    // (an Inspector opening or closing must not stretch it)
+    // 2D view: keep the picture's scale and its left / top edges when the canvas changes size (v0.18.9:
+    // an Inspector opening must neither stretch it nor slide the floor under the mouse; utils/orthoResize)
     if (camera.mode === Camera.ORTHOGRAPHIC_CAMERA && camera.orthoTop) {
-      const aspect = engine.getAspectRatio(camera);
-      camera.orthoLeft = -camera.orthoTop * aspect;
-      camera.orthoRight = camera.orthoTop * aspect;
+      const k = keepOrthoView(camera as never, w0, h0, engine.getRenderWidth(), engine.getRenderHeight());
+      if (k) {
+        camera.orthoLeft = -k.halfW;
+        camera.orthoRight = k.halfW;
+        camera.orthoTop = k.halfH;
+        camera.orthoBottom = -k.halfH;
+        if (k.shiftX || k.shiftY) {
+          camera.computeWorldMatrix();
+          const right = camera.getDirection(new Vector3(1, 0, 0));
+          const up = camera.getDirection(new Vector3(0, 1, 0));
+          camera.target.addInPlace(right.scale(k.shiftX).addInPlace(up.scale(k.shiftY)));
+        }
+      } else {
+        const aspect = engine.getAspectRatio(camera);
+        camera.orthoLeft = -camera.orthoTop * aspect;
+        camera.orthoRight = camera.orthoTop * aspect;
+      }
     }
   };
   window.addEventListener('resize', onResize);

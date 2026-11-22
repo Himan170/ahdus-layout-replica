@@ -178,10 +178,10 @@ export function createPlannerTools(scene, canvas, {
    * high over the floor instead (a wall item is dragged at its own height: the floor behind its wall is
    * further away and would move it too fast).
    */
-  function groundPoint(lift = 0) {
+  function groundPoint(lift = 0, at = null) {
     const camera = getCamera();
     if (!camera) return null;
-    const ray = scene.createPickingRay(scene.pointerX, scene.pointerY, Matrix.Identity(), camera);
+    const ray = scene.createPickingRay(at?.x ?? scene.pointerX, at?.y ?? scene.pointerY, Matrix.Identity(), camera);
     if (Math.abs(ray.direction.y) < 1e-4) return null;
     const t = (elev() + FLOOR_Y + lift - ray.origin.y) / ray.direction.y;
     if (t < 0) return null;
@@ -478,6 +478,12 @@ export function createPlannerTools(scene, canvas, {
   function updateItemDrag() {
     const obj = st().objects[drag.objectId];
     if (!obj || !getObjectMesh(drag.objectId)) { cancelDrag(); return null; }
+    if (drag.pressAt && drag.view !== viewKey()) {
+      // the view changed since the press: the same press point is another floor point now (no jump)
+      const again = groundPoint(drag.lift ?? 0, drag.pressAt);
+      if (again) drag.start = again;
+      drag.view = viewKey();
+    }
     const p = groundPoint(drag.lift ?? 0);
     if (!p) return lastDragHint();
     if (drag.wallItem) {
@@ -1135,7 +1141,19 @@ export function createPlannerTools(scene, canvas, {
 
   // A room's floor pressed: it moves once the mouse travels more than
   // CLICK_SLOP px with the button down. Meanwhile the camera stays still.
+  /** v0.18.9: what the view shows now (the canvas' size and the camera): a drag re-anchors when it changes. */
+  function viewKey() {
+    const c = getCamera();
+    if (!c) return '';
+    const e = scene.getEngine();
+    return [e.getRenderWidth(), e.getRenderHeight(), c.orthoLeft ?? 0, c.orthoTop ?? 0, c.position.x, c.position.y, c.position.z]
+      .map((v) => Math.round(v * 1000)).join();
+  }
+
   function armMove(d) {
+    // v0.18.9: the press's screen point and view, so an item drag can take its start again if the view changes
+    // under it (the press selects the item, the Inspector opens, the canvas narrows)
+    if (d.kind === 'item') { d.pressAt = { x: scene.pointerX, y: scene.pointerY }; d.view = viewKey(); }
     pendingMove = { drag: d, x: scene.pointerX, y: scene.pointerY };
     getCamera()?.detachControl();
     capturePointer();
