@@ -3,6 +3,42 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.18.9 (22 Nov 2026): furniture never in walls, a clear selection, people on chairs
+
+Himan's reports, each reproduced first (an e2e step that failed, `npm run e2e:walls-select` and e2e:seats, with a
+made-up test layout). Nothing new is saved in a layout, and no saved layout moves by itself.
+- **2D drag jump (from v0.18.8):** dragging an item that was not selected yet in Studio's 2D view made it jump
+  several metres: the Inspector opening narrowed the view and slid the whole floor under the mouse. The 2D view now
+  keeps its scale and its left / top edges when the canvas changes size, and a drag re-reads where it was pressed
+  when the view changed under it.
+- **Furniture never inside a wall:** placing, dragging, the move arrows, the arrow keys, R / Shift+R, a bigger
+  size, typed X / Z, Duplicate and paste: an item's real outline (scaled and turned) never overlaps a wall (a room's
+  walls, glass walls, a wall drawn with the Wall tool, a glass partition; wall thickness counted, and the height:
+  under a door's opening is no wall). It stops flush against the wall, on the side it came from. An arrow key
+  never jumps a wall in one step. No room for it there: "A wall is in the way: there is no room for it there".
+  Wall items (whiteboard, TV, shelves…) sit ON the wall's face. Doors, windows, the Wall tool's walls, columns,
+  rugs, markers and stairs may stand in walls.
+- **Check my layout:** "Bookshelf is inside a wall of Board room" (a warning) with **Move out** (flush with the
+  wall on its own room's side, one undo step; Ignore keeps it hidden). Wall items hung right get no warning. The
+  templates and the sample layouts have none.
+- **Ctrl+V at the mouse:** with the mouse over the view, a paste goes to the floor under the mouse even when the
+  selection bar or the room's hover card is under it (it went 0.5 m beside the copy).
+- **A clear selection:** the selected item has a blue outline in 3D and 2D (thicker, lightly tinted), the item or
+  room under the mouse a lighter one, and Plan view marks both the same way (`data-plan-selected`,
+  `data-plan-hover`). The selection bar starts with what is selected: its name and type ("Office Chair", "Team
+  office · Office"). The item being dragged stays outlined.
+- **A click selects what you clicked:** furniture first, then a wall, then the room (`play/pickCycle.js`): a chair,
+  never the room or the wall behind it, even while that room is selected. A second click on the same spot selects
+  the next thing under it (chair → wall → room → chair). Nothing behind a solid wall or under a floor counts.
+- **People on chairs (inside AHDUS):** "Who sits here" on any chair that is not a desk's own chair (office chairs,
+  visitor chairs, lounge chairs), with the same rules as desks: one person per seat, one seat per person, Admin and
+  HR manage, editors only see, and the same "Move them here?" question. They sit on that chair in Studio and Walk
+  through, and Find finds them there. A desk's own chair shows the desk's person; a seat the server has on one is
+  never a second person (it is listed under "People without a desk"). The AHDUS server accepts chairs after its own
+  v0.18.9 update; until then it says why and nobody is seated.
+- **Check my layout on older layouts:** items already standing a little inside a wall now get the warning (with
+  Move out); nothing moves by itself.
+
 ## 0.18.8 (22 Nov 2026): stairs against walls, never stuck in walk through
 
 Two cases Himan reported on the live site (v0.18.7), reproduced first (`npm run e2e:stuck`, a test layout made

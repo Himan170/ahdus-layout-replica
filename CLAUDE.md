@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1895, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1934, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -125,6 +125,12 @@ npm run e2e:stuck    # 41 checks  e2e/stuck-smoke.mjs     (v0.18.8, Himan's two 
                      #                                       strips beside the L never entered, never stuck, forced in / under the
                      #                                       stairs / a desk ring: out (U, the 1 s net), U on open floor stays;
                      #                                       SHOTS=<dir>: screenshots)
+npm run e2e:walls-select # 29   e2e/walls-select-smoke.mjs (v0.18.9, PART=drag | walls | select: the 2D drag of an item not selected
+                     #                                       yet ends under the mouse; furniture never in a wall (drag, arrows, R, the
+                     #                                       library drop, typed X, paste, a glass partition) + Check's Move out; Ctrl+V
+                     #                                       at the mouse; the selection's outline in 3D / 2D, hover, the bar's name +
+                     #                                       type, a click on a chair in a selected room, the second click, Plan view's
+                     #                                       hover; SHOTS=<dir>: screenshots)
 npm run e2e:perf     # 33 checks   e2e/perf-smoke.mjs (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
                      #                                       and in viewer.html with the company tour walking / at a stop (TOUR=off skips it);
                      #                                       one room change rebuilds only it + its neighbours; all items
@@ -199,7 +205,7 @@ npm run e2e:navigation # 22 checks e2e/navigation-smoke.mjs (viewer.html, the Me
                      #                                       v0.17.1: arrived, Kavya on screen + not covered by you (desktop, phone),
                      #                                       W pauses + G, the time, Esc / Stop, free walking, phone; run it
                      #                                       ALONE; SHOTS=<dir>: screenshots + a .webm recording)
-npm run e2e:seats    # 26 checks   e2e/seats-smoke.mjs     (NO dev server: starts its own in AHDUS mode on port 3100,
+npm run e2e:seats    # 34 checks   e2e/seats-smoke.mjs     (NO dev server: starts its own in AHDUS mode on port 3100,
                      #                                       the AHDUS API faked by page.route: "Who sits here",
                      #                                       search, move / replace questions, not in undo, People
                      #                                       without a desk, the Publish warning, editors read-only,
@@ -2183,6 +2189,32 @@ real outline; sides only; `motion` never pulls back against the move) in `planne
 (arrows, gizmo, R, Stairs shape; typed X / Z not), the drag, placing (placement manager `setGuideSink`), Plan view's
 `planDrop`; Alt = none. Check: `THIN_GAP` (stairs only, a warning, key `THIN_GAP:<id>`), Fix it = "Snap to wall"
 (the button says so) when the stairs work at least as well there. First for v0.18.9: private-docs/V0.18.9_PLAN.md.
+
+## DONE: furniture never in walls, a clear selection, people on chairs (v0.18.9, 23 Nov 2026, branch `fix/v0.18.9-walls-selection-chairs`)
+
+Himan's reports, reproduced first (`e2e:walls-select`, `e2e:seats`; screenshots in private-docs/screenshots/v0.18.9/
+reported, before, after; never his layout in the repo). **0. 2D drag jump:** `utils/orthoResize.js` `keepOrthoView`
+(scale + left / top edges kept when the canvas changes size) + `shiftToShow` (SceneSetup `setKeepInView`: the
+selection stays in view). **1. Walls:** PURE `play/wallClear.js`: `clearOfWalls(items, walls, { from, side, sweep })`
+(SAT boxes of the real outline against room walls, glass walls, WALL_SEGMENTs, GLASS_PARTITIONs; pushed along the
+wall's normal to the side it came from, flush; `sweep` = arrow keys in `SWEEP_STEP` 0.02 m slices, the first wall met;
+walls it was already in at the start don't count), `cachedFloorWallBoxes`, `insideWalls`; wall items sit on the face.
+`editorHistory` `keepOutOfWalls` in moveObjects (every move: drag, arrows, R, size, X / Z, Duplicate, paste), the
+drag preview (`plannerTools.wallPush`), the placement ghost. Check's `ITEM_IN_WALL` (insideWalls, a warning) with
+`fix.label` "Move out" (none while locked). Ctrl+V: `ui/canvasHit.pasteOverView` (floating bars count as the view),
+`plannerTools.pointerGround(at)`. **2. Selection:** `ui/selectionLook.js` (SELECTION_COLOR #2563eb, HOVER_COLOR
+#93c5fd), `HighlightSystem.replace(groups)` (only items whose look changes), `RoomSystem.setHoverRoom`
+(`roomBuilder.setRoomSelected(…, hover)`), `plannerTools.hoveredItem()`; Plan view `data-plan-selected` /
+`data-plan-hover` (the badge counts as its item); the selection bar's `.selection-toolbar__name`
+(`ui/selectionLabel.js`; its aria-label stays "Item actions" / "Room actions"). PURE `play/pickCycle.js`:
+`pickCandidates` (items → walls → rooms, nothing past a solid wall / a floor), `nextPick`, `isSameSpot`
+(`SAME_SPOT_PX` 6, `CYCLE_MS` 5 s); studioPointer cycles only while the selection is what the last click there chose.
+**3. Chairs:** `people.isSeatChair` (CHAIR_*, LOUNGE_CHAIR), `seatKind` (desk | chair | desk-chair), `seatTarget`,
+`seatedAt` (one per seat and person; a desk's own chair = its desk's person, a seat on it is not drawn),
+`seatPose` on a chair; CharacterSystem and places.js use seatedAt (Find walks to the front of the chair). Studio:
+`seatFlow.seatKindOf`, `deskOfChair`, `seatsOf`, `shownSeats` (People without a desk = the rest); the Inspector's
+SeatSection on a chair, read only with `ofDesk` on a desk's own chair. The AHDUS server change is a plan only
+(private-docs/V0.18.9_AHDUS_PLAN.md, AHDUS untouched this release).
 
 ## DONE: the rest of the Astra audit (v0.18.7, 22 Nov 2026, branch `fix/v0.18.7-audit-rest`)
 
