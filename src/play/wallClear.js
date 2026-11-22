@@ -218,15 +218,18 @@ export function clearOfWalls(items, walls, { catalog = {}, from = null, side = n
 /** "A wall is in the way": what a refused move / turn / size says. */
 /** The slice a swept step is checked in (m): thinner than any wall (0.1 m). */
 const SWEEP_STEP = 0.02;
+/** Check my layout lists an item in a wall only from this deep (m): touching, or a few cm (an older layout's lamp), is fine. */
+export const IN_WALL_WARN = 0.03;
 
 export const NO_ROOM_TEXT = 'A wall is in the way: there is no room for it there';
 
 /**
  * The items of one floor that stand in a wall now (Check my layout): [{ item, wall, depth, to: { x, z } | null }]
  * (`to`: where Move out puts it, pushed to the side its own room is on, else the side its middle is on).
- * Wall items that hang right are not in a wall (the rule leaves them their 5 mm).
+ * Wall items that hang right are not in a wall (the rule leaves them their 5 mm). Only `tolerance` (IN_WALL_WARN) or
+ * deeper counts. Studio's moves still keep every item flush (clearOfWalls).
  */
-export function insideWalls(rooms, objects, floor, { catalog = {} } = {}) {
+export function insideWalls(rooms, objects, floor, { catalog = {}, tolerance = IN_WALL_WARN } = {}) {
   const walls = floorWallBoxes(rooms, objects, floor, { catalog });
   if (!walls.length) return [];
   const roomById = new Map(list(rooms).map((r) => [r.id, r]));
@@ -234,7 +237,7 @@ export function insideWalls(rooms, objects, floor, { catalog = {} } = {}) {
   for (const item of list(objects)) {
     if (floorOf(item) !== floor || isWallFree(item, catalog)) continue;
     const hit = wallHit(itemRects(item, catalog), walls);
-    if (!hit) continue;
+    if (!hit || hit.depth < tolerance) continue;
     const home = roomById.get(item.roomId);
     const side = home && floorOf(home) === floor
       ? (w) => Math.sign(-w.uz * (home.x - w.cx) + w.ux * (home.z - w.cz)) || 1

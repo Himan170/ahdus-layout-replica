@@ -2198,7 +2198,7 @@ reported, before, after; never his layout in the repo). **0. 2D drag jump:** `ut
 selection stays in view). **1. Walls:** PURE `play/wallClear.js`: `clearOfWalls(items, walls, { from, side, sweep })`
 (SAT boxes of the real outline against room walls, glass walls, WALL_SEGMENTs, GLASS_PARTITIONs; pushed along the
 wall's normal to the side it came from, flush; `sweep` = arrow keys in `SWEEP_STEP` 0.02 m slices, the first wall met;
-walls it was already in at the start don't count), `cachedFloorWallBoxes`, `insideWalls`; wall items sit on the face.
+walls it was already in at the start don't count), `cachedFloorWallBoxes`, `insideWalls` (only from `IN_WALL_WARN` 0.03 m deep: touching or a few cm is not listed); wall items sit on the face.
 `editorHistory` `keepOutOfWalls` in moveObjects (every move: drag, arrows, R, size, X / Z, Duplicate, paste), the
 drag preview (`plannerTools.wallPush`), the placement ghost. Check's `ITEM_IN_WALL` (insideWalls, a warning) with
 `fix.label` "Move out" (none while locked). Ctrl+V: `ui/canvasHit.pasteOverView` (floating bars count as the view),

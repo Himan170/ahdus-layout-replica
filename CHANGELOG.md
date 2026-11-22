@@ -36,8 +36,8 @@ made-up test layout). Nothing new is saved in a layout, and no saved layout move
   through, and Find finds them there. A desk's own chair shows the desk's person; a seat the server has on one is
   never a second person (it is listed under "People without a desk"). The AHDUS server accepts chairs after its own
   v0.18.9 update; until then it says why and nobody is seated.
-- **Check my layout on older layouts:** items already standing a little inside a wall now get the warning (with
-  Move out); nothing moves by itself.
+- **Check my layout on older layouts:** an item standing 3 cm or more inside a wall gets the warning (with Move
+  out); touching a wall, or a few cm into it, does not. Nothing moves by itself.
 
 ## 0.18.8 (22 Nov 2026): stairs against walls, never stuck in walk through
 

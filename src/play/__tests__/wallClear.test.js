@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  floorWallBoxes, itemRects, wallHit, clearOfWalls, insideWalls, isWallFree, WALL_TOLERANCE,
+  floorWallBoxes, itemRects, wallHit, clearOfWalls, insideWalls, isWallFree, WALL_TOLERANCE, IN_WALL_WARN,
 } from '../wallClear';
 import { mountOnWall, wallPieces } from '../wallMount';
 import { ASSET_TYPES } from '../../utils/assetCatalog';
@@ -137,6 +137,19 @@ describe('wallClear (v0.18.9): furniture never in a wall', () => {
     const loose = insideWalls(rooms, [{ ...shelf, roomId: null }], 0, { catalog: C });
     expect(loose[0].to.x - 0.175).toBeCloseTo(5 + T / 2, 2);
     expect(WALL_TOLERANCE).toBeLessThan(0.01);
+  });
+
+  it('insideWalls: less than 3 cm into a wall is not listed (touching, an older layout's lamp)', () => {
+    // the cabinet's west side 2.5 cm past the room's west wall face, then 4 cm
+    const at = (d) => item('c', 'FILING_CABINET', FACE_W + 0.23 - d, 0, { roomId: 'office' });
+    expect(IN_WALL_WARN).toBe(0.03);
+    expect(insideWalls(rooms, [at(0.025)], 0, { catalog: C })).toEqual([]);
+    expect(insideWalls(rooms, [at(0)], 0, { catalog: C })).toEqual([]);
+    const deep = insideWalls(rooms, [at(0.04)], 0, { catalog: C });
+    expect(deep.map((f) => f.item.id)).toEqual(['c']);
+    expect(deep[0].depth).toBeCloseTo(0.04, 3);
+    // asked for any depth: the 2.5 cm one too
+    expect(insideWalls(rooms, [at(0.025)], 0, { catalog: C, tolerance: 0 })).toHaveLength(1);
   });
 
   it('an arrow-key step (sweep) never jumps a wall: a step that would end clear past it stops at it', () => {
