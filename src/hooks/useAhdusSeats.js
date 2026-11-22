@@ -11,6 +11,8 @@
  *   …/seats/{desk}): not in the draft, not in undo, no publish needed. Moving
  *   someone or replacing someone asks first (`confirm`, a dialog in WorkplaceEditor).
  * - "Assign a desk" for someone whose desk is gone: the next desk selected is theirs.
+ * - v0.18.9: a chair on its own is a seat too (its id is the seat's deskId); a desk's own chair shows its desk's
+ *   person only (ui/seatFlow.js seatKindOf). The server says why it refuses one (an older AHDUS: no chairs yet).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -22,7 +24,7 @@ import {
 import { readManifest } from '../embed/characterManifest';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import {
-  seatAccess, isDesk, assignPlan, withSeat, withoutSeat, seatedPeople, seatsWithoutDesk, seatsLosingDesk,
+  seatAccess, seatKindOf, assignPlan, withSeat, withoutSeat, seatedPeople, seatsWithoutDesk, seatsLosingDesk,
   deskLabel,
 } from '../ui/seatFlow';
 import { sentence } from '../ui/publishFlow';
@@ -128,7 +130,8 @@ export function useAhdusSeats({ enabled, objects, toast, phone }) {
   useEffect(() => {
     if (!pickFor || !selectedObjectId) return;
     const desk = live.current.objects.find((o) => o.id === selectedObjectId);
-    if (!desk || !isDesk(desk.assetType)) return;
+    const kind = seatKindOf(desk, live.current.objects); // v0.18.9: a desk or a chair on its own
+    if (kind !== 'desk' && kind !== 'chair') return;
     const person = { id: pickFor.userId, name: pickFor.name };
     setPickFor(null);
     assign(desk.id, person);
@@ -138,7 +141,7 @@ export function useAhdusSeats({ enabled, objects, toast, phone }) {
   const withoutDesk = useMemo(() => seatsWithoutDesk(seats, objects), [seats, objects]);
   const losing = useMemo(() => seatsLosingDesk(seats, objects), [seats, objects]);
   const pickHint = pickFor
-    ? `${phone ? 'Tap' : 'Click'} the desk where ${nameOf(pickFor)} sits · Esc cancels`
+    ? `${phone ? 'Tap' : 'Click'} the desk or chair where ${nameOf(pickFor)} sits · Esc cancels`
     : null;
 
   return {

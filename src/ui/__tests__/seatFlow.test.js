@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isDesk, seatAccess, deskLabel, assignPlan, withSeat, withoutSeat, seatsWithoutDesk, seatsLosingDesk,
-  losingDeskText, seatedPeople,
+  losingDeskText, seatedPeople, seatKindOf, deskOfChair, seatsOf,
 } from '../seatFlow';
 
 const label = (t) => ({ DESK: 'Desk', RECEPTION_DESK: 'Reception Desk' }[t] ?? t);
@@ -136,5 +136,52 @@ describe('seatedPeople (v0.16.0)', () => {
       'https://ahdus.example/frontend/workplace/characters.json');
     const [a] = seatedPeople([{ ...asha, assetReference: 'rocketbox:aisha-v1' }], objects, m);
     expect(a.character.url).toBe('https://ahdus.example/frontend/workplace/aisha-seated.glb');
+  });
+});
+
+describe('chairs (v0.18.9)', () => {
+  // a desk with its own chair in front of it, a chair on its own, an armchair, a plant
+  const room = [
+    { id: 'desk', assetType: 'DESK_STANDARD', floor: 0, x: 0, z: 0, rotationY: 0 },
+    { id: 'own', assetType: 'CHAIR_OFFICE', floor: 0, x: 0, z: 0.7, rotationY: Math.PI },
+    { id: 'free', assetType: 'CHAIR_OFFICE', floor: 0, x: 5, z: 3, rotationY: 0 },
+    { id: 'arm', assetType: 'LOUNGE_CHAIR', floor: 0, x: -5, z: 3, rotationY: 0, label: 'Window seat' },
+    { id: 'plant', assetType: 'PLANT_LARGE', floor: 0, x: 3, z: 3 },
+  ];
+  const typeLabel = (t) => ({ DESK_STANDARD: 'Desk', CHAIR_OFFICE: 'Office Chair', LOUNGE_CHAIR: 'Lounge Chair' }[t] ?? t);
+  const mia = { deskId: 'free', userId: 7, name: 'Mia', department: 'Ops', assetReference: null, hasDesk: true };
+  const asha2 = { ...asha, deskId: 'desk' };
+
+  it('a chair on its own is a seat; a desk\'s own chair is the desk\'s', () => {
+    expect(seatKindOf(room[0], room)).toBe('desk');
+    expect(seatKindOf(room[1], room)).toBe('desk-chair');
+    expect(seatKindOf(room[2], room)).toBe('chair');
+    expect(seatKindOf(room[3], room)).toBe('chair');
+    expect(seatKindOf(room[4], room)).toBeNull();
+    expect(deskOfChair('own', room)).toBe('desk');
+    expect(deskOfChair('free', room)).toBeNull();
+    expect(seatsOf(room).map((o) => o.id)).toEqual(['desk', 'free', 'arm']);
+  });
+
+  it('names: "Office Chair 1", its own name', () => {
+    expect(deskLabel('free', room, typeLabel)).toBe('Office Chair 1');
+    expect(deskLabel('arm', room, typeLabel)).toBe('Window seat');
+    expect(deskLabel('own', room, typeLabel)).toBe('a desk that was removed'); // never a seat of its own
+  });
+
+  it('the same questions as desks', () => {
+    const plan = assignPlan({ seats: [asha2, mia], deskId: 'free', person: { id: 1, name: 'Asha' }, objects: room, typeLabel });
+    expect(plan.kind).toBe('move-replace');
+    expect(plan.question).toBe('Asha already sits at Desk 1. Move them here? This replaces Mia.');
+    const back = assignPlan({ seats: [asha2, mia], deskId: 'desk', person: { id: 7, name: 'Mia' }, objects: room, typeLabel });
+    expect(back.question).toBe('Mia already sits at Office Chair 1. Move them here? This replaces Asha.');
+  });
+
+  it('someone the server has on a desk\'s own chair: the desk\'s person shows, never two; they are listed', () => {
+    const ravi2 = { ...ravi, deskId: 'own' };
+    const shown = seatedPeople([ravi2, asha2, mia], room);
+    expect(shown.map((p) => [p.name, p.deskId])).toEqual([['Asha', 'desk'], ['Mia', 'free']]);
+    expect(seatsWithoutDesk([ravi2, asha2, mia], room).map((s) => s.name)).toEqual(['Ravi']);
+    expect(seatedPeople([ravi2], room)).toEqual([]);
   });
 });

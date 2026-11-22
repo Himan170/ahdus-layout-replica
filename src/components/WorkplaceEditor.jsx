@@ -50,7 +50,7 @@ import { useStudioFileActions } from '../hooks/useStudioFileActions';
 import { useAhdusPublish } from '../hooks/useAhdusPublish';
 import { useAhdusSeats } from '../hooks/useAhdusSeats';
 import SeatsBanner from '../ui/SeatsBanner';
-import { isDesk, seatAtDesk, seatOfPerson, losingDeskText } from '../ui/seatFlow';
+import { seatKindOf, deskOfChair, seatAtDesk, seatOfPerson, losingDeskText } from '../ui/seatFlow';
 import { useLibraryDrop } from '../hooks/useLibraryDrop';
 import { pasteOverView } from '../ui/canvasHit';
 
@@ -1458,7 +1458,15 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       return seat ? `Sits at ${seats.label(seat.deskId)}` : null;
     },
   });
-  const seatPanel = seatPanelFor && selectedObject && isDesk(selectedObject.assetType) ? seatPanelFor(selectedObject.id) : null;
+  // v0.18.9: a desk or a chair on its own; a desk's own chair shows that desk's person, read only
+  const seatPanel = (() => {
+    if (!seatPanelFor || !selectedObject) return null;
+    const kind = seatKindOf(selectedObject, allObjects);
+    if (kind === 'desk' || kind === 'chair') return seatPanelFor(selectedObject.id);
+    if (kind !== 'desk-chair') return null;
+    const deskId = deskOfChair(selectedObject.id, allObjects);
+    return { ...seatPanelFor(deskId), access: 'view', ofDesk: seats.label(deskId) };
+  })();
 
   // Footer hint: a short message after a change, else what the tool says
   // (problems in red, sizes while dragging), else the tool's own hint

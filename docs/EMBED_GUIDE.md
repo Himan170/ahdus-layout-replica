@@ -165,7 +165,9 @@ workplace.setPeople([
 ```
 
 - **A person** = `{ personId, deskId, name, department, assetReference, clothing }`. `deskId` is the desk's item id
-  (`obj_…`, a `DESK_STANDARD`, `DESK_CORNER` or `RECEPTION_DESK`). `clothing` (v0.16.0, optional) is what they chose
+  (`obj_…`, a `DESK_STANDARD`, `DESK_CORNER` or `RECEPTION_DESK`); v0.18.9: or a chair's on its own (any `CHAIR_*`
+  or a `LOUNGE_CHAIR` that is not a desk's own chair): they sit on it. A desk's own chair shows its desk's person, so
+  someone given one is not drawn (never two people on one seat). `clothing` (v0.16.0, optional) is what they chose
   in AHDUS's Wardrobe, as AHDUS saves it: `{ schemaVersion: 1, pantsColor: 'black' | 'blue', upperBody: null |
   'shirt' | 'tshirt', upperColor: '#rrggbb' | null }` (`upperBody` null = Office formal, the suit). Only these fields
   are kept; anything else you pass (an email, a user id) is dropped and never reaches the 3D view. A desk not in the layout is skipped; one desk

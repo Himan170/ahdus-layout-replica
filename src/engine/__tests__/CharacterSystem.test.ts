@@ -35,6 +35,7 @@ const objects = {
   d3: obj('d3', 'DESK_STANDARD', 0, 3),
   c3: obj('c3', 'CHAIR_OFFICE', 0, 3.7, Math.PI),
   d4: obj('d4', 'DESK_STANDARD', 0, 0, 0, 1), // upstairs
+  lc: obj('lc', 'LOUNGE_CHAIR', 8, 6, Math.PI / 2), // v0.18.9: a chair on its own
 };
 
 let engine: NullEngine;
@@ -269,6 +270,19 @@ describe('CharacterSystem', () => {
     // one desk, one person
     cs.setPeople([person('a', 'd1', null), person('b', 'd1', null)]);
     expect(cs.getPlaced().map((p) => p.personId)).toEqual(['a']);
+    cs.dispose();
+  });
+
+  it("v0.18.9: someone on a chair on its own sits on it; a desk's own chair shows the desk's person only", () => {
+    const cs = system();
+    cs.setPeople([person('old', 'c1', null), person('p1', 'd1', null), person('lc', 'lc', null)]);
+    expect(cs.getPlaced().map((p) => [p.personId, p.deskId])).toEqual([['p1', 'd1'], ['lc', 'lc']]);
+    expect(cs.getPlaced()[1]).toMatchObject({ seated: true, chairId: 'lc', x: 8, z: 6, yaw: Math.PI / 2 });
+    expect(cs.personForObject('lc')?.personId).toBe('lc');
+    expect(cs.personForObject('c1')?.personId).toBe('p1');
+    // only someone on the desk's own chair: nobody is drawn there, nothing breaks
+    cs.setPeople([person('old', 'c1', null)]);
+    expect(cs.getPlaced()).toEqual([]);
     cs.dispose();
   });
 

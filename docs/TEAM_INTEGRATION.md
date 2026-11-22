@@ -193,7 +193,11 @@ each character is:
   in undo, no publish needed. Moving someone from another desk, or replacing someone, asks first. "People without
   a desk (N)" lists seats whose desk is not in the layout (Assign a desk / Remove), and Publish warns "N people lose
   their desk". Appointed editors see names only. Studio draws the people at their desks with the manifest at
-  `/frontend/workplace/characters.json`.
+  `/frontend/workplace/characters.json`. **v0.18.9:** a chair on its own (`CHAIR_*`, `LOUNGE_CHAIR`) has "Who sits
+  here" too (same rules; its item id is the seat's `deskId`; the AHDUS server needs its v0.18.9 update to accept
+  it, until then it answers "There is no desk with this id" and Studio shows that). A desk's own chair (the one
+  `people.deskSeats` pairs with it) shows the desk's person, read only; a seat the server has on one is listed
+  under "People without a desk", never drawn as a second person.
 - **Manifest** (AHDUS, e.g. `/frontend/workplace/characters.json`), passed as `characters: { manifestUrl }`:
   version 1 `{ "<asset_reference>": { "url": "<file>.glb", "rig": "mixamo" | "ue", "height": 1.75 } }`, or
   **version 2** (v0.16.0, `docs/EMBED_GUIDE.md` section 4b): `{ "version": 2, "groups", "clips", "neutral",

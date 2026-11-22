@@ -33,7 +33,7 @@
 
 import { floorAbove, floorsInOrder, stairDimsFor } from '../building';
 import { roomOpenings, wallThicknessOf } from '../geometry';
-import { deskSeats, seatPose, isDesk, visitorSpots } from '../people';
+import { deskSeats, seatPose, isDesk, isSeatChair, visitorSpots, seatedAt } from '../people';
 import { stairBottom } from './route';
 import { roomTypeShown } from '../roomNames';
 
@@ -174,7 +174,7 @@ export function roomDepartments(layout, people = []) {
   }
   // who sits in each room without one: their departments, counted by words ("Data & AI" = "data ai")
   const seats = new Map(); // room id → { total, byKey: Map<key, { name, n }> }
-  for (const p of list(people)) {
+  for (const p of seatedAt(list(people), list(layout.objects))) { // v0.18.9: desks and chairs on their own
     if (!p || p.personId == null || p.deskId == null) continue;
     const desk = objectsById.get(String(p.deskId));
     if (!desk) continue;
@@ -293,7 +293,8 @@ export function buildPlaces(layout, people = []) {
 
   // People at their desks: name and department only
   const seats = people?.length ? deskSeats(objects) : null;
-  for (const p of list(people)) {
+  // v0.18.9: at a desk or on a chair on its own (a desk's own chair: its desk's person, never two)
+  for (const p of seatedAt(list(people), objects, seats ?? undefined)) {
     if (!p || p.personId == null || p.deskId == null) continue;
     const desk = objectsById.get(String(p.deskId));
     if (!desk) continue; // their desk is not in this layout
@@ -308,7 +309,7 @@ export function buildPlaces(layout, people = []) {
       detail: joinDetail(dept, [floorName(floor), roomName(room)].filter(Boolean).join(', ')),
       floor, roomId: room?.id ?? null, roomName: roomName(room), department: dept || null, facility: null,
       personId: String(p.personId), deskId: desk.id,
-      entityId: desk.id, highlight: [desk.id, ...(pose?.chairId ? [pose.chairId] : [])],
+      entityId: desk.id, highlight: [desk.id, ...(pose?.chairId && pose.chairId !== desk.id ? [pose.chairId] : [])],
       x: at.x, z: at.z,
       // the walk ends in the room the desk stands in (behind a chair against a wall is through the wall);
       // at a corner desk, at an open side of its L (the nearest by walking)
@@ -329,6 +330,8 @@ export function buildPlaces(layout, people = []) {
  * behind their chair.
  */
 function deskGoals(desk, pose, room) {
+  // v0.18.9: someone on a chair on its own: in front of them, else behind the chair
+  if (isSeatChair(desk.assetType) && pose) return [inFront(pose), behind(pose)];
   const spots = visitorSpots(desk, pose).filter((s) => !s.side || !room || insideBy(room, s, VISITOR_WALL_GAP));
   if (spots.length) return spots.map((s) => ({ x: s.x, z: s.z }));
   return [pose ? behind(pose) : { x: desk.x, z: desk.z }];
@@ -345,6 +348,11 @@ function itemGoalRoom(o, goal, around, rooms, floor) {
 function insideBy(room, p, gap) {
   const t = wallThicknessOf(room) / 2 + gap;
   return Math.abs(p.x - room.x) <= room.width / 2 - t && Math.abs(p.z - room.z) <= room.depth / 2 - t;
+}
+
+/** BEHIND_SEAT in front of someone on a chair on its own (v0.18.9). */
+function inFront(pose) {
+  return { x: pose.x + Math.sin(pose.yaw) * BEHIND_SEAT, z: pose.z + Math.cos(pose.yaw) * BEHIND_SEAT };
 }
 
 /** BEHIND_SEAT behind a seated (or standing) person: facing them from the aisle. */
