@@ -103,6 +103,7 @@ import { layoutBridge } from '../integration/layoutBridge';
 import { lockPointer } from '../utils/pointerLock';
 import { anchorsForObject } from '../integration/anchorsFromStore';
 import { createGroupActions, GROUP_HIGHLIGHT, SEAT_HIGHLIGHT } from '../planner/groupActions';
+import { SELECTION_COLOR, HOVER_COLOR, SELECTION_TINT, SELECTION_OUTLINE } from '../ui/selectionLook';
 import { selectionFor, selectedGroup, groupItems, groupSeats, groupOf, rebuildGroup, ungroupMoves, prefabParams } from '../play/prefab';
 import { prefabById } from '../catalog/manifest';
 import { v4 as uuidv4 } from 'uuid';
@@ -133,6 +134,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     throw new Error('Test crash (window.__ahdusCrashOnOpen is set)');
   }
   const canvasRef = useRef(null);
+  const hoverItemRef = useRef(null); // v0.18.9: (id | null) => void, the item under the mouse (set below)
   const sceneRef = useRef(null);
   const pauseRenderingRef = useRef(null); // layoutScene.pauseRendering: no 3D frames under the Plan view
   const cameraRef = useRef(null);
@@ -380,7 +382,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     isPlayingRef, measureModeRef, measureStartRef, measurementIdRef, fpsRef, fpsDisplayRef,
     plannerMessageTimer, setBuildProgress, setPlayHud, setSelectedSlot, setCatalogOpen, setNewFloorAsk,
     setInteraction, setPositionsVersion, setPlannerHint, setMeasurePreview, setMeasureStart, setMeasurements,
-    setSceneReady, editor, showStudioMessage, placeObject, DEMO_MODULES, pauseRenderingRef, setClickHint,
+    setSceneReady, editor, showStudioMessage, placeObject, DEMO_MODULES, pauseRenderingRef, setClickHint, hoverItemRef,
   });
 
   // ─── Store → scene: meshes, the floor being edited, the gizmo (hooks/useStoreMeshSync.js) ───
@@ -1252,16 +1254,34 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     return { groupId, prefab, members, params: prefabParams(prefab, info.params), seats: groupSeats(members) };
   }, [objectsMap, selectedObjectIds]);
   useEffect(() => { setHoveredSeat(null); }, [cluster?.groupId]);
+  // v0.18.9: the item under the mouse (Select tool) and the room under it, for their lighter outline
+  const [hoveredItem, setHoveredItem] = useState(null);
+  const [hoveredRoom, setHoveredRoom] = useState(null);
+  hoverItemRef.current = setHoveredItem;
   useEffect(() => {
     const lights = groupHighlightRef.current;
     if (!lights) return;
-    lights.clear();
-    if (selectedObjectIds.length < 2 || isPlaying) return;
-    const seatIds = hoveredSeat ? [hoveredSeat.desk.id, hoveredSeat.chair?.id].filter(Boolean) : [];
-    const rest = seatIds.length ? selectedObjectIds.filter((id) => !seatIds.includes(id)) : selectedObjectIds;
-    lights.add(rest, GROUP_HIGHLIGHT, { tint: true });
-    if (seatIds.length) lights.add(seatIds, SEAT_HIGHLIGHT, { tint: true });
-  }, [selectedObjectIds, objectsMap, isPlaying, sceneReady, buildProgress?.allBuilt, hoveredSeat]);
+    if (isPlaying) { lights.replace([]); return; }
+    const groups = [];
+    let lit = [];
+    if (selectedObjectIds.length >= 2) {
+      const seatIds = hoveredSeat ? [hoveredSeat.desk.id, hoveredSeat.chair?.id].filter(Boolean) : [];
+      const rest = seatIds.length ? selectedObjectIds.filter((id) => !seatIds.includes(id)) : selectedObjectIds;
+      groups.push({ ids: rest, color: GROUP_HIGHLIGHT, tint: true });
+      if (seatIds.length) groups.push({ ids: seatIds, color: SEAT_HIGHLIGHT, tint: true });
+      lit = selectedObjectIds;
+    } else if (selectedObjectId) {
+      // v0.18.9: one selected item: an outline and a light tint in the selection blue (3D and 2D), while dragged too
+      groups.push({ ids: [selectedObjectId], color: SELECTION_COLOR, tint: true, alpha: SELECTION_TINT, width: SELECTION_OUTLINE });
+      lit = [selectedObjectId];
+    }
+    if (hoveredItem && !planView && !lit.includes(hoveredItem)) groups.push({ ids: [hoveredItem], color: HOVER_COLOR });
+    lights.replace(groups);
+  }, [selectedObjectIds, selectedObjectId, hoveredItem, planView, objectsMap, isPlaying, sceneReady, buildProgress?.allBuilt, hoveredSeat]);
+  // the room under the mouse: a lighter outline (none while an item is under it; the selected room keeps its own)
+  useEffect(() => {
+    roomSystemRef.current?.setHoverRoom(isPlaying || planView || hoveredItem ? null : hoveredRoom);
+  }, [hoveredRoom, hoveredItem, isPlaying, planView, roomsMap, selectedRoomId]);
   const handleClusterChange = useCallback((changes) => {
     if (!cluster) return;
     if (cluster.members.some((o) => o.isLocked)) { showStudioMessage('Unlock the cluster first (L)', true); return; }
@@ -1846,6 +1866,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
             isBusy={() => measureModeRef.current || !!plannerToolsRef.current?.isDragging() ||
               !!placementManagerRef.current?.isActive()}
             pickPerson={studioPeople?.length ? (x, y) => characterSystemRef.current?.pickPerson(x, y) ?? null : null}
+            onHoverRoom={setHoveredRoom}
           />
           <MeasurementOverlay
             scene={sceneReady}

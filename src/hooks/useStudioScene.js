@@ -38,6 +38,7 @@ import { nextSlot, EMPTY_HAND } from '../play/hotbarItems';
 import { createPlannerTools } from '../planner/plannerTools';
 import { layoutBridge } from '../integration/layoutBridge';
 import { installStudioPointer } from './studioPointer';
+import { SELECTION_COLOR, HOVER_COLOR } from '../ui/selectionLook';
 import { studioWalkMaps } from './studioWalkMaps';
 import { NavigationSystem, STAIRS_ARRIVE_WITHIN } from '../engine/systems/NavigationSystem';
 import { RouteLineSystem } from '../engine/systems/RouteLineSystem';
@@ -53,6 +54,7 @@ export function useStudioScene({
   setBuildProgress, setPlayHud, setSelectedSlot, setCatalogOpen, setNewFloorAsk, setInteraction,
   setPositionsVersion, setPlannerHint, setMeasurePreview, setMeasureStart, setMeasurements, setSceneReady,
   editor, showStudioMessage, placeObject, DEMO_MODULES, pauseRenderingRef, setClickHint,
+  hoverItemRef = null, // v0.18.9: ref to (id | null) => void, the item under the mouse
 }) {
   // ─── Initialise Babylon Engine & Scene ───
   useEffect(() => {
@@ -69,7 +71,8 @@ export function useStudioScene({
     cameraRef.current = camera;
     lightsRef.current = lights;
     siteEnvRef.current = siteEnv;
-    const roomSystem = new RoomSystem(scene, { shadowGenerator: lights.shadowGenerator });
+    // v0.18.9: the selected room outlined in the selection blue, the room under the mouse in a lighter one
+    const roomSystem = new RoomSystem(scene, { shadowGenerator: lights.shadowGenerator, selectionColor: SELECTION_COLOR, hoverColor: HOVER_COLOR });
     roomSystemRef.current = roomSystem;
     const objectSystem = new ObjectSystem(scene, { shadowGenerator: lights.shadowGenerator });
     objectSystemRef.current = objectSystem;
@@ -390,6 +393,7 @@ export function useStudioScene({
       scene, camera, placementMgr, plannerTools,
       isPlayingRef, measureModeRef, measureStartRef, measurementIdRef,
       setMeasurePreview, setMeasureStart, setMeasurements, placeObject, showStudioMessage,
+      onHoverItem: (id) => hoverItemRef?.current?.(id),
     });
 
     // FPS counter (updates DOM directly to avoid React re-renders)

@@ -30,6 +30,7 @@ import {
   ANCHOR_COLORS, ANCHOR_BADGE_SYMBOLS, planViewCentre,
 } from './planMath';
 import { planOutline } from '../play/surfaces';
+import { SELECTION_COLOR, HOVER_COLOR } from '../ui/selectionLook';
 import { EDGE_SIDES, edgeMidpoint, edgeHandleSpot, edgeLength, edgeResize, edgeResizeTo, edgeTargetAt, edgeCoordinate, parseLength, lengthText } from '../play/roomEdges';
 
 /**
@@ -119,6 +120,8 @@ export default function FloorPlanView({
 
   // ── Toggles ──
   const [showDimensions, setShowDimensions] = useState(true);
+  const [hoverItemId, setHoverItemId] = useState(null); // v0.18.9: the item under the mouse (a lighter outline)
+  const [hoverRoomId, setHoverRoomId] = useState(null); // v0.18.9: the room under the mouse (no item there)
   const [showAnchors, setShowAnchors] = useState(true);
   const [showBelow, setShowBelow] = useState(initialPrefs?.below ?? true);
   const [allFloors, setAllFloors] = useState(false);
@@ -692,6 +695,7 @@ export default function FloorPlanView({
           const w = Number(room.width);
           const d = Number(room.depth);
           const selected = room.id === selectedRoomId;
+          const hovered = !selected && !drag && !panDrag && hoverRoomId === room.id;
           const name = room.name || room.type || 'Room';
           return (
             <g
@@ -702,6 +706,10 @@ export default function FloorPlanView({
               tabIndex={0}
               aria-label={`Room: ${name}, ${sizeLabel(w, d)}`}
               aria-pressed={selected}
+              data-plan-selected={selected ? '' : undefined}
+              data-plan-hover={hovered ? '' : undefined}
+              onPointerEnter={(e) => { if (e.pointerType !== 'touch') setHoverRoomId(room.id); }}
+              onPointerLeave={() => setHoverRoomId((h) => (h === room.id ? null : h))}
               onClick={(e) => {
                 e.stopPropagation();
                 if (e.shiftKey) return; // Shift: a box, not the room
@@ -719,8 +727,8 @@ export default function FloorPlanView({
                 height={d}
                 fill={selected ? '#dbeafe' : room.color || '#e2e8f0'}
                 fillOpacity={0.85}
-                stroke={selected ? '#2563eb' : '#cbd5e1'}
-                strokeWidth={selected ? 0.12 : 0.04}
+                stroke={selected ? SELECTION_COLOR : hovered ? HOVER_COLOR : '#cbd5e1'}
+                strokeWidth={selected ? 0.12 : hovered ? 0.08 : 0.04}
                 vectorEffect="non-scaling-stroke"
               />
             </g>
@@ -877,6 +885,7 @@ export default function FloorPlanView({
             : (dropAt?.problem ? null : dropAt) ?? { x: Number(object.x) || 0, z: Number(object.z) || 0 };
           const c = at(pos);
           const selected = object.id === selectedObjectId || inGroup;
+          const hovered = !selected && !drag && !panDrag && hoverItemId === object.id;
           const label = object.label || type.label || object.assetType || 'Item';
           const wall = wallSegmentEnds({ ...object, ...pos });
 
@@ -890,6 +899,10 @@ export default function FloorPlanView({
               aria-label={`Item: ${label}${object.isLocked ? ' (locked)' : ''}`}
               aria-pressed={selected}
               data-in-group={inGroup ? '' : undefined}
+              data-plan-selected={selected ? '' : undefined}
+              data-plan-hover={hovered ? '' : undefined}
+              onPointerEnter={(e) => { if (e.pointerType !== 'touch') setHoverItemId(object.id); }}
+              onPointerLeave={() => setHoverItemId((h) => (h === object.id ? null : h))}
               onClick={(e) => {
                 e.stopPropagation();
                 if (e.shiftKey) return; // Shift+click toggled it on press
@@ -919,7 +932,7 @@ export default function FloorPlanView({
                   y1={at(wall.a).y}
                   x2={at(wall.b).x}
                   y2={at(wall.b).y}
-                  stroke={selected ? '#2563eb' : '#374151'}
+                  stroke={selected ? SELECTION_COLOR : hovered ? HOVER_COLOR : '#374151'}
                   strokeWidth={Math.max(d, WALL_THICKNESS)}
                   strokeLinecap="round"
                 />
@@ -933,8 +946,8 @@ export default function FloorPlanView({
                       'data-plan-outline': shape.kind,
                       fill: type.color || '#94a3b8',
                       fillOpacity: activeDrag ? 0.95 : 0.9,
-                      stroke: selected ? '#2563eb' : '#475569',
-                      strokeWidth: selected ? 0.08 : 0.03,
+                      stroke: selected ? SELECTION_COLOR : hovered ? HOVER_COLOR : '#475569',
+                      strokeWidth: selected ? 0.1 : hovered ? 0.07 : 0.03,
                       transform: `rotate(${planAngle(pos.rotationY ?? object.rotationY)} ${c.x} ${c.y})`,
                     };
                     if (shape.kind === 'ellipse') return <ellipse {...look} cx={c.x} cy={c.y} rx={Math.abs(w) / 2} ry={Math.abs(d) / 2} />;
@@ -1057,6 +1070,8 @@ export default function FloorPlanView({
                   }}
                   // The badge sits on its item: a press on it grabs the item (else the plan would pan)
                   onPointerDown={(event) => { if (owner) handleItemPointerDown(event, owner); }}
+                  onPointerEnter={(e) => { if (owner && e.pointerType !== 'touch') setHoverItemId(owner.id); }}
+                  onPointerLeave={() => setHoverItemId((h) => (h === owner?.id ? null : h))}
                   style={{ cursor: 'pointer' }}
                 >
                   <title>{`Hook point: ${anchor.kind}${anchor.label ? ` (${anchor.label})` : ''}`}</title>

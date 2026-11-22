@@ -27,8 +27,10 @@ const itemMeshes = (root: TransformNode) => [root, ...root.getChildMeshes(false)
 export class HighlightSystem {
   /** room or item id → its highlight colour */
   private colors = new Map<string, string>();
-  /** item ids that are also tinted (Studio's group selection, v0.15.5: an outline alone is too thin from above) */
-  private tinted = new Set<string>();
+  /** item ids that are also tinted (Studio's group selection, v0.15.5: an outline alone is too thin from above) → alpha */
+  private tinted = new Map<string, number>();
+  /** item ids with an outline width of their own (v0.18.9: Studio's selection is a little thicker) */
+  private widths = new Map<string, number>();
   /** item roots that have the 'highlight' look now */
   private lit = new Set<TransformNode>();
   private rooms: RoomSystem;
@@ -45,11 +47,41 @@ export class HighlightSystem {
   }
 
   /** Highlight these rooms / items (others keep theirs) and apply it. */
-  add(ids: string[], color: string, options: { tint?: boolean } = {}): void {
+  add(ids: string[], color: string, options: { tint?: boolean, alpha?: number, width?: number } = {}): void {
     for (const id of ids) {
       this.colors.set(id, color);
-      if (options.tint) this.tinted.add(id);
+      if (options.width) this.widths.set(id, options.width);
+      if (options.tint) this.tinted.set(id, options.alpha ?? TINT_ALPHA);
     }
+    this.apply();
+  }
+
+  /**
+   * v0.18.9: highlight exactly these (Studio: the selection + the item under the mouse), changing only the items
+   * whose look changes: an item that stays highlighted the same way is not touched (no flicker, no new mesh).
+   */
+  replace(groups: { ids: string[], color: string, tint?: boolean, alpha?: number, width?: number }[]): void {
+    const colors = new Map<string, string>();
+    const tinted = new Map<string, number>();
+    const widths = new Map<string, number>();
+    for (const g of groups) {
+      for (const id of g.ids) {
+        colors.set(id, g.color);
+        if (g.tint) tinted.set(id, g.alpha ?? TINT_ALPHA);
+        if (g.width) widths.set(id, g.width);
+      }
+    }
+    const lookOf = (id: string, c: Map<string, string>, t: Map<string, number>, w: Map<string, number>) =>
+      `${c.get(id) ?? ''}|${t.get(id) ?? ''}|${w.get(id) ?? ''}`;
+    for (const [id, root] of this.objects.meshes) {
+      if (!this.lit.has(root)) continue;
+      if (lookOf(id, colors, tinted, widths) === lookOf(id, this.colors, this.tinted, this.widths)) continue;
+      this.unlight(root);
+      this.lit.delete(root);
+    }
+    this.colors = colors;
+    this.tinted = tinted;
+    this.widths = widths;
     this.apply();
   }
 
@@ -62,6 +94,7 @@ export class HighlightSystem {
     this.lit.clear();
     this.colors.clear();
     this.tinted.clear();
+    this.widths.clear();
   }
 
   /** Apply the highlights to the current meshes (after the systems synced). */
@@ -93,15 +126,16 @@ export class HighlightSystem {
       setItemLook(root, 'highlight', true); // instances can't have an outline of their own
       this.lit.add(root);
       const tint = this.tinted.has(id);
+      const alpha = this.tinted.get(id) ?? TINT_ALPHA;
       for (const m of itemMeshes(root)) {
         m.renderOutline = true;
         m.outlineColor = Color3.FromHexString(color);
-        m.outlineWidth = OUTLINE_WIDTH.item;
+        m.outlineWidth = this.widths.get(id) ?? OUTLINE_WIDTH.item;
         // a tint, unless the item has one already (a locked item keeps its lock tint)
         if (tint && !m.renderOverlay) {
           m.renderOverlay = true;
           m.overlayColor = Color3.FromHexString(color);
-          m.overlayAlpha = TINT_ALPHA;
+          m.overlayAlpha = alpha;
           m.metadata = { ...(m.metadata ?? {}), highlightTint: m.overlayColor.toHexString() };
         }
       }

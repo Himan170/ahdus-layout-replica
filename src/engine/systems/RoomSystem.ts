@@ -65,6 +65,10 @@ export interface LayoutRecords {
 export interface RoomSystemOptions {
   /** Room parts cast and receive shadows from this generator. */
   shadowGenerator?: unknown;
+  /** v0.18.9: the selected room's outline colour (Studio: its selection blue); default: the room's own colour. */
+  selectionColor?: string;
+  /** v0.18.9: the outline of the room under the mouse (setHoverRoom). */
+  hoverColor?: string;
 }
 
 /** A slice's time budget (play/buildSchedule.createBudget): take() before each build. */
@@ -116,10 +120,32 @@ export class RoomSystem {
   readonly meshes = new Map<string, TransformNode>();
   private scene: Scene;
   private shadowGenerator: unknown;
+  private selectionColor: string | null;
+  private hoverColor: string;
+  private selectedRoomId: string | null = null;
+  private selectedColor: string | undefined;
+  private hoverRoomId: string | null = null;
 
   constructor(scene: Scene, options: RoomSystemOptions = {}) {
     this.scene = scene;
     this.shadowGenerator = options.shadowGenerator ?? null;
+    this.selectionColor = options.selectionColor ?? null;
+    this.hoverColor = options.hoverColor ?? '#93c5fd';
+  }
+
+  /** v0.18.9: a lighter outline on the room under the mouse (null: none). The selected room keeps its own. */
+  setHoverRoom(roomId: string | null): void {
+    if (roomId === this.hoverRoomId) return;
+    this.hoverRoomId = roomId;
+    this.outlineAll();
+  }
+
+  private outlineAll(onlyFloors: Set<unknown> | null = null): void {
+    const hover = this.hoverRoomId ? { roomId: this.hoverRoomId, color: this.hoverColor } : null;
+    for (const node of this.meshes.values()) {
+      if (onlyFloors && !onlyFloors.has(node.metadata?.floorId)) continue;
+      setRoomSelected(node, this.selectedRoomId, this.selectedColor, hover);
+    }
   }
 
   /**
@@ -211,11 +237,10 @@ export class RoomSystem {
 
     // Selection outline: the selected room's parts, and its walls shared with
     // (and so built by) a neighbour
-    const selectedColor = allRooms.find((r) => r.id === selectedRoomId)?.color;
-    for (const node of this.meshes.values()) {
-      if (onlyFloors && !onlyFloors.has(node.metadata?.floorId)) continue;
-      setRoomSelected(node, selectedRoomId ?? null, selectedColor);
-    }
+    this.selectedRoomId = selectedRoomId ?? null;
+    this.selectedColor = this.selectionColor ?? allRooms.find((r) => r.id === selectedRoomId)?.color;
+    if (this.hoverRoomId && !allRooms.some((r) => r.id === this.hoverRoomId)) this.hoverRoomId = null;
+    this.outlineAll(onlyFloors);
     return { rebuilt, ms: performance.now() - start, pending, complete: pending === 0 && unchecked === 0 };
   }
 

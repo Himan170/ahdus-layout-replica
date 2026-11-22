@@ -14,7 +14,8 @@ import { Matrix } from '@babylonjs/core/Maths/math.vector';
 
 import { elevationOf } from '../play/building';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { itemOverFloorPoint, wallTargetOf } from '../utils/pickHelpers';
+import { itemOverFloorPoint, wallTargetOf, hitIsGlass } from '../utils/pickHelpers';
+import { pickCandidates, nextPick, isSameSpot } from '../play/pickCycle';
 import { openingAt } from '../play/geometry';
 import { selectionFor } from '../play/prefab';
 import { distanceBetweenPoints } from '../utils/measurements';
@@ -23,6 +24,7 @@ export function installStudioPointer({
   scene, camera, placementMgr, plannerTools,
   isPlayingRef, measureModeRef, measureStartRef, measurementIdRef,
   setMeasurePreview, setMeasureStart, setMeasurements, placeObject, showStudioMessage = () => {},
+  onHoverItem = () => {}, // v0.18.9: (id | null) the item under the mouse, for its hover outline
 }) {
   const pointOnCurrentFloor = () => {
     const ray = scene.createPickingRay(scene.pointerX, scene.pointerY, Matrix.Identity(), camera);
@@ -40,6 +42,42 @@ export function installStudioPointer({
     return [point.x, point.z].every(Number.isFinite) ? point : null;
   };
 
+  // v0.18.9: what a click selects, from everything under the mouse (play/pickCycle.js)
+  let lastClick = null;
+  const candidatesHere = (store) => {
+    const ray = scene.createPickingRay(scene.pointerX, scene.pointerY, Matrix.Identity(), camera);
+    const raw = (scene.multiPickWithRay(ray, (m) => m.isPickable && m.isEnabled() && m.isVisible !== false && !m.metadata?.pickPane
+      && !plannerTools.ownsMesh?.(m)) ?? []).filter((h) => h.hit && h.pickedMesh);
+    raw.sort((a, b) => a.distance - b.distance);
+    const floor = store.currentFloor;
+    const eye = store.is3D ? camera.position : null;
+    const hits = [];
+    for (const h of raw) {
+      const m = h.pickedMesh;
+      const meta = m.metadata ?? {};
+      const objectId = meta.objectId ?? m.parent?.metadata?.objectId ?? null;
+      if (objectId) { hits.push({ objectId }); continue; }
+      if (m.name === 'ground') {
+        const under = itemOverFloorPoint(scene, h.pickedPoint, (mesh) => (mesh.metadata?.floorId ?? mesh.parent?.metadata?.floorId) === floor);
+        if (under) hits.push({ objectId: under });
+        hits.push({ ground: true });
+        break;
+      }
+      if (!meta.roomId) continue;
+      const room = store.rooms[meta.roomId];
+      if ((room?.floor ?? 0) !== floor) { hits.push({ ground: true }); break; } // another floor: nothing further
+      if (meta.part === 'floor') {
+        // the floor between a desk's legs is the desk
+        const under = itemOverFloorPoint(scene, h.pickedPoint, (mesh) => (mesh.metadata?.floorId ?? mesh.parent?.metadata?.floorId) === floor);
+        if (under) hits.push({ objectId: under });
+        hits.push({ roomId: meta.roomId, part: 'floor' });
+      } else if (meta.part === 'wall') {
+        hits.push({ roomId: wallTargetOf(h, eye).roomId ?? meta.roomId, part: 'wall', glass: hitIsGlass(h) });
+      }
+    }
+    return pickCandidates(hits, store.objects, { floor });
+  };
+
   // Pointer move: update placement ghost position, or the planner tool's preview
   scene.onPointerMove = () => {
     if (isPlayingRef.current) return;
@@ -52,8 +90,10 @@ export function installStudioPointer({
     }
     if (placementMgr.isActive()) {
       placementMgr.updatePointer(scene.pointerX, scene.pointerY);
+      onHoverItem(null);
     } else {
       plannerTools.pointerMove();
+      onHoverItem(plannerTools.hoveredItem?.() ?? null);
     }
   };
 
@@ -141,20 +181,33 @@ export function installStudioPointer({
       } else if (meta?.objectId && store.selectedObjectIds.includes(meta.objectId)) {
         // An item of the selected group (v0.15.5): the group stays (a drag moves it; plannerTools
         // selects just this item when the press turns out to be a click)
-      } else if (meta?.objectId) {
-        // Clicked an object; v0.18.0: an item of a saved group (a cluster) selects the group, Alt+click just it
-        const ids = store.objects[meta.objectId] ? selectionFor(store.objects, store.objects[meta.objectId], { alone: !!_evt?.altKey }) : [meta.objectId];
-        if (ids.length > 1) store.setObjectSelection(ids);
-        else store.selectObject(meta.objectId);
-        store.selectRoom(null);
-      } else if (meta?.roomId) {
-        // Clicked a room
-        store.selectRoom(meta.roomId);
-        store.selectObject(null);
       } else {
-        // Clicked ground — deselect all
-        store.selectRoom(null);
-        store.selectObject(null);
+        // v0.18.9 (play/pickCycle.js): everything under the mouse, furniture → wall → room; a second click on the
+        // same spot selects the next one. The second press of a double-click changes nothing (F / fly to it).
+        if ((_evt?.detail ?? 1) >= 2) return;
+        const now = { x: scene.pointerX, y: scene.pointerY, t: performance.now() };
+        const current = store.selectedObjectId ? { kind: 'object', id: store.selectedObjectId }
+          : store.selectedRoomId ? { kind: 'room', id: store.selectedRoomId } : null;
+        // the next one only while the selection is still what the last click there chose (else: from the top)
+        const sameSpot = isSameSpot(lastClick, now) && !!current && lastClick?.pick?.kind === current.kind
+          && lastClick.pick.id === current.id;
+        const pick = nextPick(candidatesHere(store), current, { sameSpot });
+        lastClick = { ...now, pick };
+        if (pick?.kind === 'object') {
+          // v0.18.0: an item of a saved group (a cluster) selects the group, Alt+click just it
+          const obj = store.objects[pick.id];
+          const ids = obj ? selectionFor(store.objects, obj, { alone: !!_evt?.altKey }) : [pick.id];
+          if (ids.length > 1) store.setObjectSelection(ids);
+          else store.selectObject(pick.id);
+          store.selectRoom(null);
+        } else if (pick?.kind === 'room') {
+          store.selectRoom(pick.id);
+          store.selectObject(null);
+        } else {
+          // Clicked the ground: deselect all
+          store.selectRoom(null);
+          store.selectObject(null);
+        }
       }
     }
   };

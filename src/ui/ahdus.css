@@ -556,6 +556,17 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
 .selection-toolbar.is-labelled .ui-icon-btn.is-danger { color: #ffd2cc; }
 .selection-toolbar.is-labelled .selection-toolbar__sep { height: 24px; background: rgba(255, 255, 255, 0.22); }
 .selection-toolbar.is-labelled .ui-icon-btn:focus-visible { outline: 2px solid var(--on-accent); outline-offset: -2px; }
+/* v0.18.9: what is selected, first */
+.selection-toolbar.is-labelled .selection-toolbar__name {
+  display: inline-flex; flex-direction: column; justify-content: center; min-width: 0; max-width: 200px;
+  padding: 0 10px 0 8px; color: var(--on-accent); line-height: 1.15;
+}
+.selection-toolbar.is-labelled .selection-toolbar__name strong {
+  font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.selection-toolbar.is-labelled .selection-toolbar__type {
+  font-size: 12px; opacity: 0.78; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ── Properties panel (ui/Inspector.jsx, ahdus) ──────────────────── */
 
@@ -845,8 +856,10 @@ body.is-dragging-tile, body.is-dragging-tile * { cursor: grabbing !important; }
   /* Export / Measure as icons (their names stay in aria-label and title) */
   .canvas-card__controls .canvas-btn__label { display: none; }
   :root .canvas-card__controls .has-label { padding: 0 8px; }
-  /* the selection bar: icons only */
+  /* the selection bar: icons only (the name stays, shorter, without its type) */
   .selection-toolbar.is-labelled .selection-toolbar__text { display: none; }
+  .selection-toolbar.is-labelled .selection-toolbar__name { max-width: 120px; }
+  .selection-toolbar.is-labelled .selection-toolbar__type { display: none; }
   .selection-toolbar.is-labelled .ui-icon-btn.has-text { padding: 0 8px; }
   /* the floor buttons and the hint stack */
   .canvas-footer { grid-template-columns: minmax(0, auto) minmax(0, 1fr); }

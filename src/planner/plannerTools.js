@@ -82,6 +82,7 @@ export function createPlannerTools(scene, canvas, {
   let drag = null;   // { kind: 'stretch' | 'room' | 'wall' | 'move' | 'item' | 'slide' | ..., start?, roomId?, wallName?, plan? }
   let pendingMove = null; // { drag, x, y }: a room's floor pressed, not dragged yet (armMove)
   let hover = null;  // what a click would do right now
+  let hoverItemId = null; // v0.18.9: the item under the mouse (Select tool), for its hover outline
   let enabled = true;
   let lastHint = '';
   let pointerId = null; // the pointer pressed last: captured by the canvas while it drags something
@@ -651,6 +652,7 @@ export function createPlannerTools(scene, canvas, {
     if (!id && (m.name === 'ground' || m.metadata?.part === 'floor')) id = itemOverFloorPoint(scene, hit.pickedPoint, onLevel);
     const obj = id ? st().objects[id] : null;
     if (!obj || (obj.floor ?? 0) !== st().currentFloor) return null;
+    hoverItemId = obj.id;
     pv.hide('box');
     if (obj.isLocked) {
       setCursor('not-allowed');
@@ -1288,6 +1290,7 @@ export function createPlannerTools(scene, canvas, {
       startDrag(d);
     }
     let h;
+    hoverItemId = null; // updateItemHover sets it again while the mouse is on an item
     if (drag) h = updateDrag();
     else if (tool.kind === 'select') h = updateSelect();
     else if (tool.kind === 'room' || tool.kind === 'wall') h = updateDrawStart();
@@ -1432,6 +1435,10 @@ export function createPlannerTools(scene, canvas, {
 
   return {
     pointerMove: refresh,
+    /** v0.18.9: a preview, handle or guide of these tools (not a thing to select). */
+    ownsMesh: (m) => pv.owns(m) || !!handles?.includes(m) || !!heightHandles?.includes(m),
+    /** v0.18.9: the item the mouse is on now (Select tool, not dragging), or null. */
+    hoveredItem: () => (drag || tool.kind !== 'select' ? null : hoverItemId),
     pointerDown,
     refresh,
 

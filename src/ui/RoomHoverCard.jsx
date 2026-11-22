@@ -20,7 +20,7 @@ const OFFSET = 14; // px from the cursor
 const PARTS = new Set(['floor', 'wall', 'door', 'window', 'band', 'skirting']);
 const WALL_PARTS = new Set(['wall', 'door', 'window', 'band']);
 
-export default function RoomHoverCard({ scene, rooms, floorId, is3D, hidden, selectedRoomId, isBusy, pickPerson }) {
+export default function RoomHoverCard({ scene, rooms, floorId, is3D, hidden, selectedRoomId, isBusy, pickPerson, onHoverRoom }) {
   const [roomId, setRoomId] = useState(null);
   const [person, setPerson] = useState(null); // { personId, name, department } pointed at
   const cardRef = useRef(null);
@@ -30,6 +30,11 @@ export default function RoomHoverCard({ scene, rooms, floorId, is3D, hidden, sel
   live.current = { floorId, is3D, isBusy, pickPerson };
 
   const room = rooms.find((r) => r.id === roomId && r.id !== selectedRoomId) ?? null;
+
+  // v0.18.9: the room under the mouse, for its lighter outline (WorkplaceEditor → RoomSystem.setHoverRoom)
+  const hoverRef = useRef(onHoverRoom);
+  hoverRef.current = onHoverRoom;
+  useEffect(() => { hoverRef.current?.(hidden ? null : roomId); }, [roomId, hidden]);
 
   useLayoutEffect(() => {
     if (!cardRef.current) return;
