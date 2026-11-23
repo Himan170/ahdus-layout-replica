@@ -89,6 +89,7 @@ import { createWorkspaceStore } from '../store/workspaceStore';
 import { createEditorHistory } from '../store/editorHistory';
 import { primaryAnchor } from '../integration/anchorsFromStore';
 import { softwareRenderer } from './startMode';
+import { SlowWatch } from './perfTip';
 import { clickFeedback, clickHintText, createHintGate } from '../play/clickHint';
 
 /** Item types only Studio shows (markers for the editor): hidden in view and walkthrough mode (v0.13.1). */
@@ -215,6 +216,8 @@ type EventMap = {
   quality: { level: number; pixelRatio: number; shadows: boolean; maxFull: number | null };
   /** v0.18.3: you rode a lift (rideLift). */
   lift: { liftId: string; from: number; to: number };
+  /** v0.18.10: frames stayed under 20 FPS for 10 s (once per engine): the viewer's performance tip. */
+  slow: { fps: number | null };
 };
 
 /**
@@ -339,6 +342,8 @@ export class LayoutEngine {
   private _qualityStep: QualityStep | null = null;
   private _liveTick: (() => void) | null = null;
   private _capTick: (() => void) | null = null;
+  /** v0.18.10: frames under 20 FPS for 10 s in a row (the 'slow' event: the viewer's performance tip). */
+  readonly slowWatch = new SlowWatch();
   private _pose = createPoseThrottle();
   private _poseWas: { x: number; z: number; t: number; speed: number } | null = null;
   /** Search, show and go to places (find, show, clear: v0.13.3; routeTo, stop: v0.13.4). */
@@ -534,6 +539,12 @@ export class LayoutEngine {
       const now = performance.now();
       const capChanged = this.fullCap.frame(ms, now);
       if (this.drawQuality.frame(ms, now) || capChanged) this.live.setFullCap(this._fullCapNow());
+      // v0.18.10: counted as the quality's frames are (everything built, the page shown, nothing switching)
+      if (this.slowWatch.frame(ms, now, !!this._builder?.progress.allBuilt
+        && !(typeof document !== 'undefined' && document.hidden) && !this._shadowSwitch?.busy
+        && !this._charactersSettling())) {
+        this.emit('slow', { fps: this.slowWatch.lastFps });
+      }
     };
     this.scene.onAfterRenderObservable.add(this._capTick);
     this.navigation = new NavigationSystem({
@@ -1065,7 +1076,11 @@ export class LayoutEngine {
    * card in use: SwiftShader, llvmpipe, …). A viewer with startMode starts in Overview there.
    */
   get weakDevice(): boolean {
-    if (this._quality === 'low') return true;
+    return this._quality === 'low' || this.softwareWebGL;
+  }
+
+  /** v0.18.10: WebGL drawn by the CPU (SwiftShader, llvmpipe, …), whatever the page says (the performance tip). */
+  get softwareWebGL(): boolean {
     try {
       return softwareRenderer(this.babylonEngine.getGlInfo?.()?.renderer);
     } catch {

@@ -85,6 +85,10 @@ import { toolButtonStyles } from './PlaceSearch';
 import type { TourEvent } from '../systems/TourSystem';
 import type { RouteTarget } from '../systems/NavigationSystem';
 import { WelcomeCard, WeakDeviceNote } from './WelcomeCard';
+import { PerfTipCard } from './PerfTipCard';
+import {
+  PERF_TIP_MENU_LABEL, markPerfTipShown, perfTipPlace, perfTipShownThisVisit, readPerfTipOff, storePerfTipOff,
+} from '../perfTip';
 import { tourDetail } from './PlaceSearch';
 import { chooseStart, readStartMode, rememberStartMode } from '../startMode';
 import { storedLowGraphics, storeLowGraphics } from '../../play/quality';
@@ -389,6 +393,10 @@ export function LayoutViewer(props: LayoutViewerProps) {
   const moreMenuRef = useRef<HTMLDivElement>(null);
   // a weak device's start (v0.14.8): the note saying why it is from above (null: none)
   const [note, setNote] = useState<WeakKind | null>(null);
+  // v0.18.10: the performance tip: in the weak device's note (one note, not two), or its own card ('auto': shown by
+  // itself on a weak / slow device once per visit; 'menu': More → Smoother 3D tips)
+  const [tipInNote, setTipInNote] = useState(false);
+  const [tipCard, setTipCard] = useState<'auto' | 'menu' | null>(null);
   useEffect(() => {
     const box = boxRef.current;
     if (!box) return undefined;
@@ -474,6 +482,12 @@ export function LayoutViewer(props: LayoutViewerProps) {
         e.on('enterRoom', (ev) => propsRef.current.onEnterRoom?.(ev)),
         e.on('exitRoom', (ev) => propsRef.current.onExitRoom?.(ev)),
         e.on('hud', (info) => setHud(info as Hud)),
+        // v0.18.10: frames stayed slow: the tip's card (unless shown already, or "Don't show again")
+        e.on('slow', () => {
+          if (perfTipPlace({ slow: true, off: readPerfTipOff(), shown: perfTipShownThisVisit() }) === 'card') {
+            setTipCard((c) => c ?? 'auto');
+          }
+        }),
         e.on('mode', ({ mode: m }) => {
           setShownMode(m);
           if (m !== 'edit') propsRef.current.onModeChange?.(m);
@@ -592,6 +606,11 @@ export function LayoutViewer(props: LayoutViewerProps) {
     // weakDevice answer) said so
     const weak: WeakKind | null = choice.reason === 'weak' ? (quality === 'low' ? 'low' : 'software') : null;
     setNote(weak);
+    // v0.18.10: the performance tip goes in that note (then no card of its own)
+    const inNote = weak !== null
+      && perfTipPlace({ weak: true, off: readPerfTipOff(), shown: perfTipShownThisVisit(), weakNote: true }) === 'note';
+    if (inNote) markPerfTipShown();
+    setTipInNote(inNote);
     propsRef.current.onStart?.({ mode: choice.mode, reason: choice.reason, weak });
     const was = engine.mode;
     engine.setMode(choice.mode);
@@ -611,6 +630,19 @@ export function LayoutViewer(props: LayoutViewerProps) {
     // the start is decided once; later props change the mode through `mode`
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine, layout, companyId, layoutId]);
+
+  // v0.18.10: a weak device's tip card, once per engine, after the start was decided (a weak start's note has it)
+  const tipCheckedRef = useRef<LayoutEngine | null>(null);
+  useEffect(() => {
+    if (!engine || error || tipCheckedRef.current === engine || !engine.getLayout()) return;
+    if (startMode && startedRef.current !== engine) return;
+    tipCheckedRef.current = engine;
+    const place = perfTipPlace({
+      software: engine.softwareWebGL, weak: propsRef.current.weakDevice ?? engine.weakDevice,
+      off: readPerfTipOff(), shown: perfTipShownThisVisit(),
+    });
+    if (place === 'card') setTipCard((c) => c ?? 'auto');
+  }, [engine, error, start, startMode, progress]);
 
   // `mode`: with startMode only a change of it (the start is the viewer's own)
   const firstModeRef = useRef(modeProp);
@@ -800,6 +832,12 @@ export function LayoutViewer(props: LayoutViewerProps) {
     if (walking) setNote(null);
   }, [walking]);
   const noteShown = note !== null && !walking;
+  // v0.18.10: the tip's own card waits for the welcome card, the weak note and the tour (opened from More: at once)
+  const tipCardShown = tipCard !== null && floorReady && !error
+    && (tipCard === 'menu' || (!noteShown && !welcomeShown && !touring));
+  useEffect(() => {
+    if (tipCardShown && tipCard === 'auto') markPerfTipShown();
+  }, [tipCardShown, tipCard]);
   useEffect(() => {
     if (!noteShown) return undefined;
     const onKey = (e: KeyboardEvent) => {
@@ -1080,6 +1118,13 @@ export function LayoutViewer(props: LayoutViewerProps) {
           <span aria-hidden style={{ ...styles.switch, ...(lowGraphics ? styles.switchOn : null) }}>{lowGraphics ? 'On' : 'Off'}</span>
         </button>
       )}
+      <button type="button" role="menuitem" data-more-item="perf-tip" style={styles.menuItem}
+        onClick={() => { setMoreOpen(false); setTipCard('menu'); }}>
+        <span style={styles.menuText}>
+          <span style={styles.menuLabel}>{PERF_TIP_MENU_LABEL}</span>
+          <span style={styles.menuNote}>How to keep the 3D view smooth</span>
+        </span>
+      </button>
       {offerAvoid && (
         <button type="button" role="menuitemcheckbox" aria-checked={avoidStairs} data-more-item="avoid-stairs"
           data-avoid-stairs={avoidStairs ? 'on' : 'off'} aria-label={`${AVOID_STAIRS_LABEL}: ${AVOID_STAIRS_NOTE}`}
@@ -1246,7 +1291,14 @@ export function LayoutViewer(props: LayoutViewerProps) {
           narrow={narrow} bottom={tourBottom} compact={short} onAction={onWelcome} />
       )}
       {noteShown && note && floorReady && !error && (
-        <WeakDeviceNote kind={note} narrow={narrow} compact={short} onWalk={walkAnyway} onStay={() => setNote(null)} />
+        <WeakDeviceNote kind={note} narrow={narrow} compact={short} onWalk={walkAnyway} onStay={() => setNote(null)}
+          tip={tipInNote} onTipOff={() => { storePerfTipOff(); setTipInNote(false); setNote(null); }} />
+      )}
+      {tipCardShown && (
+        <PerfTipCard compact={short}
+          style={narrow ? { left: 12, right: 12, width: 'auto', maxWidth: 'none', bottom: tourBottom }
+            : { right: 12, bottom: walking ? TOOLBAR_BOTTOM_WALKING : 12 }}
+          onGotIt={() => setTipCard(null)} onOff={() => { storePerfTipOff(); setTipCard(null); }} />
       )}
       {walking && !error && hud && (
         <>

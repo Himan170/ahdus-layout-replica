@@ -87,6 +87,8 @@ import { usePhone } from '../ui/look';
 import PhoneBar from '../ui/PhoneBar';
 import { normaliseLayout } from '../store/layoutData';
 import { watchFirstFrame } from '../ui/firstFrame';
+import { PerfTipCard } from '../engine/react/PerfTipCard';
+import { markPerfTipShown, perfTipPlace, perfTipShownThisVisit, readPerfTipOff, storePerfTipOff } from '../engine/perfTip';
 import { isPhotoReconstructionOn } from '../services/reconstructionService';
 import { isAhdusBackendOn } from '../services/backendFlags';
 import { activeTile, toolHint, phoneIdleHint, PLAN_HINT, PLAN_ROOM_HINT } from '../ui/tools';
@@ -153,6 +155,19 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
   const builderRef = useRef(null);
   // Shown as "Building your workplace… 40 %"; set only when the text would change
   const [buildProgress, setBuildProgress] = useState(null);
+  // v0.18.10: the performance tip ('auto': a weak device, once per visit; 'menu': Settings → Smoother 3D tips)
+  const [perfTip, setPerfTip] = useState(null);
+  const perfTipRef = useRef(null);
+  perfTipRef.current = (found) => {
+    if (perfTipPlace({ ...found, off: readPerfTipOff(), shown: perfTipShownThisVisit() }) === 'card') {
+      setPerfTip((t) => t ?? 'auto');
+    }
+  };
+  // shown by itself once everything is built (the loading screen is gone)
+  const perfTipShown = perfTip === 'menu' || (perfTip === 'auto' && !!buildProgress?.allBuilt);
+  useEffect(() => {
+    if (perfTipShown && perfTip === 'auto') markPerfTipShown();
+  }, [perfTipShown, perfTip]);
 
   // Phase 3 managers
   const placementManagerRef = useRef(null);
@@ -383,6 +398,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     plannerMessageTimer, setBuildProgress, setPlayHud, setSelectedSlot, setCatalogOpen, setNewFloorAsk,
     setInteraction, setPositionsVersion, setPlannerHint, setMeasurePreview, setMeasureStart, setMeasurements,
     setSceneReady, editor, showStudioMessage, placeObject, DEMO_MODULES, pauseRenderingRef, setClickHint, hoverItemRef,
+    perfTipRef,
   });
 
   // ─── Store → scene: meshes, the floor being edited, the gizmo (hooks/useStoreMeshSync.js) ───
@@ -1668,6 +1684,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
             onImportLayout: handleImportLayout,
             importTitle: inAhdus ? 'Replace this workplace with a layout from a file (Ctrl+Z undoes it)' : undefined,
             onPhotoReconstruct: isPhotoReconstructionOn() ? handlePhotoReconstruct : null,
+            onPerfTip: () => setPerfTip('menu'),
           }}
         />
       )}
@@ -1761,6 +1778,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
               pointerEvents: planView && !isPlaying ? 'none' : 'auto',
             }}
           />
+          {perfTipShown && (
+            <PerfTipCard style={{ right: 12, bottom: phone || isPlaying ? 12 : 64 }}
+              onGotIt={() => setPerfTip(null)} onOff={() => { storePerfTipOff(); setPerfTip(null); }} />
+          )}
           {planView && !isPlaying && (
             <FloorPlanView
               rooms={shownRooms}

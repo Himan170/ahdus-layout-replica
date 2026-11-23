@@ -45,12 +45,18 @@ export function chooseStart({ startMode, remembered = null, weak = false, openAt
 /** Why a device counts as weak (v0.14.8): WebGL drawn by software, or the page asked for quality 'low'. */
 export type WeakKind = 'software' | 'low';
 
+/** Why a weak device started from above (v0.18.10: the note's first line when the performance tip follows it). */
+export function weakReason(kind: WeakKind): string {
+  return kind === 'low'
+    ? 'Started from above to keep things fast on this device.'
+    : 'Started from above: your browser isn\'t using the graphics card, so walking could be slow.';
+}
+
 /** The note a weak device's start shows (v0.14.8), in plain words. */
 export function weakNote(kind: WeakKind): string {
   return kind === 'low'
-    ? 'Started from above to keep things fast on this device.'
-    : 'Started from above: your browser isn\'t using the graphics card, so walking could be slow. '
-      + 'Turn on graphics acceleration in your browser\'s settings for the smoothest view.';
+    ? weakReason(kind)
+    : `${weakReason(kind)} Turn on graphics acceleration in your browser's settings for the smoothest view.`;
 }
 
 /** WebGL drawn by the CPU (no graphics card in use): walking would be slow there. */
