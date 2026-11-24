@@ -45,6 +45,7 @@
     "build:ahdus": "node scripts/build-ahdus.mjs",
     "characters:placeholder": "node scripts/make-placeholder-character.mjs",
     "e2e:check": "node e2e/check-smoke.mjs",
+    "e2e:check-open": "node e2e/check-open-smoke.mjs",
     "e2e:faster": "node e2e/faster-building-smoke.mjs",
     "e2e:layers": "node e2e/layers-walls-smoke.mjs",
     "e2e:workstations": "node e2e/workstations-smoke.mjs",
