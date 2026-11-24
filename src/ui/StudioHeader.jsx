@@ -10,8 +10,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload, Camera, Send, Play, ChevronLeft, MoreHorizontal,
+  Building2, Undo2, Redo2, SlidersHorizontal, Pencil, Download, Upload, Camera, Send, Play, ChevronLeft, MoreHorizontal, Gauge,
 } from 'lucide-react';
+import { PERF_TIP_MENU_LABEL } from '../engine/perfTip';
 import { usePopover } from './usePopover';
 import VersionHistory from './VersionHistory';
 import { CheckButton } from './LayoutCheckPanel';
@@ -124,6 +125,7 @@ function Settings({
   realisticLook, onRealisticLookToggle, // real models, photo textures, sky (off: simple look for slow PCs)
   roomLabels, onRoomLabelsChange, // 'names' | 'off': the room names on the canvas
   onExportLayout, onImportLayout, onPhotoReconstruct, // backup & photo reconstruction
+  onPerfTip = null, // v0.18.10: opens the performance tip ("Smoother 3D tips")
   importTitle = 'Add a layout from a file to your layouts',
   label = null, // a word under the icon (the AHDUS look)
 }) {
@@ -274,6 +276,15 @@ function Settings({
                   if (file) { onPhotoReconstruct(file); setOpen(false); }
                 }}
               />
+            </div>
+          )}
+          {onPerfTip && (
+            <div className="settings-pop__row">
+              <button className="ui-btn" data-settings-perf-tip aria-label={PERF_TIP_MENU_LABEL}
+                title="How to keep the 3D view smooth on a slow computer"
+                onClick={() => { onPerfTip(); setOpen(false); }}>
+                <Gauge size={16} strokeWidth={1.75} aria-hidden /> {PERF_TIP_MENU_LABEL}
+              </button>
             </div>
           )}
           {import.meta.env.DEV && (

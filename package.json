@@ -1,7 +1,7 @@
 {
   "name": "company-digital-twin",
   "private": true,
-  "version": "0.18.9",
+  "version": "0.18.10",
   "type": "module",
   "engines": {
     "node": ">=20.19"
@@ -54,7 +54,8 @@
     "e2e:stability": "node e2e/stability-smoke.mjs",
     "e2e:room-edges": "node e2e/room-edges-smoke.mjs",
     "e2e:stuck": "node e2e/stuck-smoke.mjs",
-    "e2e:walls-select": "node e2e/walls-select-smoke.mjs"
+    "e2e:walls-select": "node e2e/walls-select-smoke.mjs",
+    "e2e:perf-tip": "node e2e/perf-tip-smoke.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^7.0.0",

@@ -532,10 +532,13 @@ const weakStart = await p.evaluate(() => ({
   button: document.querySelector('#extra [data-mode-button]')?.dataset.modeButton, start: window.extra?.start,
   note: document.querySelector('#extra [data-weak-note]')?.dataset.weakNote,
   text: document.querySelector('#extra [data-weak-note-text]')?.textContent,
+  // v0.18.10: the first weak note of a visit carries the performance tip (one note, not two); the reason line is the same
+  tip: document.querySelector('#extra [data-weak-note] [data-perf-tip-text]')?.textContent ?? null,
 }));
 log('startMode with quality "low" (a weak device): from above, no card, a Walk button; v0.14.8: the note "to keep things fast", onEvent("start") reason weak, weak low',
   !startWeak.error && weakStart.mode === 'view' && !weakStart.card && weakStart.button === 'walk' && weakStart.note === 'low'
-  && weakStart.text === 'Started from above to keep things fast on this device.' && startWeak.seen.includes('start')
+  && weakStart.text === 'Started from above to keep things fast on this device.'
+  && (weakStart.tip === null || weakStart.tip.startsWith('For a smoother 3D view: ')) && startWeak.seen.includes('start')
   && JSON.stringify(weakStart.start) === JSON.stringify({ mode: 'view', reason: 'weak', weak: 'low' }), JSON.stringify(weakStart));
 await removeExtra();
 // v0.17.1: option hideMe: "Hide me" in More says what it does; a press = onEvent('hideMe'), handle.hideMe; setHideMe

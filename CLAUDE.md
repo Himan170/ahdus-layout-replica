@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1934, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1952, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -131,6 +131,12 @@ npm run e2e:walls-select # 29   e2e/walls-select-smoke.mjs (v0.18.9, PART=drag |
                      #                                       at the mouse; the selection's outline in 3D / 2D, hover, the bar's name +
                      #                                       type, a click on a chair in a selected room, the second click, Plan view's
                      #                                       hover; SHOTS=<dir>: screenshots)
+npm run e2e:perf-tip # 24 checks  e2e/perf-tip-smoke.mjs (v0.18.10, SwiftShader = a weak device: viewer.html's card once per
+                     #                                       visit (Got it, a reload, slow frames later: no second one), More →
+                     #                                       Smoother 3D tips; ?start=walk: the tip inside the weak note, no card;
+                     #                                       Don't show again sticks in a new visit; a walking start (waits for the
+                     #                                       welcome card, clear of the HUD); a phone; Studio: the card, Settings,
+                     #                                       a phone (top of the view), Don't show again; SHOTS=<dir>: screenshots)
 npm run e2e:perf     # 33 checks   e2e/perf-smoke.mjs (72 rooms + 864 items: ≤ 2,000 meshes, ≤ 1,500 draw calls, also with a route shown,
                      #                                       and in viewer.html with the company tour walking / at a stop (TOUR=off skips it);
                      #                                       one room change rebuilds only it + its neighbours; all items
@@ -289,7 +295,7 @@ Spec of the look: `private-docs/UI_SPEC.md` (not in git); its test hooks are und
 
 - **Workplace Studio** (`src/ui/`, in the AHDUS look: see "The AHDUS look"): top bar ("All layouts", breadcrumb with
   the layout name (click to rename), the status pill, Undo, Redo, Versions, Settings popover: snap, step, show grid,
-  lighting, realistic look, room labels, FPS in dev; Walk through = Preview);
+  lighting, realistic look, room labels, Smoother 3D tips (v0.18.10), FPS in dev; Walk through = Preview);
   **tool rail** of tiles
   (Select, Rooms, Walls, Doors & Windows, Stairs, Furniture; keys 1–6) whose **library** (docked next to the rail) arms a
   planner tool or places an asset; Layers and Shortcuts at its bottom; **canvas** (camera controls, Export floor plan,
@@ -591,6 +597,30 @@ private-docs/V0.18.3_PLAN.md (the plan + the decisions taken overnight). Old bui
 - Tests: `lifts.test.js`, `liftRoutes.test.js`, `lStairs.test.js`, `formatCompat.test.ts` (both in older builds),
   `editorHistory.test.js` (setLiftStops), `doorSwing.test.js`, `npm run e2e:lifts`.
 
+## Performance tip (v0.18.10, how it works)
+
+A tip for weak devices; characters (how they load, their detail levels) are unchanged. PURE `engine/perfTip.ts`.
+- **Words:** `PERF_TIP_TEXT` (any browser / OS, no browser-specific steps), menu label `PERF_TIP_MENU_LABEL`
+  "Smoother 3D tips".
+- **When:** `perfTipPlace({ software, weak, slow, off, shown, weakNote })`: only when software WebGL
+  (`engine.softwareWebGL`: `startMode.softwareRenderer`, whatever the page says), the existing weak check
+  (`weakDevice` prop ?? `engine.weakDevice`), or `SlowWatch` (average FPS < `SLOW_FPS` 20 for `SLOW_FOR_MS` 10 s in
+  a row, windows of 2 s, only while everything is built, the page shown, no shadow switch / characters settling:
+  engine `_capTick` → the `'slow'` event once; Studio: `useStudioScene`'s own watch → `perfTipRef`). null on a good
+  machine. Never again after "Don't show again" (localStorage `ahdus.perfTipOff`); at most once per visit
+  (sessionStorage `ahdus.perfTipShown` + a per-page flag; `markPerfTipShown` when it actually shows).
+- **Viewer** (`LayoutViewer`): a weak start's note (startMode reason 'weak') carries it: `WeakDeviceNote tip` =
+  `weakReason(kind)` + `[data-perf-tip-text]` + "Don't show again" (`[data-perf-tip-action="off"]`, closes the note);
+  then no card (one note, not two). Else `PerfTipCard` (`[data-perf-tip="card"]`, role note, Got it
+  `[data-perf-tip-action="ok"]`), bottom right (walking: above the HUD), a narrow view full width at the bottom; it
+  waits for the welcome card, the weak note and the tour. More → `[data-more-item="perf-tip"]` opens it any time.
+- **Studio** (`WorkplaceEditor`): the card after the first frame once built (an empty layout reports no progress),
+  bottom right above the footer, a phone at the top of the view (`top: 128`: the bottom is the hint's and the first
+  touches'), z-index 8 (over the empty state, under the library and menus). Settings → `[data-settings-perf-tip]`.
+- **SwiftShader e2e:** every viewer / Studio script now meets the card (it covers no control); the weak-note checks
+  in e2e:welcome / e2e:embed accept both forms.
+- Tests: `engine/__tests__/perfTip.test.ts`, `perfTipCard.test.tsx`, `npm run e2e:perf-tip`.
+
 ## Stability (v0.18.2, how it works)
 
 private-docs/V0.18.2_PLAN.md (the audit's items, real / wrong / already changed). Studio's input rules:
@@ -617,7 +647,9 @@ private-docs/V0.18.2_PLAN.md (the audit's items, real / wrong / already changed)
   `people.uniqueSeats` (first entry wins, per person and per desk) in LayoutEngine / CharacterSystem /
   NavigationSystem.setPeople; `geometry.findRoomAt` = the smallest room holding the point; TourSystem `walkFailed`.
 - **Timing tests:** `navigation/__tests__/timing.js` `measureUntil` (fastest per case, up to 4 rounds only while over
-  the limit); route.test.js / tour.test.js use it.
+  the limit); route.test.js uses it. **v0.18.10:** tour.test.js's plan is timed against `referenceWork()` (a fixed
+  grid search, ~28 ms, the same in every version) with `measureRatio` (the two in turns, fastest of each): a busy
+  suite slows both alike. Limit 13 × (alone ~5.3 ×, full runs 5.7–7.1 ×); a 3 × slower plan fails (16.4).
 - Tests: `ui/__tests__/canvasHit.test.js`, `popoverStack.test.jsx`, entrance / people / geometry / TourSystem /
   LayoutEngine tests ("v0.18.2"), `timing.test.js`, `npm run e2e:stability`.
 
@@ -799,7 +831,11 @@ src/play/dragLook.js               PURE (v0.14.0): click vs drag vs double-click
 src/engine/react/TouchControls.tsx The viewer's touch joystick (v0.14.1): bottom left, walkthrough.setStick
 src/engine/startMode.ts            PURE (v0.14.6): chooseStart (how a viewer with startMode starts), softwareRenderer
                                    (a weak device), the welcome card's words; the last choice (localStorage, try / catch)
-src/engine/react/WelcomeCard.tsx   The welcome card (v0.14.6): "Welcome to …" · Start the tour · Explore · Find someone
+src/engine/react/WelcomeCard.tsx   The welcome card (v0.14.6): "Welcome to …" · Start the tour · Explore · Find someone;
+                                   WeakDeviceNote (v0.14.8; v0.18.10: with the performance tip in it)
+src/engine/perfTip.ts              PURE (v0.18.10): the performance tip: its words, perfTipPlace (note | card | null),
+                                   SlowWatch (< 20 FPS for 10 s), "Don't show again" / once per visit (storage, try / catch)
+src/engine/react/PerfTipCard.tsx   v0.18.10: the tip's own small card (viewer + Studio place it)
 src/planner/plannerTools.js        Studio mouse tools: draw room / wall, door / window, drag a wall to resize
 src/utils/buildPreview.js          Blue/red build previews shared by both modes
 src/play/navigation/               PURE (v0.13.0): walkMap.js (the walk map of a floor: 0.1 m cells, walls with door gaps,

@@ -17,8 +17,9 @@
 import { Fragment, useId } from 'react';
 import type { CSSProperties } from 'react';
 
-import { welcomeTitle, welcomeTip, weakNote } from '../startMode';
+import { welcomeTitle, welcomeTip, weakNote, weakReason } from '../startMode';
 import type { WeakKind } from '../startMode';
+import { PERF_TIP_TEXT } from '../perfTip';
 
 /** v0.17.1: Explore (the main one) and the company tour (with the viewer's tour option). */
 export type WelcomeAction = 'explore' | 'tour';
@@ -115,6 +116,12 @@ export interface WeakDeviceNoteProps {
   /** "Walk anyway" (walk from the entrance, then the welcome card) / "Stay above" (close the note). */
   onWalk: () => void;
   onStay: () => void;
+  /**
+   * v0.18.10: the performance tip goes in this note (one note, not two): why it started from above, the tip's words, and
+   * "Don't show again" (onTipOff: the tip never shows again in this browser; the note closes).
+   */
+  tip?: boolean;
+  onTipOff?: () => void;
 }
 
 /**
@@ -122,7 +129,7 @@ export interface WeakDeviceNoteProps {
  * above, in the welcome card's look. A status, not a dialog: the view stays usable; Esc or a press on the view closes it
  * (LayoutViewer). Text only.
  */
-export function WeakDeviceNote({ kind, narrow = false, bottom = 12, compact = false, onWalk, onStay }: WeakDeviceNoteProps) {
+export function WeakDeviceNote({ kind, narrow = false, bottom = 12, compact = false, onWalk, onStay, tip = false, onTipOff }: WeakDeviceNoteProps) {
   const place: CSSProperties = narrow
     ? { ...styles.narrow, bottom, maxHeight: `calc(100% - ${bottom + WELCOME_TOOLBAR_ROOM}px)` }
     : { ...styles.wide, width: 460 };
@@ -136,7 +143,10 @@ export function WeakDeviceNote({ kind, narrow = false, bottom = 12, compact = fa
       style={{ ...styles.card, ...place, ...(compact ? styles.cardCompact : null) }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <p data-weak-note-text style={compact ? styles.noteTextCompact : styles.noteText}>{weakNote(kind)}</p>
+      <p data-weak-note-text style={compact ? styles.noteTextCompact : styles.noteText}>{tip ? weakReason(kind) : weakNote(kind)}</p>
+      {tip && (
+        <p data-perf-tip-text style={compact ? styles.tipTextCompact : styles.tipText}>{PERF_TIP_TEXT}</p>
+      )}
       <div style={styles.list}>
         <button type="button" data-weak-note-action="walk" style={{ ...styles.primary, ...button }} onClick={onWalk}>
           <strong style={compact ? styles.labelCompact : styles.label}>Walk anyway</strong>
@@ -145,6 +155,9 @@ export function WeakDeviceNote({ kind, narrow = false, bottom = 12, compact = fa
           <strong style={compact ? styles.labelCompact : styles.label}>Stay above</strong>
         </button>
       </div>
+      {tip && onTipOff && (
+        <button type="button" data-perf-tip-action="off" style={styles.tipOff} onClick={onTipOff}>Don't show again</button>
+      )}
     </div>
   );
 }
@@ -205,6 +218,13 @@ const styles: Record<string, CSSProperties> = {
   noteText: { margin: 0, fontSize: 14, lineHeight: 1.45, color: C.text, overflowWrap: 'anywhere' },
   noteTextCompact: { margin: 0, fontSize: 13, lineHeight: 1.4, color: C.text, overflowWrap: 'anywhere' },
   noteButton: { alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: 44 },
+  // v0.18.10: the performance tip inside the note
+  tipText: { margin: 0, fontSize: 13.5, lineHeight: 1.45, color: C.muted, overflowWrap: 'anywhere' },
+  tipTextCompact: { margin: 0, fontSize: 12.5, lineHeight: 1.4, color: C.muted, overflowWrap: 'anywhere' },
+  tipOff: {
+    alignSelf: 'flex-start', minHeight: 32, margin: '-4px 0 -4px -6px', padding: '4px 6px', border: 'none', borderRadius: 8,
+    background: 'transparent', color: C.accent, font: `600 13px/1.3 ${C.font}`, textDecoration: 'underline', cursor: 'pointer',
+  },
   srOnly: {
     position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)',
     whiteSpace: 'nowrap', border: 0,

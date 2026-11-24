@@ -45,6 +45,8 @@ import { RouteLineSystem } from '../engine/systems/RouteLineSystem';
 import { clickFeedback, clickHintText, createHintGate } from '../play/clickHint';
 import { createFloorWalls } from '../play/floorWalls';
 import { cachedLayoutState } from '../play/stateCache';
+import { softwareRenderer } from '../engine/startMode';
+import { SlowWatch } from '../engine/perfTip';
 
 export function useStudioScene({
   canvasRef, sceneRef, cameraRef, lightsRef, siteEnvRef, roomSystemRef, objectSystemRef, floorSystemRef, characterSystemRef,
@@ -55,6 +57,7 @@ export function useStudioScene({
   setPositionsVersion, setPlannerHint, setMeasurePreview, setMeasureStart, setMeasurements, setSceneReady,
   editor, showStudioMessage, placeObject, DEMO_MODULES, pauseRenderingRef, setClickHint,
   hoverItemRef = null, // v0.18.9: ref to (id | null) => void, the item under the mouse
+  perfTipRef = null, // v0.18.10: ref to ({ software, slow }) => void, a weak device found (the performance tip)
 }) {
   // ─── Initialise Babylon Engine & Scene ───
   useEffect(() => {
@@ -404,9 +407,22 @@ export function useStudioScene({
       }
     }, 500);
 
+    // v0.18.10: a weak device: WebGL drawn by software (at once), or frames under 20 FPS for 10 s in a row once
+    // everything is built and the page is shown (engine/perfTip.ts SlowWatch): WorkplaceEditor's performance tip
+    let software = false;
+    try { software = softwareRenderer(engine.getGlInfo?.()?.renderer); } catch { /* unknown: not weak */ }
+    if (software) perfTipRef?.current?.({ software: true });
+    const slowWatch = new SlowWatch();
+    const slowTick = () => {
+      const measuring = !!builderRef.current?.progress.allBuilt && !document.hidden;
+      if (slowWatch.frame(engine.getDeltaTime?.() ?? 16, performance.now(), measuring)) perfTipRef?.current?.({ slow: true });
+    };
+    scene.onAfterRenderObservable.add(slowTick);
+
     setSceneReady(scene);
 
     return () => {
+      scene.onAfterRenderObservable.removeCallback(slowTick);
       disposed = true;
       setSceneReady(null);
       uninstallDemo?.();

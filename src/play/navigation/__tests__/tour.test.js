@@ -13,7 +13,7 @@ import { ASSET_TYPES } from '../../../utils/assetCatalog';
 import { SAMPLE_LAYOUT, SAMPLE_PEOPLE } from '../../../viewer/sampleLayout';
 import { meridianWithPeople, MERIDIAN_DEPARTMENTS } from './meridianLike';
 import { randomLayout, random } from './randomLayouts';
-import { measureUntil } from './timing';
+import { measureRatio, referenceWork } from './timing';
 
 const plan = (layout, people = [], departments = [], options = {}) => planTour(layout, people, departments, { catalog: ASSET_TYPES, ...options });
 
@@ -238,18 +238,19 @@ describe('the tour of the Meridian-shaped layout', () => {
     expect(slow.seconds).toBeCloseTo(slow.length / 1.4 + slowPauses, 6);
   });
 
-  it('plans Meridian in under 500 ms (walk maps ready, as after the engine warms them)', async () => {
-    // ~170 ms on a laptop alone. With the other test files alongside it measured 317 ms on a laptop (12 Nov 2026),
-    // 731 ms (19 Nov 2026), and 306, 339 and 403 ms on GitHub's shared runners (8 Nov 2026). The limits stay about
-    // 3 × / 5 × the real time (500 ms, 900 ms on CI); the fastest of 3 per round, another round (up to 4, after a
-    // pause) only while over the limit (v0.18.2, timing.js). A slow-down that matters (2 × or more) still fails.
-    const limit = process.env.CI ? 900 : 500;
+  it('plans Meridian fast: under 13 × a fixed reference job timed beside it (walk maps ready, as after the engine warms them)', async () => {
+    // v0.18.10: a fixed limit in ms (500 ms) failed almost every full `npm test` on Himan's laptop (164 files side by
+    // side: 731 ms, 8.9 s once) while the plan alone takes ~150 ms. Now it is timed in turns with referenceWork (a
+    // fixed grid search, the same in every version), each one's fastest kept: a busy machine slows both alike, so
+    // their ratio holds (~5.3 on the laptop alone, 23 Nov 2026). The limit is 13 (about 2.5 ×): a plan 3 × slower
+    // (~16) still fails. Another round (up to 4, after a pause) only while over it (timing.js measureRatio).
+    const limit = 13;
     let again = null;
-    const { fastest: [fastest] } = await measureUntil(1, () => { again = plan(layout, people, departments, { maps }); },
-      ([t]) => t < limit);
-    expect(fastest).toBeLessThan(limit);
+    const { ratio, run, reference } = await measureRatio(() => referenceWork(),
+      () => { again = plan(layout, people, departments, { maps }); }, (r) => r < limit);
+    expect(ratio, `plan ${run.toFixed(0)} ms, reference ${reference.toFixed(0)} ms`).toBeLessThan(limit);
     expect(again.stops.map((s) => s.id)).toEqual(tour.stops.map((s) => s.id)); // the same plan every time
-  });
+  }, 60000);
 
   it('in steps (v0.17.1, planTourSteps): the same plan, in many small pieces (the engine plans it in idle slices)', () => {
     const run = () => {
