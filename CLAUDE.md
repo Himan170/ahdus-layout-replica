@@ -15,7 +15,7 @@ copy of the repo doesn't have them: ask Himan, and never commit them (the repo i
 ```bash
 npm install
 npm run dev          # Vite on http://localhost:3000, opens in Workplace Studio
-npm test             # vitest unit tests (1952, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
+npm test             # vitest unit tests (1964, all must pass; `npx vitest run --exclude ".claude/**"` skips worktree copies)
 npm run typecheck    # tsc --noEmit (covers src/engine)
 npm run lint         # ESLint (eslint.config.js): JS/JSX only, real mistakes + hooks rules, no style rules
 npm run build
@@ -146,6 +146,12 @@ npm run e2e:perf     # 33 checks   e2e/perf-smoke.mjs (72 rooms + 864 items: ≤
                      #                                       v0.17 desks: half the items / meshes, 2 desk shapes, draw calls
                      #                                       ≤ 120, FPS of both; v0.18.1: 300 seated people open no door;
                      #                                       SHOTS=<dir>: 300-seats-*.png; WS=off skips it)
+npm run e2e:check-open # 6 checks e2e/check-open-smoke.mjs (v0.18.11: the 72-room / 864-item building saved, opened from
+                     #                                       the list with the main thread CPU_SLOWDOWN 4× slower (CDP); waits for
+                     #                                       the background Check's badge; FAILS when a long task that is mostly
+                     #                                       Check's code (CPU profile) is over CHECK_TASK_MS 200 ms (main before
+                     #                                       v0.18.11: 721 ms; now none over 50 ms); the badge = checkLayout's count;
+                     #                                       reports `window.__ahdusCheck` (dev: slices, longest, restarts, steps))
 npm run e2e:shared-walls  # 17     e2e/shared-walls-smoke.mjs (one wall + one doorway; picks with either owner;
                           #                                    Inspector "Wall thickness" 0.4 m + Ctrl+Z)
 npm run e2e:nested-rooms  # 27     e2e/nested-rooms-smoke.mjs (rooms inside rooms, cutouts, next to a shared wall,
@@ -513,6 +519,31 @@ Door items in drawn walls are visibly open doorways, matching room doors; floor 
 Measured on 72 rooms / 864 items: 132 ms cold, 112 ms with warm walk maps (11 Nov 2026).
 Regression script: `npm run e2e:check` (14 checks) (template door removed/restored, selection, floor switching, Ignore/undo/reopen, phone).
 
+**In idle slices (v0.18.11):** `checkLayout(layout, options)` just runs `checkLayoutSteps` (a generator, the
+`planTourSteps` pattern) to the end. It yields between small pieces: 'entrance', each linked floor's walk map
+(`maps.steps` = `createWalkMapCache`'s `*steps(layout, floorId)` → `buildWalkMapSteps`: obstacles, floor, every 48
+obstacles grown, thin gaps, every 16 doors; another cache: `maps.get` at once), 'links', 'spawn', 'areas'
+(`route.prepareMap(map, 'areas')`), each floor's 'doorGaps', each room / desk / staircase, every 32 items of the
+overlap loop, the walls, each Fix it (`addFixes` / `addCabinFixes` are generators: `findItemSpotSteps`, every 50 spots
+tried, and their re-checks `yield* check(…, { fixes: false })`). `buildWalkMap` / `findItemSpot` run their `…Steps`
+to the end too, so every result is the same (`checkLayout.test.js` unchanged; `checkLayoutSteps.test.js`).
+- **The runner** (PURE `play/navigation/checkRunner.js`, tests `checkRunner.test.js`): `createSlicedCheck({ getLayout,
+  makeSteps, sliceMs, clock })` → `slice()` runs steps for `CHECK_SLICE_MS` 8 ms → `{ done, result }`. It checks ONE
+  fixed copy (`layoutCopy` = the store's `rooms` / `objects` / `floors` records; edits always make new records, never
+  change one in place, and Check reads nothing else); each slice first compares it (`sameLayout`): changed = started
+  over on the new layout (`restarts`), so a result never mixes two layouts, and one is returned only while its copy is
+  the store's layout. A floor switch / selection changes no record = no restart. The walk-map cache's `steps()` stores
+  a map only into the entry of the layout it was built for.
+- **`useLayoutCheck`:** 1.5 s after rooms / objects / floors change, `requestIdleCallback` (timeout 1000 ms) starts
+  it; each slice is its own task (`soon`: MessageChannel), busy (a drag, `livePosition`, the gizmo, a pointer down,
+  Preview) = try again in 400 ms; the effect's cleanup drops a check of an older layout. `run()` (the Check button, Fix
+  it, Publish) checks the whole `layoutCopy` at once and bumps `checkToken`: a sliced check started before it is
+  dropped. Dev only: `window.__ahdusCheck` = { state, slices, longest, restarts, steps (the 6 longest, 'prev → next'),
+  ms, problems }.
+- **Measured** (72 rooms / 864 items, opened from the list, main thread 4× slower, `npm run e2e:check-open`): before,
+  one task of 721 ms (unthrottled e2e:perf: 881 ms to 1,125 ms); now none of Check's over 50 ms (55 slices, longest
+  42 ms). Node: longest step 13.6 ms cold (the ground map's areas), ~1,000 steps.
+
 ## Avoid stairs (use lifts) (v0.18.4, how it works)
 
 For people who can't use stairs. Nothing is saved in the layout; the option is per browser or the page's.
@@ -844,7 +875,14 @@ src/play/navigation/               PURE (v0.13.0): walkMap.js (the walk map of a
                                    findNearestRoute, floorLinks) + places.js (v0.13.3: buildPlaces, searchPlaces: what the
                                    search finds) + browse.js (v0.14.2: browsePlaces, the Find box's menu; recent searches) + tour.js (v0.14.3: planTour, the
                                    company tour's plan; its 0.3 m ordering grid). Tests in navigation/__tests__/ (meridianLike.js,
-                                   randomLayouts.js: shared test layouts)
+                                   randomLayouts.js: shared test layouts). v0.18.11: walkMap.js's buildWalkMapSteps + the
+                                   cache's *steps(layout, floorId) (a map built in pieces)
+src/play/navigation/checkLayout.js PURE: Check my layout's rules; checkLayout = checkLayoutSteps (v0.18.11: a generator
+                                   yielding between pieces, Fix it's searches + re-checks too) run to the end
+src/play/navigation/checkRunner.js PURE (v0.18.11): createSlicedCheck (8 ms slices over ONE fixed copy of the layout,
+                                   started over when it changes: layoutCopy / sameLayout), CHECK_SLICE_MS
+src/hooks/useLayoutCheck.js        Studio's Check: the background check in idle slices (v0.18.11: one task each, paused
+                                   while busy), run() = the whole check at once (Check button, Fix it, Publish)
 src/engine/systems/NavigationSystem.ts  engine.navigation: find / search / show / clear (v0.13.3), routeTo / stop / resume +
                                    the 'navigation' event (v0.13.4: the pilot that Show route / Take me there give the walker),
                                    the shared walk maps (walkMaps) and warm() (built in idle time after loadLayout)
@@ -891,6 +929,7 @@ src/play/locks.js                  PURE (v0.15.6): what a lock stops (a locked r
 src/ui/hiddenLayers.js             Layers' eye (v0.15.6): hidden rooms / items per workplace, Studio's view only
 src/play/stairFit.js               PURE (v0.17.4): stairs that work: stairFit (problems + the floor they miss), stairPreview,
                                    stairProblems, stairSpots / findStairSpot (nearest spot that works), findItemSpot
+                                   (v0.18.11: = findItemSpotSteps run to the end; its rings cached per band)
 src/play/turnedRect.js             PURE (v0.17.4): turned rectangles (rectsOverlap, boxOf, distanceTo, farApart)
 src/play/roomEdges.js              PURE (v0.18.7): resizing a room by one edge (edgeResize = stretchRoom, the opposite wall
                                    stays; edgeHandleSpot: off doors / windows; handleAt, parseLength, roundMm)

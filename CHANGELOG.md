@@ -3,6 +3,29 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.18.11 (25 Nov 2026): Check my layout no longer freezes big layouts on open
+
+Opening a big layout in Studio froze the page for about a second, 1.5 s after it was drawn: the background
+"Check my layout" ran in one go. It now runs in small pieces in idle time, so the page keeps answering. The problems
+it finds, its Fix it buttons and the count on the Check button are exactly the same.
+- **In slices:** the check is split into small steps (each floor's walk map and door gaps, each room, desk and
+  staircase, every Fix it search and the re-check that proves it). Studio runs about 8 ms of steps at a time, each
+  in its own task, starting 1.5 s after the layout changes, and pauses while you drag. The Check button, Fix it and
+  Publish still check the whole layout at once, as before.
+- **Edits while it runs:** the check works on one fixed copy of the layout. When the layout changes while it is
+  halfway (a drag, an undo, a typed size, a Fix it), it starts over on the new layout, so it never shows results
+  that mix the old and the new layout. Switching floor or selecting something does not restart it. A whole check
+  (the Check button) wins over a sliced one that started earlier.
+- **Measured** (72 rooms, 864 items, the saved building opened from the list): before, Check was one task of
+  880 ms to 1.1 s (721 ms with the main thread 4× slower in `npm run e2e:check-open`'s run); now no task of it is
+  over 50 ms, also 4× slower (55 slices, the longest 42 ms). `npm run e2e:perf`'s opening: 16 long tasks (longest
+  881 ms) before, 1 (73 ms, not Check) after.
+- **Tests:** `checkLayout.test.js` unchanged; new `checkLayoutSteps.test.js` (the steps give what the whole check
+  gives: Meridian, the templates, 40 random layouts, a layout with Fix its) and `checkRunner.test.js` (an edit, an undo
+  or a door removed halfway = started over, the result is the new layout's; a floor switch = no restart). New
+  `npm run e2e:check-open` (6 checks): opens the 72-room building with the main thread 4× slower and fails if any
+  task of the background Check is over 200 ms (main: fails, 721 ms).
+
 ## 0.18.10 (24 Nov 2026): a performance tip for weak devices
 
 A short tip for people whose computer struggles with the 3D view. Nothing new is saved in a layout, and characters
