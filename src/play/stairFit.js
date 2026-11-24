@@ -397,21 +397,33 @@ export function snapStairToWall(stair, rooms, { tolerance = STAIR_WALL_SNAP, mot
   };
 }
 
+/** v0.18.11: each band's sorted ring, made once (they never change; ~25,000 points sorted on every search before). */
+const rings = new Map();
+function ringOf(from, to, step) {
+  const key = `${from}|${to}|${step}`;
+  let ring = rings.get(key);
+  if (!ring) {
+    const n = Math.ceil(to / step);
+    ring = [];
+    for (let i = -n; i <= n; i++) {
+      for (let j = -n; j <= n; j++) {
+        const d = Math.hypot(i * step, j * step);
+        if (d > from + 1e-9 && d <= to + 1e-9) ring.push(Object.freeze([i * step, j * step, d]));
+      }
+    }
+    ring.sort((a, b) => a[2] - b[2] || Math.abs(a[1]) - Math.abs(b[1]));
+    Object.freeze(ring);
+    rings.set(key, ring);
+  }
+  return ring;
+}
+
 /** Offsets from (0, 0), nearest first: every 5 cm within 2 m, 10 cm within 6 m, 25 cm beyond (up to `radius`). */
 function* offsets(radius) {
   const bands = [[0, 2, 0.05], [2, 6, 0.1], [6, radius, 0.25]];
   for (const [from, to, step] of bands) {
     if (to <= from) continue;
-    const n = Math.ceil(to / step);
-    const ring = [];
-    for (let i = -n; i <= n; i++) {
-      for (let j = -n; j <= n; j++) {
-        const d = Math.hypot(i * step, j * step);
-        if (d > from + 1e-9 && d <= to + 1e-9) ring.push([i * step, j * step, d]);
-      }
-    }
-    ring.sort((a, b) => a[2] - b[2] || Math.abs(a[1]) - Math.abs(b[1]));
-    for (const p of ring) yield p;
+    yield* ringOf(from, to, step);
   }
 }
 
@@ -464,7 +476,23 @@ function ridersOf(item, objects, catalog) {
  * v0.18.0: `members` = a whole saved group (a workstation cluster) moved together, with what stands on them.
  * @returns {{ moves: [string, { x, z, roomId }][] } | null}
  */
-export function findItemSpot(item, layout, { catalog = {}, radius = 8, members = null, clearance = 0 } = {}) {
+export function findItemSpot(item, layout, options = {}) {
+  const steps = findItemSpotSteps(item, layout, options);
+  for (;;) {
+    const r = steps.next();
+    if (r.done) return r.value;
+  }
+}
+
+/** Spots tried per step (findItemSpotSteps). */
+const SPOTS_PER_STEP = 50;
+
+/**
+ * findItemSpot in steps (v0.18.11): a generator that yields after its setup and every SPOTS_PER_STEP spots tried, and
+ * returns the same answer. Check my layout's Fix it runs it in its idle slices (on a slow laptop one search was
+ * one ~230 ms piece).
+ */
+export function* findItemSpotSteps(item, layout, { catalog = {}, radius = 8, members = null, clearance = 0 } = {}) {
   if (!item) return null;
   const ctx = fitContext(layout, catalog);
   const f = floorOf(item);
@@ -511,7 +539,10 @@ export function findItemSpot(item, layout, { catalog = {}, radius = 8, members =
     return true;
   };
   const sameRoom = (x, z) => (innermostAt(rooms, x, z)?.id ?? null) === (room?.id ?? null);
+  yield 'itemSpot';
+  let tried = 0;
   for (const [dx, dz] of offsets(radius)) {
+    if (++tried % SPOTS_PER_STEP === 0) yield 'itemSpot';
     if (!sameRoom((item.x ?? 0) + dx, (item.z ?? 0) + dz) || !fits(dx, dz)) continue;
     return {
       moves: group.map((o) => {

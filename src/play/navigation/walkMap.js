@@ -302,6 +302,25 @@ export function distanceToRect(rect, x, z) {
  * @returns {WalkMap}
  */
 export function buildWalkMap(layout, floorId, options = {}) {
+  const steps = buildWalkMapSteps(layout, floorId, options);
+  for (;;) {
+    const r = steps.next();
+    if (r.done) return r.value;
+  }
+}
+
+/** Obstacles grown into the map per step (buildWalkMapSteps). */
+const OBSTACLES_PER_STEP = 48;
+/** Door passages per step (buildWalkMapSteps). */
+const DOORS_PER_STEP = 16;
+
+/**
+ * buildWalkMap in steps (v0.18.11): a generator that yields between pieces of the work (the walls and items found,
+ * every OBSTACLES_PER_STEP obstacles grown into the map, the thin gaps, every DOORS_PER_STEP door passages) and returns
+ * the same map. Check my layout builds a floor's map this way in its idle slices (createWalkMapCache().steps): on a
+ * slow laptop one floor of 288 items was one ~230 ms piece.
+ */
+export function* buildWalkMapSteps(layout, floorId, options = {}) {
   const { catalog = {}, clearance = CLEARANCE, street = STREET } = options;
   const itemClearance = options.itemClearance ?? Math.min(clearance, ITEM_CLEARANCE);
   const clearOf = (o) => (o.kind === 'wall' ? clearance : itemClearance);
@@ -321,6 +340,7 @@ export function buildWalkMap(layout, floorId, options = {}) {
     return stairRects(s, stairDimsFor(floors, s)).map((r) => ({ ...r, kind: 'stairs', objectId: s.id, nowhere }));
   });
   const obstacles = [...walls, ...items, ...flights];
+  yield 'walkMap:obstacles';
 
   // Bounds: the rooms (and items) of this floor; the ground floor adds the street around them
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
@@ -391,7 +411,10 @@ export function buildWalkMap(layout, floorId, options = {}) {
   }
   // 4. Walls and solid items, grown by their clearance (exact distance from each cell's centre)
   const standing = cells.slice(); // each cell before walls and items (for step 5)
-  for (const o of obstacles) {
+  yield 'walkMap:floor';
+  for (let n = 0; n < obstacles.length; n++) {
+    if (n > 0 && n % OBSTACLES_PER_STEP === 0) yield 'walkMap:grow';
+    const o = obstacles[n];
     const cos = Math.cos(o.rot);
     const sin = Math.sin(o.rot);
     const grow = clearOf(o);
@@ -408,10 +431,12 @@ export function buildWalkMap(layout, floorId, options = {}) {
   }
   // 4b. v0.18.8: thin strips (narrower than a person, beside stairs or furniture: thinGaps) are no place to walk,
   //     even where a cell's centre is just far enough from both sides (a 0.7 m strip between two desks)
+  yield 'walkMap:grown';
   if (options.thinGaps !== false) {
     for (const g of thinGaps(layout, floorId, { catalog })) {
       forBox(g.box, (k, x, z) => { if (rectContains(g.box, x, z) && cells[k] !== VOID) cells[k] = BLOCKED; });
     }
+    yield 'walkMap:thinGaps';
   }
   // 5. Door passages: a narrow door's free strip (a 0.8 m door: 0.06 m wide) can fall between two
   //    cell centres, and a door under 0.74 m has none. The cells a door's centre line crosses are
@@ -421,7 +446,9 @@ export function buildWalkMap(layout, floorId, options = {}) {
   //    door's own jambs are half its width away; everything else keeps its clearance. Everything
   //    else on the map stays measured from cell centres.
   const passages = new Map(); // cell → the point on the door's centre line it was opened at (routes go through it)
-  for (const d of doors) {
+  for (let n = 0; n < doors.length; n++) {
+    if (n > 0 && n % DOORS_PER_STEP === 0) yield 'walkMap:doors';
+    const d = doors[n];
     if (d.width < MIN_DOOR_PASS - 1e-6) continue; // narrower than Studio allows: the body can't pass
     const reach = d.depth / 2 + clearance + cell;
     const box = d.alongX
@@ -506,16 +533,33 @@ export function createWalkMapCache(options = {}) {
   let floors = null;
   let maps = new Map();
   const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => v === b[i]);
+  /** The maps of this layout (a new Map when the layout changed). */
+  const mapsFor = (layout) => {
+    const r = list(layout.rooms);
+    const o = list(layout.objects);
+    if (!same(r, rooms) || !same(o, objects) || layout.floors !== floors) {
+      rooms = r; objects = o; floors = layout.floors; maps = new Map();
+    }
+    return maps;
+  };
   return {
     /** The walk map of a floor of this layout (built now if the layout changed). */
     get(layout, floorId) {
-      const r = list(layout.rooms);
-      const o = list(layout.objects);
-      if (!same(r, rooms) || !same(o, objects) || layout.floors !== floors) {
-        rooms = r; objects = o; floors = layout.floors; maps = new Map();
-      }
-      if (!maps.has(floorId)) maps.set(floorId, buildWalkMap(layout, floorId, options));
-      return maps.get(floorId);
+      const mine = mapsFor(layout);
+      if (!mine.has(floorId)) mine.set(floorId, buildWalkMap(layout, floorId, options));
+      return mine.get(floorId);
+    },
+    /**
+     * v0.18.11: the same map, built in steps (buildWalkMapSteps) when it isn't kept yet: `yield* maps.steps(layout, f)`
+     * returns it. It is kept only for the layout it was built for: if the layout changed while it was being built
+     * (another `get` of a newer layout), it goes to the caller and not into the newer layout's maps.
+     */
+    *steps(layout, floorId) {
+      const mine = mapsFor(layout);
+      if (mine.has(floorId)) return mine.get(floorId);
+      const map = yield* buildWalkMapSteps(layout, floorId, options);
+      if (!mine.has(floorId)) mine.set(floorId, map); // (another `get` may have built it meanwhile: keep that one)
+      return mine.get(floorId);
     },
     clear() { rooms = null; objects = null; floors = null; maps = new Map(); },
   };

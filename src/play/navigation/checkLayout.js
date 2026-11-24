@@ -15,6 +15,9 @@
  *               (v0.18.5) a cabin nobody can walk into: { room: { id, patch, rooms, objects }, label } = one
  *               editor.turnRoom (turned, or moved off the wall its door faces)
  *               (fixes: false = none: checking a layout with the fixes applied)
+ *   checkLayoutSteps(layout, options)  (v0.18.11) the same check as a generator that yields between pieces of work
+ *               (a floor's walk map, a room, a desk, a Fix it search, …), as planTourSteps: Studio runs it in short
+ *               slices after a layout opens (hooks/useLayoutCheck.js), so it is never one long task
  *
  * It reuses the walk map (walkMap.js: what the body can stand on), the walkable areas and the
  * stairs between floors (route.js), the entrance (entrance.js) and play/stairFit.js.
@@ -22,7 +25,7 @@
 
 import { roomOpenings, openingCentre, wallThicknessOf } from '../geometry';
 import { floorsInOrder, FLOOR_LIKE_TYPES } from '../building';
-import { stairFit, stairSpots, findItemSpot, snapStairToWall } from '../stairFit';
+import { stairFit, stairSpots, findItemSpotSteps, snapStairToWall } from '../stairFit';
 import { thinGaps, THIN_GAP } from './thinGaps';
 import { rectsOverlap, reachOf, farApart, distanceTo, boxOf } from '../turnedRect';
 import { deskSeat, isDesk } from '../people';
@@ -30,7 +33,7 @@ import {
   createWalkMapCache, wallObstacles, itemFootprints, isSolidItem, groundFloorId, FREE,
 } from './walkMap';
 import { entranceSpawn, outsideDoors, nearestFree } from './entrance';
-import { floorLinks, areaOf, roomHasDoor, roomAt } from './route';
+import { floorLinks, areaOf, roomHasDoor, roomAt, floorDoorGaps, prepareMap } from './route';
 import { WALL_ITEM_TYPES, isWallItem, isOnWall, wallPieces } from '../wallMount';
 import { groupOf } from '../prefab';
 import { prefabById } from '../../catalog/manifest';
@@ -111,6 +114,24 @@ const floorName = (floors, id) => floors[id]?.name || `Floor ${id}`;
  * @returns {{ problems: object[], ms: number }}
  */
 export function checkLayout(layout, options = {}) {
+  return runSteps(checkLayoutSteps(layout, options));
+}
+
+/** Runs a generator of steps to its end: its return value. */
+function runSteps(steps) {
+  for (;;) {
+    const r = steps.next();
+    if (r.done) return r.value;
+  }
+}
+
+/**
+ * checkLayout in steps (v0.18.11): a generator that yields between pieces of work (each at most a few tens of ms on
+ * a big layout: one floor's walk map, one room, one desk, one Fix it search, one re-check's pieces) and returns the
+ * same `{ problems, ms }` as checkLayout. Studio runs it a slice at a time after a layout opens: on 72 rooms /
+ * 864 items it was ONE 640 ms task. Its `ms` is from the first step to the last (a runner puts the working time in).
+ */
+export function* checkLayoutSteps(layout, options = {}) {
   const now = options.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
   const t0 = now();
   const catalog = options.catalog ?? {};
@@ -144,13 +165,34 @@ export function checkLayout(layout, options = {}) {
   if ((roomsOn.get(ground) ?? []).length > 0 && !entrance) {
     add(CHECK_KINDS.NO_ENTRANCE, 'error', 'No door leads outside: nobody can walk in', ['building'], ground);
   }
+  yield 'entrance';
 
   // ── 2. Where can you walk to from the entrance? Walkable areas joined by the stairs ──
+  // (v0.18.11: the walk maps this part uses, each built as a step of its own: the ground floor's (the entrance) and
+  // those of floors stairs or a lift join (floorLinks). A floor nothing leads to never needs one, as before)
+  const linked = new Set(entrance ? [ground] : []);
+  for (const o of objects) {
+    if (o.assetType !== 'STAIRCASE') continue;
+    const at = floorIds.indexOf(floorOf(o));
+    linked.add(floorOf(o));
+    if (at >= 0 && at + 1 < floorIds.length) linked.add(floorIds[at + 1]);
+  }
+  for (const r of rooms) if (r.type === 'LIFT') linked.add(floorOf(r));
+  for (const id of floorIds) {
+    if (!linked.has(id)) continue;
+    if (maps.steps) yield* maps.steps(safe, id); // in pieces (createWalkMapCache); another cache: at once
+    else maps.get(safe, id);
+    yield 'walkMap';
+  }
   const links = floorLinks(safe, { maps, catalog });
+  yield 'links';
   const reached = new Map(floorIds.map((id) => [id, new Set()])); // floor → area labels
   if (entrance) {
     const spawn = entranceSpawn(safe, { maps, catalog });
+    yield 'spawn';
     const start = maps.get(safe, ground);
+    prepareMap(start, 'areas'); // the walkable areas areaOf reads, as a step of their own
+    yield 'areas';
     let label = areaOf(start, spawn.x, spawn.z);
     if (label < 0) {
       const spot = nearestFree(start, spawn.x, spawn.z, { maxDistance: 3 });
@@ -200,7 +242,11 @@ export function checkLayout(layout, options = {}) {
       lostFloors.add(id);
       add(CHECK_KINDS.FLOOR_UNREACHABLE, 'error', `Nobody can walk to ${floorName(floors, id)}: no stairs lead there`, [`floor:${id}`], id);
     }
+    // the floor's door gaps (made once per floor for roomHasDoor) as a step of their own
+    floorDoorGaps(here, id);
+    yield 'doorGaps';
     for (const room of here) {
+      yield 'room';
       const T = wallThicknessOf(room) / 2;
       const inside = () => reachableIn(id, room.x - room.width / 2 + T, room.x + room.width / 2 - T,
         room.z - room.depth / 2 + T, room.z + room.depth / 2 - T, null, Math.max(2, Math.round(Math.min(room.width, room.depth) / 8 / 0.1)));
@@ -226,6 +272,7 @@ export function checkLayout(layout, options = {}) {
       const clusters = new Map(); // v0.18.0: a cluster's lost seats are ONE line, naming the cluster
       for (const desk of itemsOn.get(id) ?? []) {
         if (!isDesk(desk.assetType)) continue;
+        yield 'desk';
         const room = roomAt(safe, id, desk.x ?? 0, desk.z ?? 0);
         if (room ? closedRooms.has(room.id) : id !== ground) continue; // its room is listed / it is outside the rooms upstairs
         const rects = fp(desk);
@@ -257,6 +304,7 @@ export function checkLayout(layout, options = {}) {
 
   // ── 5. Furniture: in each other, in a wall, outside every room (upstairs) ──
   for (const id of floorIds) {
+    yield 'furniture';
     const here = roomsOn.get(id) ?? [];
     const items = (itemsOn.get(id) ?? []).filter((o) => isSolidItem(o, catalog) && !FLOOR_LIKE_TYPES.has(o.assetType));
     const furniture = items.filter((o) => !BUILDING_PARTS.has(o.assetType));
@@ -266,6 +314,7 @@ export function checkLayout(layout, options = {}) {
     // turned); a 6 m distance between centres used to skip two enlarged meeting tables lying in each other
     const boxes = furniture.map((o) => itemBox(fp(o)));
     for (let i = 0; i < furniture.length; i++) {
+      if (i % 32 === 0) yield 'overlaps';
       const a = furniture[i];
       const ra = fp(a);
       const ba = boxes[i];
@@ -293,6 +342,7 @@ export function checkLayout(layout, options = {}) {
     // with the Wall tool, a glass partition; heights count (under a door's opening is no wall). A wall item hung on
     // its wall is not in it; one off its wall has its own warning below. Move out: flush, on its own room's side.
     let hung = null; // the floor's wall pieces, made only when a wall item is in a wall
+    yield 'walls';
     for (const { item, wall, to } of insideWalls(here, all, id, { catalog })) {
       if (isWallItem(item.assetType) && !isOnWall(item, (hung ??= wallPieces(here, all)), { catalog })) continue;
       const owner = wall.roomId ? here.find((r) => r.id === wall.roomId) : null;
@@ -304,6 +354,7 @@ export function checkLayout(layout, options = {}) {
     }
 
     // a wall item (play/wallMount.js) that doesn't hang on a wall: on the floor, or off its wall (v0.15.6)
+    yield 'wallItems';
     const wallItems = all.filter((o) => isWallItem(o.assetType));
     if (wallItems.length) {
       const pieces = wallPieces(here, all);
@@ -327,6 +378,7 @@ export function checkLayout(layout, options = {}) {
     const seenDoors = new Set();
     const blockers = new Set(); // an item in a door between two rooms is listed once, not once per room
     for (const room of here) {
+      yield 'openings';
       const T = wallThicknessOf(room);
       for (const o of roomOpenings(room)) {
         const c = openingCentre(room, o.wall, o.offset);
@@ -377,6 +429,7 @@ export function checkLayout(layout, options = {}) {
   }
 
   // ── 6b. Aisles beside workstation clusters and desk rows (v0.18.0, play/aisles.js) ──
+  yield 'aisles';
   const aisles = narrowAisles(safe, catalog);
   // a cluster whose seats can't be reached says why in its own line ("…: only 0.6 m to the wall"), and
   // that aisle is not listed again
@@ -398,6 +451,7 @@ export function checkLayout(layout, options = {}) {
   // Only stairs: a desk or a cabinet that close to a wall is a choice (walking keeps people out of that strip
   // anyway), and chairs never count. Fix it = Snap to wall (one undo step) when a strip is against a wall ──
   for (const id of floorIds) {
+    yield 'thinGaps';
     const worst = new Map(); // stairs id → { first: its narrowest gap, wall: it has a strip against a wall, others }
     for (const g of thinGaps(safe, id, { catalog })) {
       const side = g.a.kind === 'stairs' ? g.a : g.b.kind === 'stairs' ? g.b : null;
@@ -416,6 +470,7 @@ export function checkLayout(layout, options = {}) {
         `Thin gap next to ${name} - people can get stuck. Push it to the wall or leave at least ${THIN_GAP} m.`,
         [objectId], id, { objectId, gap: w.first.gap, others: [...w.others] });
       if (options.fixes === false || !obj || obj.isLocked || !w.wall) continue;
+      yield 'snapToWall';
       const fix = snapToWallFix(obj, safe, { catalog, rooms });
       if (fix) problems[problems.length - 1].fix = fix;
     }
@@ -424,6 +479,7 @@ export function checkLayout(layout, options = {}) {
   // ── 7. Stairs (play/stairFit.js: the same words as the Inspector). Stairs nobody can use are errors ──
   for (const stair of objects) {
     if (stair.assetType !== 'STAIRCASE') continue;
+    yield 'stairs';
     for (const p of stairFit(stair, safe, { catalog }).problems) {
       problems.push({
         key: `${CHECK_KINDS.STAIRS}_${p.code}:${stair.id}`,
@@ -439,6 +495,7 @@ export function checkLayout(layout, options = {}) {
   }
 
   // ── 8. Lifts (v0.18.3, play/lifts.js). A shaft with no door is already ROOM_NO_DOOR above ──
+  yield 'lifts';
   for (const p of liftProblems(rooms, floors, objects)) {
     if (p.code === 'LIFT_NO_DOOR') continue;
     problems.push({
@@ -455,9 +512,9 @@ export function checkLayout(layout, options = {}) {
   for (const p of unique) if (blocksWalking(p)) p.blocksWalking = true;
   if (options.fixes !== false) {
     // v0.18.0: what a cluster's move clears is said once, in that cluster's own line
-    const absorbed = addFixes(unique, safe, { catalog, floorIds, check: checkLayout });
+    const absorbed = yield* addFixes(unique, safe, { catalog, floorIds, check: checkLayoutSteps });
     if (absorbed.size) unique = unique.filter((p) => !absorbed.has(p));
-    addCabinFixes(unique, safe, { catalog, check: checkLayout });
+    yield* addCabinFixes(unique, safe, { catalog, check: checkLayoutSteps });
   }
   unique.sort((a, b) => (order.get(a.floorId) ?? 0) - (order.get(b.floorId) ?? 0) ||
     SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.message.localeCompare(b.message));
@@ -499,8 +556,9 @@ export function blocksWalking(p) {
  * (stairFit.stairSpots), an item that blocks a door to the nearest spot where it blocks nothing
  * (stairFit.findItemSpot). "Nobody can walk to …" gets the moves of the stairs and door blockers
  * around it, but only when checking the layout with them moved shows it gone.
+ * v0.18.11: a generator (yields between searches; `check` = checkLayoutSteps, its re-checks are steps too).
  */
-function addFixes(problems, layout, { catalog, floorIds, check }) {
+function* addFixes(problems, layout, { catalog, floorIds, check }) {
   const objects = list(layout.objects);
   const byId = new Map(objects.map((o) => [o.id, o]));
   const culprits = []; // { problem, moves }
@@ -508,11 +566,13 @@ function addFixes(problems, layout, { catalog, floorIds, check }) {
   for (const p of problems) {
     const obj = byId.get(p.objectId);
     if (!obj || obj.isLocked) continue;
+    yield 'fix';
     if (p.kind === CHECK_KINDS.STAIRS) {
       if (!stairsDone.has(obj.id)) {
         let spot = null;
         for (const s of stairSpots(obj, layout, { catalog })) {
           if (s.x !== obj.x || s.z !== obj.z) { spot = s; break; }
+          yield 'stairSpot';
         }
         stairsDone.set(obj.id, spot ? { moves: [[obj.id, { x: spot.x, z: spot.z, roomId: spot.roomId }]], label: 'Move the stairs' } : null);
       }
@@ -522,7 +582,7 @@ function addFixes(problems, layout, { catalog, floorIds, check }) {
       // v0.18.0: a cluster moves as a whole (none of it locked); its lost seats: to a spot with aisles round it
       const members = p.groupId ? objects.filter((o) => p.ids.includes(o.id)) : null;
       if (members?.some((o) => o.isLocked)) continue;
-      const spot = findItemSpot(obj, layout, { catalog, members, clearance: p.cluster ? AISLE_MIN : 0 });
+      const spot = yield* findItemSpotSteps(obj, layout, { catalog, members, clearance: p.cluster ? AISLE_MIN : 0 });
       if (spot && spot.moves.some(([id, at]) => at.x !== byId.get(id)?.x || at.z !== byId.get(id)?.z)) {
         const name = p.groupLabel ? `the ${p.groupLabel.toLowerCase()}` : String(obj.label ?? '').trim() || catalog[obj.assetType]?.label || 'the item';
         p.fix = { moves: spot.moves, label: `Move ${name}` };
@@ -550,7 +610,8 @@ function addFixes(problems, layout, { catalog, floorIds, check }) {
         const members = objects.filter((o) => groupOf(o)?.id === gid);
         const obj = members.find((o) => groupOf(o).role === 'desk') ?? members[0];
         if (!obj || members.some((o) => o.isLocked)) continue;
-        const spot = findItemSpot(obj, layout, { catalog, members, clearance: AISLE_MIN });
+        yield 'aisleFix';
+        const spot = yield* findItemSpotSteps(obj, layout, { catalog, members, clearance: AISLE_MIN });
         if (spot) aisleCulprits.push({ problem: p, obj, moves: spot.moves, groupId: gid });
       }
     }
@@ -563,7 +624,7 @@ function addFixes(problems, layout, { catalog, floorIds, check }) {
     const near = (p) => p.kind !== CHECK_KINDS.FLOOR_UNREACHABLE && p.floorId === floorOf(c.obj);
     const mine = lost.filter((p) => p !== c.problem && !absorbed.has(p) && near(p));
     if (!mine.length && !c.problem.cluster) continue;
-    const still = new Set(check(withMoves(c.moves), { catalog, fixes: false }).problems.map((p) => p.key));
+    const still = new Set((yield* check(withMoves(c.moves), { catalog, fixes: false })).problems.map((p) => p.key));
     if (c.problem.cluster && still.has(c.problem.key)) {
       // moving it doesn't give its seats a way in: no Fix it of its own
       delete c.problem.fix;
@@ -618,8 +679,8 @@ function addFixes(problems, layout, { catalog, floorIds, check }) {
   // one check with every culprit moved tells which of them fix what
   const moved = new Map();
   for (const { from } of plans) for (const c of from) for (const [id, patch] of c.moves) moved.set(id, patch);
-  const after = check({ ...layout, objects: objects.map((o) => (moved.has(o.id) ? { ...o, ...moved.get(o.id) } : o)) },
-    { catalog, fixes: false }).problems;
+  const after = (yield* check({ ...layout, objects: objects.map((o) => (moved.has(o.id) ? { ...o, ...moved.get(o.id) } : o)) },
+    { catalog, fixes: false })).problems;
   const still = new Set(after.map((p) => p.key));
   for (const { p, from } of plans) {
     if (still.has(p.key)) continue;
@@ -637,7 +698,7 @@ const CABIN_TRIES = 3;
  * v0.18.5: "Nobody can walk to Cabin" with nothing else to move: the cabin turned, or moved off the wall
  * its door faces (play/cabinDoor.js), the first way the re-check shows clears it.
  */
-function addCabinFixes(problems, layout, { catalog, check }) {
+function* addCabinFixes(problems, layout, { catalog, check }) {
   for (const p of problems) {
     if (p.kind !== CHECK_KINDS.ROOM_UNREACHABLE || p.fix) continue;
     const room = layout.rooms.find((r) => r.id === p.roomId);
@@ -651,7 +712,7 @@ function addCabinFixes(problems, layout, { catalog, check }) {
         rooms: layout.rooms.map((r) => (rp.has(r.id) ? { ...r, ...rp.get(r.id) } : r)),
         objects: layout.objects.map((o) => (op.has(o.id) ? { ...o, ...op.get(o.id) } : o)),
       };
-      if (check(after, { catalog, fixes: false }).problems.some((q) => q.key === p.key)) continue;
+      if ((yield* check(after, { catalog, fixes: false })).problems.some((q) => q.key === p.key)) continue;
       p.fix = way;
       break;
     }
