@@ -163,8 +163,10 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
       setPerfTip((t) => t ?? 'auto');
     }
   };
-  // shown by itself once everything is built (the loading screen is gone)
-  const perfTipShown = perfTip === 'menu' || (perfTip === 'auto' && !!buildProgress?.allBuilt);
+  // shown by itself after the first frame (the loading screen is gone) once everything is built (an empty layout
+  // reports no progress: built)
+  const [firstFrameDrawn, setFirstFrameDrawn] = useState(false);
+  const perfTipShown = perfTip === 'menu' || (perfTip === 'auto' && firstFrameDrawn && (buildProgress?.allBuilt ?? true));
   useEffect(() => {
     if (perfTipShown && perfTip === 'auto') markPerfTipShown();
   }, [perfTipShown, perfTip]);
@@ -1553,7 +1555,7 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
     return watchFirstFrame(
       sceneReady,
       () => builderRef.current?.progress.currentFloorReady !== false,
-      () => { firstFrameSeen.current = true; onFirstFrameRef.current?.(); },
+      () => { firstFrameSeen.current = true; setFirstFrameDrawn(true); onFirstFrameRef.current?.(); },
     );
   }, [sceneReady]);
 
@@ -1779,7 +1781,12 @@ export default function WorkplaceEditor({ onExit, onFirstFrame, people, departme
             }}
           />
           {perfTipShown && (
-            <PerfTipCard style={{ right: 12, bottom: phone || isPlaying ? 12 : 64 }}
+            // a phone: at the top, under the floor switcher and the camera card (the bottom is the hint's, and the
+            // first touches on the view); else bottom right, above the footer
+            <PerfTipCard compact={phone}
+              // over the empty state (4) and the canvas controls (6–7), under the library (20) and menus (40+)
+              style={{ zIndex: 8, ...(phone && !isPlaying ? { left: 12, right: 12, width: 'auto', maxWidth: 'none', top: 128 }
+                : { right: 12, bottom: isPlaying ? 12 : 64 }) }}
               onGotIt={() => setPerfTip(null)} onOff={() => { storePerfTipOff(); setPerfTip(null); }} />
           )}
           {planView && !isPlaying && (

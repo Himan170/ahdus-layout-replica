@@ -24,6 +24,9 @@ import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 const base = process.argv[2] ?? 'http://localhost:3000/';
+// v0.18.10: the performance tip's words (engine/perfTip.ts PERF_TIP_TEXT)
+const PERF_TIP = 'For a smoother 3D view: use a computer with a good graphics card, and turn on hardware (graphics) acceleration '
+  + 'in your browser\'s settings. People far away show as simple figures until you come closer - that keeps things smooth.';
 const exe = process.env.CHROME; // optional: path to a Chromium binary
 const SHOTS = process.env.SHOTS;
 const shotDir = SHOTS || 'e2e/screens';
@@ -245,13 +248,17 @@ try {
     return {
       kind: el?.dataset.weakNote, role: el?.getAttribute('role'), place: el?.dataset.weakNotePlace,
       text: el?.querySelector('[data-weak-note-text]')?.textContent,
+      tip: el?.querySelector('[data-perf-tip-text]')?.textContent ?? null,
       buttons: [...(el?.querySelectorAll('[data-weak-note-action]') ?? [])].map((b) => b.textContent.trim()),
       start: window.__viewerStart,
     };
   });
   log('v0.14.8 &weak=1: the note (role=status) "Started from above: your browser isn\'t using the graphics card…", Walk anyway · Stay above; onStart reason weak',
     weakNote.kind === 'software' && weakNote.role === 'status' && weakNote.place === 'wide'
-    && weakNote.text === 'Started from above: your browser isn\'t using the graphics card, so walking could be slow. Turn on graphics acceleration in your browser\'s settings for the smoothest view.'
+    // v0.18.10: the first weak note of a visit carries the performance tip (one note, not two): the reason line only,
+    // then the tip; later in the visit (the tip shown already) the note is as before
+    && ((weakNote.tip === null && weakNote.text === 'Started from above: your browser isn\'t using the graphics card, so walking could be slow. Turn on graphics acceleration in your browser\'s settings for the smoothest view.')
+      || (weakNote.tip === PERF_TIP && weakNote.text === 'Started from above: your browser isn\'t using the graphics card, so walking could be slow.'))
     && weakNote.buttons.join() === 'Walk anyway,Stay above'
     && JSON.stringify(weakNote.start) === JSON.stringify({ mode: 'view', reason: 'weak', weak: 'software' }), JSON.stringify(weakNote));
   if (SHOTS) await shot('weak-device-overview.png');
