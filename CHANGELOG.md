@@ -3,6 +3,28 @@
 What changed in each version, newest first. Older versions (up to 0.14.9) are listed in the "DONE" sections of
 `CLAUDE.md` and in the git tags.
 
+## 0.18.10 (24 Nov 2026): a performance tip for weak devices
+
+A short tip for people whose computer struggles with the 3D view. Nothing new is saved in a layout, and characters
+load and show exactly as before.
+- **The tip:** "For a smoother 3D view: use a computer with a good graphics card, and turn on hardware (graphics)
+  acceleration in your browser's settings. People far away show as simple figures until you come closer - that keeps
+  things smooth." Plain words, the same for every browser and computer.
+- **Only on a weak device, never on a good one:** the browser draws the 3D view without the graphics card (software
+  WebGL), the viewer's existing weak-device check says so, or the view stays under 20 frames a second for 10 seconds
+  in a row (only once everything is built and the page is shown).
+- **One note, not two:** where the viewer already says "Started from above: your browser isn't using the graphics
+  card…" (the 3D Company page's weak start), the tip goes into that note. Otherwise it is a small card in a corner
+  (on a phone: full width at the bottom of the viewer, at the top of Studio's view), never a dialog: the view keeps
+  working behind it. It waits for the welcome card and the tour.
+- **Got it** closes it for this visit (it shows at most once per visit, also after a reload). **Don't show again**
+  closes it for good in this browser (the note's and the card's). Blocked browser storage: no error, once per page.
+- **Any time:** the viewer's More → "Smoother 3D tips", Studio's Settings → "Smoother 3D tips".
+- Works on the 3D Company page (the embed), viewer.html and Workplace Studio.
+- **Tests:** the "tour under 500 ms" unit test failed almost every full `npm test` (other test files share the
+  CPU). It now times the plan against a fixed reference job measured beside it (under 13 ×; ~5.3 × alone, 5.7–7.1 ×
+  in five full runs); a 3 × slower plan still fails. New `npm run e2e:perf-tip` (24 checks).
+
 ## 0.18.9 (22 Nov 2026): furniture never in walls, a clear selection, people on chairs
 
 Himan's reports, each reproduced first (an e2e step that failed, `npm run e2e:walls-select` and e2e:seats, with a
