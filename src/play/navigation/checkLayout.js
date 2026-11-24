@@ -25,7 +25,7 @@
 
 import { roomOpenings, openingCentre, wallThicknessOf } from '../geometry';
 import { floorsInOrder, FLOOR_LIKE_TYPES } from '../building';
-import { stairFit, stairSpots, findItemSpot, snapStairToWall } from '../stairFit';
+import { stairFit, stairSpots, findItemSpotSteps, snapStairToWall } from '../stairFit';
 import { thinGaps, THIN_GAP } from './thinGaps';
 import { rectsOverlap, reachOf, farApart, distanceTo, boxOf } from '../turnedRect';
 import { deskSeat, isDesk } from '../people';
@@ -33,7 +33,7 @@ import {
   createWalkMapCache, wallObstacles, itemFootprints, isSolidItem, groundFloorId, FREE,
 } from './walkMap';
 import { entranceSpawn, outsideDoors, nearestFree } from './entrance';
-import { floorLinks, areaOf, roomHasDoor, roomAt, floorDoorGaps } from './route';
+import { floorLinks, areaOf, roomHasDoor, roomAt, floorDoorGaps, prepareMap } from './route';
 import { WALL_ITEM_TYPES, isWallItem, isOnWall, wallPieces } from '../wallMount';
 import { groupOf } from '../prefab';
 import { prefabById } from '../../catalog/manifest';
@@ -180,7 +180,8 @@ export function* checkLayoutSteps(layout, options = {}) {
   for (const r of rooms) if (r.type === 'LIFT') linked.add(floorOf(r));
   for (const id of floorIds) {
     if (!linked.has(id)) continue;
-    maps.get(safe, id);
+    if (maps.steps) yield* maps.steps(safe, id); // in pieces (createWalkMapCache); another cache: at once
+    else maps.get(safe, id);
     yield 'walkMap';
   }
   const links = floorLinks(safe, { maps, catalog });
@@ -190,6 +191,8 @@ export function* checkLayoutSteps(layout, options = {}) {
     const spawn = entranceSpawn(safe, { maps, catalog });
     yield 'spawn';
     const start = maps.get(safe, ground);
+    prepareMap(start, 'areas'); // the walkable areas areaOf reads, as a step of their own
+    yield 'areas';
     let label = areaOf(start, spawn.x, spawn.z);
     if (label < 0) {
       const spot = nearestFree(start, spawn.x, spawn.z, { maxDistance: 3 });
@@ -579,7 +582,7 @@ function* addFixes(problems, layout, { catalog, floorIds, check }) {
       // v0.18.0: a cluster moves as a whole (none of it locked); its lost seats: to a spot with aisles round it
       const members = p.groupId ? objects.filter((o) => p.ids.includes(o.id)) : null;
       if (members?.some((o) => o.isLocked)) continue;
-      const spot = findItemSpot(obj, layout, { catalog, members, clearance: p.cluster ? AISLE_MIN : 0 });
+      const spot = yield* findItemSpotSteps(obj, layout, { catalog, members, clearance: p.cluster ? AISLE_MIN : 0 });
       if (spot && spot.moves.some(([id, at]) => at.x !== byId.get(id)?.x || at.z !== byId.get(id)?.z)) {
         const name = p.groupLabel ? `the ${p.groupLabel.toLowerCase()}` : String(obj.label ?? '').trim() || catalog[obj.assetType]?.label || 'the item';
         p.fix = { moves: spot.moves, label: `Move ${name}` };
@@ -608,7 +611,7 @@ function* addFixes(problems, layout, { catalog, floorIds, check }) {
         const obj = members.find((o) => groupOf(o).role === 'desk') ?? members[0];
         if (!obj || members.some((o) => o.isLocked)) continue;
         yield 'aisleFix';
-        const spot = findItemSpot(obj, layout, { catalog, members, clearance: AISLE_MIN });
+        const spot = yield* findItemSpotSteps(obj, layout, { catalog, members, clearance: AISLE_MIN });
         if (spot) aisleCulprits.push({ problem: p, obj, moves: spot.moves, groupId: gid });
       }
     }

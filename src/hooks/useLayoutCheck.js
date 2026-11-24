@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { checkLayout, checkLayoutSteps, walkingProblems } from '../play/navigation/checkLayout';
+import { createSlicedCheck, layoutCopy } from '../play/navigation/checkRunner';
 import { ASSET_TYPES } from '../utils/assetCatalog';
 import { studioWalkMaps } from './studioWalkMaps';
 import { livePosition } from '../utils/livePosition';
 
-/**
- * v0.18.11: the idle check runs this long per task (ms), then gives the page a frame (as navigation.warm() runs the
- * tour's plan): on 72 rooms / 864 items one whole check right after opening was a 640 ms task.
- */
-export const CHECK_SLICE_MS = 8;
+export { CHECK_SLICE_MS } from '../play/navigation/checkRunner';
 
 const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -22,7 +19,29 @@ function soon(fn) {
   } else setTimeout(fn, 0);
 }
 
-/** Delayed idle checks, in slices; no layout writes, and no checking during a drag or Preview. */
+/** Dev only: the same steps, each timed; `top` keeps the 6 longest as { ms, step: 'after → before' }. */
+function* timedSteps(steps, top) {
+  let prev = 'start';
+  for (;;) {
+    const t0 = clock();
+    const r = steps.next();
+    const ms = clock() - t0;
+    const step = `${prev} → ${r.done ? 'end' : r.value}`;
+    if (top.length < 6 || ms > top[top.length - 1].ms) {
+      top.push({ ms: Math.round(ms), step });
+      top.sort((a, b) => b.ms - a.ms);
+      top.length = Math.min(top.length, 6);
+    }
+    if (r.done) return r.value;
+    prev = r.value;
+    yield r.value;
+  }
+}
+
+/**
+ * Delayed idle checks, in slices (v0.18.11, play/navigation/checkRunner.js: one fixed copy of the layout, started
+ * over when the layout changes under it); no layout writes, and no checking during a drag or Preview.
+ */
 export function useLayoutCheck({ playing, plannerToolsRef, gizmoControllerRef }) {
   const rooms = useWorkspaceStore((s) => s.rooms);
   const objects = useWorkspaceStore((s) => s.objects);
@@ -50,7 +69,7 @@ export function useLayoutCheck({ playing, plannerToolsRef, gizmoControllerRef })
   const run = useCallback(() => {
     if (busy()) return false;
     checkToken.current += 1;
-    setResult(checkLayout(useWorkspaceStore.getState(), { catalog: ASSET_TYPES, maps: studioWalkMaps }));
+    setResult(checkLayout(layoutCopy(useWorkspaceStore.getState()), { catalog: ASSET_TYPES, maps: studioWalkMaps }));
     return true;
   }, [busy]);
   useEffect(() => {
@@ -58,30 +77,32 @@ export function useLayoutCheck({ playing, plannerToolsRef, gizmoControllerRef })
     let idle;
     let timer;
     let cancelled = false;
-    let job = null; // { steps, token, work }
-    // v0.18.11: checkLayoutSteps a slice at a time (CHECK_SLICE_MS), each slice in its own task; a drag pauses it
+    let token = null;
+    // dev only: what the slices did, and the longest steps (e2e:check-open)
+    const stats = import.meta.env.DEV ? { state: 'waiting', slices: 0, longest: 0, restarts: 0, steps: [] } : null;
+    if (stats) window.__ahdusCheck = stats;
+    const check = createSlicedCheck({
+      getLayout: () => useWorkspaceStore.getState(),
+      makeSteps: (copy) => {
+        const steps = checkLayoutSteps(copy, { catalog: ASSET_TYPES, maps: studioWalkMaps });
+        return stats ? timedSteps(steps, stats.steps) : steps;
+      },
+    });
+    // v0.18.11: one slice per task (CHECK_SLICE_MS of work); a drag pauses it
     const slice = () => {
       if (cancelled) return;
       if (busy()) { timer = setTimeout(schedule, 400); return; }
-      if (!job) {
-        job = {
-          steps: checkLayoutSteps(useWorkspaceStore.getState(), { catalog: ASSET_TYPES, maps: studioWalkMaps }),
-          token: checkToken.current,
-          work: 0,
-        };
-      }
-      if (job.token !== checkToken.current) return; // a whole check ran meanwhile: its result is the newer one
+      if (token === null) token = checkToken.current;
+      if (token !== checkToken.current) return; // a whole check ran meanwhile: its result is the newer one
       const t0 = clock();
-      for (;;) {
-        const r = job.steps.next();
-        if (r.done) {
-          // its `ms` = the working time, not the time between the slices
-          setResult({ ...r.value, ms: job.work + (clock() - t0) });
-          return;
-        }
-        if (clock() - t0 >= CHECK_SLICE_MS) break;
+      const r = check.slice();
+      if (stats) {
+        Object.assign(stats, { state: r.done ? 'done' : 'running', slices: stats.slices + 1, restarts: check.restarts });
+        stats.longest = Math.max(stats.longest, clock() - t0);
+        stats.start ??= t0;
+        if (r.done) Object.assign(stats, { end: clock(), ms: r.result.ms, problems: r.result.problems.length });
       }
-      job.work += clock() - t0;
+      if (r.done) { setResult(r.result); return; }
       soon(slice);
     };
     const schedule = () => {
